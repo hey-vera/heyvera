@@ -302,7 +302,6 @@ export type BillingAccessState =
   | 'needs_checkout'
   | 'trial_active'
   | 'active'
-  | 'credits_exhausted'
   | 'payment_failed'
   | 'cancelled';
 
@@ -316,13 +315,6 @@ export interface BillingStatus {
     next_charge_date: string | null;
     started_at: string;
   } | null;
-  credits: {
-    subscription_remaining: number;
-    subscription_total: number;
-    pack_remaining: number;
-    total_remaining: number;
-    billing_period_end: string | null;
-  };
   trial: {
     trial_end: string;
     days_remaining: number;
@@ -345,7 +337,7 @@ export interface BillingStatus {
     code: string;
     uses_remaining: number;
     total_uses: number;
-    credits_earned: number;
+    weeks_earned: number;
   } | null;
 }
 
@@ -357,6 +349,9 @@ export interface CheckoutResponse {
 export interface ReferralValidateResponse {
   valid: boolean;
   creator_name: string | null;
+  discount_type: string | null;
+  discount_value: number | null;
+  description: string | null;
   options: Array<'discount_25_annual' | 'extra_2_weeks'>;
   uses_remaining: number | null;
   error: string | null;
@@ -387,13 +382,6 @@ export async function createBillingCheckout(body: {
 
 export async function createBillingPortal(): Promise<{ portal_url: string }> {
   return requestBillingJson<{ portal_url: string }>('/api/billing/portal', { method: 'POST' });
-}
-
-export async function purchaseCreditPack(): Promise<{ checkout_url: string; new_credits_total: number }> {
-  return requestBillingJson<{ checkout_url: string; new_credits_total: number }>('/api/billing/credits', {
-    method: 'POST',
-    body: JSON.stringify({ pack: 'credits_100' }),
-  });
 }
 
 export async function validateReferralCode(code: string): Promise<ReferralValidateResponse> {
@@ -497,6 +485,75 @@ export async function getAdminStats(): Promise<AdminStats> {
 
 export async function getAdminWorkers(): Promise<AdminWorkers> {
   return requestJson<AdminWorkers>('/api/admin/workers');
+}
+
+// Admin — Promo Codes
+
+export interface PromoCode {
+  id: string;
+  code: string;
+  discount_type: 'trial_extension' | 'percent_off' | 'free_trial';
+  discount_value: number;
+  max_uses: number;
+  current_uses: number;
+  expires_at: string | null;
+  active: boolean;
+  created_by: string;
+  created_at: string;
+  description: string | null;
+}
+
+export interface CreatePromoCodeRequest {
+  code: string;
+  discount_type: string;
+  discount_value: number;
+  max_uses?: number;
+  expires_at?: string;
+  description?: string;
+}
+
+export interface UpdatePromoCodeRequest {
+  active?: boolean;
+  max_uses?: number;
+  expires_at?: string | null;
+  description?: string | null;
+}
+
+export interface CodeRedemption {
+  id: string;
+  promo_code_id: string;
+  code: string;
+  user_id: string;
+  redeemed_at: string;
+}
+
+export async function getAdminPromoCodes(): Promise<{ codes: PromoCode[]; total: number }> {
+  return requestJson<{ codes: PromoCode[]; total: number }>('/api/admin/codes');
+}
+
+export async function createAdminPromoCode(req: CreatePromoCodeRequest): Promise<PromoCode> {
+  return requestJson<PromoCode>('/api/admin/codes', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  });
+}
+
+export async function updateAdminPromoCode(id: string, req: UpdatePromoCodeRequest): Promise<{ updated: boolean }> {
+  return requestJson<{ updated: boolean }>(`/api/admin/codes/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(req),
+  });
+}
+
+export async function deleteAdminPromoCode(id: string): Promise<{ deleted: boolean }> {
+  return requestJson<{ deleted: boolean }>(`/api/admin/codes/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getAdminRedemptions(code?: string): Promise<{ redemptions: CodeRedemption[]; total: number }> {
+  const query = code ? `?code=${encodeURIComponent(code)}` : '';
+  return requestJson<{ redemptions: CodeRedemption[]; total: number }>(`/api/admin/redemptions${query}`);
 }
 
 // Decision ledger

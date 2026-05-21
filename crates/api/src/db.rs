@@ -91,12 +91,36 @@ pub struct ReferralCodeRecord {
     pub creator_user_id: String,
     pub uses_remaining: i32,
     pub total_uses: i32,
-    pub credits_earned: f64,
+    pub weeks_earned: i32,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct PromoCode {
+    pub id: String,
+    pub code: String,
+    pub discount_type: String,
+    pub discount_value: f64,
+    pub max_uses: i32,
+    pub current_uses: i32,
+    pub expires_at: Option<String>,
+    pub active: bool,
+    pub created_by: String,
+    pub created_at: String,
+    pub description: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct CodeRedemption {
+    pub id: String,
+    pub promo_code_id: String,
+    pub code: String,
+    pub user_id: String,
+    pub redeemed_at: String,
 }
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 6;
+const SCHEMA_VERSION: i64 = 8;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -126,6 +150,12 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 6 {
         migrate_v6(conn);
+    }
+    if current < 7 {
+        migrate_v7(conn);
+    }
+    if current < 8 {
+        migrate_v8(conn);
     }
 }
 
@@ -480,6 +510,58 @@ fn migrate_v6(conn: &Connection) {
     ).expect("migration v6 failed");
 
     tracing::info!("applied migration v6: subscriptions, credit_balances, credit_transactions, billing_history, referral_codes");
+}
+
+fn migrate_v7(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS promo_codes (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            discount_type TEXT NOT NULL DEFAULT 'trial_extension',
+            discount_value REAL NOT NULL DEFAULT 14.0,
+            max_uses INTEGER NOT NULL DEFAULT 25,
+            current_uses INTEGER NOT NULL DEFAULT 0,
+            expires_at TEXT,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            description TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS code_redemptions (
+            id TEXT PRIMARY KEY,
+            promo_code_id TEXT NOT NULL REFERENCES promo_codes(id),
+            code TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            redeemed_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(code, user_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_code_redemptions_user ON code_redemptions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_code_redemptions_code ON code_redemptions(code);
+
+        UPDATE schema_version SET version = 7;"
+    ).expect("migration v7 failed");
+
+    tracing::info!("applied migration v7: promo_codes, code_redemptions");
+}
+
+fn migrate_v8(conn: &Connection) {
+    conn.execute(
+        "ALTER TABLE referral_codes ADD COLUMN weeks_earned INTEGER NOT NULL DEFAULT 0",
+        [],
+    ).ok();
+
+    conn.execute(
+        "ALTER TABLE referral_codes ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 50",
+        [],
+    ).ok();
+
+    conn.execute_batch(
+        "UPDATE schema_version SET version = 8;"
+    ).expect("migration v8 failed");
+
+    tracing::info!("applied migration v8: referral_codes weeks_earned + max_uses");
 }
 
 // --- Database implementation ---
@@ -2223,7 +2305,7 @@ impl Database {
     pub fn get_referral_code(&self, code: &str) -> Option<ReferralCodeRecord> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT code, creator_user_id, uses_remaining, total_uses, credits_earned
+            "SELECT code, creator_user_id, uses_remaining, total_uses, weeks_earned
              FROM referral_codes WHERE code = ?1",
             params![code],
             |row| Ok(ReferralCodeRecord {
@@ -2231,9 +2313,47 @@ impl Database {
                 creator_user_id: row.get(1)?,
                 uses_remaining: row.get(2)?,
                 total_uses: row.get(3)?,
-                credits_earned: row.get(4)?,
+                weeks_earned: row.get(4)?,
             }),
         ).ok()
+    }
+
+    pub fn get_user_referral_code(&self, user_id: &str) -> Option<ReferralCodeRecord> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT code, creator_user_id, uses_remaining, total_uses, weeks_earned
+             FROM referral_codes WHERE creator_user_id = ?1",
+            params![user_id],
+            |row| Ok(ReferralCodeRecord {
+                code: row.get(0)?,
+                creator_user_id: row.get(1)?,
+                uses_remaining: row.get(2)?,
+                total_uses: row.get(3)?,
+                weeks_earned: row.get(4)?,
+            }),
+        ).ok()
+    }
+
+    pub fn create_user_referral_code(&self, user_id: &str) -> ReferralCodeRecord {
+        if let Some(existing) = self.get_user_referral_code(user_id) {
+            return existing;
+        }
+        let short_id = &user_id[user_id.len().saturating_sub(5)..];
+        let code = format!("REF-{}", short_id.to_uppercase());
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO referral_codes (code, creator_user_id, uses_remaining, max_uses, total_uses, weeks_earned)
+             VALUES (?1, ?2, 50, 50, 0, 0)",
+            params![code, user_id],
+        ).ok();
+        drop(conn);
+        self.get_user_referral_code(user_id).unwrap_or(ReferralCodeRecord {
+            code,
+            creator_user_id: user_id.to_string(),
+            uses_remaining: 50,
+            total_uses: 0,
+            weeks_earned: 0,
+        })
     }
 
     pub fn consume_referral(&self, code: &str) -> bool {
@@ -2244,6 +2364,207 @@ impl Database {
             params![code],
         ).unwrap_or(0);
         rows > 0
+    }
+
+    pub fn reward_referrer(&self, code: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE referral_codes SET weeks_earned = weeks_earned + 1 WHERE code = ?1",
+            params![code],
+        ).ok();
+    }
+
+    // --- Promo Codes ---
+
+    pub fn create_promo_code(
+        &self,
+        code: &str,
+        discount_type: &str,
+        discount_value: f64,
+        max_uses: i32,
+        expires_at: Option<&str>,
+        created_by: &str,
+        description: Option<&str>,
+    ) -> Result<PromoCode, String> {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO promo_codes (id, code, discount_type, discount_value, max_uses, expires_at, created_by, description)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, code.to_uppercase(), discount_type, discount_value, max_uses, expires_at, created_by, description],
+        ).map_err(|e| {
+            if e.to_string().contains("UNIQUE") {
+                "a promo code with that name already exists".to_string()
+            } else {
+                format!("failed to create promo code: {e}")
+            }
+        })?;
+        Ok(PromoCode {
+            id,
+            code: code.to_uppercase(),
+            discount_type: discount_type.to_string(),
+            discount_value,
+            max_uses,
+            current_uses: 0,
+            expires_at: expires_at.map(String::from),
+            active: true,
+            created_by: created_by.to_string(),
+            created_at: Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            description: description.map(String::from),
+        })
+    }
+
+    pub fn list_promo_codes(&self) -> Vec<PromoCode> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, code, discount_type, discount_value, max_uses, current_uses, expires_at, active, created_by, created_at, description
+             FROM promo_codes ORDER BY created_at DESC"
+        ).unwrap();
+        stmt.query_map([], |row| {
+            Ok(PromoCode {
+                id: row.get(0)?,
+                code: row.get(1)?,
+                discount_type: row.get(2)?,
+                discount_value: row.get(3)?,
+                max_uses: row.get(4)?,
+                current_uses: row.get(5)?,
+                expires_at: row.get(6)?,
+                active: row.get::<_, i32>(7)? != 0,
+                created_by: row.get(8)?,
+                created_at: row.get(9)?,
+                description: row.get(10)?,
+            })
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn get_promo_code(&self, code: &str) -> Option<PromoCode> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, code, discount_type, discount_value, max_uses, current_uses, expires_at, active, created_by, created_at, description
+             FROM promo_codes WHERE code = ?1 COLLATE NOCASE",
+            params![code],
+            |row| Ok(PromoCode {
+                id: row.get(0)?,
+                code: row.get(1)?,
+                discount_type: row.get(2)?,
+                discount_value: row.get(3)?,
+                max_uses: row.get(4)?,
+                current_uses: row.get(5)?,
+                expires_at: row.get(6)?,
+                active: row.get::<_, i32>(7)? != 0,
+                created_by: row.get(8)?,
+                created_at: row.get(9)?,
+                description: row.get(10)?,
+            }),
+        ).ok()
+    }
+
+    pub fn update_promo_code(
+        &self,
+        id: &str,
+        active: Option<bool>,
+        max_uses: Option<i32>,
+        expires_at: Option<Option<&str>>,
+        description: Option<Option<&str>>,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let mut sets = Vec::new();
+        let mut values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        if let Some(a) = active {
+            sets.push("active = ?");
+            values.push(Box::new(a as i32));
+        }
+        if let Some(m) = max_uses {
+            sets.push("max_uses = ?");
+            values.push(Box::new(m));
+        }
+        if let Some(e) = expires_at {
+            sets.push("expires_at = ?");
+            values.push(Box::new(e.map(String::from)));
+        }
+        if let Some(d) = description {
+            sets.push("description = ?");
+            values.push(Box::new(d.map(String::from)));
+        }
+        if sets.is_empty() {
+            return false;
+        }
+        values.push(Box::new(id.to_string()));
+        let sql = format!("UPDATE promo_codes SET {} WHERE id = ?", sets.join(", "));
+        let params: Vec<&dyn rusqlite::types::ToSql> = values.iter().map(|v| v.as_ref()).collect();
+        conn.execute(&sql, params.as_slice()).unwrap_or(0) > 0
+    }
+
+    pub fn delete_promo_code(&self, id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM promo_codes WHERE id = ?1", params![id]).unwrap_or(0) > 0
+    }
+
+    pub fn validate_promo_code(&self, code: &str, user_id: &str) -> Result<PromoCode, String> {
+        let promo = self.get_promo_code(code).ok_or("invalid promo code")?;
+        if !promo.active {
+            return Err("this promo code is no longer active".into());
+        }
+        if promo.current_uses >= promo.max_uses {
+            return Err("this promo code has reached its usage limit".into());
+        }
+        if let Some(ref exp) = promo.expires_at {
+            if let Ok(expiry) = chrono::NaiveDateTime::parse_from_str(exp, "%Y-%m-%d %H:%M:%S") {
+                if expiry < Utc::now().naive_utc() {
+                    return Err("this promo code has expired".into());
+                }
+            }
+        }
+        let conn = self.conn.lock().unwrap();
+        let already_used: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM code_redemptions WHERE code = ?1 COLLATE NOCASE AND user_id = ?2",
+            params![code, user_id],
+            |row| row.get(0),
+        ).unwrap_or(false);
+        if already_used {
+            return Err("you have already used this promo code".into());
+        }
+        Ok(promo)
+    }
+
+    pub fn redeem_promo_code(&self, code: &str, user_id: &str) -> Result<PromoCode, String> {
+        let promo = self.validate_promo_code(code, user_id)?;
+        let conn = self.conn.lock().unwrap();
+        let redemption_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO code_redemptions (id, promo_code_id, code, user_id) VALUES (?1, ?2, ?3, ?4)",
+            params![redemption_id, promo.id, promo.code, user_id],
+        ).map_err(|e| format!("redemption failed: {e}"))?;
+        conn.execute(
+            "UPDATE promo_codes SET current_uses = current_uses + 1 WHERE id = ?1",
+            params![promo.id],
+        ).map_err(|e| format!("usage update failed: {e}"))?;
+        Ok(promo)
+    }
+
+    pub fn list_redemptions(&self, code: Option<&str>) -> Vec<CodeRedemption> {
+        let conn = self.conn.lock().unwrap();
+        let (sql, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match code {
+            Some(c) => (
+                "SELECT id, promo_code_id, code, user_id, redeemed_at FROM code_redemptions WHERE code = ?1 COLLATE NOCASE ORDER BY redeemed_at DESC",
+                vec![Box::new(c.to_string())],
+            ),
+            None => (
+                "SELECT id, promo_code_id, code, user_id, redeemed_at FROM code_redemptions ORDER BY redeemed_at DESC",
+                vec![],
+            ),
+        };
+        let mut stmt = conn.prepare(sql).unwrap();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|v| v.as_ref()).collect();
+        stmt.query_map(param_refs.as_slice(), |row| {
+            Ok(CodeRedemption {
+                id: row.get(0)?,
+                promo_code_id: row.get(1)?,
+                code: row.get(2)?,
+                user_id: row.get(3)?,
+                redeemed_at: row.get(4)?,
+            })
+        }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
 }

@@ -159,7 +159,6 @@ pub fn check_usage_gate(
 pub struct SubscriptionStatus {
     pub access_state: AccessState,
     pub plan: Option<PlanInfo>,
-    pub credits: CreditBalance,
     pub trial: Option<TrialInfo>,
     pub delegation: DelegationStatus,
     pub payment_method: Option<PaymentMethodInfo>,
@@ -175,7 +174,6 @@ pub enum AccessState {
     NeedsCheckout,
     TrialActive,
     Active,
-    CreditsExhausted,
     PaymentFailed,
     Cancelled,
 }
@@ -205,29 +203,6 @@ pub enum SubStatus {
     PastDue,
     Cancelled,
     Paused,
-}
-
-/// Separated credit pools. Subscription credits spend first, reset monthly.
-/// Pack credits never expire, spend after subscription pool is empty.
-#[derive(Debug, Clone, Serialize)]
-pub struct CreditBalance {
-    pub subscription_remaining: f64,
-    pub subscription_total: f64,
-    pub pack_remaining: f64,
-    pub total_remaining: f64,
-    pub billing_period_end: Option<String>,
-}
-
-impl Default for CreditBalance {
-    fn default() -> Self {
-        Self {
-            subscription_remaining: 200.0,
-            subscription_total: 200.0,
-            pack_remaining: 0.0,
-            total_remaining: 200.0,
-            billing_period_end: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -269,17 +244,7 @@ pub struct ReferralInfo {
     pub code: String,
     pub uses_remaining: u32,
     pub total_uses: u32,
-    pub credits_earned: f64,
-}
-
-/// Emitted via chat SSE after each credit-consuming operation.
-/// Frontend uses this for optimistic credit indicator updates, reconciled on next poll.
-#[derive(Debug, Clone, Serialize)]
-pub struct CreditSpentEvent {
-    pub credits_spent: f64,
-    pub subscription_remaining: f64,
-    pub pack_remaining: f64,
-    pub total_remaining: f64,
+    pub weeks_earned: u32,
 }
 
 /// 402 Payment Required response body. Frontend handles this specially.
@@ -287,13 +252,11 @@ pub struct CreditSpentEvent {
 pub struct BillingRequiredError {
     pub error: String,
     pub code: BillingRejection,
-    pub credits_remaining: f64,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum BillingRejection {
-    CreditsExhausted,
     TrialExpired,
     SubscriptionInactive,
     PaymentRequired,
@@ -302,7 +265,6 @@ pub enum BillingRejection {
 /// Quick check: can this user send chat messages?
 /// Returns None if allowed, Some(AccessState) if blocked.
 pub fn check_chat_access(state: &AppState, user_id: &str) -> Option<AccessState> {
-    // Dev mode (no Clerk) — always allow
     if state.clerk_secret_key.is_none() {
         return None;
     }
@@ -310,14 +272,7 @@ pub fn check_chat_access(state: &AppState, user_id: &str) -> Option<AccessState>
     let sub = db.get_subscription(user_id);
     match sub {
         Some(s) => match s.status.as_str() {
-            "active" | "trialing" => {
-                let balance = db.get_credit_balance(user_id);
-                if balance.subscription_remaining <= 0.0 && balance.pack_remaining <= 0.0 {
-                    Some(AccessState::CreditsExhausted)
-                } else {
-                    None
-                }
-            }
+            "active" | "trialing" => None,
             "past_due" => Some(AccessState::PaymentFailed),
             "cancelled" | "canceled" => Some(AccessState::Cancelled),
             _ => None,
@@ -348,7 +303,6 @@ fn stub_billing_status(state: &AppState) -> SubscriptionStatus {
     SubscriptionStatus {
         access_state: AccessState::Active,
         plan: None,
-        credits: CreditBalance::default(),
         trial: None,
         delegation: build_delegation_status(state),
         payment_method: None,
@@ -370,7 +324,6 @@ pub async fn get_billing_status(
     };
 
     let sub = db.get_subscription(&user.user_id);
-    let balance = db.get_credit_balance(&user.user_id);
 
     let (access_state, plan, trial) = match &sub {
         Some(s) => {
@@ -386,13 +339,7 @@ pub async fn get_billing_status(
 
             let access = match s.status.as_str() {
                 "trialing" => AccessState::TrialActive,
-                "active" => {
-                    if balance.subscription_remaining + balance.pack_remaining <= 0.0 {
-                        AccessState::CreditsExhausted
-                    } else {
-                        AccessState::Active
-                    }
-                }
+                "active" => AccessState::Active,
                 "past_due" => AccessState::PaymentFailed,
                 "cancelled" | "canceled" => AccessState::Cancelled,
                 _ => AccessState::Active,
@@ -410,7 +357,7 @@ pub async fn get_billing_status(
                     TrialInfo {
                         trial_end: end.clone(),
                         days_remaining: days,
-                        auto_charge_amount_cents: if plan_type == PlanType::Annual { 7900 } else { 799 },
+                        auto_charge_amount_cents: if plan_type == PlanType::Annual { 6900 } else { 699 },
                         auto_charge_plan: plan_type.clone(),
                     }
                 })
@@ -422,7 +369,7 @@ pub async fn get_billing_status(
                 plan_type: plan_type.clone(),
                 status: sub_status,
                 billing_period_end: s.current_period_end.clone().unwrap_or_default(),
-                next_charge_amount_cents: Some(if plan_type == PlanType::Annual { 7900 } else { 799 }),
+                next_charge_amount_cents: Some(if plan_type == PlanType::Annual { 6900 } else { 699 }),
                 next_charge_date: s.current_period_end.clone(),
                 started_at: s.current_period_start.clone().unwrap_or_default(),
             };
@@ -432,22 +379,25 @@ pub async fn get_billing_status(
         None => (AccessState::NeedsCheckout, None, None),
     };
 
-    let credits = CreditBalance {
-        subscription_remaining: balance.subscription_remaining,
-        subscription_total: balance.subscription_total,
-        pack_remaining: balance.pack_remaining,
-        total_remaining: balance.subscription_remaining + balance.pack_remaining,
-        billing_period_end: sub.as_ref().and_then(|s| s.current_period_end.clone()),
+    let referral = if sub.is_some() {
+        let ref_code = db.create_user_referral_code(&user.user_id);
+        Some(ReferralInfo {
+            code: ref_code.code,
+            uses_remaining: ref_code.uses_remaining as u32,
+            total_uses: ref_code.total_uses as u32,
+            weeks_earned: ref_code.weeks_earned as u32,
+        })
+    } else {
+        None
     };
 
     Json(SubscriptionStatus {
         access_state,
         plan,
-        credits,
         trial,
         delegation,
         payment_method: None,
-        referral: None,
+        referral,
     })
 }
 
@@ -493,7 +443,7 @@ pub async fn create_checkout(
     };
 
     let has_had_trial = db.get_subscription(&user.user_id).is_some();
-    let trial_days = if has_had_trial { None } else { Some(14) };
+    let trial_days = if has_had_trial { None } else { Some(7) };
 
     let session = stripe
         .create_checkout_session(&customer_id, price_id, trial_days, None)
@@ -555,96 +505,51 @@ pub struct PortalResponse {
     pub portal_url: String,
 }
 
-/// POST /api/billing/credits — Buy a credit pack.
-pub async fn purchase_credits(
-    State(state): State<Arc<AppState>>,
-    user: ClerkUser,
-    Json(_req): Json<CreditPurchaseRequest>,
-) -> Result<Json<CreditPurchaseResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let stripe = require_stripe(&state)?;
-    let db = state.db.as_ref().ok_or((
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorResponse { error: "database unavailable".into() }),
-    ))?;
-
-    let sub = db.get_subscription(&user.user_id).ok_or((
-        StatusCode::NOT_FOUND,
-        Json(ErrorResponse { error: "subscribe first before purchasing credit packs".into() }),
-    ))?;
-
-    let session = stripe
-        .create_credit_pack_checkout(&sub.stripe_customer_id)
-        .await
-        .map_err(|e| (
-            StatusCode::BAD_GATEWAY,
-            Json(ErrorResponse { error: format!("failed to create checkout: {e}") }),
-        ))?;
-
-    let balance = db.get_credit_balance(&user.user_id);
-
-    Ok(Json(CreditPurchaseResponse {
-        checkout_url: session.url.unwrap_or_default(),
-        new_credits_total: balance.subscription_remaining + balance.pack_remaining,
-    }))
-}
-
-#[derive(Deserialize, Serialize)]
-pub struct CreditPurchaseRequest {
-    pub pack: CreditPack,
-}
-
-#[derive(Debug, Clone, Deserialize, Serialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum CreditPack {
-    Credits100,
-}
-
-#[derive(Serialize)]
-pub struct CreditPurchaseResponse {
-    pub checkout_url: String,
-    pub new_credits_total: f64,
-}
-
-/// POST /api/billing/referral/validate — Check referral code validity.
+/// POST /api/billing/referral/validate — Check promo code validity.
 pub async fn validate_referral(
     State(state): State<Arc<AppState>>,
+    user: ClerkUser,
     Json(req): Json<ReferralValidateRequest>,
 ) -> Json<ReferralValidateResponse> {
     let db = match &state.db {
         Some(db) => db,
         None => return Json(ReferralValidateResponse {
             valid: false,
-            creator_name: None,
+            discount_type: None,
+            discount_value: None,
+            description: None,
             options: vec![],
             uses_remaining: None,
             error: Some("database unavailable".into()),
         }),
     };
 
-    match db.get_referral_code(&req.code) {
-        Some(referral) if referral.uses_remaining > 0 => Json(ReferralValidateResponse {
-            valid: true,
-            creator_name: None,
-            options: vec![
-                "discount_25_annual".into(),
-                "extra_2_weeks".into(),
-            ],
-            uses_remaining: Some(referral.uses_remaining as u32),
-            error: None,
-        }),
-        Some(_) => Json(ReferralValidateResponse {
+    match db.validate_promo_code(&req.code, &user.user_id) {
+        Ok(promo) => {
+            let options = match promo.discount_type.as_str() {
+                "percent_off" => vec!["discount_annual".into()],
+                "trial_extension" => vec!["extended_trial".into()],
+                "free_trial" => vec!["free_trial".into()],
+                _ => vec![],
+            };
+            Json(ReferralValidateResponse {
+                valid: true,
+                discount_type: Some(promo.discount_type),
+                discount_value: Some(promo.discount_value),
+                description: promo.description,
+                options,
+                uses_remaining: Some((promo.max_uses - promo.current_uses) as u32),
+                error: None,
+            })
+        }
+        Err(e) => Json(ReferralValidateResponse {
             valid: false,
-            creator_name: None,
-            options: vec![],
-            uses_remaining: Some(0),
-            error: Some("referral code has been fully used".into()),
-        }),
-        None => Json(ReferralValidateResponse {
-            valid: false,
-            creator_name: None,
+            discount_type: None,
+            discount_value: None,
+            description: None,
             options: vec![],
             uses_remaining: None,
-            error: Some("invalid referral code".into()),
+            error: Some(e),
         }),
     }
 }
@@ -657,7 +562,9 @@ pub struct ReferralValidateRequest {
 #[derive(Serialize, Deserialize)]
 pub struct ReferralValidateResponse {
     pub valid: bool,
-    pub creator_name: Option<String>,
+    pub discount_type: Option<String>,
+    pub discount_value: Option<f64>,
+    pub description: Option<String>,
     pub options: Vec<String>,
     pub uses_remaining: Option<u32>,
     pub error: Option<String>,
@@ -754,16 +661,8 @@ pub async fn stripe_webhook(
                         current_period_end: None,
                     };
                     db.upsert_subscription(&sub);
-                    db.init_credit_balance(user_id, 200.0);
                     db.record_billing_event(user_id, event_id, 0, "Subscription created", "completed");
                     tracing::info!("subscription created for user {user_id}");
-                } else if mode == "payment" {
-                    if db.record_billing_event(user_id, event_id, 499, "Credit pack (100 credits)", "completed") {
-                        db.add_pack_credits(user_id, 100.0);
-                        tracing::info!("credit pack purchased for user {user_id}");
-                    } else {
-                        tracing::debug!("duplicate webhook ignored: {event_id}");
-                    }
                 }
             }
         }
@@ -816,9 +715,8 @@ pub async fn stripe_webhook(
             let customer_id = obj["customer"].as_str().unwrap_or("");
             let amount = obj["amount_paid"].as_i64().unwrap_or(0);
             if let Some(sub) = find_sub_by_customer(db, customer_id) {
-                if db.record_billing_event(&sub.clerk_user_id, event_id, amount, "Invoice paid — credits reset", "paid") {
-                    db.reset_subscription_credits(&sub.clerk_user_id, 200.0);
-                    tracing::info!("invoice paid, credits reset for customer {customer_id}");
+                if db.record_billing_event(&sub.clerk_user_id, event_id, amount, "Invoice paid", "paid") {
+                    tracing::info!("invoice paid for customer {customer_id}");
                 } else {
                     tracing::debug!("duplicate webhook ignored: {event_id}");
                 }

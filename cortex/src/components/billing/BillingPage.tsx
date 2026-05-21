@@ -1,9 +1,8 @@
-import { CreditCard, ExternalLink, ShieldCheck, WalletCards } from 'lucide-react';
+import { Check, Copy, CreditCard, ExternalLink, ShieldCheck, Users } from 'lucide-react';
 import { useState } from 'react';
 import type { BillingStatus } from '../../lib/cortexApi';
 import { createBillingPortal } from '../../lib/cortexApi';
 import BillingHistory from './BillingHistory';
-import CreditPackPurchase from './CreditPackPurchase';
 import PricingCards from './PricingCards';
 import { formatDate, formatMoney } from './format';
 
@@ -13,6 +12,7 @@ interface BillingPageProps {
 
 export default function BillingPage({ billing }: BillingPageProps) {
   const [portalError, setPortalError] = useState<string | null>(null);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   if (!billing) {
     return <PricingCards compact />;
@@ -70,32 +70,40 @@ export default function BillingPage({ billing }: BillingPageProps) {
         {portalError && <p className="mt-3 text-xs text-red-200">{portalError}</p>}
       </div>
 
-      <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-        <div className="mb-3 flex items-center justify-between gap-3">
-          <div>
-            <p className="text-xs uppercase tracking-[0.08em] text-[var(--muted)]">Credits</p>
-            <p className="mt-1 text-2xl font-semibold text-white">{billing.credits.total_remaining}</p>
-          </div>
-          <WalletCards className="h-5 w-5 text-[var(--accent)]" />
-        </div>
-        <div className="grid gap-2 text-sm sm:grid-cols-2">
-          <div className="rounded-lg bg-white/[0.03] px-3 py-2 text-[var(--muted-strong)]">
-            Subscription: {billing.credits.subscription_remaining}/{billing.credits.subscription_total}
-          </div>
-          <div className="rounded-lg bg-white/[0.03] px-3 py-2 text-[var(--muted-strong)]">
-            Packs: {billing.credits.pack_remaining}
-          </div>
-        </div>
-      </div>
-
-      <CreditPackPurchase />
-
       {billing.referral && (
         <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
-          <p className="text-xs uppercase tracking-[0.08em] text-[var(--muted)]">Refer friends</p>
-          <p className="mt-2 font-mono text-sm text-white">{billing.referral.code}</p>
-          <p className="mt-1 text-xs text-[var(--muted)]">
-            {billing.referral.uses_remaining}/{billing.referral.total_uses} uses remaining · {billing.referral.credits_earned} credits earned
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <Users className="h-4 w-4 text-[var(--accent)]" />
+              <p className="text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">Refer friends</p>
+            </div>
+            {billing.referral.weeks_earned > 0 && (
+              <span className="rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                {billing.referral.weeks_earned} free week{billing.referral.weeks_earned === 1 ? '' : 's'} earned
+              </span>
+            )}
+          </div>
+          <p className="mt-2 text-xs text-[var(--muted)]">
+            Share your code — friends get 3 weeks free (instead of 7 days). You get 1 free week per signup.
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              navigator.clipboard.writeText(billing.referral!.code);
+              setCopiedCode(true);
+              setTimeout(() => setCopiedCode(false), 2000);
+            }}
+            className="mt-2 flex items-center gap-2 rounded-lg bg-white/8 px-3 py-2 font-mono text-sm font-bold text-white transition hover:bg-white/12 active:scale-95"
+          >
+            {billing.referral.code}
+            {copiedCode
+              ? <Check className="h-3.5 w-3.5 text-emerald-300" />
+              : <Copy className="h-3.5 w-3.5 text-[var(--muted)]" />
+            }
+          </button>
+          <p className="mt-1.5 text-[11px] text-[var(--muted)]">
+            {billing.referral.total_uses} referral{billing.referral.total_uses === 1 ? '' : 's'} used
+            {billing.referral.uses_remaining > 0 && ` · ${billing.referral.uses_remaining} remaining`}
           </p>
         </div>
       )}

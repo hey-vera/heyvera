@@ -173,7 +173,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/billing/status", get(billing::get_billing_status))
         .route("/api/billing/checkout", post(billing::create_checkout))
         .route("/api/billing/portal", post(billing::create_portal))
-        .route("/api/billing/credits", post(billing::purchase_credits))
         .route("/api/billing/referral/validate", post(billing::validate_referral))
         .route("/api/billing/history", get(billing::get_billing_history))
         // Stripe webhook (no auth — verified by signature)
@@ -190,6 +189,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/admin/pressure", get(admin::pressure_dashboard))
         .route("/api/admin/usage", get(usage_api::admin_usage))
         .route("/api/admin/usage/users", get(usage_api::admin_usage_users))
+        // Admin — Promo Codes
+        .route("/api/admin/codes", get(admin::list_promo_codes).post(admin::create_promo_code))
+        .route("/api/admin/codes/{id}", patch(admin::update_promo_code).delete(admin::delete_promo_code))
+        .route("/api/admin/redemptions", get(admin::list_redemptions))
         // Worker WebSocket
         .route("/api/ws", get(ws::ws_handler))
         // Mission Control WebSocket (frontend observers) + snapshot

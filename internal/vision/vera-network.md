@@ -317,6 +317,26 @@ This is the immune system's strategy. No database of pathogens. Just an exquisit
 8. **Nobody owns it.** Not sovereign in the sense of "anyone can host." Sovereign in the sense of "nobody CAN own it." The intelligence is distributed across every node. There is nothing to own. There is nothing to gatekeep. There is nothing to shut down.
 9. **Cold-startable.** Doesn't need day-one value. Compounds invisibly behind a product people actually want.
 
+## Two Birth Modes — X and Y
+
+The math unfolds from one genesis into exactly two modes of birth. There is no third.
+
+**Y — Birthing infrastructure.** A human or company says: "I want to host a Vera server node." This costs real money, real power, real hardware. Y births capacity — the substrate that everything else runs on. And Y begets more Y: infrastructure enables more infrastructure. A Vera node running makes it viable for the next Vera node to run. The network of servers grows because each server makes the next one more valuable.
+
+**X — Birthing agents.** An agent is built FROM Soma, runs ON the network, does real work. X is computation. X consumes Y. Every agent that runs, every sealed session that fires, every $SOMA that flows — that's X mode. Agents birth more agents through delegation chains.
+
+**Y enables both X and Y. X consumes Y.** This is why there's no third mode and no escape hatch for extractors. You're either building capacity (Y) or doing work (X). Infrastructure or computation. Servers or agents. The math only resolves two ways — like chromosomes at conception. One genesis, two expressions, one complete loop.
+
+This is the moat. Not a feature. Not a dashboard. The mathematical guarantee that the system can only unfold in these two modes, and both modes feed the same loop. An extractor can't insert a third mode that siphons value — the equation doesn't have a third solution.
+
+### The Encrypted Split — Y-Node Architecture
+
+A single Vera server is inert. The minimum viable unit of Y is **two nodes**. When Y births infrastructure, the encrypted pie is split across nodes — neither half is meaningful alone. Even reuniting both halves doesn't decrypt anything; the data remains encrypted and flows forward to X. There is no way out of the loop.
+
+**Both ends are encrypted bubbles.** The tunnel between Y-nodes is encrypted. Each node is an encrypted bubble. What flows between them is encrypted. What arrives at X (computation) is encrypted in transit. No single Y-node knows what the other Y-nodes are hosting because the split is the encryption — not a layer on top of it, but the architecture itself.
+
+**This is the star goal.** If this architecture works — encrypted split across Y-nodes, no single point of decryption, both halves useless alone, the loop mathematically closed — that's the moment the protocol becomes truly sovereign. Not "we promise not to look" sovereign. Mathematically sovereign. The infrastructure literally cannot betray the data flowing through it, the way a planet cannot choose to ignore gravity. Physics, not policy.
+
 ## What This Document Does Not Cover
 
 This is the Vera Network vision — how intelligence emerges, how it's accessed, how it grows. The following belong in their own vision documents:

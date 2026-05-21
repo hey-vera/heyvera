@@ -10,6 +10,7 @@ import {
   RefreshCcw,
   Search,
   Settings,
+  ShieldCheck,
   Trash2,
 } from 'lucide-react';
 import {
@@ -20,7 +21,6 @@ import {
   type BillingStatus,
   type ConversationSummary,
 } from '../lib/cortexApi';
-import CreditIndicator from './billing/CreditIndicator';
 import SomaIdentityBadge from './SomaIdentityBadge';
 import {
   readSidebarConversationMeta,
@@ -37,6 +37,8 @@ interface SidebarProps {
   onSelectConversation: (id: string) => void;
   onConversationsChanged: () => void;
   onOpenSettings: (tab?: 'providers' | 'spend' | 'billing') => void;
+  onOpenAdmin?: () => void;
+  isAdmin?: boolean;
   billing: BillingStatus | null;
 }
 
@@ -138,7 +140,9 @@ export default function Sidebar({
   onSelectConversation,
   onConversationsChanged,
   onOpenSettings,
-  billing,
+  onOpenAdmin,
+  isAdmin,
+  billing: _billing,
 }: SidebarProps) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -593,9 +597,6 @@ export default function Sidebar({
         <div className="mb-2">
           <SomaIdentityBadge userId={userId} isSignedIn={isSignedIn} />
         </div>
-        <div className="mb-2">
-          <CreditIndicator billing={billing} onOpenBilling={() => onOpenSettings('billing')} />
-        </div>
         <div className="mb-2 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5">
           <div className="mb-2 flex items-center justify-between gap-2">
             <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
@@ -621,6 +622,15 @@ export default function Sidebar({
             </div>
           )}
         </div>
+        {isAdmin && onOpenAdmin && (
+          <button
+            onClick={onOpenAdmin}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-[var(--muted)] transition hover:bg-white/4 hover:text-white active:scale-[0.98]"
+          >
+            <ShieldCheck className="h-4 w-4 text-[var(--accent)]" />
+            Admin
+          </button>
+        )}
         <button
           onClick={() => onOpenSettings()}
           className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-[var(--muted)] transition hover:bg-white/4 hover:text-white active:scale-[0.98]"

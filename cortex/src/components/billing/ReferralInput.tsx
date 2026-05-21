@@ -10,12 +10,15 @@ interface ReferralInputProps {
   onChoiceChange: (choice: 'discount_25_annual' | 'extra_2_weeks' | null) => void;
 }
 
-const OPTION_LABELS = {
-  discount_25_annual: '25% off first year',
-  extra_2_weeks: '2 extra free weeks',
-};
+function formatDiscountLabel(type: string | null, value: number | null): string {
+  if (!type || value == null) return 'Promo applied';
+  if (type === 'percent_off') return `${value}% off`;
+  if (type === 'trial_extension') return `${value} extra free days`;
+  if (type === 'free_trial') return `${value}-day free trial`;
+  return 'Promo applied';
+}
 
-export default function ReferralInput({ value, choice, selectedPlan, onChange, onChoiceChange }: ReferralInputProps) {
+export default function ReferralInput({ value, choice: _choice, selectedPlan: _selectedPlan, onChange, onChoiceChange }: ReferralInputProps) {
   const [result, setResult] = useState<ReferralValidateResponse | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -26,7 +29,13 @@ export default function ReferralInput({ value, choice, selectedPlan, onChange, o
     try {
       const next = await validateReferralCode(code);
       setResult(next);
-      onChoiceChange(next.valid && next.options.length > 0 ? next.options[0] : null);
+      if (next.valid && next.discount_type === 'percent_off') {
+        onChoiceChange('discount_25_annual');
+      } else if (next.valid) {
+        onChoiceChange('extra_2_weeks');
+      } else {
+        onChoiceChange(null);
+      }
     } finally {
       setLoading(false);
     }
@@ -36,7 +45,7 @@ export default function ReferralInput({ value, choice, selectedPlan, onChange, o
     <div className="rounded-xl border border-white/8 bg-white/[0.03] p-3">
       <label className="flex items-center gap-2 text-xs font-medium text-[var(--muted-strong)]">
         <Tag className="h-3.5 w-3.5 text-[var(--accent)]" />
-        Referral code
+        Promo code
       </label>
       <div className="mt-2 flex gap-2">
         <input
@@ -53,7 +62,7 @@ export default function ReferralInput({ value, choice, selectedPlan, onChange, o
             }
           }}
           className="min-w-0 flex-1 rounded-lg border border-white/8 bg-[var(--composer)] px-3 py-2 text-sm text-white outline-none transition focus:border-[var(--accent)]/50"
-          placeholder="JOSH25"
+          placeholder="CORTEX25"
         />
         <button
           type="button"
@@ -68,20 +77,17 @@ export default function ReferralInput({ value, choice, selectedPlan, onChange, o
         <div className="mt-3 text-xs">
           <p className={`flex items-center gap-1.5 ${result.valid ? 'text-emerald-300' : 'text-red-300'}`}>
             {result.valid ? <CheckCircle className="h-3.5 w-3.5" /> : <XCircle className="h-3.5 w-3.5" />}
-            {result.valid ? `${result.creator_name ?? 'A teammate'} invited you` : result.error ?? 'Invalid code'}
+            {result.valid
+              ? formatDiscountLabel(result.discount_type, result.discount_value)
+              : result.error ?? 'Invalid code'}
           </p>
-          {result.valid && (
-            <div className="mt-2 grid gap-2">
-              {result.options.map((option) => {
-                const disabled = option === 'discount_25_annual' && selectedPlan !== 'annual';
-                return (
-                  <label key={option} className={`flex items-center gap-2 rounded-lg border border-white/8 px-3 py-2 ${disabled ? 'opacity-45' : 'cursor-pointer hover:bg-white/5'}`}>
-                    <input type="radio" checked={choice === option} disabled={disabled} onChange={() => onChoiceChange(option)} />
-                    <span>{OPTION_LABELS[option]}{disabled ? ' · annual only' : ''}</span>
-                  </label>
-                );
-              })}
-            </div>
+          {result.valid && result.description && (
+            <p className="mt-1.5 text-[var(--muted)]">{result.description}</p>
+          )}
+          {result.valid && result.uses_remaining != null && (
+            <p className="mt-1 text-[var(--muted)]">
+              {result.uses_remaining} use{result.uses_remaining === 1 ? '' : 's'} remaining
+            </p>
           )}
         </div>
       )}

@@ -1,12 +1,13 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::clerk::ClerkUser;
+use crate::db::{CodeRedemption, PromoCode};
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
 
@@ -322,4 +323,159 @@ fn parse_tier(s: &str) -> cortex_core::provider::Tier {
         "think" => cortex_core::provider::Tier::Think,
         _ => cortex_core::provider::Tier::Execute,
     }
+}
+
+// --- Promo Code Management ---
+
+#[derive(Deserialize)]
+pub struct CreatePromoCodeRequest {
+    pub code: String,
+    pub discount_type: String,
+    pub discount_value: f64,
+    #[serde(default = "default_max_uses")]
+    pub max_uses: i32,
+    pub expires_at: Option<String>,
+    pub description: Option<String>,
+}
+
+fn default_max_uses() -> i32 { 25 }
+
+#[derive(Deserialize)]
+pub struct UpdatePromoCodeRequest {
+    pub active: Option<bool>,
+    pub max_uses: Option<i32>,
+    pub expires_at: Option<Option<String>>,
+    pub description: Option<Option<String>>,
+}
+
+#[derive(Serialize)]
+pub struct PromoCodeListResponse {
+    pub codes: Vec<PromoCode>,
+    pub total: usize,
+}
+
+#[derive(Serialize)]
+pub struct RedemptionListResponse {
+    pub redemptions: Vec<CodeRedemption>,
+    pub total: usize,
+}
+
+pub async fn create_promo_code(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Json(req): Json<CreatePromoCodeRequest>,
+) -> Result<Json<PromoCode>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&state, &user)?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+
+    if req.code.len() < 3 || req.code.len() > 32 {
+        return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
+            error: "code must be 3-32 characters".into(),
+        })));
+    }
+    if !req.code.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
+            error: "code may only contain letters, numbers, hyphens, and underscores".into(),
+        })));
+    }
+    match req.discount_type.as_str() {
+        "trial_extension" | "percent_off" | "free_trial" => {}
+        _ => return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
+            error: "discount_type must be trial_extension, percent_off, or free_trial".into(),
+        }))),
+    }
+
+    let promo = db.create_promo_code(
+        &req.code,
+        &req.discount_type,
+        req.discount_value,
+        req.max_uses,
+        req.expires_at.as_deref(),
+        &user.user_id,
+        req.description.as_deref(),
+    ).map_err(|e| (StatusCode::CONFLICT, Json(ErrorResponse { error: e })))?;
+
+    tracing::info!("admin {} created promo code {}", user.user_id, promo.code);
+    Ok(Json(promo))
+}
+
+pub async fn list_promo_codes(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+) -> Result<Json<PromoCodeListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&state, &user)?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    let codes = db.list_promo_codes();
+    let total = codes.len();
+    Ok(Json(PromoCodeListResponse { codes, total }))
+}
+
+pub async fn update_promo_code(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(id): Path<String>,
+    Json(req): Json<UpdatePromoCodeRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&state, &user)?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    let updated = db.update_promo_code(
+        &id,
+        req.active,
+        req.max_uses,
+        req.expires_at.as_ref().map(|e| e.as_deref()),
+        req.description.as_ref().map(|d| d.as_deref()),
+    );
+    if updated {
+        tracing::info!("admin {} updated promo code {}", user.user_id, id);
+        Ok(Json(serde_json::json!({"updated": true})))
+    } else {
+        Err((StatusCode::NOT_FOUND, Json(ErrorResponse { error: "promo code not found".into() })))
+    }
+}
+
+pub async fn delete_promo_code(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&state, &user)?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    if db.delete_promo_code(&id) {
+        tracing::info!("admin {} deleted promo code {}", user.user_id, id);
+        Ok(Json(serde_json::json!({"deleted": true})))
+    } else {
+        Err((StatusCode::NOT_FOUND, Json(ErrorResponse { error: "promo code not found".into() })))
+    }
+}
+
+#[derive(Deserialize)]
+pub struct RedemptionQuery {
+    pub code: Option<String>,
+}
+
+pub async fn list_redemptions(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Query(query): Query<RedemptionQuery>,
+) -> Result<Json<RedemptionListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&state, &user)?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    let redemptions = db.list_redemptions(query.code.as_deref());
+    let total = redemptions.len();
+    Ok(Json(RedemptionListResponse { redemptions, total }))
 }
