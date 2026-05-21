@@ -48,19 +48,10 @@ async fn main() {
 
     let clerk_secret_key = std::env::var("CLERK_SECRET_KEY").ok().filter(|s| !s.is_empty());
 
-    let is_production = std::env::var("CORTEX_PRODUCTION")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
-
-    if is_production && clerk_secret_key.is_none() {
-        tracing::error!("CORTEX_PRODUCTION=true but CLERK_SECRET_KEY is not set — refusing to start without authentication");
-        std::process::exit(1);
-    }
-
-    if is_production {
-        tracing::info!("running in PRODUCTION mode — auth enforced, CORS restricted");
+    if clerk_secret_key.is_some() {
+        tracing::info!("auth: Clerk JWT verification enabled");
     } else {
-        tracing::info!("running in DEVELOPMENT mode — auth optional, CORS permissive");
+        tracing::info!("auth: disabled (no CLERK_SECRET_KEY) — all requests treated as user \"local\"");
     }
 
     let state = AppState::new(ledger_path, workspace_dir, clerk_secret_key);

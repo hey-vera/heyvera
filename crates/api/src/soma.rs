@@ -444,11 +444,8 @@ pub async fn extract_identity(
         return verify_api_key(api_key, state).await;
     }
 
-    // 4. Anonymous access (dev mode only)
-    let is_production = std::env::var("CORTEX_PRODUCTION")
-        .ok()
-        .is_some_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
-    if !is_production {
+    // 4. Anonymous access when auth is not configured
+    if state.clerk_secret_key.is_none() {
         return Ok(AuthenticatedIdentity {
             user_id: "anonymous".into(),
             method: AuthMethod::Anonymous,

@@ -100,21 +100,15 @@ fn cors_layer() -> CorsLayer {
                 .split(',')
                 .filter_map(|s| s.trim().parse().ok())
                 .collect();
+            tracing::info!("CORS: restricted to {} origin(s)", origins.len());
             CorsLayer::new()
                 .allow_origin(AllowOrigin::list(origins))
                 .allow_methods(AllowMethods::any())
                 .allow_headers(AllowHeaders::any())
         }
         _ => {
-            if std::env::var("CORTEX_PRODUCTION").ok().map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
-                tracing::warn!("CORTEX_PRODUCTION=true but no CORTEX_ALLOWED_ORIGINS set — CORS will reject cross-origin requests");
-                CorsLayer::new()
-                    .allow_origin(AllowOrigin::exact("https://cortex.heyvera.org".parse().unwrap()))
-                    .allow_methods(AllowMethods::any())
-                    .allow_headers(AllowHeaders::any())
-            } else {
-                CorsLayer::permissive()
-            }
+            tracing::info!("CORS: permissive (set CORTEX_ALLOWED_ORIGINS to restrict)");
+            CorsLayer::permissive()
         }
     }
 }

@@ -4,7 +4,7 @@ set -euo pipefail
 DEPLOY_USER="${DEPLOY_USER:-deploy}"
 REPO_DIR="${REPO_DIR:-/home/${DEPLOY_USER}/claw-net}"
 WWW_DIR="${WWW_DIR:-/var/www/claw-net}"
-EXTERNAL_ENV_FILE="${EXTERNAL_ENV_FILE:-/etc/claw-net/claw-net.env}"
+EXTERNAL_ENV_FILE="${EXTERNAL_ENV_FILE:-/etc/cortex/cortex.env}"
 PORT="${PORT:-3402}"
 MAX_WAIT="${MAX_WAIT:-45}"
 ALLOW_DIRTY="${ALLOW_DIRTY:-0}"
