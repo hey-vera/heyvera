@@ -5,8 +5,7 @@ use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::Json;
-use base64::Engine;
-use jsonwebtoken::{decode, Algorithm, DecodingKey, Validation};
+use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
 use tokio::sync::RwLock;
 
@@ -107,26 +106,9 @@ pub fn verify_token_pub(token: &str, keys: &[JwkKey]) -> Result<String, String> 
     verify_token(token, keys).map(|claims| claims.sub)
 }
 
-#[derive(Debug, Deserialize)]
-struct JwtHeader {
-    kid: Option<String>,
-    #[serde(flatten)]
-    _extra: std::collections::HashMap<String, serde_json::Value>,
-}
-
-fn extract_kid(token: &str) -> Result<String, String> {
-    let header_b64 = token.split('.').next().ok_or("invalid JWT: no header segment")?;
-    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(header_b64)
-        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(header_b64))
-        .map_err(|e| format!("JWT header base64 decode failed: {e}"))?;
-    let header: JwtHeader =
-        serde_json::from_slice(&decoded).map_err(|e| format!("JWT header JSON parse failed: {e}"))?;
-    header.kid.ok_or_else(|| "JWT missing kid".to_string())
-}
-
 fn verify_token(token: &str, keys: &[JwkKey]) -> Result<ClerkClaims, String> {
-    let kid = extract_kid(token)?;
+    let header = decode_header(token).map_err(|e| format!("invalid JWT header: {e}"))?;
+    let kid = header.kid.ok_or("JWT missing kid")?;
 
     let key = keys
         .iter()
