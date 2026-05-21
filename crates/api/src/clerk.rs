@@ -22,6 +22,8 @@ pub struct ClerkUser {
 struct ClerkClaims {
     sub: String,
     exp: usize,
+    #[serde(flatten)]
+    _extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
