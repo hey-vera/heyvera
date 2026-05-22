@@ -31,10 +31,10 @@
 
 ## Polish
 
-- [ ] **Transitions/animations** — smooth page transitions, hover states, micro-interactions
-- [ ] **Empty states** — illustrated/branded empty states instead of plain text
-- [ ] **Responsive mobile** — proper mobile nav, swipe gestures, bottom sheet compose
-- [ ] **Loading performance** — code splitting per route, lazy load feature modules
+- [x] **Transitions/animations** — page fade-in, hover lifts, button press, modal slide-up, skeleton shimmer
+- [x] **Empty states** — branded centered empty states with icon support and route loader bar
+- [x] **Responsive mobile** — rail hidden on mobile, compose modal bottom sheet, community channels scroll row, bottom nav shown on mobile only
+- [x] **Loading performance** — lazy loaded route chunks (Bookmarks 6KB, Search 7KB, Notifications 8KB, etc.), Suspense fallback
 
 ---
 

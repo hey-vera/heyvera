@@ -1,4 +1,4 @@
-import { Component } from "react";
+import { Component, lazy, Suspense } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
 import { ApiErrorBanner } from "./components/shared/ApiErrorBanner";
@@ -11,17 +11,22 @@ import {
   BottomRegionNav,
   type AppRegion,
 } from "./components/app/BottomRegionNav";
-import { AgentRegion } from "./components/app/AgentRegion";
-import { IdentityRegion } from "./components/app/IdentityRegion";
 import { VeraSocials } from "./components/app/VeraSocials";
-import { RegionPlaceholder } from "./components/app/RegionPlaceholder";
 import { RegionRail } from "./components/app/RegionRail";
 import { TopContextBar } from "./components/app/TopContextBar";
-import SettingsPage from "./components/settings/SettingsPage";
-import { NotificationsPage } from "./components/notifications/NotificationsPage";
-import { SearchPage } from "./components/search/SearchPage";
-import { PostThreadPage } from "./components/post/PostThreadPage";
-import { BookmarksPage } from "./components/bookmarks/BookmarksPage";
+
+const AgentRegion = lazy(() => import("./components/app/AgentRegion").then((m) => ({ default: m.AgentRegion })));
+const IdentityRegion = lazy(() => import("./components/app/IdentityRegion").then((m) => ({ default: m.IdentityRegion })));
+const RegionPlaceholder = lazy(() => import("./components/app/RegionPlaceholder").then((m) => ({ default: m.RegionPlaceholder })));
+const SettingsPage = lazy(() => import("./components/settings/SettingsPage"));
+const NotificationsPage = lazy(() => import("./components/notifications/NotificationsPage").then((m) => ({ default: m.NotificationsPage })));
+const SearchPage = lazy(() => import("./components/search/SearchPage").then((m) => ({ default: m.SearchPage })));
+const PostThreadPage = lazy(() => import("./components/post/PostThreadPage").then((m) => ({ default: m.PostThreadPage })));
+const BookmarksPage = lazy(() => import("./components/bookmarks/BookmarksPage").then((m) => ({ default: m.BookmarksPage })));
+
+function RouteLoader() {
+  return <div className="route-loader" aria-busy="true" />;
+}
 
 type ErrorBoundaryProps = { children: ReactNode };
 type ErrorBoundaryState = { hasError: boolean };
@@ -199,6 +204,7 @@ function AppShell() {
         />
 
         <RegionErrorBoundary key={`${activeRegion}-${recoveryCount}`}>
+          <Suspense fallback={<RouteLoader />}>
           <Routes>
             <Route path="/" element={<VeraSocials shellState={shellState} />} />
             <Route path="/feed" element={<VeraSocials shellState={shellState} />} />
@@ -220,6 +226,7 @@ function AppShell() {
             <Route path="/bookmarks" element={<BookmarksPage shellState={shellState} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
+          </Suspense>
         </RegionErrorBoundary>
       </main>
 
