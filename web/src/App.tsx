@@ -17,6 +17,7 @@ import { VeraSocials } from "./components/app/VeraSocials";
 import { RegionPlaceholder } from "./components/app/RegionPlaceholder";
 import { RegionRail } from "./components/app/RegionRail";
 import { TopContextBar } from "./components/app/TopContextBar";
+import SettingsPage from "./components/settings/SettingsPage";
 
 type ErrorBoundaryProps = { children: ReactNode };
 type ErrorBoundaryState = { hasError: boolean };
@@ -207,7 +208,7 @@ function AppShell() {
             <Route path="/agent" element={<AgentRegion shellState={shellState} />} />
             <Route path="/market" element={<MarketPlaceholder />} />
             <Route path="/proof" element={<ProofPlaceholder />} />
-            <Route path="/settings/*" element={<VeraSocials shellState={shellState} />} />
+            <Route path="/settings/*" element={<SettingsPage shellState={shellState} />} />
             <Route path="/notifications" element={<VeraSocials shellState={shellState} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
