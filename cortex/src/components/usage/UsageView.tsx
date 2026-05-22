@@ -66,7 +66,7 @@ export default function UsageView() {
         const [nextSummary, nextDaily] = await Promise.all([getUsage(), getDailyUsage(14)]);
         if (!cancelled) {
           setSummary(nextSummary);
-          setDaily(nextDaily);
+          setDaily(Array.isArray(nextDaily) ? nextDaily : []);
           setError(null);
         }
       } catch (err) {
