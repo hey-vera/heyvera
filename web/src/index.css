@@ -144,7 +144,6 @@ svg {
 .site-shell {
   position: relative;
   min-height: 100vh;
-  overflow: hidden;
   background: var(--bg);
 }
 
