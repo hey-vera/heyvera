@@ -4297,6 +4297,76 @@ html.dark .vera-socials-sidebar-pulse {
   color: var(--text-muted);
 }
 
+/* ─── Feed card: 3-dot micro menu ─── */
+
+.feed-card-menu {
+  position: relative;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.feed-card-menu-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 1.1rem;
+  line-height: 1;
+  padding: 4px 6px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  letter-spacing: 1px;
+}
+
+.feed-card-menu-btn:hover {
+  background: var(--surface-hover, rgba(0,0,0,0.06));
+  color: var(--text-primary);
+}
+
+.feed-card-menu-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 160px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.12), 0 1px 4px rgba(0,0,0,0.06);
+  z-index: 100;
+  overflow: hidden;
+  padding: 4px;
+}
+
+.feed-card-menu-action {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  padding: 8px 12px;
+  font-size: 0.875rem;
+  color: var(--text-primary);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.feed-card-menu-action:hover {
+  background: var(--surface-hover, rgba(0,0,0,0.05));
+}
+
+.feed-card-menu-action:last-child {
+  color: var(--color-error, #e5484d);
+}
+
+.feed-card-menu-action:last-child:hover {
+  background: rgba(229, 72, 77, 0.08);
+}
+
+html.dark .feed-card-menu-dropdown {
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4), 0 1px 4px rgba(0,0,0,0.2);
+}
+
 /* ─── Feed card: linked agent chip ─── */
 
 .feed-card-linked-agent {
