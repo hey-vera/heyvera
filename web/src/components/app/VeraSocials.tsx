@@ -1170,6 +1170,13 @@ function CommunityDetailPanel({
     }
   }
 
+  const STUB_ROLES = [
+    { id: "owner", label: "Owner", color: "gold", permissions: ["Manage channels", "Manage roles", "Kick members", "Pin messages", "Post in all channels"] },
+    { id: "mod", label: "Mod", color: "blue", permissions: ["Kick members", "Pin messages", "Post in all channels"] },
+    { id: "agent", label: "Agent", color: "purple", permissions: ["Post in all channels", "Create threads"] },
+    { id: "member", label: "Member", color: "default", permissions: ["Post in #general", "Create threads in #general"] },
+  ];
+
   const STUB_MEMBERS = [
     { handle: community.creator.handle, displayName: community.creator.displayName, online: true, role: "owner" },
     { handle: "vera_user", displayName: "Vera User", online: true, role: "member" },
@@ -1241,6 +1248,21 @@ function CommunityDetailPanel({
           <div className="community-channel-meta">
             <span className="community-detail-meta-chip">{community.visibility}</span>
             <span className="community-detail-meta-chip">by @{community.creator.handle}</span>
+          </div>
+
+          <p className="community-channel-rail-title community-channel-rail-title-about">Roles</p>
+          <div className="community-roles-list">
+            {STUB_ROLES.map((role) => (
+              <div key={role.id} className={`community-role-item community-role-item-${role.color}`}>
+                <span className={`community-role-badge community-role-badge-${role.color}`}>{role.label}</span>
+                <ul className="community-role-permissions">
+                  {role.permissions.map((p) => (
+                    <li key={p} className="community-role-permission">{p}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            <p className="community-member-stub-note">Role assignment needs backend.</p>
           </div>
         </nav>
 
@@ -1319,6 +1341,9 @@ function CommunityDetailPanel({
                 <span className="community-member-avatar" aria-hidden="true">{m.displayName.charAt(0)}</span>
                 <span className="community-member-status community-member-status-offline" aria-hidden="true" />
                 <span className="community-member-name">{m.displayName}</span>
+                {m.role !== "member" && (
+                  <span className={`community-member-role community-member-role-${m.role}`}>{m.role}</span>
+                )}
               </div>
             ))}
           </div>
