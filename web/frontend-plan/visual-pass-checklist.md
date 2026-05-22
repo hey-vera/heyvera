@@ -14,7 +14,7 @@
 - [ ] **Media support** — image/video in posts, lightbox viewer, media tab on profiles
 - [ ] **DMs/messaging** — direct message UI, conversation list, message thread view
 - [x] **Bookmarks** — save posts, bookmarks page
-- [ ] **Who to follow** — suggestion cards in sidebar
+- [x] **Who to follow** — suggestion cards in sidebar with follow buttons
 
 ## Community features (Discord-inspired)
 

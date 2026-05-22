@@ -1683,6 +1683,71 @@ function SidebarActiveProfiles() {
   );
 }
 
+function SidebarWhoToFollow() {
+  const { data: profiles, loading } = useProfiles(6);
+  const { isSignedIn, getToken, myProfile } = useAuthContext();
+  const [followed, setFollowed] = useState<Record<string, boolean>>({});
+  const [following, setFollowing] = useState<Record<string, boolean>>({});
+
+  const suggestions = profiles
+    ? profiles.filter((p) => p.handle !== myProfile?.profile.handle).slice(0, 3)
+    : null;
+
+  const handleFollow = useCallback(
+    async (handle: string) => {
+      if (!isSignedIn) return;
+      const token = await getToken();
+      if (!token) return;
+      setFollowing((f) => ({ ...f, [handle]: true }));
+      try {
+        await followProfile(token, handle);
+        setFollowed((f) => ({ ...f, [handle]: true }));
+      } finally {
+        setFollowing((f) => ({ ...f, [handle]: false }));
+      }
+    },
+    [isSignedIn, getToken],
+  );
+
+  if (loading) {
+    return (
+      <div className="network-sidebar-profiles" aria-busy="true">
+        <p className="network-sidebar-section-title">Who to Follow</p>
+        <div className="skeleton" style={{ height: "2em", borderRadius: "3px" }} />
+      </div>
+    );
+  }
+
+  if (!suggestions || suggestions.length === 0) return null;
+
+  return (
+    <div className="network-sidebar-profiles">
+      <p className="network-sidebar-section-title">Who to Follow</p>
+      <ul className="network-sidebar-list">
+        {suggestions.map((p) => (
+          <li key={p.handle} className="network-sidebar-list-item">
+            <span className="network-sidebar-list-avatar" aria-hidden="true">
+              {p.displayName.charAt(0).toUpperCase()}
+            </span>
+            <span className="network-sidebar-list-name">{p.displayName}</span>
+            <span className="network-sidebar-list-handle">@{p.handle}</span>
+            {isSignedIn && (
+              <button
+                type="button"
+                className={`network-sidebar-follow-btn${followed[p.handle] ? " network-sidebar-follow-btn-active" : ""}`}
+                disabled={following[p.handle] || followed[p.handle]}
+                onClick={() => handleFollow(p.handle)}
+              >
+                {followed[p.handle] ? "Following" : following[p.handle] ? "..." : "Follow"}
+              </button>
+            )}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 /** Longform sidebar — shows a short list of communities. */
 function SidebarActiveCommunities() {
   const { data: communities, loading } = useCommunities(3);
@@ -2802,7 +2867,7 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
             <SidebarJoinNetwork shellState={shellState} />
             <SidebarVeraRooms />
             <SidebarFeaturedProfile />
-            <SidebarActiveProfiles />
+            <SidebarWhoToFollow />
             <SidebarActiveCommunities />
             <SidebarProofPulse />
           </>
