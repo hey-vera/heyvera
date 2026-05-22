@@ -13,7 +13,7 @@
 - [x] **Threaded replies** — reply indentation in feed, conversation view with lines connecting replies
 - [ ] **Media support** — image/video in posts, lightbox viewer, media tab on profiles
 - [ ] **DMs/messaging** — direct message UI, conversation list, message thread view
-- [ ] **Bookmarks** — save posts, bookmarks page
+- [x] **Bookmarks** — save posts, bookmarks page
 - [ ] **Who to follow** — suggestion cards in sidebar
 
 ## Community features (Discord-inspired)

@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 type FeedCardOrigin = "Person" | "Agent" | "Linked Pair";
 
 type FeedCardProps = {
@@ -10,6 +12,7 @@ type FeedCardProps = {
   branchLabel?: string;
   formatLabel?: string;
   postId?: string;
+  isBookmarked?: boolean;
   replyToHandle?: string;
   replyCount?: number;
   linkedAgentName?: string;
@@ -32,15 +35,42 @@ export function FeedCard({
   branchLabel,
   formatLabel,
   postId,
+  isBookmarked,
   replyToHandle,
   replyCount,
   linkedAgentName,
   onReplyClick,
 }: FeedCardProps) {
+  const [bookmarked, setBookmarked] = useState(isBookmarked ?? false);
   const isLinkedBorder = origin === "Linked Pair";
   const isAgentAccent = origin === "Agent";
   const canReply = Boolean(onReplyClick && postId);
   const hasReplyCount = replyCount != null && replyCount > 0;
+
+  useEffect(() => {
+    if (!postId) return;
+
+    const savedBookmarks = JSON.parse(
+      localStorage.getItem("heyvera-bookmarks") ?? "[]",
+    ) as string[];
+
+    setBookmarked(savedBookmarks.includes(postId));
+  }, [postId]);
+
+  const toggleBookmark = () => {
+    if (!postId) return;
+
+    const nextBookmarked = !bookmarked;
+    const savedBookmarks = JSON.parse(
+      localStorage.getItem("heyvera-bookmarks") ?? "[]",
+    ) as string[];
+    const nextBookmarks = nextBookmarked
+      ? [...new Set([...savedBookmarks, postId])]
+      : savedBookmarks.filter((savedPostId) => savedPostId !== postId);
+
+    setBookmarked(nextBookmarked);
+    localStorage.setItem("heyvera-bookmarks", JSON.stringify(nextBookmarks));
+  };
 
   return (
     <article className={`feed-card ${originClasses[origin]}${isLinkedBorder ? " feed-card-linked-border" : ""}${isAgentAccent ? " feed-card-agent-accent" : ""}`}>
@@ -98,6 +128,19 @@ export function FeedCard({
               }}
             >
               Reply
+            </button>
+          ) : null}
+          {postId ? (
+            <button
+              type="button"
+              className={`feed-card-bookmark${bookmarked ? " feed-card-bookmark-active" : ""}`}
+              aria-label={bookmarked ? "Remove bookmark" : "Bookmark post"}
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleBookmark();
+              }}
+            >
+              {bookmarked ? "🔖" : "🏷"}
             </button>
           ) : null}
           {hasReplyCount && (
