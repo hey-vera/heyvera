@@ -210,9 +210,7 @@ function CortexShell() {
   const [renamingTitle, setRenamingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [conversationListVersion, setConversationListVersion] = useState(0);
-  const [sessionControls, setSessionControls] = useState<ChatSessionControls>(
-    readSessionControls,
-  );
+  const sessionControls = readSessionControls();
   const [runProfile, setRunProfile] = useState<RunProfile>(readRunProfile);
   const runBridgeGoal = null;
   const runBridgeNonce = 0;
@@ -300,16 +298,6 @@ function CortexShell() {
     return () => { cancelled = true; };
   }, [isSignedIn]);
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        SESSION_CONTROLS_STORAGE_KEY,
-        JSON.stringify(sessionControls),
-      );
-    } catch {
-      // ignore local preference persistence failures
-    }
-  }, [sessionControls]);
 
   useEffect(() => {
     try {
@@ -405,12 +393,6 @@ function CortexShell() {
     openDetachedPanel('task-manager', activeGroup);
   }, [activeGroup]);
 
-  const handleRunProfileChange = useCallback((nextProfile: RunProfile) => {
-    setRunProfile(nextProfile);
-    void updateUserRouting(nextProfile).catch(() => {
-      // local preference still applies to run creation if profile persistence fails
-    });
-  }, []);
 
   const clearRunBridgeGoal = useCallback(() => {
     // Task Manager Chat does not currently bridge chat drafts into runs.
