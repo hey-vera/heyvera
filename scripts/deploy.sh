@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEPLOY_USER="${DEPLOY_USER:-deploy}"
+DEPLOY_USER="${DEPLOY_USER:-guardian}"
 REPO_DIR="${REPO_DIR:-/home/${DEPLOY_USER}/claw-net}"
 WWW_DIR="${WWW_DIR:-/var/www/claw-net}"
 EXTERNAL_ENV_FILE="${EXTERNAL_ENV_FILE:-/etc/cortex/cortex.env}"
@@ -9,8 +9,14 @@ PORT="${PORT:-3402}"
 MAX_WAIT="${MAX_WAIT:-45}"
 ALLOW_DIRTY="${ALLOW_DIRTY:-0}"
 AUTO_SWITCH_BRANCH="${AUTO_SWITCH_BRANCH:-0}"
+GIT_REMOTE="${GIT_REMOTE:-}"
 
 cd "$REPO_DIR"
+
+if [ -z "$GIT_REMOTE" ]; then
+  GIT_REMOTE=$(git remote | head -1)
+  echo "[git] Auto-detected remote: $GIT_REMOTE"
+fi
 
 SUDO_AVAILABLE=0
 if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
@@ -43,7 +49,7 @@ fi
 if [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
   if [ "$AUTO_SWITCH_BRANCH" = "1" ]; then
     echo "[git] Switching from ${CURRENT_BRANCH} to ${TARGET_BRANCH}..."
-    git fetch origin "$TARGET_BRANCH"
+    git fetch "$GIT_REMOTE" "$TARGET_BRANCH"
     git checkout "$TARGET_BRANCH"
     CURRENT_BRANCH="$TARGET_BRANCH"
   else
@@ -64,8 +70,14 @@ fi
 # Source VITE_* vars so frontend builds pick them up
 if [ -f "$ENV_FILE" ]; then
   set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
+  if [ -r "$ENV_FILE" ]; then
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+  elif [ "$SUDO_AVAILABLE" = "1" ]; then
+    eval "$(sudo cat "$ENV_FILE")"
+  else
+    echo "[env] WARNING: cannot read $ENV_FILE (no permission and no sudo)"
+  fi
   set +a
   echo "[env] Sourced env vars from $ENV_FILE"
 fi
@@ -78,9 +90,9 @@ else
 fi
 
 echo "[git] Fetching and fast-forwarding ${TARGET_BRANCH}..."
-git fetch origin "$TARGET_BRANCH"
+git fetch "$GIT_REMOTE" "$TARGET_BRANCH"
 git checkout "$TARGET_BRANCH"
-git reset --hard "origin/$TARGET_BRANCH"
+git reset --hard "$GIT_REMOTE/$TARGET_BRANCH"
 
 DEPLOY_COMMIT="$(git rev-parse HEAD)"
 DEPLOY_COMMIT_SHORT="$(git rev-parse --short HEAD)"
