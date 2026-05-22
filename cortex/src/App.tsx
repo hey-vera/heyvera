@@ -1,7 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, PanelRight, Loader2, Menu, Search } from 'lucide-react';
+import { CreditCard, ExternalLink, PanelRight, Loader2, Menu, Search } from 'lucide-react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
-import PaymentFailed from './components/billing/PaymentFailed';
 import TrialBanner from './components/billing/TrialBanner';
 import GroupSidebar from './components/groups/GroupSidebar';
 import CommandPalette from './components/shell/CommandPalette';
@@ -18,6 +17,7 @@ import {
   listConversations,
   setAuthTokenGetter,
   updateUserRouting,
+  type BillingAccessState,
   type ConversationSummary,
 } from './lib/cortexApi';
 import {
@@ -42,6 +42,7 @@ const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
 
 const SESSION_CONTROLS_STORAGE_KEY = 'cortex:session-controls';
 const RUN_PROFILE_STORAGE_KEY = 'cortex:run-profile';
+const FREE_TIER_ACCESS_STATES = new Set<BillingAccessState>(['needs_checkout', 'needs_phone', 'cancelled']);
 type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing';
 
 function isSessionControls(value: unknown): value is ChatSessionControls {
@@ -91,6 +92,66 @@ const AdminPanel = lazy(() => import('./components/admin/AdminPanel'));
 const PricingCards = lazy(() => import('./components/billing/PricingCards'));
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 const WorkSurface = lazy(() => import('./components/work-surface/WorkSurface'));
+
+function isFreeTierAccessState(accessState: BillingAccessState | undefined) {
+  return Boolean(accessState && FREE_TIER_ACCESS_STATES.has(accessState));
+}
+
+function FreeTierBanner({
+  accessState,
+  onOpenBilling,
+}: {
+  accessState: BillingAccessState;
+  onOpenBilling: () => void;
+}) {
+  const isCancelled = accessState === 'cancelled';
+  return (
+    <div className="border-b border-[var(--accent)]/15 bg-[var(--accent)]/10 px-3 py-2 sm:px-4">
+      <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-2 sm:gap-3">
+        <span className="rounded-full border border-[var(--accent)]/25 bg-black/15 px-2 py-0.5 text-[11px] font-medium text-[var(--accent)]">
+          Free tier
+        </span>
+        <p className="min-w-[12rem] flex-1 text-xs text-[var(--muted-strong)]">
+          {isCancelled
+            ? 'Your subscription is cancelled. Core Task Manager and routing previews remain available with free-tier limits.'
+            : 'Explore Task Manager, groups, routing previews, and sovereignty controls before upgrading.'}
+        </p>
+        <button
+          type="button"
+          onClick={onOpenBilling}
+          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/10 bg-white/8 px-2.5 text-xs text-white transition hover:bg-white/12 active:scale-95"
+        >
+          <CreditCard className="h-3.5 w-3.5" />
+          Upgrade
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PaymentIssueBanner({
+  onOpenBilling,
+}: {
+  onOpenBilling: () => void;
+}) {
+  return (
+    <div className="border-b border-red-400/20 bg-red-400/10 px-3 py-2 sm:px-4">
+      <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-2 sm:gap-3">
+        <CreditCard className="h-4 w-4 shrink-0 text-red-200" />
+        <p className="min-w-[12rem] flex-1 text-xs text-red-100">
+          Payment failed. Your workspace is visible, but paid Cortex runtime actions need an updated payment method.
+        </p>
+        <button
+          type="button"
+          onClick={onOpenBilling}
+          className="inline-flex h-7 items-center rounded-lg border border-red-200/20 bg-red-100/10 px-2.5 text-xs text-red-50 transition hover:bg-red-100/15 active:scale-95"
+        >
+          Fix billing
+        </button>
+      </div>
+    </div>
+  );
+}
 
 function useGroupState() {
   const [groups, setGroups] = useState<CortexGroup[]>(readGroups);
@@ -358,6 +419,8 @@ function CortexShell() {
   const approvalCount = messages.filter((message) => message.approvalRequest?.state === 'pending').length;
   const showWorkBadge = isStreaming || approvalCount > 0;
   const accessState = billing.status?.access_state;
+  const isFreeTier = billingEnabled && isFreeTierAccessState(accessState);
+  const runtimeLocked = billingEnabled && accessState === 'payment_failed';
   useEffect(() => {
     if (!renamingTitle) return;
     titleInputRef.current?.focus();
@@ -483,24 +546,6 @@ function CortexShell() {
 
   if (!isSignedIn && AuthScreen) {
     return <AuthScreen />;
-  }
-
-  if (billingEnabled && accessState === 'payment_failed') {
-    return <PaymentFailed billing={billing.status} />;
-  }
-
-  const needsSubscription = billingEnabled && (accessState === 'needs_checkout' || accessState === 'cancelled' || accessState === 'needs_phone');
-
-  if (needsSubscription) {
-    return (
-      <Suspense fallback={
-        <div className="flex min-h-screen items-center justify-center bg-[var(--bg)]">
-          <Loader2 className="h-6 w-6 animate-spin text-[var(--muted)]" />
-        </div>
-      }>
-        <PricingCards />
-      </Suspense>
-    );
   }
 
   return (
@@ -652,6 +697,15 @@ function CortexShell() {
           </div>
         </header>
         <TrialBanner billing={billing.status} onOpenBilling={() => handleOpenSettings('billing')} />
+        {isFreeTier && accessState && (
+          <FreeTierBanner
+            accessState={accessState}
+            onOpenBilling={() => handleOpenSettings('billing')}
+          />
+        )}
+        {runtimeLocked && (
+          <PaymentIssueBanner onOpenBilling={() => handleOpenSettings('billing')} />
+        )}
 
         <TaskManagerChat
           group={activeGroup}
@@ -662,7 +716,7 @@ function CortexShell() {
           draft={draft}
           isStreaming={isStreaming}
           isLoadingConversation={isLoadingConversation}
-          needsSubscription={needsSubscription}
+          needsSubscription={runtimeLocked}
           sessionControls={sessionControls}
           runProfile={runProfile}
           onDraftChange={setDraft}
