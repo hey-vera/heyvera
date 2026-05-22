@@ -171,6 +171,8 @@ if [ -f "$REPO_DIR/Cargo.toml" ] && [ -f "$REPO_DIR/cortex/package.json" ]; then
   if command -v cargo >/dev/null 2>&1; then
     cargo build --release
     if [ "$SUDO_AVAILABLE" = "1" ]; then
+      sudo systemctl stop cortex 2>/dev/null || true
+
       sudo cp "$REPO_DIR/target/release/cortex-server" /usr/local/bin/cortex-server
       echo "[cortex] Installed cortex-server binary"
 
@@ -180,8 +182,8 @@ if [ -f "$REPO_DIR/Cargo.toml" ] && [ -f "$REPO_DIR/cortex/package.json" ]; then
       fi
 
       if [ -f /etc/systemd/system/cortex.service ]; then
-        sudo systemctl restart cortex
-        echo "[cortex] Restarted cortex service"
+        sudo systemctl start cortex
+        echo "[cortex] Started cortex service"
       else
         echo "[cortex] WARNING: no systemd service found — run scripts/cortex-install-service.sh first"
       fi
