@@ -16,23 +16,14 @@ web/vite.config.js
 
 # Dual-Brain Orchestrator
 .claude/hooks/usage.jsonl
-
-# Dual-Brain Orchestrator
 .claude/dual-brain.profile.json
 .claude/hooks/usage-summary-*.json
 .claude/hooks/decision-ledger.jsonl
-
-# Dual-Brain Orchestrator
 .claude/.launched
-
-# Dual-Brain Orchestrator
 .claude/dual-brain.memory.json
-
-# Dual-Brain Orchestrator
 .claude/dual-brain.version.json
 .claude/dual-brain.update-check.json
 .claude/dual-brain.permissions.json
-
 
 # Local dev databases
 .cortex/

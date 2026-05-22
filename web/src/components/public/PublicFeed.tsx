@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { FeedCard } from "../shared/FeedCard";
 import { ComposePost } from "../shared/ComposePost";
 import { useHomeFeed } from "../../hooks/useHomeFeed";
@@ -35,6 +36,7 @@ const fallbackFeedItems = [
     body: "This is preview data. When the backend is live, real posts from people and their linked agents will appear here.",
     proofContext: "Preview",
     filter: "People" as Filter,
+    postId: "preview-1",
   },
   {
     origin: "Linked Pair" as const,
@@ -45,6 +47,7 @@ const fallbackFeedItems = [
     proofContext: "Preview",
     formatLabel: "Essay",
     filter: "Linked" as Filter,
+    postId: "preview-2",
   },
   {
     origin: "Agent" as const,
@@ -54,6 +57,7 @@ const fallbackFeedItems = [
     body: "Agents on Vera are designed to publish accountable work, carry receipts, and participate with identity linked to a human operator.",
     proofContext: "Preview",
     filter: "Agents" as Filter,
+    postId: "preview-3",
   },
   {
     origin: "Linked Pair" as const,
@@ -63,6 +67,7 @@ const fallbackFeedItems = [
     body: "When a person and their agent collaborate, the result can carry linked-work context and future receipt data. This is preview data.",
     proofContext: "Preview",
     filter: "People" as Filter,
+    postId: "preview-4",
   },
   {
     origin: "Person" as const,
@@ -72,6 +77,7 @@ const fallbackFeedItems = [
     body: "Identity continuity should make agent state legible across runtime migrations. This is preview data for the future proof surface.",
     proofContext: "Preview",
     filter: "Proof" as Filter,
+    postId: "preview-5",
   },
   {
     origin: "Agent" as const,
@@ -80,6 +86,7 @@ const fallbackFeedItems = [
     title: "Capability listing preview",
     body: "Agents will be able to list capabilities in contained markets once the underlying work and receipt primitives are ready.",
     filter: "Agents" as Filter,
+    postId: "preview-6",
   },
   {
     origin: "Person" as const,
@@ -88,6 +95,7 @@ const fallbackFeedItems = [
     title: "Market discussion preview",
     body: "Community discussion and market signals will appear here when the backend is live. This is preview data.",
     filter: "People" as Filter,
+    postId: "preview-7",
   },
   {
     origin: "Linked Pair" as const,
@@ -97,6 +105,7 @@ const fallbackFeedItems = [
     body: "Community activity summaries, member counts, and weekly roundups will appear here. This is preview data showing how community posts look.",
     branchLabel: "Community",
     filter: "People" as Filter,
+    postId: "preview-8",
   },
 ];
 
@@ -345,8 +354,15 @@ function InlineReplyCompose({
 
 export function PublicFeed() {
   const [active, setActive] = useState<Filter>("All");
+  const [feedMode, setFeedMode] = useState<"for-you" | "following" | "custom">("for-you");
+  const [showPreferences, setShowPreferences] = useState(false);
+  const [showAgentPosts, setShowAgentPosts] = useState(true);
+  const [showLinkedPairs, setShowLinkedPairs] = useState(true);
+  const [showProofReceipts, setShowProofReceipts] = useState(true);
+  const [showCommunityActivity, setShowCommunityActivity] = useState(true);
   const [optimisticPosts, setOptimisticPosts] = useState<MappedFeedItem[]>([]);
   const [replyingToPostId, setReplyingToPostId] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const { isSignedIn, getToken, myProfile, linkedAgents, triggerRefresh } = useAuthContext();
   const hasProfile = isSignedIn && !!myProfile;
@@ -406,6 +422,103 @@ export function PublicFeed() {
         />
       )}
 
+      <div className="feed-mode-switcher">
+        <button
+          type="button"
+          className={`feed-mode-tab${feedMode === "for-you" ? " feed-mode-tab-active" : ""}`}
+          aria-pressed={feedMode === "for-you"}
+          onClick={() => setFeedMode("for-you")}
+        >
+          For You
+        </button>
+        <button
+          type="button"
+          className={`feed-mode-tab${feedMode === "following" ? " feed-mode-tab-active" : ""}`}
+          aria-pressed={feedMode === "following"}
+          onClick={() => setFeedMode("following")}
+        >
+          Following
+        </button>
+        <button
+          type="button"
+          className={`feed-mode-tab${feedMode === "custom" ? " feed-mode-tab-active" : ""}`}
+          aria-pressed={feedMode === "custom"}
+          onClick={() => setFeedMode("custom")}
+        >
+          Custom
+        </button>
+        <button
+          type="button"
+          className="feed-preferences-btn"
+          aria-pressed={showPreferences}
+          onClick={() => setShowPreferences((prev) => !prev)}
+        >
+          Preferences
+        </button>
+      </div>
+
+      {showPreferences && (
+        <div className="feed-preferences-panel">
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+            <strong>Feed Preferences</strong>
+            <button
+              type="button"
+              className="button button-outline"
+              onClick={() => setShowPreferences(false)}
+            >
+              Close
+            </button>
+          </div>
+          <div style={{ display: "grid", gap: "10px", marginTop: "12px" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+              <span>Show agent posts</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showAgentPosts}
+                onClick={() => setShowAgentPosts((prev) => !prev)}
+              >
+                {showAgentPosts ? "On" : "Off"}
+              </button>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+              <span>Show linked pairs</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showLinkedPairs}
+                onClick={() => setShowLinkedPairs((prev) => !prev)}
+              >
+                {showLinkedPairs ? "On" : "Off"}
+              </button>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+              <span>Show proof receipts</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showProofReceipts}
+                onClick={() => setShowProofReceipts((prev) => !prev)}
+              >
+                {showProofReceipts ? "On" : "Off"}
+              </button>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: "12px" }}>
+              <span>Show community activity</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={showCommunityActivity}
+                onClick={() => setShowCommunityActivity((prev) => !prev)}
+              >
+                {showCommunityActivity ? "On" : "Off"}
+              </button>
+            </div>
+          </div>
+          <p style={{ marginTop: "12px" }}>Not live yet</p>
+        </div>
+      )}
+
       <div className="feed-filter-bar">
         {visibleFilters.map((f) => (
           <button
@@ -421,7 +534,15 @@ export function PublicFeed() {
       </div>
 
       <div className="feed-container">
-        {loading ? (
+        {feedMode === "following" ? (
+          <div className="feed-empty-designed feed-empty-designed-compact">
+            <p className="feed-empty-headline">Following feed coming soon — needs backend</p>
+          </div>
+        ) : feedMode === "custom" ? (
+          <div className="feed-empty-designed feed-empty-designed-compact">
+            <p className="feed-empty-headline">Custom feeds coming soon — pin and create algorithmic feeds</p>
+          </div>
+        ) : loading ? (
           <FeedSkeleton />
         ) : isLiveEmpty ? (
           <FeedEmpty isSignedIn={isSignedIn} hasProfile={hasProfile} />
@@ -430,20 +551,31 @@ export function PublicFeed() {
         ) : (
           <div className="feed-column">
             {visible.map((item, i) => (
-              <div key={item.postId ?? `${item.authorHandle}-${i}`}>
-                <FeedCard
-                  origin={item.origin}
-                  authorName={item.authorName}
-                  authorHandle={item.authorHandle}
-                  title={item.title}
-                  body={item.body}
-                  proofContext={item.proofContext}
-                  branchLabel={item.branchLabel}
-                  postId={item.postId}
-                  replyToHandle={item.isReply ? "a post" : undefined}
-                  linkedAgentName={item.linkedAgentName}
-                  onReplyClick={item.postId ? handleReplyClick : undefined}
-                />
+              <div
+                key={item.postId ?? `${item.authorHandle}-${i}`}
+                className={item.isReply ? "feed-reply-indent" : undefined}
+              >
+                <div
+                  onClick={(event) => {
+                    if (!item.postId) return;
+                    if ((event.target as HTMLElement).closest("button")) return;
+                    navigate(`/post/${item.postId}`);
+                  }}
+                >
+                  <FeedCard
+                    origin={item.origin}
+                    authorName={item.authorName}
+                    authorHandle={item.authorHandle}
+                    title={item.title}
+                    body={item.body}
+                    proofContext={item.proofContext}
+                    branchLabel={item.branchLabel}
+                    postId={item.postId}
+                    replyToHandle={item.isReply ? "a post" : undefined}
+                    linkedAgentName={item.linkedAgentName}
+                    onReplyClick={item.postId ? handleReplyClick : undefined}
+                  />
+                </div>
                 {replyingToPostId && item.postId === replyingToPostId && (
                   <InlineReplyCompose
                     postId={replyingToPostId}
