@@ -15,6 +15,13 @@ cd "$REPO_DIR"
 GIT_REMOTE=$(git remote | head -1)
 BRANCH="${1:-$(git rev-parse --abbrev-ref HEAD)}"
 
+REMOTE_URL=$(git remote get-url "$GIT_REMOTE" 2>/dev/null || true)
+if [[ "$REMOTE_URL" == https://github.com/* ]]; then
+  SSH_URL="${REMOTE_URL/https:\/\/github.com\//git@github.com:}"
+  git remote set-url "$GIT_REMOTE" "$SSH_URL"
+  echo "[git] Switched $GIT_REMOTE to SSH: $SSH_URL"
+fi
+
 echo ""
 echo "  ╔══════════════════════════════════════╗"
 echo "  ║         Cortex Deploy                ║"
