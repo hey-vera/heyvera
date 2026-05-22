@@ -1,6 +1,7 @@
 import type { AppRegion } from "./BottomRegionNav";
 import type { ShellState } from "../../hooks/useShellState";
-import { useNavigate } from "react-router-dom";
+import { useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 
 const regionMeta: Record<
   AppRegion,
@@ -59,6 +60,8 @@ export function TopContextBar({
   viewerLabel,
 }: TopContextBarProps) {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [searchValue, setSearchValue] = useState(searchParams.get("q") ?? "");
   const meta = regionMeta[activeRegion];
   const isSocial = activeRegion === "social";
 
@@ -69,6 +72,22 @@ export function TopContextBar({
         <span className="top-context-strip-status">
           {shellStateSummary(shellState, viewerLabel)}
         </span>
+        {shellState === "ready" ? (
+          <div className="top-context-search">
+            <input
+              type="search"
+              placeholder="Search..."
+              className="top-context-search-input"
+              value={searchValue}
+              onChange={(e) => setSearchValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && searchValue.trim()) {
+                  navigate(`/search?q=${encodeURIComponent(searchValue.trim())}`);
+                }
+              }}
+            />
+          </div>
+        ) : null}
         {shellState === "ready" ? (
           <button
             type="button"
@@ -94,6 +113,22 @@ export function TopContextBar({
           <span className="top-context-status-dot" aria-hidden="true" />
           <span>{shellStateSummary(shellState, viewerLabel)}</span>
         </div>
+        {shellState === "ready" ? (
+          <div className="top-context-search">
+            <input
+              type="search"
+              placeholder="Search..."
+              className="top-context-search-input"
+              value={searchValue}
+              onChange={(e) => setSearchValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && searchValue.trim()) {
+                  navigate(`/search?q=${encodeURIComponent(searchValue.trim())}`);
+                }
+              }}
+            />
+          </div>
+        ) : null}
         {shellState === "ready" ? (
           <button
             type="button"

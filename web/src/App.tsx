@@ -19,6 +19,7 @@ import { RegionRail } from "./components/app/RegionRail";
 import { TopContextBar } from "./components/app/TopContextBar";
 import SettingsPage from "./components/settings/SettingsPage";
 import { NotificationsPage } from "./components/notifications/NotificationsPage";
+import { SearchPage } from "./components/search/SearchPage";
 
 type ErrorBoundaryProps = { children: ReactNode };
 type ErrorBoundaryState = { hasError: boolean };
@@ -81,6 +82,7 @@ const REGION_FROM_PATH: Record<string, AppRegion> = {
   proof: "proof",
   settings: "social",
   notifications: "social",
+  search: "social",
 };
 
 function useActiveRegion(): AppRegion {
@@ -211,6 +213,7 @@ function AppShell() {
             <Route path="/proof" element={<ProofPlaceholder />} />
             <Route path="/settings/*" element={<SettingsPage shellState={shellState} />} />
             <Route path="/notifications" element={<NotificationsPage shellState={shellState} />} />
+            <Route path="/search" element={<SearchPage shellState={shellState} />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </RegionErrorBoundary>
