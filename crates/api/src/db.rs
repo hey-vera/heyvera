@@ -4,7 +4,7 @@ use std::sync::Mutex;
 use chrono::{Datelike, Utc};
 use cortex_core::usage::{DailyUsage, ProviderUsage, UsageSummary, estimate_cost_by_provider};
 use rusqlite::{params, Connection};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub struct Database {
@@ -121,7 +121,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 9;
+const SCHEMA_VERSION: i64 = 10;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -160,6 +160,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 9 {
         migrate_v9(conn);
+    }
+    if current < 10 {
+        migrate_v10(conn);
     }
 }
 
@@ -581,6 +584,141 @@ fn migrate_v9(conn: &Connection) {
     tracing::info!("applied migration v9: promo_codes discount_options JSON column");
 }
 
+fn migrate_v10(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS cortex_groups (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            kind TEXT NOT NULL DEFAULT 'team',
+            description TEXT NOT NULL DEFAULT 'Shared coordination',
+            members INTEGER NOT NULL DEFAULT 1,
+            accent TEXT NOT NULL DEFAULT '#9cc7b8',
+            source TEXT NOT NULL DEFAULT 'manual',
+            external_id TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(user_id, source, external_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_cortex_groups_user
+            ON cortex_groups(user_id, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS group_task_state (
+            group_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            state_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (group_id, user_id)
+        );
+
+        CREATE TABLE IF NOT EXISTS integration_connections (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            external_id TEXT,
+            display_name TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'connected',
+            scopes TEXT NOT NULL DEFAULT '[]',
+            access_token TEXT,
+            refresh_token TEXT,
+            token_expires_at TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            last_sync_at TEXT,
+            last_error TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(user_id, provider, external_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_integration_connections_user
+            ON integration_connections(user_id, provider);
+
+        CREATE TABLE IF NOT EXISTS integration_mappings (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            group_id TEXT NOT NULL,
+            external_id TEXT NOT NULL,
+            external_name TEXT NOT NULL,
+            mapping_type TEXT NOT NULL,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(user_id, provider, external_id, mapping_type)
+        );
+        CREATE INDEX IF NOT EXISTS idx_integration_mappings_group
+            ON integration_mappings(user_id, group_id);
+
+        CREATE TABLE IF NOT EXISTS integration_events (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            group_id TEXT,
+            event_type TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'queued',
+            payload_json TEXT NOT NULL,
+            retry_count INTEGER NOT NULL DEFAULT 0,
+            next_attempt_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            processed_at TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_integration_events_status
+            ON integration_events(status, next_attempt_at);
+
+        CREATE TABLE IF NOT EXISTS integration_oauth_states (
+            state TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            redirect_after TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            expires_at TEXT NOT NULL
+        );
+
+        UPDATE schema_version SET version = 10;"
+    ).expect("migration v10 failed");
+
+    tracing::info!("applied migration v10: Cortex groups, task state, Slack/Replit integration tables");
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CortexGroup {
+    pub id: String,
+    pub name: String,
+    pub kind: String,
+    pub description: String,
+    pub members: i64,
+    pub accent: String,
+    pub source: String,
+    pub external_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct IntegrationConnection {
+    pub id: String,
+    pub provider: String,
+    pub external_id: Option<String>,
+    pub display_name: String,
+    pub status: String,
+    pub scopes: Vec<String>,
+    pub metadata: serde_json::Value,
+    pub last_sync_at: Option<String>,
+    pub last_error: Option<String>,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct IntegrationMapping {
+    pub id: String,
+    pub provider: String,
+    pub group_id: String,
+    pub external_id: String,
+    pub external_name: String,
+    pub mapping_type: String,
+    pub metadata: serde_json::Value,
+    pub created_at: String,
+    pub updated_at: String,
+}
+
 // --- Database implementation ---
 
 impl Database {
@@ -735,6 +873,328 @@ impl Database {
             model: model.map(String::from),
             created_at: now,
         }
+    }
+
+    // --- Cortex groups + task state ---
+
+    pub fn upsert_group(
+        &self,
+        user_id: &str,
+        id: &str,
+        name: &str,
+        kind: &str,
+        description: &str,
+        members: i64,
+        accent: &str,
+        source: &str,
+        external_id: Option<&str>,
+    ) -> CortexGroup {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO cortex_groups
+                (id, user_id, name, kind, description, members, accent, source, external_id, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'))
+             ON CONFLICT(user_id, source, external_id) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                members = excluded.members,
+                accent = excluded.accent,
+                updated_at = datetime('now')",
+            params![id, user_id, name, kind, description, members, accent, source, external_id],
+        ).expect("failed to upsert cortex group");
+
+        self.get_group(user_id, id).unwrap_or_else(|| CortexGroup {
+            id: id.to_string(),
+            name: name.to_string(),
+            kind: kind.to_string(),
+            description: description.to_string(),
+            members,
+            accent: accent.to_string(),
+            source: source.to_string(),
+            external_id: external_id.map(String::from),
+        })
+    }
+
+    pub fn list_groups(&self, user_id: &str) -> Vec<CortexGroup> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, name, kind, description, members, accent, source, external_id
+             FROM cortex_groups WHERE user_id = ?1 ORDER BY updated_at DESC"
+        ).unwrap();
+
+        stmt.query_map(params![user_id], |row| Ok(CortexGroup {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            kind: row.get(2)?,
+            description: row.get(3)?,
+            members: row.get(4)?,
+            accent: row.get(5)?,
+            source: row.get(6)?,
+            external_id: row.get(7)?,
+        })).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn get_group(&self, user_id: &str, group_id: &str) -> Option<CortexGroup> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, name, kind, description, members, accent, source, external_id
+             FROM cortex_groups WHERE user_id = ?1 AND id = ?2",
+            params![user_id, group_id],
+            |row| Ok(CortexGroup {
+                id: row.get(0)?,
+                name: row.get(1)?,
+                kind: row.get(2)?,
+                description: row.get(3)?,
+                members: row.get(4)?,
+                accent: row.get(5)?,
+                source: row.get(6)?,
+                external_id: row.get(7)?,
+            }),
+        ).ok()
+    }
+
+    pub fn get_group_task_state(&self, user_id: &str, group_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let raw: String = conn.query_row(
+            "SELECT state_json FROM group_task_state WHERE user_id = ?1 AND group_id = ?2",
+            params![user_id, group_id],
+            |row| row.get(0),
+        ).ok()?;
+        serde_json::from_str(&raw).ok()
+    }
+
+    pub fn upsert_group_task_state(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        state: &serde_json::Value,
+    ) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let raw = serde_json::to_string(state).unwrap_or_else(|_| "{}".to_string());
+        conn.execute(
+            "INSERT INTO group_task_state (group_id, user_id, state_json, updated_at)
+             VALUES (?1, ?2, ?3, datetime('now'))
+             ON CONFLICT(group_id, user_id) DO UPDATE SET
+                state_json = excluded.state_json,
+                updated_at = datetime('now')",
+            params![group_id, user_id, raw],
+        ).expect("failed to upsert group task state");
+        state.clone()
+    }
+
+    // --- Integrations ---
+
+    pub fn upsert_integration_connection(
+        &self,
+        user_id: &str,
+        provider: &str,
+        external_id: Option<&str>,
+        display_name: &str,
+        status: &str,
+        scopes: &[String],
+        access_token: Option<&str>,
+        refresh_token: Option<&str>,
+        metadata: &serde_json::Value,
+    ) -> IntegrationConnection {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        let scopes_json = serde_json::to_string(scopes).unwrap_or_else(|_| "[]".to_string());
+        let metadata_json = serde_json::to_string(metadata).unwrap_or_else(|_| "{}".to_string());
+        conn.execute(
+            "INSERT INTO integration_connections
+                (id, user_id, provider, external_id, display_name, status, scopes, access_token, refresh_token, metadata_json, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, datetime('now'))
+             ON CONFLICT(user_id, provider, external_id) DO UPDATE SET
+                display_name = excluded.display_name,
+                status = excluded.status,
+                scopes = excluded.scopes,
+                access_token = COALESCE(excluded.access_token, access_token),
+                refresh_token = COALESCE(excluded.refresh_token, refresh_token),
+                metadata_json = excluded.metadata_json,
+                last_error = NULL,
+                updated_at = datetime('now')",
+            params![id, user_id, provider, external_id, display_name, status, scopes_json, access_token, refresh_token, metadata_json],
+        ).expect("failed to upsert integration connection");
+
+        self.get_integration_connection(user_id, provider, external_id)
+            .expect("integration connection should exist after upsert")
+    }
+
+    pub fn get_integration_connection(
+        &self,
+        user_id: &str,
+        provider: &str,
+        external_id: Option<&str>,
+    ) -> Option<IntegrationConnection> {
+        let conn = self.conn.lock().unwrap();
+        let sql = if external_id.is_some() {
+            "SELECT id, provider, external_id, display_name, status, scopes, metadata_json, last_sync_at, last_error, created_at, updated_at
+             FROM integration_connections WHERE user_id = ?1 AND provider = ?2 AND external_id = ?3"
+        } else {
+            "SELECT id, provider, external_id, display_name, status, scopes, metadata_json, last_sync_at, last_error, created_at, updated_at
+             FROM integration_connections WHERE user_id = ?1 AND provider = ?2 ORDER BY updated_at DESC LIMIT 1"
+        };
+
+        let mut stmt = conn.prepare(sql).ok()?;
+        let mut rows = if let Some(external_id) = external_id {
+            stmt.query(params![user_id, provider, external_id]).ok()?
+        } else {
+            stmt.query(params![user_id, provider]).ok()?
+        };
+        let row = rows.next().ok()??;
+        let scopes_raw: String = row.get(5).ok()?;
+        let metadata_raw: String = row.get(6).ok()?;
+        Some(IntegrationConnection {
+            id: row.get(0).ok()?,
+            provider: row.get(1).ok()?,
+            external_id: row.get(2).ok()?,
+            display_name: row.get(3).ok()?,
+            status: row.get(4).ok()?,
+            scopes: serde_json::from_str(&scopes_raw).unwrap_or_default(),
+            metadata: serde_json::from_str(&metadata_raw).unwrap_or_else(|_| serde_json::json!({})),
+            last_sync_at: row.get(7).ok()?,
+            last_error: row.get(8).ok()?,
+            created_at: row.get(9).ok()?,
+            updated_at: row.get(10).ok()?,
+        })
+    }
+
+    pub fn get_integration_token(&self, user_id: &str, provider: &str) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT access_token FROM integration_connections
+             WHERE user_id = ?1 AND provider = ?2 AND status = 'connected'
+             ORDER BY updated_at DESC LIMIT 1",
+            params![user_id, provider],
+            |row| row.get(0),
+        ).ok()
+    }
+
+    pub fn list_integration_connections(&self, user_id: &str) -> Vec<IntegrationConnection> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, provider, external_id, display_name, status, scopes, metadata_json, last_sync_at, last_error, created_at, updated_at
+             FROM integration_connections WHERE user_id = ?1 ORDER BY provider ASC, updated_at DESC"
+        ).unwrap();
+
+        stmt.query_map(params![user_id], |row| {
+            let scopes_raw: String = row.get(5)?;
+            let metadata_raw: String = row.get(6)?;
+            Ok(IntegrationConnection {
+                id: row.get(0)?,
+                provider: row.get(1)?,
+                external_id: row.get(2)?,
+                display_name: row.get(3)?,
+                status: row.get(4)?,
+                scopes: serde_json::from_str(&scopes_raw).unwrap_or_default(),
+                metadata: serde_json::from_str(&metadata_raw).unwrap_or_else(|_| serde_json::json!({})),
+                last_sync_at: row.get(7)?,
+                last_error: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            })
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn upsert_integration_mapping(
+        &self,
+        user_id: &str,
+        provider: &str,
+        group_id: &str,
+        external_id: &str,
+        external_name: &str,
+        mapping_type: &str,
+        metadata: &serde_json::Value,
+    ) -> IntegrationMapping {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        let metadata_json = serde_json::to_string(metadata).unwrap_or_else(|_| "{}".to_string());
+        conn.execute(
+            "INSERT INTO integration_mappings
+                (id, user_id, provider, group_id, external_id, external_name, mapping_type, metadata_json, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now'))
+             ON CONFLICT(user_id, provider, external_id, mapping_type) DO UPDATE SET
+                group_id = excluded.group_id,
+                external_name = excluded.external_name,
+                metadata_json = excluded.metadata_json,
+                updated_at = datetime('now')",
+            params![id, user_id, provider, group_id, external_id, external_name, mapping_type, metadata_json],
+        ).expect("failed to upsert integration mapping");
+
+        IntegrationMapping {
+            id,
+            provider: provider.to_string(),
+            group_id: group_id.to_string(),
+            external_id: external_id.to_string(),
+            external_name: external_name.to_string(),
+            mapping_type: mapping_type.to_string(),
+            metadata: metadata.clone(),
+            created_at: Utc::now().to_rfc3339(),
+            updated_at: Utc::now().to_rfc3339(),
+        }
+    }
+
+    pub fn list_integration_mappings(&self, user_id: &str) -> Vec<IntegrationMapping> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, provider, group_id, external_id, external_name, mapping_type, metadata_json, created_at, updated_at
+             FROM integration_mappings WHERE user_id = ?1 ORDER BY updated_at DESC"
+        ).unwrap();
+
+        stmt.query_map(params![user_id], |row| {
+            let metadata_raw: String = row.get(6)?;
+            Ok(IntegrationMapping {
+                id: row.get(0)?,
+                provider: row.get(1)?,
+                group_id: row.get(2)?,
+                external_id: row.get(3)?,
+                external_name: row.get(4)?,
+                mapping_type: row.get(5)?,
+                metadata: serde_json::from_str(&metadata_raw).unwrap_or_else(|_| serde_json::json!({})),
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn record_integration_event(
+        &self,
+        user_id: &str,
+        provider: &str,
+        group_id: Option<&str>,
+        event_type: &str,
+        status: &str,
+        payload: &serde_json::Value,
+    ) {
+        let conn = self.conn.lock().unwrap();
+        let payload_json = serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string());
+        let _ = conn.execute(
+            "INSERT INTO integration_events (id, user_id, provider, group_id, event_type, status, payload_json)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![Uuid::new_v4().to_string(), user_id, provider, group_id, event_type, status, payload_json],
+        );
+    }
+
+    pub fn store_oauth_state(&self, user_id: &str, provider: &str, state: &str, redirect_after: Option<&str>) {
+        let conn = self.conn.lock().unwrap();
+        let expires_at = (Utc::now() + chrono::Duration::minutes(10)).to_rfc3339();
+        let _ = conn.execute(
+            "INSERT OR REPLACE INTO integration_oauth_states (state, user_id, provider, redirect_after, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![state, user_id, provider, redirect_after, expires_at],
+        );
+    }
+
+    pub fn consume_oauth_state(&self, provider: &str, state: &str) -> Option<(String, Option<String>)> {
+        let conn = self.conn.lock().unwrap();
+        let row = conn.query_row(
+            "SELECT user_id, redirect_after FROM integration_oauth_states
+             WHERE provider = ?1 AND state = ?2 AND expires_at > datetime('now')",
+            params![provider, state],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+        ).ok();
+        let _ = conn.execute("DELETE FROM integration_oauth_states WHERE state = ?1", params![state]);
+        row
     }
 
     // --- Workers ---

@@ -36,7 +36,7 @@ interface SidebarProps {
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onConversationsChanged: () => void;
-  onOpenSettings: (tab?: 'providers' | 'spend' | 'billing') => void;
+  onOpenSettings: (tab?: 'providers' | 'integrations' | 'spend' | 'billing') => void;
   onOpenAdmin?: () => void;
   isAdmin?: boolean;
   billing: BillingStatus | null;

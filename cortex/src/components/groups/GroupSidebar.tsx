@@ -4,6 +4,8 @@ import type { BillingStatus } from '../../lib/cortexApi';
 import type { CortexGroup } from '../../lib/groups';
 import Sidebar from '../Sidebar';
 
+type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing';
+
 interface GroupSidebarProps {
   groups: CortexGroup[];
   activeGroupId: string;
@@ -17,7 +19,7 @@ interface GroupSidebarProps {
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onConversationsChanged: () => void;
-  onOpenSettings: (tab?: 'providers' | 'spend' | 'billing') => void;
+  onOpenSettings: (tab?: SettingsTab) => void;
   onOpenAdmin: () => void;
 }
 

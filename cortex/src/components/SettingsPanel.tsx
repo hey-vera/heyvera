@@ -10,10 +10,13 @@ import {
 } from '../lib/cortexApi';
 import BillingPage from './billing/BillingPage';
 import SpendDashboard from './spend/SpendDashboard';
+import IntegrationSetup from './integrations/IntegrationSetup';
+
+type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing';
 
 interface SettingsPanelProps {
   onClose: () => void;
-  initialTab?: 'providers' | 'spend' | 'billing';
+  initialTab?: SettingsTab;
   billing: BillingStatus | null;
 }
 
@@ -38,7 +41,7 @@ export default function SettingsPanel({
   initialTab = 'providers',
   billing,
 }: SettingsPanelProps) {
-  const [tab, setTab] = useState<'providers' | 'spend' | 'billing'>(initialTab);
+  const [tab, setTab] = useState<SettingsTab>(initialTab);
   const [providers, setProviders] = useState<ProviderAuthInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [authStates, setAuthStates] = useState<Record<string, ProviderAuthState>>({});
@@ -160,6 +163,14 @@ export default function SettingsPanel({
             Subscriptions
           </button>
           <button
+            onClick={() => setTab('integrations')}
+            className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
+              tab === 'integrations' ? 'border-[var(--accent)] text-white' : 'border-transparent text-[var(--muted)] hover:text-white'
+            }`}
+          >
+            Integrations
+          </button>
+          <button
             onClick={() => setTab('spend')}
             className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
               tab === 'spend' ? 'border-[var(--accent)] text-white' : 'border-transparent text-[var(--muted)] hover:text-white'
@@ -181,6 +192,8 @@ export default function SettingsPanel({
         <div className="min-h-0 flex-1 overflow-y-auto p-5">
           {tab === 'billing' ? (
             <BillingPage billing={billing} />
+          ) : tab === 'integrations' ? (
+            <IntegrationSetup />
           ) : tab === 'spend' ? (
             <SpendDashboard />
           ) : loading ? (

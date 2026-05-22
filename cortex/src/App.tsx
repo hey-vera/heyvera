@@ -29,6 +29,7 @@ const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
 
 const SESSION_CONTROLS_STORAGE_KEY = 'cortex:session-controls';
 const RUN_PROFILE_STORAGE_KEY = 'cortex:run-profile';
+type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing';
 
 function isSessionControls(value: unknown): value is ChatSessionControls {
   if (!value || typeof value !== 'object') return false;
@@ -127,7 +128,7 @@ function CortexShell() {
   // Auto-creates user's Soma identity + session-scoped delegation on sign-in
   useSomaSession(userId ?? 'anonymous', isSignedIn);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'providers' | 'spend' | 'billing'>('providers');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('providers');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workSurfaceOpen, setWorkSurfaceOpen] = useState(false);
   const activeConversationId = conversationByGroup[activeGroupId] ?? null;
@@ -260,7 +261,7 @@ function CortexShell() {
     setSidebarOpen(false);
   }, [addTeamGroup, groups, navigate]);
 
-  const handleOpenSettings = useCallback((tab: 'providers' | 'spend' | 'billing' = 'providers') => {
+  const handleOpenSettings = useCallback((tab: SettingsTab = 'providers') => {
     setSettingsInitialTab(tab);
     setSettingsOpen(true);
     setSidebarOpen(false);
