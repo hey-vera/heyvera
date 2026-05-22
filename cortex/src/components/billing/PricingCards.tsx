@@ -9,12 +9,12 @@ interface PricingCardsProps {
 const DEFAULT_TRIAL_DAYS = 7;
 
 const FEATURES = [
-  'Unlimited projects & workspaces',
-  'AI-powered code orchestration',
-  'Personal live map',
-  'Priority model access',
-  'GitHub integration',
-  'Team collaboration',
+  'Higher Task Manager usage limits',
+  'More groups and saved workspaces',
+  'Priority routing and response speed',
+  'Full sovereignty loop execution',
+  'GitHub, Slack, and Replit integrations',
+  'Team collaboration controls',
 ] as const;
 
 export default function PricingCards({ compact = false }: PricingCardsProps) {
@@ -105,7 +105,7 @@ export default function PricingCards({ compact = false }: PricingCardsProps) {
           </div>
           <h1 className="text-2xl font-bold text-white">Cortex Pro</h1>
           <p className="mt-1.5 text-sm text-[var(--muted)]">
-            {effectiveTrialDays}-day free trial, then your plan kicks in. Cancel anytime.
+            Upgrade when the free tier becomes part of your workflow.
           </p>
         </div>
 
@@ -253,7 +253,7 @@ export default function PricingCards({ compact = false }: PricingCardsProps) {
         <div className="mb-5 rounded-xl border border-white/6 bg-white/[0.02] p-4">
           <p className="mb-3 flex items-center gap-2 text-xs font-medium text-[var(--muted-strong)]">
             <Zap className="h-3.5 w-3.5 text-[var(--accent)]" />
-            Everything included
+            Pro unlocks
           </p>
           <div className="grid grid-cols-2 gap-2">
             {FEATURES.map((f) => (

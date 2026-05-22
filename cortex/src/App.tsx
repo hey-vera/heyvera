@@ -1,17 +1,38 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
-import { PanelRight, Loader2, Menu } from 'lucide-react';
-import PaymentFailed from './components/billing/PaymentFailed';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CreditCard, ExternalLink, PanelRight, Loader2, Menu, Search } from 'lucide-react';
+import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import TrialBanner from './components/billing/TrialBanner';
-import ChatComposer from './components/chat/ChatComposer';
-import ChatTimeline from './components/chat/ChatTimeline';
-import SessionControls from './components/session/SessionControls';
-import Sidebar from './components/Sidebar';
+import GroupSidebar from './components/groups/GroupSidebar';
+import CommandPalette from './components/shell/CommandPalette';
+import StatusBar from './components/shell/StatusBar';
+import TaskManagerChat from './components/tasks/TaskManagerChat';
+import HomePage from './components/marketing/HomePage';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { useSomaSession } from './lib/useSomaSession';
 import { useBilling } from './lib/useBilling';
-import { CortexApiError, getAdminStats, getUserRouting, setAuthTokenGetter, updateUserRouting } from './lib/cortexApi';
+import {
+  CortexApiError,
+  getAdminStats,
+  getUserRouting,
+  listConversations,
+  setAuthTokenGetter,
+  type BillingAccessState,
+  type ConversationSummary,
+} from './lib/cortexApi';
+import {
+  createTeamGroup,
+  DEFAULT_GROUPS,
+  readGroupConversationMap,
+  readGroups,
+  writeGroupConversationMap,
+  writeGroups,
+  type CortexGroup,
+} from './lib/groups';
 import type { ChatSessionControls, RunProfile } from './types';
+import type { TaskManagerState } from './types';
+import { openDetachedPanel } from './lib/shell/windowManager';
+import { readTaskManagerState, TASK_MANAGER_CHANNEL_NAME } from './lib/taskManager';
 
 const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
   speed: 'balanced',
@@ -21,6 +42,8 @@ const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
 
 const SESSION_CONTROLS_STORAGE_KEY = 'cortex:session-controls';
 const RUN_PROFILE_STORAGE_KEY = 'cortex:run-profile';
+const FREE_TIER_ACCESS_STATES = new Set<BillingAccessState>(['needs_checkout', 'needs_phone', 'cancelled']);
+type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing';
 
 function isSessionControls(value: unknown): value is ChatSessionControls {
   if (!value || typeof value !== 'object') return false;
@@ -65,45 +88,143 @@ function readRunProfile(): RunProfile {
   }
 }
 
-function looksLikeRunGoal(value: string) {
-  const text = value.trim().toLowerCase();
-  if (text.length < 28) return false;
-  const connectiveMatches = text.match(/\b(and|then|after|also|plus)\b/g)?.length ?? 0;
-  const actionMatches = text.match(/\b(fix|add|update|refactor|test|review|commit|deploy|wire|build|implement)\b/g)?.length ?? 0;
-  return connectiveMatches > 0 && actionMatches >= 2;
-}
-
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel'));
 const PricingCards = lazy(() => import('./components/billing/PricingCards'));
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 const WorkSurface = lazy(() => import('./components/work-surface/WorkSurface'));
 
-export default function App() {
+function isFreeTierAccessState(accessState: BillingAccessState | undefined) {
+  return Boolean(accessState && FREE_TIER_ACCESS_STATES.has(accessState));
+}
+
+function FreeTierBanner({
+  accessState,
+  onOpenBilling,
+}: {
+  accessState: BillingAccessState;
+  onOpenBilling: () => void;
+}) {
+  const isCancelled = accessState === 'cancelled';
+  return (
+    <div className="border-b border-[var(--accent)]/15 bg-[var(--accent)]/10 px-3 py-2 sm:px-4">
+      <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-2 sm:gap-3">
+        <span className="rounded-full border border-[var(--accent)]/25 bg-black/15 px-2 py-0.5 text-[11px] font-medium text-[var(--accent)]">
+          Free tier
+        </span>
+        <p className="min-w-[12rem] flex-1 text-xs text-[var(--muted-strong)]">
+          {isCancelled
+            ? 'Your subscription is cancelled. Core Task Manager and routing previews remain available with free-tier limits.'
+            : 'Explore Task Manager, groups, routing previews, and sovereignty controls before upgrading.'}
+        </p>
+        <button
+          type="button"
+          onClick={onOpenBilling}
+          className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/10 bg-white/8 px-2.5 text-xs text-white transition hover:bg-white/12 active:scale-95"
+        >
+          <CreditCard className="h-3.5 w-3.5" />
+          Upgrade
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PaymentIssueBanner({
+  onOpenBilling,
+}: {
+  onOpenBilling: () => void;
+}) {
+  return (
+    <div className="border-b border-red-400/20 bg-red-400/10 px-3 py-2 sm:px-4">
+      <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-2 sm:gap-3">
+        <CreditCard className="h-4 w-4 shrink-0 text-red-200" />
+        <p className="min-w-[12rem] flex-1 text-xs text-red-100">
+          Payment failed. Your workspace is visible, but paid Cortex runtime actions need an updated payment method.
+        </p>
+        <button
+          type="button"
+          onClick={onOpenBilling}
+          className="inline-flex h-7 items-center rounded-lg border border-red-200/20 bg-red-100/10 px-2.5 text-xs text-red-50 transition hover:bg-red-100/15 active:scale-95"
+        >
+          Fix billing
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function useGroupState() {
+  const [groups, setGroups] = useState<CortexGroup[]>(readGroups);
+  const [conversationByGroup, setConversationByGroup] = useState<Record<string, string | null>>(
+    readGroupConversationMap,
+  );
+
+  const addTeamGroup = useCallback((group: CortexGroup) => {
+    setGroups((current) => {
+      if (current.some((existingGroup) => existingGroup.id === group.id)) return current;
+      const nextGroups = [...current, group];
+      writeGroups(nextGroups);
+      return nextGroups;
+    });
+  }, []);
+
+  const setGroupConversation = useCallback((groupId: string, conversationId: string | null) => {
+    setConversationByGroup((current) => {
+      const next = { ...current, [groupId]: conversationId };
+      writeGroupConversationMap(next);
+      return next;
+    });
+  }, []);
+
+  return {
+    groups,
+    addTeamGroup,
+    conversationByGroup,
+    setGroupConversation,
+  };
+}
+
+function CortexShell() {
+  const navigate = useNavigate();
+  const { groupId } = useParams<{ groupId: string }>();
+  const {
+    groups,
+    addTeamGroup,
+    conversationByGroup,
+    setGroupConversation,
+  } = useGroupState();
+  const activeGroup = useMemo(
+    () => groups.find((group) => group.id === groupId) ?? DEFAULT_GROUPS[0],
+    [groupId, groups],
+  );
+  const activeGroupId = activeGroup.id;
   const { isLoaded, isSignedIn, userId, AuthScreen, getToken, clerkEnabled } = useAuthGate();
   // Auto-creates user's Soma identity + session-scoped delegation on sign-in
   useSomaSession(userId ?? 'anonymous', isSignedIn);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsInitialTab, setSettingsInitialTab] = useState<'providers' | 'spend' | 'billing'>('providers');
+  const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('providers');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workSurfaceOpen, setWorkSurfaceOpen] = useState(false);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const activeConversationId = conversationByGroup[activeGroupId] ?? null;
   const [renamingTitle, setRenamingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [conversationListVersion, setConversationListVersion] = useState(0);
-  const [sessionControls, setSessionControls] = useState<ChatSessionControls>(
-    readSessionControls,
-  );
+  const sessionControls = readSessionControls();
   const [runProfile, setRunProfile] = useState<RunProfile>(readRunProfile);
-  const [runBridgeGoal, setRunBridgeGoal] = useState<string | null>(null);
-  const [runBridgeNonce, setRunBridgeNonce] = useState(0);
+  const runBridgeGoal = null;
+  const runBridgeNonce = 0;
   const [adminOpen, setAdminOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [paletteConversations, setPaletteConversations] = useState<ConversationSummary[]>([]);
+  const [taskState, setTaskState] = useState<TaskManagerState | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const billingEnabled = clerkEnabled && isSignedIn;
+  const isDetachedWindow = useMemo(() => new URLSearchParams(window.location.search).has('detached'), []);
 
   const handleConversationCreated = useCallback((conversationId: string) => {
-    setActiveConversationId(conversationId);
-  }, []);
+    setGroupConversation(activeGroupId, conversationId);
+  }, [activeGroupId, setGroupConversation]);
 
   const handleConversationsChanged = useCallback(() => {
     setConversationListVersion((version) => version + 1);
@@ -112,6 +233,49 @@ export default function App() {
   useEffect(() => {
     if (getToken) setAuthTokenGetter(getToken);
   }, [getToken]);
+
+  useEffect(() => {
+    setTaskState(readTaskManagerState(activeGroup, userId ?? 'local'));
+  }, [activeGroup, userId]);
+
+  useEffect(() => {
+    const refreshConversations = () => {
+      void listConversations(userId ?? 'local')
+        .then(setPaletteConversations)
+        .catch(() => setPaletteConversations([]));
+    };
+    refreshConversations();
+    const interval = window.setInterval(refreshConversations, 8000);
+    return () => window.clearInterval(interval);
+  }, [conversationListVersion, userId]);
+
+  useEffect(() => {
+    const channel = typeof BroadcastChannel === 'undefined'
+      ? null
+      : new BroadcastChannel(TASK_MANAGER_CHANNEL_NAME);
+    const onMessage = (event: MessageEvent<{ groupId?: string }>) => {
+      if (event.data?.groupId === activeGroup.id) {
+        setTaskState(readTaskManagerState(activeGroup, userId ?? 'local'));
+      }
+    };
+    channel?.addEventListener('message', onMessage);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key?.includes(`cortex:task-manager:${activeGroup.id}`)) {
+        setTaskState(readTaskManagerState(activeGroup, userId ?? 'local'));
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      channel?.removeEventListener('message', onMessage);
+      channel?.close();
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [activeGroup, userId]);
+
+  useEffect(() => {
+    if (!groupId || groups.some((group) => group.id === groupId)) return;
+    navigate(`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`, { replace: true });
+  }, [groupId, groups, navigate]);
 
   const billing = useBilling(billingEnabled);
 
@@ -133,16 +297,6 @@ export default function App() {
     return () => { cancelled = true; };
   }, [isSignedIn]);
 
-  useEffect(() => {
-    try {
-      window.localStorage.setItem(
-        SESSION_CONTROLS_STORAGE_KEY,
-        JSON.stringify(sessionControls),
-      );
-    } catch {
-      // ignore local preference persistence failures
-    }
-  }, [sessionControls]);
 
   useEffect(() => {
     try {
@@ -187,6 +341,10 @@ export default function App() {
   } = useChatSession({
     activeConversationId,
     userId: userId ?? 'local',
+    isSignedIn: Boolean(isSignedIn),
+    group: activeGroup,
+    sessionControls,
+    runProfile,
     onConversationCreated: handleConversationCreated,
     onConversationsChanged: handleConversationsChanged,
   });
@@ -195,16 +353,23 @@ export default function App() {
   const skipTitleBlurSaveRef = useRef(false);
 
   const handleNewChat = useCallback(() => {
-    setActiveConversationId(null);
+    setGroupConversation(activeGroupId, null);
     setSidebarOpen(false);
-  }, []);
+  }, [activeGroupId, setGroupConversation]);
 
   const handleSelectConversation = useCallback((id: string) => {
-    setActiveConversationId(id);
+    setGroupConversation(activeGroupId, id);
     setSidebarOpen(false);
-  }, []);
+  }, [activeGroupId, setGroupConversation]);
 
-  const handleOpenSettings = useCallback((tab: 'providers' | 'spend' | 'billing' = 'providers') => {
+  const handleCreateGroup = useCallback(() => {
+    const nextGroup = createTeamGroup(groups);
+    addTeamGroup(nextGroup);
+    navigate(`/app/groups/${nextGroup.id}/tasks`);
+    setSidebarOpen(false);
+  }, [addTeamGroup, groups, navigate]);
+
+  const handleOpenSettings = useCallback((tab: SettingsTab = 'providers') => {
     setSettingsInitialTab(tab);
     setSettingsOpen(true);
     setSidebarOpen(false);
@@ -215,34 +380,29 @@ export default function App() {
     setSidebarOpen(false);
   }, []);
 
-  const handleSelectStarter = useCallback((prompt: string) => {
-    setDraft(prompt);
+  const handleCreateTaskFromPalette = useCallback(() => {
+    setDraft((currentDraft) => currentDraft.trim() ? currentDraft : 'Create task: ');
+    setSidebarOpen(false);
+    window.setTimeout(() => {
+      document.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+    }, 0);
   }, [setDraft]);
 
-  const handleRunProfileChange = useCallback((nextProfile: RunProfile) => {
-    setRunProfile(nextProfile);
-    void updateUserRouting(nextProfile).catch(() => {
-      // local preference still applies to run creation if profile persistence fails
-    });
-  }, []);
+  const handlePopOutTaskManager = useCallback(() => {
+    openDetachedPanel('task-manager', activeGroup);
+  }, [activeGroup]);
 
-  const bridgeDraftToRun = useCallback(() => {
-    const nextGoal = draft.trim();
-    if (!nextGoal) return;
-    setRunBridgeGoal(nextGoal);
-    setRunBridgeNonce((nonce) => nonce + 1);
-    setWorkSurfaceOpen(true);
-  }, [draft]);
 
   const clearRunBridgeGoal = useCallback(() => {
-    setRunBridgeGoal(null);
+    // Task Manager Chat does not currently bridge chat drafts into runs.
   }, []);
 
   const headerTitle = activeConversationTitle?.trim() || 'New chat';
   const approvalCount = messages.filter((message) => message.approvalRequest?.state === 'pending').length;
   const showWorkBadge = isStreaming || approvalCount > 0;
-  const showRunBridge = looksLikeRunGoal(draft) && !isStreaming;
   const accessState = billing.status?.access_state;
+  const isFreeTier = billingEnabled && isFreeTierAccessState(accessState);
+  const runtimeLocked = billingEnabled && accessState === 'payment_failed';
   useEffect(() => {
     if (!renamingTitle) return;
     titleInputRef.current?.focus();
@@ -280,8 +440,20 @@ export default function App() {
       const isTextInput = target?.tagName === 'INPUT'
         || target?.tagName === 'TEXTAREA'
         || target?.isContentEditable;
+      const hasModifier = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
+
+      if (hasModifier && key === 'k') {
+        event.preventDefault();
+        setCommandPaletteOpen((open) => !open);
+        return;
+      }
 
       if (event.key === 'Escape') {
+        if (commandPaletteOpen) {
+          setCommandPaletteOpen(false);
+          return;
+        }
         if (checkoutOpen) {
           setCheckoutOpen(false);
           return;
@@ -310,10 +482,8 @@ export default function App() {
 
       if (isTextInput) return;
 
-      const hasModifier = event.metaKey || event.ctrlKey;
       if (!hasModifier) return;
 
-      const key = event.key.toLowerCase();
       if (key === 'n') {
         event.preventDefault();
         handleNewChat();
@@ -326,6 +496,9 @@ export default function App() {
       } else if (key === ',') {
         event.preventDefault();
         handleOpenSettings();
+      } else if (key === 'o' && event.shiftKey) {
+        event.preventDefault();
+        handlePopOutTaskManager();
       }
     };
 
@@ -334,8 +507,10 @@ export default function App() {
   }, [
     adminOpen,
     checkoutOpen,
+    commandPaletteOpen,
     handleNewChat,
     handleOpenSettings,
+    handlePopOutTaskManager,
     isStreaming,
     settingsOpen,
     sidebarOpen,
@@ -355,32 +530,17 @@ export default function App() {
     return <AuthScreen />;
   }
 
-  if (billingEnabled && accessState === 'payment_failed') {
-    return <PaymentFailed billing={billing.status} />;
-  }
-
-  const needsSubscription = billingEnabled && (accessState === 'needs_checkout' || accessState === 'cancelled' || accessState === 'needs_phone');
-
-  if (needsSubscription) {
-    return (
-      <Suspense fallback={
-        <div className="flex min-h-screen items-center justify-center bg-[var(--bg)]">
-          <Loader2 className="h-6 w-6 animate-spin text-[var(--muted)]" />
-        </div>
-      }>
-        <PricingCards />
-      </Suspense>
-    );
-  }
-
   return (
     <div className="flex h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
       <aside className="hidden h-full shrink-0 lg:block">
-        <Sidebar
+        <GroupSidebar
+          groups={groups}
+          activeGroupId={activeGroupId}
           userId={userId ?? 'local'}
           isSignedIn={Boolean(isSignedIn)}
           activeConversationId={activeConversationId}
           refreshKey={conversationListVersion}
+          onCreateGroup={handleCreateGroup}
           onNewChat={handleNewChat}
           onSelectConversation={handleSelectConversation}
           onConversationsChanged={() => {
@@ -402,11 +562,14 @@ export default function App() {
             onClick={() => setSidebarOpen(false)}
           />
           <div className="relative h-full w-[min(20rem,calc(100vw-3rem))] translate-x-0 border-r border-white/8 bg-[var(--bg)] shadow-2xl">
-            <Sidebar
+            <GroupSidebar
+              groups={groups}
+              activeGroupId={activeGroupId}
               userId={userId ?? 'local'}
               isSignedIn={Boolean(isSignedIn)}
               activeConversationId={activeConversationId}
               refreshKey={conversationListVersion}
+              onCreateGroup={handleCreateGroup}
               onNewChat={handleNewChat}
               onSelectConversation={handleSelectConversation}
               onConversationsChanged={() => {
@@ -469,7 +632,7 @@ export default function App() {
                 </button>
               )}
               <div className="hidden text-[11px] text-[var(--muted)] sm:block">
-                Workspace connected
+                {activeGroup.name} task manager
               </div>
             </div>
           </div>
@@ -480,6 +643,26 @@ export default function App() {
                 Streaming
               </span>
             )}
+            <button
+              type="button"
+              className="hidden h-9 items-center gap-2 rounded-lg border border-white/8 bg-white/[0.03] px-2.5 text-xs text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 sm:inline-flex"
+              aria-label="Open command palette"
+              title="Open command palette (Cmd/Ctrl+K)"
+              onClick={() => setCommandPaletteOpen(true)}
+            >
+              <Search className="h-3.5 w-3.5" />
+              <span>Search</span>
+              <kbd className="rounded border border-white/10 bg-black/20 px-1 text-[10px]">K</kbd>
+            </button>
+            <button
+              type="button"
+              className="hidden h-9 w-9 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 lg:inline-flex"
+              aria-label="Pop out task manager"
+              title="Pop out Task Manager (Cmd/Ctrl+Shift+O)"
+              onClick={handlePopOutTaskManager}
+            >
+              <ExternalLink className="h-4 w-4" />
+            </button>
             <button
               type="button"
               className="relative inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 xl:hidden"
@@ -496,49 +679,43 @@ export default function App() {
           </div>
         </header>
         <TrialBanner billing={billing.status} onOpenBilling={() => handleOpenSettings('billing')} />
+        {isFreeTier && accessState && (
+          <FreeTierBanner
+            accessState={accessState}
+            onOpenBilling={() => handleOpenSettings('billing')}
+          />
+        )}
+        {runtimeLocked && (
+          <PaymentIssueBanner onOpenBilling={() => handleOpenSettings('billing')} />
+        )}
 
-        <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
-          <ChatTimeline
-            messages={messages}
-            isLoading={isLoadingConversation}
-            showStarters={!activeConversationId && !isStreaming}
-            onSelectStarter={needsSubscription ? undefined : handleSelectStarter}
-            onApprovalAction={updateApproval}
-          />
-          {!needsSubscription && (
-            <SessionControls
-              value={sessionControls}
-              runProfile={runProfile}
-              onChange={setSessionControls}
-              onRunProfileChange={handleRunProfileChange}
-            />
-          )}
-          {!needsSubscription && showRunBridge && (
-            <div className="border-t border-white/6 px-3 py-2 sm:px-4">
-              <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-2">
-                <p className="min-w-0 truncate text-xs text-[var(--muted-strong)]">
-                  This looks like a multi-step coding goal.
-                </p>
-                <button
-                  type="button"
-                  onClick={bridgeDraftToRun}
-                  className="shrink-0 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-black transition hover:brightness-110 active:scale-95"
-                >
-                  Create run
-                </button>
-              </div>
-            </div>
-          )}
-          <ChatComposer
-            draft={draft}
-            disabled={isStreaming}
-            locked={needsSubscription}
-            onDraftChange={setDraft}
-            onSend={sendMessage}
-            onStop={isStreaming ? stopStreaming : undefined}
-            onSubscribe={() => setCheckoutOpen(true)}
-          />
-        </main>
+        <TaskManagerChat
+          group={activeGroup}
+          userId={userId ?? 'local'}
+          activeConversationId={activeConversationId}
+          messages={messages}
+          draft={draft}
+          isStreaming={isStreaming}
+          isLoadingConversation={isLoadingConversation}
+          needsSubscription={false}
+          onDraftChange={setDraft}
+          onSend={sendMessage}
+          onStop={isStreaming ? stopStreaming : undefined}
+          onSubscribe={() => setCheckoutOpen(true)}
+          onApprovalAction={updateApproval}
+          onTaskStateChange={setTaskState}
+        />
+        <StatusBar
+          groupName={activeGroup.name}
+          activeConversationTitle={headerTitle}
+          isStreaming={isStreaming}
+          isLoadingConversation={isLoadingConversation}
+          runProfile={runProfile}
+          taskState={taskState}
+          detached={isDetachedWindow}
+          onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+          onOpenWorkSurface={() => setWorkSurfaceOpen(true)}
+        />
       </div>
 
       <Suspense fallback={null}>
@@ -592,6 +769,38 @@ export default function App() {
           </div>
         </Suspense>
       )}
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        groups={groups}
+        activeGroupId={activeGroupId}
+        conversations={paletteConversations}
+        taskState={taskState}
+        onClose={() => setCommandPaletteOpen(false)}
+        onCreateTask={handleCreateTaskFromPalette}
+        onCreateGroup={handleCreateGroup}
+        onNewChat={handleNewChat}
+        onSelectGroup={(nextGroupId) => navigate(`/app/groups/${nextGroupId}/tasks`)}
+        onSelectConversation={handleSelectConversation}
+        onOpenSettings={() => handleOpenSettings()}
+        onOpenWorkSurface={() => setWorkSurfaceOpen(true)}
+        onPopOutTaskManager={handlePopOutTaskManager}
+      />
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<HomePage />} />
+        <Route path="/app" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+        <Route path="/app/groups/:groupId/tasks" element={<CortexShell />} />
+        {/* Legacy redirects */}
+        <Route path="/groups/:groupId/tasks" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }

@@ -147,6 +147,26 @@ html.dark {
   background: var(--bg);
 }
 
+/* FRONTEND-SPEC.md is the active web source of truth: dark X-style shell only. */
+:root,
+html.dark {
+  --bg: #000000;
+  --bg-primary: #000000;
+  --bg-elevated: #16181C;
+  --bg-hover: #080808;
+  --border-primary: #2F3336;
+  --border-secondary: #38444D;
+  --text-primary: #E7E9EA;
+  --text-secondary: #71767B;
+  --text-tertiary: #536471;
+  --accent: #00BA7C;
+  --accent-hover: #00D68F;
+  --color-reply: #1D9BF0;
+  --color-repost: #00BA7C;
+  --color-like: #F91880;
+  --color-danger: #F4212E;
+}
+
 html {
   background: var(--bg);
   scroll-behavior: smooth;

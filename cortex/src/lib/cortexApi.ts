@@ -1,4 +1,4 @@
-import type { CortexState } from '../types';
+import type { ChatSessionControls, CortexState, RunProfile, SovereigntyLoopState, TaskManagerState } from '../types';
 
 const CONFIGURED_API_BASE = import.meta.env.VITE_CORTEX_API as string | undefined;
 const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : '');
@@ -108,6 +108,11 @@ export interface WorkerEvent {
 export function streamChat(
   message: string,
   filePaths: string[],
+  routingContext: {
+    controls: ChatSessionControls;
+    run_profile: RunProfile;
+    sovereignty: SovereigntyLoopState;
+  } | null,
   onEvent: (event: WorkerEvent) => void,
   onDone: () => void,
   onError: (err: Error) => void,
@@ -119,7 +124,11 @@ export function streamChat(
       const res = await authedFetch(apiUrl('/api/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, file_paths: filePaths }),
+        body: JSON.stringify({
+          message,
+          file_paths: filePaths,
+          routing_context: routingContext,
+        }),
         signal: controller.signal,
       });
 
@@ -448,6 +457,104 @@ export async function updateUserRouting(profile: string): Promise<UserRoutingSet
   });
 }
 
+export async function getGroupTaskManagerState(groupId: string): Promise<TaskManagerState> {
+  return requestJson<TaskManagerState>(`/api/groups/${encodeURIComponent(groupId)}/tasks`);
+}
+
+export async function updateGroupTaskManagerState(
+  groupId: string,
+  state: TaskManagerState,
+): Promise<TaskManagerState> {
+  return requestJson<TaskManagerState>(`/api/groups/${encodeURIComponent(groupId)}/tasks`, {
+    method: 'PUT',
+    body: JSON.stringify(state),
+  });
+}
+
+export interface IntegrationConnection {
+  id: string;
+  provider: 'slack' | 'replit' | string;
+  external_id: string | null;
+  display_name: string;
+  status: 'connected' | 'needs_config' | 'degraded' | string;
+  scopes: string[];
+  metadata: Record<string, unknown>;
+  last_sync_at: string | null;
+  last_error: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IntegrationMapping {
+  id: string;
+  provider: 'slack' | 'replit' | string;
+  group_id: string;
+  external_id: string;
+  external_name: string;
+  mapping_type: string;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface IntegrationStatus {
+  connections: IntegrationConnection[];
+  mappings: IntegrationMapping[];
+  slack_configured: boolean;
+  replit_configured: boolean;
+}
+
+export interface SlackChannel {
+  id: string;
+  name: string;
+  is_private: boolean;
+  member_count: number;
+}
+
+export interface ReplitWorkspace {
+  id: string;
+  title: string;
+  language: string;
+  url: string | null;
+}
+
+export async function getIntegrationStatus(): Promise<IntegrationStatus> {
+  return requestJson<IntegrationStatus>('/api/integrations/status');
+}
+
+export async function startSlackOAuth(): Promise<{ auth_url: string; state: string }> {
+  return requestJson<{ auth_url: string; state: string }>('/api/integrations/slack/oauth/start', {
+    method: 'POST',
+    body: JSON.stringify({ redirect_after: window.location.pathname }),
+  });
+}
+
+export async function getSlackChannels(): Promise<SlackChannel[]> {
+  return requestJson<SlackChannel[]>('/api/integrations/slack/channels');
+}
+
+export async function importSlackChannels(channels: SlackChannel[]): Promise<{ groups: unknown[]; mappings: IntegrationMapping[] }> {
+  return requestJson<{ groups: unknown[]; mappings: IntegrationMapping[] }>('/api/integrations/slack/import-channels', {
+    method: 'POST',
+    body: JSON.stringify({ channels }),
+  });
+}
+
+export async function getReplitWorkspaces(): Promise<ReplitWorkspace[]> {
+  return requestJson<ReplitWorkspace[]>('/api/integrations/replit/workspaces');
+}
+
+export async function importReplitWorkspace(workspace: ReplitWorkspace): Promise<{ groups: unknown[]; mappings: IntegrationMapping[] }> {
+  return requestJson<{ groups: unknown[]; mappings: IntegrationMapping[] }>('/api/integrations/replit/import', {
+    method: 'POST',
+    body: JSON.stringify({
+      workspace_id: workspace.id,
+      title: workspace.title,
+      language: workspace.language,
+    }),
+  });
+}
+
 export interface UsageSummary {
   last_24h?: unknown;
   last_30d?: unknown;
@@ -748,11 +855,13 @@ export interface ConversationWithMessages {
 }
 
 export async function listConversations(_userId = 'local'): Promise<ConversationSummary[]> {
+  void _userId;
   const res = await authedFetch(apiUrl('/api/conversations'));
   return res.json();
 }
 
 export async function createConversation(_userId = 'local', title?: string): Promise<{ id: string }> {
+  void _userId;
   const res = await authedFetch(apiUrl('/api/conversations'), {
     method: 'POST',
     body: JSON.stringify({ title }),
@@ -761,15 +870,18 @@ export async function createConversation(_userId = 'local', title?: string): Pro
 }
 
 export async function getConversation(id: string, _userId = 'local'): Promise<ConversationWithMessages> {
+  void _userId;
   const res = await authedFetch(apiUrl(`/api/conversations/${id}`));
   return res.json();
 }
 
 export async function deleteConversation(id: string, _userId = 'local'): Promise<void> {
+  void _userId;
   await authedFetch(apiUrl(`/api/conversations/${id}`), { method: 'DELETE' });
 }
 
 export async function updateConversationTitle(id: string, title: string, _userId = 'local'): Promise<void> {
+  void _userId;
   await authedFetch(apiUrl(`/api/conversations/${id}`), {
     method: 'PATCH',
     body: JSON.stringify({ title }),

@@ -36,10 +36,12 @@ interface SidebarProps {
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onConversationsChanged: () => void;
-  onOpenSettings: (tab?: 'providers' | 'spend' | 'billing') => void;
+  onOpenSettings: (tab?: 'providers' | 'integrations' | 'spend' | 'billing') => void;
   onOpenAdmin?: () => void;
   isAdmin?: boolean;
   billing: BillingStatus | null;
+  className?: string;
+  showBorder?: boolean;
 }
 
 interface MenuState {
@@ -142,7 +144,8 @@ export default function Sidebar({
   onOpenSettings,
   onOpenAdmin,
   isAdmin,
-  billing: _billing,
+  className = 'w-72',
+  showBorder = true,
 }: SidebarProps) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -508,7 +511,7 @@ export default function Sidebar({
   const showLoadError = Boolean(loadError) && conversations.length === 0;
 
   return (
-    <div className="relative flex h-full w-72 flex-col border-r border-white/6 bg-[var(--bg)]">
+    <div className={`relative flex h-full flex-col bg-[var(--bg)] ${showBorder ? 'border-r border-white/6' : ''} ${className}`}>
       <div className="p-3">
         <button
           onClick={onNewChat}

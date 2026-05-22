@@ -1,107 +1,208 @@
-import { useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { ArrowLeft, CalendarDays, Link as LinkIcon, MapPin } from 'lucide-react';
+import { useNavigate, useParams } from 'react-router-dom';
+import {
+  bookmarkPost,
+  followUser,
+  getProfilePosts,
+  getUserProfile,
+  likePost,
+  repostPost,
+  unfollowUser,
+  unlikePost,
+} from '../api/client';
+import type { Post, UserProfile } from '../api/types';
+import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
+import { PostCard } from '../components/shared/PostCard';
 
 const TABS = ['Posts', 'Replies', 'Media', 'Likes'] as const;
 type Tab = typeof TABS[number];
 
+function formatCount(count: number): string {
+  if (count < 1000) return String(count);
+  if (count < 1_000_000) return `${(count / 1000).toFixed(count < 10000 ? 1 : 0).replace(/\.0$/, '')}K`;
+  return `${(count / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`;
+}
+
+function formatJoinedDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+}
+
 export function ProfilePage() {
   const { handle } = useParams<{ handle?: string }>();
-  const displayHandle = handle ?? 'yourhandle';
+  const navigate = useNavigate();
+  const profileHandle = handle ?? 'vera';
   const [activeTab, setActiveTab] = useState<Tab>('Posts');
+  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [isFollowing, setIsFollowing] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadProfile() {
+      setLoading(true);
+      setError(null);
+      try {
+        const [nextProfile, feed] = await Promise.all([
+          getUserProfile(profileHandle),
+          getProfilePosts(profileHandle),
+        ]);
+        if (!cancelled) {
+          setProfile(nextProfile);
+          setPosts(feed.posts);
+          setIsFollowing(nextProfile.is_following);
+        }
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load profile');
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadProfile();
+    return () => {
+      cancelled = true;
+    };
+  }, [profileHandle, reloadKey]);
+
+  const toggleFollow = () => {
+    if (!profile) return;
+    const nextFollowing = !isFollowing;
+    setIsFollowing(nextFollowing);
+    void (nextFollowing ? followUser(profile.id) : unfollowUser(profile.id));
+  };
+
+  if (loading) {
+    return <LoadingState label="Loading profile" />;
+  }
+
+  if (error || !profile) {
+    return <ErrorState detail={error ?? 'Profile unavailable'} onRetry={() => setReloadKey((key) => key + 1)} />;
+  }
+
+  const ownProfile = !handle;
+  const visiblePosts = activeTab === 'Posts' ? posts : [];
 
   return (
-    <div className="min-h-screen bg-black text-[#E7E9EA]">
-      {/* Top nav bar */}
-      <div className="sticky top-0 z-10 flex items-center gap-6 border-b border-[#2F3336] bg-black/80 backdrop-blur-md px-4 py-3">
-        <button type="button" className="text-[#E7E9EA] hover:opacity-70 transition-opacity" aria-label="Back">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M7.414 13l5.043 5.04-1.414 1.42L3.586 12l7.457-7.46 1.414 1.42L7.414 11H21v2H7.414z" />
-          </svg>
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+      <div className="sticky top-0 z-10 flex items-center gap-6 border-b bg-black/80 px-4 py-3 backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
+        <button type="button" onClick={() => navigate(-1)} className="rounded-full p-2 transition-colors hover:bg-white/10" aria-label="Back">
+          <ArrowLeft className="h-5 w-5" aria-hidden="true" />
         </button>
         <div>
-          <h1 className="text-[20px] font-bold text-[#E7E9EA] leading-tight">
-            {handle ? handle : 'Your Name'}
-          </h1>
-          <p className="text-[13px] text-[#71767B]">0 posts</p>
+          <h1 className="text-[20px] font-bold leading-tight">{profile.display_name}</h1>
+          <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>{profile.post_count} posts</p>
         </div>
       </div>
 
-      {/* Banner */}
       <div className="relative">
-        <div className="h-[200px] w-full bg-gradient-to-br from-[#2F3336] to-[#1a1d21]" />
+        {profile.banner_url ? (
+          <img src={profile.banner_url} alt="" className="h-[200px] w-full object-cover" />
+        ) : (
+          <div className="h-[200px] w-full" style={{ backgroundColor: 'var(--border-primary)' }} />
+        )}
 
-        {/* Avatar overlapping banner */}
         <div className="absolute -bottom-16 left-4">
-          <div className="h-[134px] w-[134px] rounded-full border-4 border-black bg-[#2F3336]" />
+          <img
+            src={profile.avatar_url}
+            alt={profile.display_name}
+            className="h-[134px] w-[134px] rounded-full border-4 border-black object-cover"
+            style={{ backgroundColor: 'var(--border-primary)' }}
+          />
         </div>
 
-        {/* Edit profile button */}
         <div className="absolute bottom-3 right-4">
           <button
             type="button"
-            className="rounded-full border border-[#2F3336] px-4 py-1.5 text-[14px] font-bold text-[#E7E9EA] transition-colors hover:bg-white/5"
+            onClick={ownProfile ? undefined : toggleFollow}
+            className="rounded-full px-4 py-1.5 text-[14px] font-bold transition-colors hover:opacity-90"
+            style={{
+              border: ownProfile || isFollowing ? '1px solid var(--border-primary)' : undefined,
+              backgroundColor: ownProfile || isFollowing ? 'transparent' : 'var(--accent)',
+              color: ownProfile || isFollowing ? 'var(--text-primary)' : '#000',
+            }}
           >
-            Edit profile
+            {ownProfile ? 'Edit profile' : isFollowing ? 'Following' : 'Follow'}
           </button>
         </div>
       </div>
 
-      {/* Profile info */}
-      <div className="mt-20 px-4 pb-4">
-        <h2 className="text-[20px] font-bold text-[#E7E9EA] leading-tight">
-          {handle ? handle : 'Your Name'}
+      <section className="mt-20 px-4 pb-4">
+        <h2 className="text-[23px] font-bold leading-tight">
+          {profile.display_name}
+          {profile.verified && <span className="ml-1 text-[15px]" style={{ color: 'var(--accent)' }}>✓</span>}
         </h2>
-        <p className="text-[15px] text-[#71767B]">@{displayHandle}</p>
+        <p className="text-[15px]" style={{ color: 'var(--text-secondary)' }}>@{profile.handle}</p>
 
-        <p className="mt-3 text-[15px] text-[#E7E9EA] leading-relaxed">
-          Building on the Vera Network. Rust enthusiast. Ships things that last.
-        </p>
+        <p className="mt-3 whitespace-pre-wrap text-[15px] leading-relaxed">{profile.bio}</p>
 
-        <div className="mt-2 flex items-center gap-1 text-[#71767B]">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-            <path d="M7 4V3h2v1h6V3h2v1h1.5C19.881 4 21 5.119 21 6.5v14c0 1.381-1.119 2.5-2.5 2.5h-15C2.119 23 1 21.881 1 20.5v-14C1 5.119 2.119 4 3.5 4H5V3h2v1h0zm-2 2H3.5c-.276 0-.5.224-.5.5v14c0 .276.224.5.5.5h15c.276 0 .5-.224.5-.5v-14c0-.276-.224-.5-.5-.5H17v1h-2V6H9v1H7V6H5zm0 6h2v2H5v-2zm0 4h2v2H5v-2zm4-4h2v2H9v-2zm0 4h2v2H9v-2zm4-4h2v2h-2v-2zm0 4h2v2h-2v-2z" />
-          </svg>
-          <span className="text-[13px]">Joined May 2026</span>
+        <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+          {profile.location && (
+            <span className="flex items-center gap-1">
+              <MapPin className="h-4 w-4" aria-hidden="true" />
+              {profile.location}
+            </span>
+          )}
+          {profile.website && (
+            <a href={profile.website} className="flex items-center gap-1 hover:underline" style={{ color: 'var(--accent)' }}>
+              <LinkIcon className="h-4 w-4" aria-hidden="true" />
+              {profile.website.replace(/^https?:\/\//, '')}
+            </a>
+          )}
+          <span className="flex items-center gap-1">
+            <CalendarDays className="h-4 w-4" aria-hidden="true" />
+            Joined {formatJoinedDate(profile.joined_at)}
+          </span>
         </div>
 
-        {/* Following / Followers */}
         <div className="mt-3 flex gap-5">
           <button type="button" className="flex gap-1 text-[15px] transition-colors hover:underline">
-            <span className="font-bold text-[#E7E9EA]">142</span>
-            <span className="text-[#71767B]">Following</span>
+            <span className="font-bold">{formatCount(profile.following_count)}</span>
+            <span style={{ color: 'var(--text-secondary)' }}>Following</span>
           </button>
           <button type="button" className="flex gap-1 text-[15px] transition-colors hover:underline">
-            <span className="font-bold text-[#E7E9EA]">83</span>
-            <span className="text-[#71767B]">Followers</span>
+            <span className="font-bold">{formatCount(profile.follower_count)}</span>
+            <span style={{ color: 'var(--text-secondary)' }}>Followers</span>
           </button>
         </div>
-      </div>
+      </section>
 
-      {/* Tab bar */}
-      <div className="flex border-b border-[#2F3336]">
+      <div className="flex border-b" style={{ borderColor: 'var(--border-primary)' }}>
         {TABS.map((tab) => (
           <button
             key={tab}
             type="button"
             onClick={() => setActiveTab(tab)}
-            className={`flex-1 py-4 text-[15px] font-medium transition-colors hover:bg-white/5 ${
-              activeTab === tab ? 'text-[#E7E9EA]' : 'text-[#71767B]'
-            }`}
+            className="flex-1 py-4 text-[15px] font-medium transition-colors hover:bg-white/5"
+            style={{ color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)' }}
           >
             <span className="relative inline-block">
               {tab}
               {activeTab === tab && (
-                <span className="absolute -bottom-[17px] left-0 right-0 h-[4px] rounded-full bg-[#00BA7C]" />
+                <span className="absolute -bottom-[17px] left-0 right-0 h-[4px] rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
               )}
             </span>
           </button>
         ))}
       </div>
 
-      {/* Posts placeholder */}
-      <div className="flex flex-col items-center justify-center py-20 text-[#71767B]">
-        <p className="text-[15px]">No posts yet</p>
-      </div>
+      {visiblePosts.length === 0 ? (
+        <EmptyState title={activeTab === 'Posts' ? 'No posts yet' : 'Nothing here yet'} />
+      ) : (
+        visiblePosts.map((post) => (
+          <PostCard
+            key={post.id}
+            post={post}
+            onLike={(id, liked) => void (liked ? likePost(id) : unlikePost(id))}
+            onRepost={(id) => void repostPost(id)}
+            onBookmark={(id) => void bookmarkPost(id)}
+          />
+        ))
+      )}
     </div>
   );
 }
