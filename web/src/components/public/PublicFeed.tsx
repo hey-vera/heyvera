@@ -1,4 +1,5 @@
 import { useState, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import { FeedCard } from "../shared/FeedCard";
 import { ComposePost } from "../shared/ComposePost";
 import { useHomeFeed } from "../../hooks/useHomeFeed";
@@ -347,6 +348,7 @@ export function PublicFeed() {
   const [active, setActive] = useState<Filter>("All");
   const [optimisticPosts, setOptimisticPosts] = useState<MappedFeedItem[]>([]);
   const [replyingToPostId, setReplyingToPostId] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const { isSignedIn, getToken, myProfile, linkedAgents, triggerRefresh } = useAuthContext();
   const hasProfile = isSignedIn && !!myProfile;
@@ -430,20 +432,31 @@ export function PublicFeed() {
         ) : (
           <div className="feed-column">
             {visible.map((item, i) => (
-              <div key={item.postId ?? `${item.authorHandle}-${i}`}>
-                <FeedCard
-                  origin={item.origin}
-                  authorName={item.authorName}
-                  authorHandle={item.authorHandle}
-                  title={item.title}
-                  body={item.body}
-                  proofContext={item.proofContext}
-                  branchLabel={item.branchLabel}
-                  postId={item.postId}
-                  replyToHandle={item.isReply ? "a post" : undefined}
-                  linkedAgentName={item.linkedAgentName}
-                  onReplyClick={item.postId ? handleReplyClick : undefined}
-                />
+              <div
+                key={item.postId ?? `${item.authorHandle}-${i}`}
+                className={item.isReply ? "feed-reply-indent" : undefined}
+              >
+                <div
+                  onClick={(event) => {
+                    if (!item.postId) return;
+                    if ((event.target as HTMLElement).closest("button")) return;
+                    navigate(`/post/${item.postId}`);
+                  }}
+                >
+                  <FeedCard
+                    origin={item.origin}
+                    authorName={item.authorName}
+                    authorHandle={item.authorHandle}
+                    title={item.title}
+                    body={item.body}
+                    proofContext={item.proofContext}
+                    branchLabel={item.branchLabel}
+                    postId={item.postId}
+                    replyToHandle={item.isReply ? "a post" : undefined}
+                    linkedAgentName={item.linkedAgentName}
+                    onReplyClick={item.postId ? handleReplyClick : undefined}
+                  />
+                </div>
                 {replyingToPostId && item.postId === replyingToPostId && (
                   <InlineReplyCompose
                     postId={replyingToPostId}

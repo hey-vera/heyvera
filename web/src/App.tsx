@@ -20,6 +20,7 @@ import { TopContextBar } from "./components/app/TopContextBar";
 import SettingsPage from "./components/settings/SettingsPage";
 import { NotificationsPage } from "./components/notifications/NotificationsPage";
 import { SearchPage } from "./components/search/SearchPage";
+import { PostThreadPage } from "./components/post/PostThreadPage";
 
 type ErrorBoundaryProps = { children: ReactNode };
 type ErrorBoundaryState = { hasError: boolean };
@@ -206,7 +207,7 @@ function AppShell() {
             <Route path="/you" element={<VeraSocials shellState={shellState} />} />
             <Route path="/profile/:handle" element={<VeraSocials shellState={shellState} />} />
             <Route path="/community/:slug" element={<VeraSocials shellState={shellState} />} />
-            <Route path="/post/:id" element={<VeraSocials shellState={shellState} />} />
+            <Route path="/post/:id" element={<PostThreadPage shellState={shellState} />} />
             <Route path="/identity" element={<IdentityRegion shellState={shellState} />} />
             <Route path="/agent" element={<AgentRegion shellState={shellState} />} />
             <Route path="/market" element={<MarketPlaceholder />} />
