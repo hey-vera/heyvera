@@ -315,11 +315,16 @@ export default function PromoCodeManager() {
   );
 }
 
-interface OptionDraft {
-  label: string;
-  discount_type: string;
-  discount_value: number;
+interface TagDraft {
+  type: string;
+  value: number;
 }
+
+const AVAILABLE_TYPES = [
+  { key: 'trial_extension', label: 'Trial extension', unit: 'days', defaultValue: 14 },
+  { key: 'percent_off', label: 'Percent off', unit: '%', defaultValue: 25 },
+  { key: 'free_trial', label: 'Free trial', unit: 'days', defaultValue: 14 },
+] as const;
 
 function CreateCodeForm({
   onCreated,
@@ -329,41 +334,46 @@ function CreateCodeForm({
   onCancel: () => void;
 }) {
   const [code, setCode] = useState('');
-  const [discountType, setDiscountType] = useState('trial_extension');
-  const [discountValue, setDiscountValue] = useState(14);
+  const [tags, setTags] = useState<TagDraft[]>([{ type: 'trial_extension', value: 14 }]);
   const [maxUses, setMaxUses] = useState(25);
   const [expiresAt, setExpiresAt] = useState('');
   const [description, setDescription] = useState('');
-  const [multiOption, setMultiOption] = useState(false);
-  const [options, setOptions] = useState<OptionDraft[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function addOption() {
-    setOptions((prev) => [...prev, { label: '', discount_type: 'trial_extension', discount_value: 14 }]);
+  function addTag(typeKey: string) {
+    const def = AVAILABLE_TYPES.find((t) => t.key === typeKey);
+    if (!def) return;
+    if (tags.some((t) => t.type === typeKey)) return;
+    setTags((prev) => [...prev, { type: typeKey, value: def.defaultValue }]);
   }
 
-  function removeOption(idx: number) {
-    setOptions((prev) => prev.filter((_, i) => i !== idx));
+  function removeTag(typeKey: string) {
+    setTags((prev) => prev.filter((t) => t.type !== typeKey));
   }
 
-  function updateOption(idx: number, patch: Partial<OptionDraft>) {
-    setOptions((prev) => prev.map((o, i) => i === idx ? { ...o, ...patch } : o));
+  function updateTagValue(typeKey: string, value: number) {
+    setTags((prev) => prev.map((t) => t.type === typeKey ? { ...t, value } : t));
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (tags.length === 0) { setError('Add at least one discount type'); return; }
     setSaving(true);
     setError(null);
     try {
-      const discountOptions: DiscountOption[] | undefined = multiOption && options.length > 0
-        ? options.map((o) => ({ label: o.label || autoLabel(o.discount_type, o.discount_value), discount_type: o.discount_type, discount_value: o.discount_value }))
+      const primary = tags[0];
+      const discountOptions: DiscountOption[] | undefined = tags.length > 1
+        ? tags.map((t) => {
+            const def = AVAILABLE_TYPES.find((a) => a.key === t.type);
+            return { label: `${t.value}${def?.unit === '%' ? '%' : ` ${def?.unit ?? ''}`} ${def?.label?.toLowerCase() ?? t.type}`, discount_type: t.type, discount_value: t.value };
+          })
         : undefined;
 
       const result = await createAdminPromoCode({
         code: code.trim().toUpperCase(),
-        discount_type: discountType,
-        discount_value: discountValue,
+        discount_type: primary.type,
+        discount_value: primary.value,
         max_uses: maxUses,
         expires_at: expiresAt || undefined,
         description: description.trim() || undefined,
@@ -376,6 +386,8 @@ function CreateCodeForm({
       setSaving(false);
     }
   };
+
+  const unusedTypes = AVAILABLE_TYPES.filter((t) => !tags.some((tag) => tag.type === t.key));
 
   return (
     <form
@@ -405,39 +417,6 @@ function CreateCodeForm({
             maxLength={32}
             required
             className="w-full rounded-lg border border-white/8 bg-[var(--composer)] px-3 py-2 font-mono text-sm text-white outline-none transition focus:border-[var(--accent)]/50"
-          />
-        </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-[var(--muted)]">
-            Default type
-          </label>
-          <select
-            value={discountType}
-            onChange={(e) => {
-              setDiscountType(e.target.value);
-              if (e.target.value === 'trial_extension') setDiscountValue(14);
-              else if (e.target.value === 'percent_off') setDiscountValue(25);
-              else setDiscountValue(14);
-            }}
-            className="w-full rounded-lg border border-white/8 bg-[var(--composer)] px-3 py-2 text-sm text-white outline-none transition focus:border-[var(--accent)]/50"
-          >
-            <option value="trial_extension">Trial extension (days)</option>
-            <option value="percent_off">Percent off</option>
-            <option value="free_trial">Free trial (days)</option>
-          </select>
-        </div>
-        <div>
-          <label className="mb-1 block text-[11px] font-medium uppercase tracking-wider text-[var(--muted)]">
-            Default value
-          </label>
-          <input
-            type="number"
-            value={discountValue}
-            onChange={(e) => setDiscountValue(Number(e.target.value))}
-            min={1}
-            max={discountType === 'percent_off' ? 100 : 365}
-            required
-            className="w-full rounded-lg border border-white/8 bg-[var(--composer)] px-3 py-2 text-sm text-white outline-none transition focus:border-[var(--accent)]/50"
           />
         </div>
         <div>
@@ -478,88 +457,55 @@ function CreateCodeForm({
         </div>
       </div>
 
-      {/* Multi-option toggle */}
-      <div className="flex items-center gap-3 pt-1">
-        <button
-          type="button"
-          onClick={() => {
-            setMultiOption(!multiOption);
-            if (!multiOption && options.length === 0) {
-              setOptions([
-                { label: '', discount_type: 'percent_off', discount_value: 25 },
-                { label: '', discount_type: 'trial_extension', discount_value: 14 },
-              ]);
-            }
-          }}
-          className="flex items-center gap-2 text-xs text-[var(--muted-strong)] transition hover:text-white"
-        >
-          {multiOption ? <ToggleRight className="h-4 w-4 text-[var(--accent)]" /> : <ToggleLeft className="h-4 w-4" />}
-          Multiple discount options
-        </button>
-        {multiOption && (
-          <span className="text-[10px] text-[var(--muted)]">Customer picks one</span>
-        )}
-      </div>
-
-      {multiOption && (
-        <div className="space-y-2 rounded-lg border border-white/6 bg-white/[0.02] p-3">
-          {options.map((opt, idx) => (
-            <div key={idx} className="flex items-end gap-2">
-              <div className="flex-1">
-                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">
-                  Label
-                </label>
-                <input
-                  value={opt.label}
-                  onChange={(e) => updateOption(idx, { label: e.target.value })}
-                  placeholder={autoLabel(opt.discount_type, opt.discount_value)}
-                  className="w-full rounded-lg border border-white/8 bg-[var(--composer)] px-2 py-1.5 text-xs text-white outline-none transition focus:border-[var(--accent)]/50"
-                />
-              </div>
-              <div className="w-32">
-                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">
-                  Type
-                </label>
-                <select
-                  value={opt.discount_type}
-                  onChange={(e) => updateOption(idx, { discount_type: e.target.value })}
-                  className="w-full rounded-lg border border-white/8 bg-[var(--composer)] px-2 py-1.5 text-xs text-white outline-none transition focus:border-[var(--accent)]/50"
-                >
-                  <option value="trial_extension">Extra days</option>
-                  <option value="percent_off">% off</option>
-                  <option value="free_trial">Free trial</option>
-                </select>
-              </div>
-              <div className="w-20">
-                <label className="mb-1 block text-[10px] font-medium uppercase tracking-wider text-[var(--muted)]">
-                  Value
-                </label>
+      {/* Discount type tags */}
+      <div>
+        <label className="mb-2 block text-[11px] font-medium uppercase tracking-wider text-[var(--muted)]">
+          Discount types
+        </label>
+        <div className="space-y-2">
+          {tags.map((tag) => {
+            const def = AVAILABLE_TYPES.find((t) => t.key === tag.type);
+            return (
+              <div
+                key={tag.type}
+                className="flex items-center gap-2 rounded-lg border border-[var(--accent)]/20 bg-[var(--accent)]/8 px-3 py-2"
+              >
+                <span className="text-xs font-medium text-white">{def?.label ?? tag.type}</span>
                 <input
                   type="number"
-                  value={opt.discount_value}
-                  onChange={(e) => updateOption(idx, { discount_value: Number(e.target.value) })}
+                  value={tag.value}
+                  onChange={(e) => updateTagValue(tag.type, Number(e.target.value))}
                   min={1}
-                  className="w-full rounded-lg border border-white/8 bg-[var(--composer)] px-2 py-1.5 text-xs text-white outline-none transition focus:border-[var(--accent)]/50"
+                  max={tag.type === 'percent_off' ? 100 : 365}
+                  className="w-16 rounded border border-white/10 bg-[var(--composer)] px-2 py-1 text-xs text-white outline-none transition focus:border-[var(--accent)]/50"
                 />
+                <span className="text-[10px] text-[var(--muted)]">{def?.unit}</span>
+                <button
+                  type="button"
+                  onClick={() => removeTag(tag.type)}
+                  className="ml-auto rounded p-1 text-[var(--muted)] transition hover:bg-red-500/12 hover:text-red-300"
+                >
+                  <X className="h-3 w-3" />
+                </button>
               </div>
-              <button
-                type="button"
-                onClick={() => removeOption(idx)}
-                className="mb-0.5 rounded-lg p-1.5 text-[var(--muted)] transition hover:bg-red-500/12 hover:text-red-300"
-              >
-                <X className="h-3.5 w-3.5" />
-              </button>
-            </div>
-          ))}
-          <button
-            type="button"
-            onClick={addOption}
-            className="flex items-center gap-1 rounded-lg border border-dashed border-white/10 px-3 py-1.5 text-[10px] text-[var(--muted)] transition hover:border-white/20 hover:text-white"
-          >
-            <Plus className="h-3 w-3" /> Add option
-          </button>
+            );
+          })}
         </div>
-      )}
+        {unusedTypes.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {unusedTypes.map((t) => (
+              <button
+                key={t.key}
+                type="button"
+                onClick={() => addTag(t.key)}
+                className="flex items-center gap-1 rounded-full border border-dashed border-white/12 px-2.5 py-1 text-[10px] text-[var(--muted)] transition hover:border-white/25 hover:text-white"
+              >
+                <Plus className="h-2.5 w-2.5" /> {t.label}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
 
       {error && (
         <p className="rounded-lg border border-red-400/15 bg-red-400/8 px-3 py-2 text-xs text-red-100">
@@ -588,9 +534,3 @@ function CreateCodeForm({
   );
 }
 
-function autoLabel(type: string, value: number): string {
-  if (type === 'percent_off') return `${value}% off annual`;
-  if (type === 'trial_extension') return `${value} extra free days`;
-  if (type === 'free_trial') return `${value}-day free trial`;
-  return `${value} discount`;
-}
