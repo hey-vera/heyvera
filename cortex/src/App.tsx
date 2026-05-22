@@ -6,7 +6,6 @@ import GroupSidebar from './components/groups/GroupSidebar';
 import CommandPalette from './components/shell/CommandPalette';
 import StatusBar from './components/shell/StatusBar';
 import TaskManagerChat from './components/tasks/TaskManagerChat';
-import HomePage from './components/marketing/HomePage';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { useSomaSession } from './lib/useSomaSession';
@@ -526,9 +525,7 @@ function CortexShell() {
     );
   }
 
-  if (!isSignedIn && AuthScreen) {
-    return <AuthScreen />;
-  }
+  // Users can access Cortex immediately - no auth gate needed for demo mode
 
   return (
     <div className="flex h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
@@ -794,11 +791,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/app" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
-        <Route path="/app/groups/:groupId/tasks" element={<CortexShell />} />
-        {/* Legacy redirects */}
-        <Route path="/groups/:groupId/tasks" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+        <Route path="/" element={<CortexShell />} />
+        <Route path="/groups/:groupId/tasks" element={<CortexShell />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
