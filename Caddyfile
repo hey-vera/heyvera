@@ -23,6 +23,8 @@ heyvera.org, www.heyvera.org {
 		file_server
 		header Cache-Control "no-cache, no-store, must-revalidate"
 	}
+	# Note: if /var/www/heyvera is not writable, files land in /home/guardian/www/heyvera
+	# Update root above to match after first deploy
 
 	header {
 		X-Content-Type-Options nosniff
