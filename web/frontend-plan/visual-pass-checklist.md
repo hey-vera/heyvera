@@ -20,7 +20,7 @@
 
 - [x] **Real channels/rooms** — Discord-style channel rail inside community, #general shows live feed
 - [x] **Thread creation** — New Thread button in #general opens compose pre-targeted to community, posts are clickable threads
-- [ ] **Member list** — sidebar showing online/offline members in a community
+- [x] **Member list** — sidebar showing online/offline members with role badges (stubbed pending backend)
 - [ ] **Community roles** — role badges, permission indicators
 
 ## Feed intelligence (Bluesky-inspired)

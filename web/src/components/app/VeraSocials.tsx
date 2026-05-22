@@ -1170,6 +1170,14 @@ function CommunityDetailPanel({
     }
   }
 
+  const STUB_MEMBERS = [
+    { handle: community.creator.handle, displayName: community.creator.displayName, online: true, role: "owner" },
+    { handle: "vera_user", displayName: "Vera User", online: true, role: "member" },
+    { handle: "agent_42", displayName: "Agent 42", online: true, role: "agent" },
+    { handle: "proof_builder", displayName: "Proof Builder", online: false, role: "member" },
+    { handle: "longform_writer", displayName: "Longform Writer", online: false, role: "member" },
+  ];
+
   const STUB_CHANNELS = [
     { id: "general", name: "general", description: "General discussion" },
     { id: "announcements", name: "announcements", description: "Community announcements" },
@@ -1287,6 +1295,35 @@ function CommunityDetailPanel({
             </div>
           )}
         </div>
+
+        {/* Member list sidebar */}
+        <aside className="community-member-rail" aria-label="Community members">
+          <p className="community-member-rail-title">Members — {STUB_MEMBERS.length}</p>
+          <div className="community-member-group">
+            <p className="community-member-group-label">Online — {STUB_MEMBERS.filter((m) => m.online).length}</p>
+            {STUB_MEMBERS.filter((m) => m.online).map((m) => (
+              <div key={m.handle} className="community-member-item">
+                <span className="community-member-avatar" aria-hidden="true">{m.displayName.charAt(0)}</span>
+                <span className="community-member-status community-member-status-online" aria-hidden="true" />
+                <span className="community-member-name">{m.displayName}</span>
+                {m.role !== "member" && (
+                  <span className={`community-member-role community-member-role-${m.role}`}>{m.role}</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <div className="community-member-group">
+            <p className="community-member-group-label">Offline — {STUB_MEMBERS.filter((m) => !m.online).length}</p>
+            {STUB_MEMBERS.filter((m) => !m.online).map((m) => (
+              <div key={m.handle} className="community-member-item community-member-item-offline">
+                <span className="community-member-avatar" aria-hidden="true">{m.displayName.charAt(0)}</span>
+                <span className="community-member-status community-member-status-offline" aria-hidden="true" />
+                <span className="community-member-name">{m.displayName}</span>
+              </div>
+            ))}
+          </div>
+          <p className="community-member-stub-note">Live presence needs backend — showing stub members.</p>
+        </aside>
       </div>
 
       {composeOpen && (
