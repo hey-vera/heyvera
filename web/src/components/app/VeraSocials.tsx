@@ -1135,6 +1135,7 @@ function CommunityDetailPanel({
 
   const [communityFeed, setCommunityFeed] = useState<FeedPost[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
+  const [composeOpen, setComposeOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1241,6 +1242,15 @@ function CommunityDetailPanel({
             <span className="community-channel-hash">#</span>
             <strong>{currentChannel.name}</strong>
             <span className="community-channel-desc">{currentChannel.description}</span>
+            {activeChannel === "general" && showWriteCtas && isSignedIn && (
+              <button
+                type="button"
+                className="button button-outline community-channel-new-thread"
+                onClick={() => setComposeOpen(true)}
+              >
+                + New Thread
+              </button>
+            )}
           </div>
 
           {activeChannel === "general" ? (
@@ -1255,11 +1265,17 @@ function CommunityDetailPanel({
                 <p className="network-sidebar-empty">No posts in #general yet.</p>
               ) : (
                 communityFeed.map((post) => (
-                  <div key={post.id} className="community-channel-message">
+                  <button
+                    key={post.id}
+                    type="button"
+                    className="community-channel-message community-channel-message-btn"
+                    onClick={() => navigate(`/post/${post.id}`)}
+                    aria-label={`Open thread by @${post.author.handle}`}
+                  >
                     <span className="community-channel-message-author">@{post.author.handle}</span>
                     <p className="community-channel-message-body">{post.body}</p>
                     <span className="community-channel-message-time">{formatRelativeTime(post.createdAt)}</span>
-                  </div>
+                  </button>
                 ))
               )}
             </div>
@@ -1272,6 +1288,14 @@ function CommunityDetailPanel({
           )}
         </div>
       </div>
+
+      {composeOpen && (
+        <ComposeModal
+          isOpen={composeOpen}
+          onClose={() => setComposeOpen(false)}
+          defaultCommunityId={community.id}
+        />
+      )}
     </div>
   );
 }

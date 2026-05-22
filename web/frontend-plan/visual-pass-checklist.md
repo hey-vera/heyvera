@@ -19,7 +19,7 @@
 ## Community features (Discord-inspired)
 
 - [x] **Real channels/rooms** — Discord-style channel rail inside community, #general shows live feed
-- [ ] **Thread creation** — threads inside community channels
+- [x] **Thread creation** — New Thread button in #general opens compose pre-targeted to community, posts are clickable threads
 - [ ] **Member list** — sidebar showing online/offline members in a community
 - [ ] **Community roles** — role badges, permission indicators
 

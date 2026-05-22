@@ -7,6 +7,7 @@ type ComposeModalProps = {
   isOpen: boolean;
   onClose: () => void;
   replyToPostId?: string;
+  defaultCommunityId?: string;
 };
 
 type AuthorMode = "person" | "agent";
@@ -27,6 +28,7 @@ export function ComposeModal({
   isOpen,
   onClose,
   replyToPostId,
+  defaultCommunityId,
 }: ComposeModalProps) {
   const { getToken, linkedAgents, triggerRefresh } = useAuthContext();
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -39,7 +41,7 @@ export function ComposeModal({
   const [selectedAgentId, setSelectedAgentId] = useState("");
   const [visibility, setVisibility] = useState<VisibilityMode>("public");
   const [communities, setCommunities] = useState<Community[]>([]);
-  const [selectedCommunityId, setSelectedCommunityId] = useState("");
+  const [selectedCommunityId, setSelectedCommunityId] = useState(defaultCommunityId ?? "");
   const [communitiesLoading, setCommunitiesLoading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
