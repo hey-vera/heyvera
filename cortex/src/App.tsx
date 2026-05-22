@@ -711,7 +711,6 @@ function CortexShell() {
         <TaskManagerChat
           group={activeGroup}
           userId={userId ?? 'local'}
-          isSignedIn={Boolean(isSignedIn)}
           activeConversationId={activeConversationId}
           messages={messages}
           draft={draft}

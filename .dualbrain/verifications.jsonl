@@ -28,3 +28,13 @@
 {"claim":"rg-available","status":"verified","evidence":"ripgrep found","checkedAt":"2026-05-20T16:16:10.443Z","expiresAt":"2026-05-21T16:16:10.448Z","probe":"which rg"}
 {"claim":"living-docs-init","status":"verified","evidence":".dualbrain/ exists","checkedAt":"2026-05-20T16:16:10.448Z","expiresAt":"2026-05-20T16:21:10.448Z","probe":"fs check"}
 {"claim":"model-registry-fresh","status":"verified","evidence":"Registry 5 days old","checkedAt":"2026-05-20T16:16:10.448Z","expiresAt":"2026-05-27T16:16:10.448Z","probe":"registry age check"}
+{"claim":"claude-available","status":"verified","evidence":"claude CLI found","checkedAt":"2026-05-22T16:55:43.373Z","expiresAt":"2026-05-23T16:55:43.379Z","probe":"which claude"}
+{"claim":"openai-key","status":"verified","evidence":"codex CLI found (subscription auth)","checkedAt":"2026-05-22T16:55:43.379Z","expiresAt":"2026-05-23T16:55:43.383Z","probe":"which codex"}
+{"claim":"anthropic-key","status":"verified","evidence":"claude CLI found (subscription auth)","checkedAt":"2026-05-22T16:55:43.383Z","expiresAt":"2026-05-23T16:55:43.388Z","probe":"which claude"}
+{"claim":"git-available","status":"verified","evidence":"git version 2.50.1","checkedAt":"2026-05-22T16:55:43.388Z","expiresAt":"2026-05-23T16:55:43.393Z","probe":"git --version"}
+{"claim":"npm-auth","status":"failed","evidence":"npm auth failed","checkedAt":"2026-05-22T16:55:43.393Z","expiresAt":"2026-05-22T17:00:43.623Z","probe":"npm whoami"}
+{"claim":"database-reachable","status":"verified","evidence":"DATABASE_URL configured (not connection-tested)","checkedAt":"2026-05-22T16:55:43.623Z","expiresAt":"2026-05-22T17:00:43.624Z","probe":"env check"}
+{"claim":"codex-available","status":"verified","evidence":"codex CLI found","checkedAt":"2026-05-22T16:55:43.624Z","expiresAt":"2026-05-23T16:55:43.629Z","probe":"which codex"}
+{"claim":"rg-available","status":"verified","evidence":"ripgrep found","checkedAt":"2026-05-22T16:55:43.629Z","expiresAt":"2026-05-23T16:55:43.634Z","probe":"which rg"}
+{"claim":"living-docs-init","status":"verified","evidence":".dualbrain/ exists","checkedAt":"2026-05-22T16:55:43.634Z","expiresAt":"2026-05-22T17:00:43.635Z","probe":"fs check"}
+{"claim":"model-registry-fresh","status":"verified","evidence":"Registry 7 days old","checkedAt":"2026-05-22T16:55:43.635Z","expiresAt":"2026-05-29T16:55:43.635Z","probe":"registry age check"}
