@@ -4249,6 +4249,49 @@ html.dark .vera-socials-sidebar-pulse {
   color: var(--text);
 }
 
+.feed-card-reaction {
+  font-size: 0.8rem;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 999px;
+  padding: 2px 8px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.feed-card-reaction:hover {
+  background: var(--accent-surface, rgba(0,0,0,0.05));
+  border-color: var(--border);
+  color: var(--text-primary);
+}
+
+.feed-card-reaction-active {
+  background: var(--accent-surface);
+  border-color: var(--accent-border, var(--accent));
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.feed-card-repost-action {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  background: none;
+  border: none;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.feed-card-repost-action:hover {
+  background: var(--accent-surface, rgba(0, 0, 0, 0.04));
+  color: var(--text);
+}
+
 .feed-card-reply-count {
   font-size: 0.75rem;
   color: var(--text-muted);
