@@ -18,7 +18,7 @@
 
 ## Community features (Discord-inspired)
 
-- [ ] **Real channels/rooms** — text channels inside communities, not static placeholder cards
+- [x] **Real channels/rooms** — Discord-style channel rail inside community, #general shows live feed
 - [ ] **Thread creation** — threads inside community channels
 - [ ] **Member list** — sidebar showing online/offline members in a community
 - [ ] **Community roles** — role badges, permission indicators

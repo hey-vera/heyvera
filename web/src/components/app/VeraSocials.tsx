@@ -1169,9 +1169,19 @@ function CommunityDetailPanel({
     }
   }
 
+  const STUB_CHANNELS = [
+    { id: "general", name: "general", description: "General discussion" },
+    { id: "announcements", name: "announcements", description: "Community announcements" },
+    { id: "agents", name: "agents", description: "Agent-linked work and updates" },
+    { id: "proof", name: "proof", description: "Proof receipts and lineage" },
+  ];
+
+  const [activeChannel, setActiveChannel] = useState(STUB_CHANNELS[0].id);
+  const currentChannel = STUB_CHANNELS.find((c) => c.id === activeChannel) ?? STUB_CHANNELS[0];
+
   return (
     <div className="community-detail-panel">
-      {/* Header banner */}
+      {/* Header */}
       <div className="community-detail-banner">
         <div className="community-detail-banner-avatar" aria-hidden="true">
           {community.name.charAt(0)}
@@ -1179,9 +1189,7 @@ function CommunityDetailPanel({
         <div className="community-detail-banner-info">
           <strong className="community-detail-banner-name">{community.name}</strong>
           <span className="network-community-slug">/{community.slug}</span>
-          <span className="community-detail-age">
-            Created {formatRelativeTime(community.createdAt)}
-          </span>
+          <span className="community-detail-age">Created {formatRelativeTime(community.createdAt)}</span>
         </div>
         <div className="community-detail-banner-actions">
           {showWriteCtas && isSignedIn && (
@@ -1200,67 +1208,69 @@ function CommunityDetailPanel({
         </div>
       </div>
 
-      {/* About / description */}
-      <div className="community-detail-about">
-        <h4 className="community-detail-section-title">About</h4>
-        {community.description ? (
-          <p className="community-detail-about-body">{community.description}</p>
-        ) : (
-          <p className="community-detail-about-body community-detail-about-empty">
-            No description provided yet.
-          </p>
-        )}
-        <div className="community-detail-meta-row">
-          <span className="community-detail-meta-chip">{community.visibility}</span>
-          <span className="community-detail-meta-chip">
-            Created by @{community.creator.handle}
-          </span>
-          <span className="community-detail-meta-chip">
-            {new Date(community.createdAt).toLocaleDateString()}
-          </span>
+      {/* Discord-style body: channel rail + content */}
+      <div className="community-detail-body">
+        {/* Channel list sidebar */}
+        <nav className="community-channel-rail" aria-label="Community channels">
+          <p className="community-channel-rail-title">Channels</p>
+          {STUB_CHANNELS.map((ch) => (
+            <button
+              key={ch.id}
+              type="button"
+              className={`community-channel-item${activeChannel === ch.id ? " community-channel-item-active" : ""}`}
+              onClick={() => setActiveChannel(ch.id)}
+              aria-current={activeChannel === ch.id ? "page" : undefined}
+            >
+              <span className="community-channel-hash">#</span>
+              {ch.name}
+            </button>
+          ))}
+          <p className="community-channel-rail-title community-channel-rail-title-about">About</p>
+          <div className="community-channel-about">
+            {community.description || "No description."}
+          </div>
+          <div className="community-channel-meta">
+            <span className="community-detail-meta-chip">{community.visibility}</span>
+            <span className="community-detail-meta-chip">by @{community.creator.handle}</span>
+          </div>
+        </nav>
+
+        {/* Active channel content */}
+        <div className="community-channel-content">
+          <div className="community-channel-header">
+            <span className="community-channel-hash">#</span>
+            <strong>{currentChannel.name}</strong>
+            <span className="community-channel-desc">{currentChannel.description}</span>
+          </div>
+
+          {activeChannel === "general" ? (
+            <div className="community-channel-feed">
+              {feedLoading ? (
+                <div aria-busy="true">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="skeleton" style={{ height: "2.4em", borderRadius: "4px", marginBottom: "8px" }} />
+                  ))}
+                </div>
+              ) : communityFeed.length === 0 ? (
+                <p className="network-sidebar-empty">No posts in #general yet.</p>
+              ) : (
+                communityFeed.map((post) => (
+                  <div key={post.id} className="community-channel-message">
+                    <span className="community-channel-message-author">@{post.author.handle}</span>
+                    <p className="community-channel-message-body">{post.body}</p>
+                    <span className="community-channel-message-time">{formatRelativeTime(post.createdAt)}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          ) : (
+            <div className="community-channel-feed">
+              <p className="community-channel-stub-note">
+                #{currentChannel.name} is coming soon — channels will have real message history once the backend is ready.
+              </p>
+            </div>
+          )}
         </div>
-      </div>
-
-      {/* Community rules */}
-      <div className="community-detail-rules">
-        <h4 className="community-detail-section-title">Community Rules</h4>
-        <p className="community-detail-rules-note">
-          Community-specific rules are set by the creator. Custom rule configuration is not yet available.
-        </p>
-      </div>
-
-      {/* Members section */}
-      <div className="community-detail-members-section">
-        <h4 className="community-detail-section-title">Members</h4>
-        <p className="community-detail-blocked-note">Member directory isn't available yet.</p>
-      </div>
-
-      {/* Community activity feed */}
-      <div className="community-detail-activity">
-        <h4 className="community-detail-section-title">Community Activity</h4>
-        {feedLoading ? (
-          <div className="community-detail-activity-loading" aria-busy="true">
-            {[1, 2].map((i) => (
-              <div key={i} className="skeleton" style={{ height: "2.4em", borderRadius: "4px", marginTop: "6px" }} />
-            ))}
-          </div>
-        ) : communityFeed.length === 0 ? (
-          <p className="network-sidebar-empty">No posts from members yet.</p>
-        ) : (
-          <div className="community-detail-activity-list">
-            {communityFeed.map((post) => (
-              <div key={post.id} className="profile-detail-post-card">
-                <span className="profile-detail-post-date" style={{ marginBottom: "2px" }}>
-                  @{post.author.handle}
-                </span>
-                <p className="profile-detail-post-body">{post.body}</p>
-                <span className="profile-detail-post-date">
-                  {formatRelativeTime(post.createdAt)}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
       </div>
     </div>
   );
