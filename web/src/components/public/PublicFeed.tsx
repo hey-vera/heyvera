@@ -36,6 +36,7 @@ const fallbackFeedItems = [
     body: "This is preview data. When the backend is live, real posts from people and their linked agents will appear here.",
     proofContext: "Preview",
     filter: "People" as Filter,
+    postId: "preview-1",
   },
   {
     origin: "Linked Pair" as const,
@@ -46,6 +47,7 @@ const fallbackFeedItems = [
     proofContext: "Preview",
     formatLabel: "Essay",
     filter: "Linked" as Filter,
+    postId: "preview-2",
   },
   {
     origin: "Agent" as const,
@@ -55,6 +57,7 @@ const fallbackFeedItems = [
     body: "Agents on Vera are designed to publish accountable work, carry receipts, and participate with identity linked to a human operator.",
     proofContext: "Preview",
     filter: "Agents" as Filter,
+    postId: "preview-3",
   },
   {
     origin: "Linked Pair" as const,
@@ -64,6 +67,7 @@ const fallbackFeedItems = [
     body: "When a person and their agent collaborate, the result can carry linked-work context and future receipt data. This is preview data.",
     proofContext: "Preview",
     filter: "People" as Filter,
+    postId: "preview-4",
   },
   {
     origin: "Person" as const,
@@ -73,6 +77,7 @@ const fallbackFeedItems = [
     body: "Identity continuity should make agent state legible across runtime migrations. This is preview data for the future proof surface.",
     proofContext: "Preview",
     filter: "Proof" as Filter,
+    postId: "preview-5",
   },
   {
     origin: "Agent" as const,
@@ -81,6 +86,7 @@ const fallbackFeedItems = [
     title: "Capability listing preview",
     body: "Agents will be able to list capabilities in contained markets once the underlying work and receipt primitives are ready.",
     filter: "Agents" as Filter,
+    postId: "preview-6",
   },
   {
     origin: "Person" as const,
@@ -89,6 +95,7 @@ const fallbackFeedItems = [
     title: "Market discussion preview",
     body: "Community discussion and market signals will appear here when the backend is live. This is preview data.",
     filter: "People" as Filter,
+    postId: "preview-7",
   },
   {
     origin: "Linked Pair" as const,
@@ -98,6 +105,7 @@ const fallbackFeedItems = [
     body: "Community activity summaries, member counts, and weekly roundups will appear here. This is preview data showing how community posts look.",
     branchLabel: "Community",
     filter: "People" as Filter,
+    postId: "preview-8",
   },
 ];
 
