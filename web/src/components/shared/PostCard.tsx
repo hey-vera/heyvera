@@ -1,11 +1,20 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
+import type { LucideIcon } from 'lucide-react';
+import {
+  BarChart3,
+  Bookmark,
+  Heart,
+  MessageCircle,
+  Repeat2,
+  Share,
+} from 'lucide-react';
 import type { Post } from '../../api/types';
 
 interface PostCardProps {
   post: Post;
-  onLike?: (id: string) => void;
-  onRepost?: (id: string) => void;
-  onBookmark?: (id: string) => void;
+  onLike?: (id: string, liked: boolean) => void;
+  onRepost?: (id: string, reposted: boolean) => void;
+  onBookmark?: (id: string, bookmarked: boolean) => void;
 }
 
 function relativeTime(iso: string): string {
@@ -35,25 +44,29 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
   const [repostCount, setRepostCount] = useState(post.repost_count);
 
   const toggleLike = () => {
-    setLiked(!liked);
-    setLikeCount(liked ? likeCount - 1 : likeCount + 1);
-    onLike?.(post.id);
+    const nextLiked = !liked;
+    setLiked(nextLiked);
+    setLikeCount((count) => Math.max(0, nextLiked ? count + 1 : count - 1));
+    onLike?.(post.id, nextLiked);
   };
 
   const toggleRepost = () => {
-    setReposted(!reposted);
-    setRepostCount(reposted ? repostCount - 1 : repostCount + 1);
-    onRepost?.(post.id);
+    const nextReposted = !reposted;
+    setReposted(nextReposted);
+    setRepostCount((count) => Math.max(0, nextReposted ? count + 1 : count - 1));
+    onRepost?.(post.id, nextReposted);
   };
 
   const toggleBookmark = () => {
-    setBookmarked(!bookmarked);
-    onBookmark?.(post.id);
+    const nextBookmarked = !bookmarked;
+    setBookmarked(nextBookmarked);
+    onBookmark?.(post.id, nextBookmarked);
   };
 
   return (
     <article
-      className="flex gap-3 px-4 py-3 border-b border-[#2F3336] transition-colors hover:bg-white/[0.03] cursor-pointer"
+      className="flex cursor-pointer gap-3 border-b px-4 py-3 transition-colors hover:bg-white/[0.03]"
+      style={{ borderColor: 'var(--border-primary)' }}
     >
       {/* Avatar */}
       <div className="shrink-0">
@@ -61,10 +74,14 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
           <img
             src={post.author.avatar_url}
             alt={post.author.display_name}
-            className="w-10 h-10 rounded-full bg-[#2F3336] object-cover"
+            className="h-10 w-10 rounded-full object-cover"
+            style={{ backgroundColor: 'var(--border-primary)' }}
           />
         ) : (
-          <div className="w-10 h-10 rounded-full bg-[#2F3336] flex items-center justify-center text-sm text-[#71767B]">
+          <div
+            className="flex h-10 w-10 items-center justify-center rounded-full text-sm"
+            style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+          >
             {post.author.display_name.charAt(0)}
           </div>
         )}
@@ -74,31 +91,32 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
       <div className="min-w-0 flex-1">
         {/* Header: name, handle, timestamp */}
         <div className="flex items-center gap-1 text-[15px] leading-5">
-          <span className="font-bold text-[#E7E9EA] truncate">
+          <span className="truncate font-bold" style={{ color: 'var(--text-primary)' }}>
             {post.author.display_name}
           </span>
           {post.author.verified && (
-            <span className="text-[#00BA7C] text-xs shrink-0">✓</span>
+            <span className="shrink-0 text-xs" style={{ color: 'var(--accent)' }}>✓</span>
           )}
-          <span className="text-[#71767B] truncate">@{post.author.handle}</span>
-          <span className="text-[#71767B] shrink-0">·</span>
-          <span className="text-[#71767B] shrink-0">{relativeTime(post.created_at)}</span>
+          <span className="truncate" style={{ color: 'var(--text-secondary)' }}>@{post.author.handle}</span>
+          <span className="shrink-0" style={{ color: 'var(--text-secondary)' }}>·</span>
+          <span className="shrink-0" style={{ color: 'var(--text-secondary)' }}>{relativeTime(post.created_at)}</span>
         </div>
 
         {/* Body */}
-        <p className="text-[15px] leading-5 text-[#E7E9EA] mt-0.5 whitespace-pre-wrap break-words">
+        <p className="mt-0.5 whitespace-pre-wrap break-words text-[15px] leading-5" style={{ color: 'var(--text-primary)' }}>
           {post.content}
         </p>
 
         {/* Media */}
         {post.media && post.media.length > 0 && (
-          <div className="mt-3 rounded-2xl overflow-hidden border border-[#2F3336]">
+          <div className="mt-3 overflow-hidden rounded-2xl border" style={{ borderColor: 'var(--border-primary)' }}>
             {post.media.map((m) => (
               <img
                 key={m.id}
                 src={m.url}
                 alt={m.alt_text ?? ''}
-                className="w-full object-cover max-h-[500px] bg-[#16181C]"
+                className="max-h-[500px] w-full object-cover"
+                style={{ backgroundColor: 'var(--bg-elevated)' }}
               />
             ))}
           </div>
@@ -106,59 +124,56 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
 
         {/* Quote post */}
         {post.quote_post && (
-          <div className="mt-3 rounded-2xl border border-[#2F3336] p-3">
+          <div className="mt-3 rounded-2xl border p-3" style={{ borderColor: 'var(--border-primary)' }}>
             <div className="flex items-center gap-1 text-[13px]">
-              <span className="font-bold text-[#E7E9EA]">{post.quote_post.author.display_name}</span>
-              <span className="text-[#71767B]">@{post.quote_post.author.handle}</span>
+              <span className="font-bold" style={{ color: 'var(--text-primary)' }}>{post.quote_post.author.display_name}</span>
+              <span style={{ color: 'var(--text-secondary)' }}>@{post.quote_post.author.handle}</span>
             </div>
-            <p className="text-[13px] text-[#E7E9EA] mt-1 line-clamp-3">{post.quote_post.content}</p>
+            <p className="mt-1 line-clamp-3 text-[13px]" style={{ color: 'var(--text-primary)' }}>{post.quote_post.content}</p>
           </div>
         )}
 
         {/* Action bar */}
         <div className="flex items-center justify-between mt-3 max-w-[425px] -ml-2">
           <ActionButton
-            icon="💬"
+            icon={MessageCircle}
+            label="Reply"
             count={post.reply_count}
-            hoverColor="text-[#1D9BF0]"
-            hoverBg="hover:bg-[#1D9BF0]/10"
+            color="reply"
           />
           <ActionButton
-            icon="🔄"
+            icon={Repeat2}
+            label="Repost"
             count={repostCount}
             active={reposted}
-            activeColor="text-[#00BA7C]"
-            hoverColor="text-[#00BA7C]"
-            hoverBg="hover:bg-[#00BA7C]/10"
+            color="repost"
             onClick={toggleRepost}
           />
           <ActionButton
-            icon={liked ? '❤️' : '🤍'}
+            icon={Heart}
+            label="Like"
             count={likeCount}
             active={liked}
-            activeColor="text-[#F91880]"
-            hoverColor="text-[#F91880]"
-            hoverBg="hover:bg-[#F91880]/10"
+            color="like"
             onClick={toggleLike}
           />
           <ActionButton
-            icon="📊"
+            icon={BarChart3}
+            label="Views"
             count={post.view_count}
-            hoverColor="text-[#1D9BF0]"
-            hoverBg="hover:bg-[#1D9BF0]/10"
+            color="reply"
           />
           <ActionButton
-            icon={bookmarked ? '🔖' : '🏷️'}
+            icon={Bookmark}
+            label="Bookmark"
             active={bookmarked}
-            activeColor="text-[#1D9BF0]"
-            hoverColor="text-[#1D9BF0]"
-            hoverBg="hover:bg-[#1D9BF0]/10"
+            color="reply"
             onClick={toggleBookmark}
           />
           <ActionButton
-            icon="↗️"
-            hoverColor="text-[#1D9BF0]"
-            hoverBg="hover:bg-[#1D9BF0]/10"
+            icon={Share}
+            label="Share"
+            color="reply"
           />
         </div>
       </div>
@@ -168,40 +183,45 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
 
 function ActionButton({
   icon,
+  label,
   count,
   active,
-  activeColor,
-  hoverColor,
-  hoverBg,
+  color,
   onClick,
 }: {
-  icon: string;
+  icon: LucideIcon;
+  label: string;
   count?: number;
   active?: boolean;
-  activeColor?: string;
-  hoverColor?: string;
-  hoverBg?: string;
+  color: 'reply' | 'repost' | 'like';
   onClick?: () => void;
 }) {
+  const Icon = icon;
+  const activeColor =
+    color === 'like'
+      ? 'var(--color-like)'
+      : color === 'repost'
+        ? 'var(--color-repost)'
+        : 'var(--color-reply)';
+  const style = {
+    color: active ? activeColor : 'var(--text-secondary)',
+    '--action-color': activeColor,
+  } as CSSProperties;
+
   return (
     <button
       type="button"
+      aria-label={label}
       onClick={(e) => {
         e.stopPropagation();
         onClick?.();
       }}
-      className={`
-        flex items-center gap-1 rounded-full p-2 transition-colors
-        text-[#71767B] text-[13px]
-        ${hoverBg ?? ''}
-        ${hoverColor ? `hover:${hoverColor}` : ''}
-        ${active && activeColor ? activeColor : ''}
-        group
-      `}
+      className="group flex items-center gap-1 rounded-full p-2 text-[13px] transition-colors hover:bg-[color:color-mix(in_srgb,var(--action-color)_10%,transparent)] hover:text-[var(--action-color)]"
+      style={style}
     >
-      <span className="text-[16px] leading-none">{icon}</span>
+      <Icon size={18} strokeWidth={2} fill={active && color === 'like' ? 'currentColor' : 'none'} />
       {count != null && count > 0 && (
-        <span className={active && activeColor ? activeColor : ''}>{formatCount(count)}</span>
+        <span>{formatCount(count)}</span>
       )}
     </button>
   );

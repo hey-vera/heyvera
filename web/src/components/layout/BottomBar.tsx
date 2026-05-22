@@ -1,16 +1,26 @@
 
+import {
+  Bell,
+  Feather,
+  Home,
+  Mail,
+  Search,
+  Sparkles,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+
 interface BottomBarProps {
   activeRoute: string;
   onNavigate: (route: string) => void;
   onCompose: () => void;
 }
 
-const tabs = [
-  { icon: "🏠", label: "Home", route: "/home" },
-  { icon: "🔍", label: "Explore", route: "/explore" },
-  { icon: "⭐", label: "AI", route: "/ai" },
-  { icon: "🔔", label: "Notifications", route: "/notifications" },
-  { icon: "✉️", label: "Messages", route: "/messages" },
+const tabs: ReadonlyArray<{ icon: LucideIcon; label: string; route: string }> = [
+  { icon: Home, label: "Home", route: "/home" },
+  { icon: Search, label: "Explore", route: "/explore" },
+  { icon: Sparkles, label: "AI", route: "/ai" },
+  { icon: Bell, label: "Notifications", route: "/notifications" },
+  { icon: Mail, label: "Messages", route: "/messages" },
 ];
 
 export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps) {
@@ -26,7 +36,7 @@ export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps
         className="sm:hidden fixed bottom-[61px] right-4 z-50 w-14 h-14 rounded-full flex items-center justify-center text-2xl font-bold shadow-lg"
         style={{ backgroundColor: "var(--accent)", color: "#000" }}
       >
-        +
+        <Feather className="h-6 w-6" strokeWidth={2.4} aria-hidden="true" />
       </button>
 
       {/* Bottom bar */}
@@ -40,6 +50,7 @@ export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps
       >
         {tabs.map((tab) => {
           const isActive = activeRoute === tab.route;
+          const Icon = tab.icon;
           return (
             <button
               key={tab.route}
@@ -52,7 +63,7 @@ export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps
                 opacity: isActive ? 1 : 0.8,
               }}
             >
-              <span className="text-xl leading-none">{tab.icon}</span>
+              <Icon className="h-6 w-6" strokeWidth={isActive ? 2.6 : 2} aria-hidden="true" />
             </button>
           );
         })}
