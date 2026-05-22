@@ -1,4 +1,4 @@
-import type { CortexState } from '../types';
+import type { CortexState, TaskManagerState } from '../types';
 
 const CONFIGURED_API_BASE = import.meta.env.VITE_CORTEX_API as string | undefined;
 const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : '');
@@ -445,6 +445,20 @@ export async function updateUserRouting(profile: string): Promise<UserRoutingSet
   return requestJson<UserRoutingSettings>('/api/user/routing', {
     method: 'POST',
     body: JSON.stringify({ profile }),
+  });
+}
+
+export async function getGroupTaskManagerState(groupId: string): Promise<TaskManagerState> {
+  return requestJson<TaskManagerState>(`/api/groups/${encodeURIComponent(groupId)}/tasks`);
+}
+
+export async function updateGroupTaskManagerState(
+  groupId: string,
+  state: TaskManagerState,
+): Promise<TaskManagerState> {
+  return requestJson<TaskManagerState>(`/api/groups/${encodeURIComponent(groupId)}/tasks`, {
+    method: 'PUT',
+    body: JSON.stringify(state),
   });
 }
 

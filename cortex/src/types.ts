@@ -166,3 +166,50 @@ export interface WorkEventItem {
   provider?: string;
   model?: string;
 }
+
+export type TaskStatus = 'created' | 'assigned' | 'in-progress' | 'done';
+export type TaskPriority = 'normal' | 'high' | 'urgent';
+export type TaskMemberStatus = 'online' | 'working' | 'away';
+
+export interface TaskMember {
+  id: string;
+  name: string;
+  initials: string;
+  status: TaskMemberStatus;
+  currentTaskId?: string | null;
+  color: string;
+}
+
+export interface TaskManagerTask {
+  id: string;
+  groupId: string;
+  title: string;
+  description?: string;
+  status: TaskStatus;
+  assigneeId?: string | null;
+  repo?: string | null;
+  priority: TaskPriority;
+  createdAt: string;
+  updatedAt: string;
+  createdBy: string;
+  sourceMessageId?: string;
+}
+
+export type TaskActivityKind = 'created' | 'assigned' | 'status' | 'handoff' | 'note';
+
+export interface TaskActivity {
+  id: string;
+  groupId: string;
+  taskId?: string;
+  kind: TaskActivityKind;
+  actor: string;
+  summary: string;
+  createdAt: string;
+}
+
+export interface TaskManagerState {
+  tasks: TaskManagerTask[];
+  members: TaskMember[];
+  activity: TaskActivity[];
+  updatedAt: string;
+}

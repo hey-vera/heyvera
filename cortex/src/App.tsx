@@ -3,10 +3,8 @@ import { PanelRight, Loader2, Menu } from 'lucide-react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import PaymentFailed from './components/billing/PaymentFailed';
 import TrialBanner from './components/billing/TrialBanner';
-import ChatComposer from './components/chat/ChatComposer';
-import ChatTimeline from './components/chat/ChatTimeline';
 import GroupSidebar from './components/groups/GroupSidebar';
-import SessionControls from './components/session/SessionControls';
+import TaskManagerChat from './components/tasks/TaskManagerChat';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { useSomaSession } from './lib/useSomaSession';
@@ -75,14 +73,6 @@ function readRunProfile(): RunProfile {
   }
 }
 
-function looksLikeRunGoal(value: string) {
-  const text = value.trim().toLowerCase();
-  if (text.length < 28) return false;
-  const connectiveMatches = text.match(/\b(and|then|after|also|plus)\b/g)?.length ?? 0;
-  const actionMatches = text.match(/\b(fix|add|update|refactor|test|review|commit|deploy|wire|build|implement)\b/g)?.length ?? 0;
-  return connectiveMatches > 0 && actionMatches >= 2;
-}
-
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel'));
 const PricingCards = lazy(() => import('./components/billing/PricingCards'));
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
@@ -148,8 +138,8 @@ function CortexShell() {
     readSessionControls,
   );
   const [runProfile, setRunProfile] = useState<RunProfile>(readRunProfile);
-  const [runBridgeGoal, setRunBridgeGoal] = useState<string | null>(null);
-  const [runBridgeNonce, setRunBridgeNonce] = useState(0);
+  const runBridgeGoal = null;
+  const runBridgeNonce = 0;
   const [adminOpen, setAdminOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -281,10 +271,6 @@ function CortexShell() {
     setSidebarOpen(false);
   }, []);
 
-  const handleSelectStarter = useCallback((prompt: string) => {
-    setDraft(prompt);
-  }, [setDraft]);
-
   const handleRunProfileChange = useCallback((nextProfile: RunProfile) => {
     setRunProfile(nextProfile);
     void updateUserRouting(nextProfile).catch(() => {
@@ -292,22 +278,13 @@ function CortexShell() {
     });
   }, []);
 
-  const bridgeDraftToRun = useCallback(() => {
-    const nextGoal = draft.trim();
-    if (!nextGoal) return;
-    setRunBridgeGoal(nextGoal);
-    setRunBridgeNonce((nonce) => nonce + 1);
-    setWorkSurfaceOpen(true);
-  }, [draft]);
-
   const clearRunBridgeGoal = useCallback(() => {
-    setRunBridgeGoal(null);
+    // Task Manager Chat does not currently bridge chat drafts into runs.
   }, []);
 
   const headerTitle = activeConversationTitle?.trim() || 'New chat';
   const approvalCount = messages.filter((message) => message.approvalRequest?.state === 'pending').length;
   const showWorkBadge = isStreaming || approvalCount > 0;
-  const showRunBridge = looksLikeRunGoal(draft) && !isStreaming;
   const accessState = billing.status?.access_state;
   useEffect(() => {
     if (!renamingTitle) return;
@@ -569,48 +546,25 @@ function CortexShell() {
         </header>
         <TrialBanner billing={billing.status} onOpenBilling={() => handleOpenSettings('billing')} />
 
-        <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
-          <ChatTimeline
-            messages={messages}
-            isLoading={isLoadingConversation}
-            showStarters={!activeConversationId && !isStreaming}
-            onSelectStarter={needsSubscription ? undefined : handleSelectStarter}
-            onApprovalAction={updateApproval}
-          />
-          {!needsSubscription && (
-            <SessionControls
-              value={sessionControls}
-              runProfile={runProfile}
-              onChange={setSessionControls}
-              onRunProfileChange={handleRunProfileChange}
-            />
-          )}
-          {!needsSubscription && showRunBridge && (
-            <div className="border-t border-white/6 px-3 py-2 sm:px-4">
-              <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-2">
-                <p className="min-w-0 truncate text-xs text-[var(--muted-strong)]">
-                  This looks like a multi-step coding goal.
-                </p>
-                <button
-                  type="button"
-                  onClick={bridgeDraftToRun}
-                  className="shrink-0 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-black transition hover:brightness-110 active:scale-95"
-                >
-                  Create run
-                </button>
-              </div>
-            </div>
-          )}
-          <ChatComposer
-            draft={draft}
-            disabled={isStreaming}
-            locked={needsSubscription}
-            onDraftChange={setDraft}
-            onSend={sendMessage}
-            onStop={isStreaming ? stopStreaming : undefined}
-            onSubscribe={() => setCheckoutOpen(true)}
-          />
-        </main>
+        <TaskManagerChat
+          group={activeGroup}
+          userId={userId ?? 'local'}
+          activeConversationId={activeConversationId}
+          messages={messages}
+          draft={draft}
+          isStreaming={isStreaming}
+          isLoadingConversation={isLoadingConversation}
+          needsSubscription={needsSubscription}
+          sessionControls={sessionControls}
+          runProfile={runProfile}
+          onDraftChange={setDraft}
+          onSend={sendMessage}
+          onStop={isStreaming ? stopStreaming : undefined}
+          onSubscribe={() => setCheckoutOpen(true)}
+          onSessionControlsChange={setSessionControls}
+          onRunProfileChange={handleRunProfileChange}
+          onApprovalAction={updateApproval}
+        />
       </div>
 
       <Suspense fallback={null}>
