@@ -42,3 +42,14 @@ This workspace uses dual-provider orchestration across Claude ($100 Max) and Ope
 - `node .claude/hooks/plan-generator.mjs --utterance "..." --write` — 3-part execution plans
 - `node .claude/hooks/vibe-memory.mjs` — persistent preferences and work threads
 - Natural language profiles: "go aggressive", "be careful", "cheap mode", "fast"
+
+## Cloudflare Pages — heyvera.org
+
+- **Project**: heyvera.org on Cloudflare Pages
+- **Trigger**: Auto-deploys on every push to `main` branch
+- **Build settings**:
+  - Root directory: `/web`
+  - Build command: `npm run build`
+  - Build output directory: `dist` (NOT `/dist`)
+- **Workflow**: Push/merge to main → Cloudflare auto-builds → heyvera.org updates live
+- **No submodules**: The repo must never have git submodule entries. If `dual-brain` or any other directory shows as mode `160000` in git, remove it with `git rm --cached <dir>` before merging to main — Cloudflare will fail on dangling submodule references.
