@@ -13,6 +13,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import ChatComposer from '../chat/ChatComposer';
 import ChatTimeline from '../chat/ChatTimeline';
 import SessionControls from '../session/SessionControls';
+import ResizablePanels from '../shell/ResizablePanels';
 import TaskBoard from './TaskBoard';
 import { parseTaskCommand, useTaskManager } from '../../lib/taskManager';
 import type { CortexGroup } from '../../lib/groups';
@@ -43,6 +44,7 @@ interface TaskManagerChatProps {
   onSessionControlsChange: (value: ChatSessionControls) => void;
   onRunProfileChange: (profile: RunProfile) => void;
   onApprovalAction: (messageId: string, nextState: ApprovalState) => void;
+  onTaskStateChange?: (state: ReturnType<typeof useTaskManager>['state']) => void;
 }
 
 type MobilePanel = 'chat' | 'board' | 'team';
@@ -230,6 +232,7 @@ export default function TaskManagerChat({
   onSessionControlsChange,
   onRunProfileChange,
   onApprovalAction,
+  onTaskStateChange,
 }: TaskManagerChatProps) {
   const taskManager = useTaskManager(group, userId);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('chat');
@@ -244,13 +247,33 @@ export default function TaskManagerChat({
   }, [draft, onSend, taskManager]);
 
   useEffect(() => {
+    onTaskStateChange?.(taskManager.state);
+  }, [onTaskStateChange, taskManager.state]);
+
+  useEffect(() => {
     const handler = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement | null;
       const isTextInput = target?.tagName === 'INPUT'
         || target?.tagName === 'TEXTAREA'
         || target?.tagName === 'SELECT'
         || target?.isContentEditable;
-      if (isTextInput || !(event.metaKey || event.ctrlKey)) return;
+      if (isTextInput) return;
+      if (!event.metaKey && !event.ctrlKey && event.key.toLowerCase() === 'g') {
+        const nextHandler = (nextEvent: KeyboardEvent) => {
+          const nextKey = nextEvent.key.toLowerCase();
+          if (nextKey === 'b') {
+            nextEvent.preventDefault();
+            setMobilePanel('board');
+          } else if (nextKey === 't') {
+            nextEvent.preventDefault();
+            setMobilePanel('team');
+          }
+          window.removeEventListener('keydown', nextHandler, true);
+        };
+        window.addEventListener('keydown', nextHandler, true);
+        return;
+      }
+      if (!(event.metaKey || event.ctrlKey)) return;
       const key = event.key.toLowerCase();
       if (key === '1') {
         event.preventDefault();
@@ -315,8 +338,13 @@ export default function TaskManagerChat({
         </div>
       </div>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,0.95fr)_minmax(26rem,0.8fr)] xl:grid-cols-[minmax(0,1fr)_30rem]">
-        <section className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} min-h-0 flex-col border-r border-white/6 lg:flex`}>
+      <ResizablePanels
+        storageKey="cortex:task-manager:panel-ratio"
+        className="task-manager-panels"
+        minLeft={460}
+        minRight={390}
+        left={(
+        <section className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} h-full min-h-0 flex-col border-r border-white/6 lg:flex`}>
           <div className="border-b border-white/6 px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -376,8 +404,10 @@ export default function TaskManagerChat({
             onSubscribe={onSubscribe}
           />
         </section>
+        )}
+        right={(
 
-        <aside className={`${mobilePanel === 'chat' ? 'hidden' : 'flex'} min-h-0 flex-col lg:flex`}>
+        <aside className={`${mobilePanel === 'chat' ? 'hidden' : 'flex'} h-full min-h-0 flex-col lg:flex`}>
           <div className="hidden border-b border-white/6 px-4 py-3 lg:block">
             {boardHeader}
           </div>
@@ -410,7 +440,8 @@ export default function TaskManagerChat({
             </div>
           </div>
         </aside>
-      </div>
+        )}
+      />
     </main>
   );
 }

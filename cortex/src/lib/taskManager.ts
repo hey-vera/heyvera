@@ -158,6 +158,12 @@ function readState(group: CortexGroup, userId: string): TaskManagerState {
   }
 }
 
+export function readTaskManagerState(group: CortexGroup, userId: string): TaskManagerState {
+  return readState(group, userId);
+}
+
+export const TASK_MANAGER_CHANNEL_NAME = CHANNEL_NAME;
+
 function writeState(groupId: string, state: TaskManagerState) {
   try {
     window.localStorage.setItem(storageKey(groupId), JSON.stringify(state));

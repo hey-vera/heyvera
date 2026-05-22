@@ -1,15 +1,25 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { PanelRight, Loader2, Menu } from 'lucide-react';
+import { ExternalLink, PanelRight, Loader2, Menu, Search } from 'lucide-react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import PaymentFailed from './components/billing/PaymentFailed';
 import TrialBanner from './components/billing/TrialBanner';
 import GroupSidebar from './components/groups/GroupSidebar';
+import CommandPalette from './components/shell/CommandPalette';
+import StatusBar from './components/shell/StatusBar';
 import TaskManagerChat from './components/tasks/TaskManagerChat';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { useSomaSession } from './lib/useSomaSession';
 import { useBilling } from './lib/useBilling';
-import { CortexApiError, getAdminStats, getUserRouting, setAuthTokenGetter, updateUserRouting } from './lib/cortexApi';
+import {
+  CortexApiError,
+  getAdminStats,
+  getUserRouting,
+  listConversations,
+  setAuthTokenGetter,
+  updateUserRouting,
+  type ConversationSummary,
+} from './lib/cortexApi';
 import {
   createTeamGroup,
   DEFAULT_GROUPS,
@@ -20,6 +30,9 @@ import {
   type CortexGroup,
 } from './lib/groups';
 import type { ChatSessionControls, RunProfile } from './types';
+import type { TaskManagerState } from './types';
+import { openDetachedPanel } from './lib/shell/windowManager';
+import { readTaskManagerState, TASK_MANAGER_CHANNEL_NAME } from './lib/taskManager';
 
 const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
   speed: 'balanced',
@@ -143,8 +156,12 @@ function CortexShell() {
   const runBridgeNonce = 0;
   const [adminOpen, setAdminOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [paletteConversations, setPaletteConversations] = useState<ConversationSummary[]>([]);
+  const [taskState, setTaskState] = useState<TaskManagerState | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const billingEnabled = clerkEnabled && isSignedIn;
+  const isDetachedWindow = useMemo(() => new URLSearchParams(window.location.search).has('detached'), []);
 
   const handleConversationCreated = useCallback((conversationId: string) => {
     setGroupConversation(activeGroupId, conversationId);
@@ -157,6 +174,44 @@ function CortexShell() {
   useEffect(() => {
     if (getToken) setAuthTokenGetter(getToken);
   }, [getToken]);
+
+  useEffect(() => {
+    setTaskState(readTaskManagerState(activeGroup, userId ?? 'local'));
+  }, [activeGroup, userId]);
+
+  useEffect(() => {
+    const refreshConversations = () => {
+      void listConversations(userId ?? 'local')
+        .then(setPaletteConversations)
+        .catch(() => setPaletteConversations([]));
+    };
+    refreshConversations();
+    const interval = window.setInterval(refreshConversations, 8000);
+    return () => window.clearInterval(interval);
+  }, [conversationListVersion, userId]);
+
+  useEffect(() => {
+    const channel = typeof BroadcastChannel === 'undefined'
+      ? null
+      : new BroadcastChannel(TASK_MANAGER_CHANNEL_NAME);
+    const onMessage = (event: MessageEvent<{ groupId?: string }>) => {
+      if (event.data?.groupId === activeGroup.id) {
+        setTaskState(readTaskManagerState(activeGroup, userId ?? 'local'));
+      }
+    };
+    channel?.addEventListener('message', onMessage);
+    const onStorage = (event: StorageEvent) => {
+      if (event.key?.includes(`cortex:task-manager:${activeGroup.id}`)) {
+        setTaskState(readTaskManagerState(activeGroup, userId ?? 'local'));
+      }
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      channel?.removeEventListener('message', onMessage);
+      channel?.close();
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [activeGroup, userId]);
 
   useEffect(() => {
     if (!groupId || groups.some((group) => group.id === groupId)) return;
@@ -272,6 +327,18 @@ function CortexShell() {
     setSidebarOpen(false);
   }, []);
 
+  const handleCreateTaskFromPalette = useCallback(() => {
+    setDraft((currentDraft) => currentDraft.trim() ? currentDraft : 'Create task: ');
+    setSidebarOpen(false);
+    window.setTimeout(() => {
+      document.querySelector<HTMLTextAreaElement>('textarea')?.focus();
+    }, 0);
+  }, [setDraft]);
+
+  const handlePopOutTaskManager = useCallback(() => {
+    openDetachedPanel('task-manager', activeGroup);
+  }, [activeGroup]);
+
   const handleRunProfileChange = useCallback((nextProfile: RunProfile) => {
     setRunProfile(nextProfile);
     void updateUserRouting(nextProfile).catch(() => {
@@ -324,8 +391,20 @@ function CortexShell() {
       const isTextInput = target?.tagName === 'INPUT'
         || target?.tagName === 'TEXTAREA'
         || target?.isContentEditable;
+      const hasModifier = event.metaKey || event.ctrlKey;
+      const key = event.key.toLowerCase();
+
+      if (hasModifier && key === 'k') {
+        event.preventDefault();
+        setCommandPaletteOpen((open) => !open);
+        return;
+      }
 
       if (event.key === 'Escape') {
+        if (commandPaletteOpen) {
+          setCommandPaletteOpen(false);
+          return;
+        }
         if (checkoutOpen) {
           setCheckoutOpen(false);
           return;
@@ -354,10 +433,8 @@ function CortexShell() {
 
       if (isTextInput) return;
 
-      const hasModifier = event.metaKey || event.ctrlKey;
       if (!hasModifier) return;
 
-      const key = event.key.toLowerCase();
       if (key === 'n') {
         event.preventDefault();
         handleNewChat();
@@ -370,6 +447,9 @@ function CortexShell() {
       } else if (key === ',') {
         event.preventDefault();
         handleOpenSettings();
+      } else if (key === 'o' && event.shiftKey) {
+        event.preventDefault();
+        handlePopOutTaskManager();
       }
     };
 
@@ -378,8 +458,10 @@ function CortexShell() {
   }, [
     adminOpen,
     checkoutOpen,
+    commandPaletteOpen,
     handleNewChat,
     handleOpenSettings,
+    handlePopOutTaskManager,
     isStreaming,
     settingsOpen,
     sidebarOpen,
@@ -532,6 +614,26 @@ function CortexShell() {
             )}
             <button
               type="button"
+              className="hidden h-9 items-center gap-2 rounded-lg border border-white/8 bg-white/[0.03] px-2.5 text-xs text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 sm:inline-flex"
+              aria-label="Open command palette"
+              title="Open command palette (Cmd/Ctrl+K)"
+              onClick={() => setCommandPaletteOpen(true)}
+            >
+              <Search className="h-3.5 w-3.5" />
+              <span>Search</span>
+              <kbd className="rounded border border-white/10 bg-black/20 px-1 text-[10px]">K</kbd>
+            </button>
+            <button
+              type="button"
+              className="hidden h-9 w-9 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 lg:inline-flex"
+              aria-label="Pop out task manager"
+              title="Pop out Task Manager (Cmd/Ctrl+Shift+O)"
+              onClick={handlePopOutTaskManager}
+            >
+              <ExternalLink className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
               className="relative inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 xl:hidden"
               aria-label="Open work surface"
               title="Open work surface (Ctrl+J)"
@@ -565,6 +667,18 @@ function CortexShell() {
           onSessionControlsChange={setSessionControls}
           onRunProfileChange={handleRunProfileChange}
           onApprovalAction={updateApproval}
+          onTaskStateChange={setTaskState}
+        />
+        <StatusBar
+          groupName={activeGroup.name}
+          activeConversationTitle={headerTitle}
+          isStreaming={isStreaming}
+          isLoadingConversation={isLoadingConversation}
+          runProfile={runProfile}
+          taskState={taskState}
+          detached={isDetachedWindow}
+          onOpenCommandPalette={() => setCommandPaletteOpen(true)}
+          onOpenWorkSurface={() => setWorkSurfaceOpen(true)}
         />
       </div>
 
@@ -619,6 +733,23 @@ function CortexShell() {
           </div>
         </Suspense>
       )}
+
+      <CommandPalette
+        open={commandPaletteOpen}
+        groups={groups}
+        activeGroupId={activeGroupId}
+        conversations={paletteConversations}
+        taskState={taskState}
+        onClose={() => setCommandPaletteOpen(false)}
+        onCreateTask={handleCreateTaskFromPalette}
+        onCreateGroup={handleCreateGroup}
+        onNewChat={handleNewChat}
+        onSelectGroup={(nextGroupId) => navigate(`/groups/${nextGroupId}/tasks`)}
+        onSelectConversation={handleSelectConversation}
+        onOpenSettings={() => handleOpenSettings()}
+        onOpenWorkSurface={() => setWorkSurfaceOpen(true)}
+        onPopOutTaskManager={handlePopOutTaskManager}
+      />
     </div>
   );
 }

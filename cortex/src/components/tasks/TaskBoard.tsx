@@ -6,7 +6,7 @@ import {
   PlayCircle,
   UserPlus,
 } from 'lucide-react';
-import type { DragEvent } from 'react';
+import { useMemo, useState, type DragEvent } from 'react';
 import type { TaskManagerTask, TaskMember, TaskPriority, TaskStatus } from '../../types';
 import { formatTaskStatus } from '../../lib/taskManager';
 
@@ -141,6 +141,26 @@ function DropColumn({
   onUpdateTask: TaskBoardProps['onUpdateTask'];
 }) {
   const Icon = STATUS_ICON[status];
+  const [scrollTop, setScrollTop] = useState(0);
+  const shouldVirtualize = tasks.length > 60;
+  const estimatedRowHeight = compact ? 122 : 154;
+  const virtualWindow = useMemo(() => {
+    if (!shouldVirtualize) {
+      return {
+        items: tasks,
+        top: 0,
+        bottom: 0,
+      };
+    }
+    const start = Math.max(0, Math.floor(scrollTop / estimatedRowHeight) - 6);
+    const visibleCount = 18;
+    const end = Math.min(tasks.length, start + visibleCount);
+    return {
+      items: tasks.slice(start, end),
+      top: start * estimatedRowHeight,
+      bottom: Math.max(0, (tasks.length - end) * estimatedRowHeight),
+    };
+  }, [estimatedRowHeight, scrollTop, shouldVirtualize, tasks]);
 
   function onDrop(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -165,20 +185,31 @@ function DropColumn({
           {tasks.length}
         </span>
       </div>
-      <div className="flex flex-1 flex-col gap-2 p-2">
+      <div
+        className="flex flex-1 flex-col gap-2 overflow-y-auto p-2"
+        onScroll={(event) => {
+          if (shouldVirtualize) setScrollTop(event.currentTarget.scrollTop);
+        }}
+      >
         {tasks.length === 0 ? (
           <div className="flex flex-1 items-center justify-center rounded-md border border-dashed border-white/8 px-3 py-6 text-center text-xs leading-5 text-[var(--muted)]">
             Drop tasks here
           </div>
-        ) : tasks.map((task) => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            assignee={getMember(members, task.assigneeId)}
-            compact={compact}
-            onUpdateTask={onUpdateTask}
-          />
-        ))}
+        ) : (
+          <>
+            {virtualWindow.top > 0 && <div style={{ height: virtualWindow.top }} aria-hidden="true" />}
+            {virtualWindow.items.map((task) => (
+              <TaskCard
+                key={task.id}
+                task={task}
+                assignee={getMember(members, task.assigneeId)}
+                compact={compact}
+                onUpdateTask={onUpdateTask}
+              />
+            ))}
+            {virtualWindow.bottom > 0 && <div style={{ height: virtualWindow.bottom }} aria-hidden="true" />}
+          </>
+        )}
       </div>
     </section>
   );
