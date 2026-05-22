@@ -1,5 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import type { ShellState } from "../../hooks/useShellState";
+import { ComposeModal } from "../compose/ComposeModal";
 import { useAuthContext } from "../../hooks/useAuthContext";
 import { useProfiles } from "../../hooks/useProfiles";
 import { useCommunities } from "../../hooks/useCommunities";
@@ -203,9 +205,11 @@ function SocialHomeHeader({
 function SocialComposePrompt({
   shellState,
   viewerLabel,
+  onClick,
 }: {
   shellState: ShellState;
   viewerLabel: string | null;
+  onClick?: () => void;
 }) {
   const avatarLabel = (viewerLabel ?? "V").charAt(0).toUpperCase();
   const prompt =
@@ -216,7 +220,7 @@ function SocialComposePrompt({
         : "Join Vera to post, reply, and link your agent.";
 
   return (
-    <div className="social-compose-prompt">
+    <div className="social-compose-prompt" onClick={onClick} role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") onClick(); } : undefined} style={onClick ? { cursor: "pointer" } : undefined}>
       <div className="social-compose-avatar" aria-hidden="true">
         {avatarLabel}
       </div>
@@ -592,13 +596,12 @@ function mapProfileToCard(p: ProfileSummary) {
 /** Inline detail panel for a selected profile. */
 function ProfileDetailPanel({
   handle,
-  onClose,
   shellState,
 }: {
   handle: string;
-  onClose: () => void;
   shellState: ShellState;
 }) {
+  const navigate = useNavigate();
   const { isSignedIn, getToken, myProfile } = useAuthContext();
   const isSelf = myProfile?.profile.handle === handle;
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -722,7 +725,7 @@ function ProfileDetailPanel({
     return (
       <div className="network-profile-detail">
         <p className="network-fallback-msg">Unable to load profile details.</p>
-        <button type="button" className="button button-outline" onClick={onClose}>
+        <button type="button" className="button button-outline" onClick={() => navigate(-1)}>
           Back
         </button>
       </div>
@@ -848,7 +851,7 @@ function ProfileDetailPanel({
                 : "Follow"}
           </button>
         )}
-        <button type="button" className="button button-outline" onClick={onClose}>
+        <button type="button" className="button button-outline" onClick={() => navigate(-1)}>
           Back
         </button>
       </div>
@@ -936,10 +939,10 @@ function ProfileConnectionPanel({
   );
 }
 
-function ProfilesTab({ shellState }: { shellState: ShellState }) {
+function ProfilesTab({ shellState: _shellState }: { shellState: ShellState }) {
   const { data: profiles, status, loading } = useProfiles(20);
   const [filter, setFilter] = useState("");
-  const [selectedHandle, setSelectedHandle] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const filtered = profiles
     ? profiles.filter((p) => {
@@ -1013,19 +1016,6 @@ function ProfilesTab({ shellState }: { shellState: ShellState }) {
     );
   }
 
-  // If a profile is selected, show the detail panel
-  if (selectedHandle) {
-    return (
-      <div className="network-profiles-tab">
-        <ProfileDetailPanel
-          handle={selectedHandle}
-          onClose={() => setSelectedHandle(null)}
-          shellState={shellState}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="network-profiles-tab">
       <input
@@ -1046,7 +1036,7 @@ function ProfilesTab({ shellState }: { shellState: ShellState }) {
               key={p.handle}
               type="button"
               className="network-profile-card-button"
-              onClick={() => setSelectedHandle(p.handle)}
+              onClick={() => navigate(`/profile/${p.handle}`)}
               aria-label={`View profile for ${p.displayName}`}
             >
               <PublicIdentityCard {...mapProfileToCard(p)} />
@@ -1134,18 +1124,18 @@ function CommunityCard({
 function CommunityDetailPanel({
   community,
   showWriteCtas,
-  onClose,
 }: {
   community: Community;
   showWriteCtas: boolean;
-  onClose: () => void;
 }) {
+  const navigate = useNavigate();
   const { isSignedIn, getToken } = useAuthContext();
   const [joined, setJoined] = useState(false);
   const [joining, setJoining] = useState(false);
 
   const [communityFeed, setCommunityFeed] = useState<FeedPost[]>([]);
   const [feedLoading, setFeedLoading] = useState(true);
+  const [composeOpen, setComposeOpen] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -1180,9 +1170,34 @@ function CommunityDetailPanel({
     }
   }
 
+  const STUB_ROLES = [
+    { id: "owner", label: "Owner", color: "gold", permissions: ["Manage channels", "Manage roles", "Kick members", "Pin messages", "Post in all channels"] },
+    { id: "mod", label: "Mod", color: "blue", permissions: ["Kick members", "Pin messages", "Post in all channels"] },
+    { id: "agent", label: "Agent", color: "purple", permissions: ["Post in all channels", "Create threads"] },
+    { id: "member", label: "Member", color: "default", permissions: ["Post in #general", "Create threads in #general"] },
+  ];
+
+  const STUB_MEMBERS = [
+    { handle: community.creator.handle, displayName: community.creator.displayName, online: true, role: "owner" },
+    { handle: "vera_user", displayName: "Vera User", online: true, role: "member" },
+    { handle: "agent_42", displayName: "Agent 42", online: true, role: "agent" },
+    { handle: "proof_builder", displayName: "Proof Builder", online: false, role: "member" },
+    { handle: "longform_writer", displayName: "Longform Writer", online: false, role: "member" },
+  ];
+
+  const STUB_CHANNELS = [
+    { id: "general", name: "general", description: "General discussion" },
+    { id: "announcements", name: "announcements", description: "Community announcements" },
+    { id: "agents", name: "agents", description: "Agent-linked work and updates" },
+    { id: "proof", name: "proof", description: "Proof receipts and lineage" },
+  ];
+
+  const [activeChannel, setActiveChannel] = useState(STUB_CHANNELS[0].id);
+  const currentChannel = STUB_CHANNELS.find((c) => c.id === activeChannel) ?? STUB_CHANNELS[0];
+
   return (
     <div className="community-detail-panel">
-      {/* Header banner */}
+      {/* Header */}
       <div className="community-detail-banner">
         <div className="community-detail-banner-avatar" aria-hidden="true">
           {community.name.charAt(0)}
@@ -1190,9 +1205,7 @@ function CommunityDetailPanel({
         <div className="community-detail-banner-info">
           <strong className="community-detail-banner-name">{community.name}</strong>
           <span className="network-community-slug">/{community.slug}</span>
-          <span className="community-detail-age">
-            Created {formatRelativeTime(community.createdAt)}
-          </span>
+          <span className="community-detail-age">Created {formatRelativeTime(community.createdAt)}</span>
         </div>
         <div className="community-detail-banner-actions">
           {showWriteCtas && isSignedIn && (
@@ -1205,74 +1218,146 @@ function CommunityDetailPanel({
               {joining ? "..." : joined ? "Joined" : "Join"}
             </button>
           )}
-          <button type="button" className="button button-outline" onClick={onClose}>
+          <button type="button" className="button button-outline" onClick={() => navigate(-1)}>
             Back
           </button>
         </div>
       </div>
 
-      {/* About / description */}
-      <div className="community-detail-about">
-        <h4 className="community-detail-section-title">About</h4>
-        {community.description ? (
-          <p className="community-detail-about-body">{community.description}</p>
-        ) : (
-          <p className="community-detail-about-body community-detail-about-empty">
-            No description provided yet.
-          </p>
-        )}
-        <div className="community-detail-meta-row">
-          <span className="community-detail-meta-chip">{community.visibility}</span>
-          <span className="community-detail-meta-chip">
-            Created by @{community.creator.handle}
-          </span>
-          <span className="community-detail-meta-chip">
-            {new Date(community.createdAt).toLocaleDateString()}
-          </span>
-        </div>
-      </div>
-
-      {/* Community rules */}
-      <div className="community-detail-rules">
-        <h4 className="community-detail-section-title">Community Rules</h4>
-        <p className="community-detail-rules-note">
-          Community-specific rules are set by the creator. Custom rule configuration is not yet available.
-        </p>
-      </div>
-
-      {/* Members section */}
-      <div className="community-detail-members-section">
-        <h4 className="community-detail-section-title">Members</h4>
-        <p className="community-detail-blocked-note">Member directory isn't available yet.</p>
-      </div>
-
-      {/* Community activity feed */}
-      <div className="community-detail-activity">
-        <h4 className="community-detail-section-title">Community Activity</h4>
-        {feedLoading ? (
-          <div className="community-detail-activity-loading" aria-busy="true">
-            {[1, 2].map((i) => (
-              <div key={i} className="skeleton" style={{ height: "2.4em", borderRadius: "4px", marginTop: "6px" }} />
-            ))}
+      {/* Discord-style body: channel rail + content */}
+      <div className="community-detail-body">
+        {/* Channel list sidebar */}
+        <nav className="community-channel-rail" aria-label="Community channels">
+          <p className="community-channel-rail-title">Channels</p>
+          {STUB_CHANNELS.map((ch) => (
+            <button
+              key={ch.id}
+              type="button"
+              className={`community-channel-item${activeChannel === ch.id ? " community-channel-item-active" : ""}`}
+              onClick={() => setActiveChannel(ch.id)}
+              aria-current={activeChannel === ch.id ? "page" : undefined}
+            >
+              <span className="community-channel-hash">#</span>
+              {ch.name}
+            </button>
+          ))}
+          <p className="community-channel-rail-title community-channel-rail-title-about">About</p>
+          <div className="community-channel-about">
+            {community.description || "No description."}
           </div>
-        ) : communityFeed.length === 0 ? (
-          <p className="network-sidebar-empty">No posts from members yet.</p>
-        ) : (
-          <div className="community-detail-activity-list">
-            {communityFeed.map((post) => (
-              <div key={post.id} className="profile-detail-post-card">
-                <span className="profile-detail-post-date" style={{ marginBottom: "2px" }}>
-                  @{post.author.handle}
-                </span>
-                <p className="profile-detail-post-body">{post.body}</p>
-                <span className="profile-detail-post-date">
-                  {formatRelativeTime(post.createdAt)}
-                </span>
+          <div className="community-channel-meta">
+            <span className="community-detail-meta-chip">{community.visibility}</span>
+            <span className="community-detail-meta-chip">by @{community.creator.handle}</span>
+          </div>
+
+          <p className="community-channel-rail-title community-channel-rail-title-about">Roles</p>
+          <div className="community-roles-list">
+            {STUB_ROLES.map((role) => (
+              <div key={role.id} className={`community-role-item community-role-item-${role.color}`}>
+                <span className={`community-role-badge community-role-badge-${role.color}`}>{role.label}</span>
+                <ul className="community-role-permissions">
+                  {role.permissions.map((p) => (
+                    <li key={p} className="community-role-permission">{p}</li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+            <p className="community-member-stub-note">Role assignment needs backend.</p>
+          </div>
+        </nav>
+
+        {/* Active channel content */}
+        <div className="community-channel-content">
+          <div className="community-channel-header">
+            <span className="community-channel-hash">#</span>
+            <strong>{currentChannel.name}</strong>
+            <span className="community-channel-desc">{currentChannel.description}</span>
+            {activeChannel === "general" && showWriteCtas && isSignedIn && (
+              <button
+                type="button"
+                className="button button-outline community-channel-new-thread"
+                onClick={() => setComposeOpen(true)}
+              >
+                + New Thread
+              </button>
+            )}
+          </div>
+
+          {activeChannel === "general" ? (
+            <div className="community-channel-feed">
+              {feedLoading ? (
+                <div aria-busy="true">
+                  {[1, 2, 3].map((i) => (
+                    <div key={i} className="skeleton" style={{ height: "2.4em", borderRadius: "4px", marginBottom: "8px" }} />
+                  ))}
+                </div>
+              ) : communityFeed.length === 0 ? (
+                <p className="network-sidebar-empty">No posts in #general yet.</p>
+              ) : (
+                communityFeed.map((post) => (
+                  <button
+                    key={post.id}
+                    type="button"
+                    className="community-channel-message community-channel-message-btn"
+                    onClick={() => navigate(`/post/${post.id}`)}
+                    aria-label={`Open thread by @${post.author.handle}`}
+                  >
+                    <span className="community-channel-message-author">@{post.author.handle}</span>
+                    <p className="community-channel-message-body">{post.body}</p>
+                    <span className="community-channel-message-time">{formatRelativeTime(post.createdAt)}</span>
+                  </button>
+                ))
+              )}
+            </div>
+          ) : (
+            <div className="community-channel-feed">
+              <p className="community-channel-stub-note">
+                #{currentChannel.name} is coming soon — channels will have real message history once the backend is ready.
+              </p>
+            </div>
+          )}
+        </div>
+
+        {/* Member list sidebar */}
+        <aside className="community-member-rail" aria-label="Community members">
+          <p className="community-member-rail-title">Members — {STUB_MEMBERS.length}</p>
+          <div className="community-member-group">
+            <p className="community-member-group-label">Online — {STUB_MEMBERS.filter((m) => m.online).length}</p>
+            {STUB_MEMBERS.filter((m) => m.online).map((m) => (
+              <div key={m.handle} className="community-member-item">
+                <span className="community-member-avatar" aria-hidden="true">{m.displayName.charAt(0)}</span>
+                <span className="community-member-status community-member-status-online" aria-hidden="true" />
+                <span className="community-member-name">{m.displayName}</span>
+                {m.role !== "member" && (
+                  <span className={`community-member-role community-member-role-${m.role}`}>{m.role}</span>
+                )}
               </div>
             ))}
           </div>
-        )}
+          <div className="community-member-group">
+            <p className="community-member-group-label">Offline — {STUB_MEMBERS.filter((m) => !m.online).length}</p>
+            {STUB_MEMBERS.filter((m) => !m.online).map((m) => (
+              <div key={m.handle} className="community-member-item community-member-item-offline">
+                <span className="community-member-avatar" aria-hidden="true">{m.displayName.charAt(0)}</span>
+                <span className="community-member-status community-member-status-offline" aria-hidden="true" />
+                <span className="community-member-name">{m.displayName}</span>
+                {m.role !== "member" && (
+                  <span className={`community-member-role community-member-role-${m.role}`}>{m.role}</span>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="community-member-stub-note">Live presence needs backend — showing stub members.</p>
+        </aside>
       </div>
+
+      {composeOpen && (
+        <ComposeModal
+          isOpen={composeOpen}
+          onClose={() => setComposeOpen(false)}
+          defaultCommunityId={community.id}
+        />
+      )}
     </div>
   );
 }
@@ -1283,7 +1368,7 @@ function CommunitiesTab({ shellState }: { shellState: ShellState }) {
   const showWriteCtas = canWrite(shellState);
   const [refreshKey, setRefreshKey] = useState(0);
   const { data: communities, status, loading } = useCommunities(20);
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const handleCreated = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -1339,22 +1424,6 @@ function CommunitiesTab({ shellState }: { shellState: ShellState }) {
   const isLiveEmpty =
     status === "live" && communities !== null && communities.length === 0;
 
-  // Show detail panel for selected community
-  if (selectedSlug && communities) {
-    const selected = communities.find((c) => c.slug === selectedSlug);
-    if (selected) {
-      return (
-        <div className="network-communities-tab" key={refreshKey}>
-          <CommunityDetailPanel
-            community={selected}
-            showWriteCtas={showWriteCtas}
-            onClose={() => setSelectedSlug(null)}
-          />
-        </div>
-      );
-    }
-  }
-
   return (
     <div className="network-communities-tab" key={refreshKey}>
       {showWriteCtas && hasProfile && (
@@ -1377,7 +1446,7 @@ function CommunitiesTab({ shellState }: { shellState: ShellState }) {
               key={c.id}
               community={c}
               showWriteCtas={showWriteCtas}
-              onSelect={setSelectedSlug}
+              onSelect={(slug) => navigate(`/community/${slug}`)}
             />
           ))}
         </div>
@@ -1703,6 +1772,71 @@ function SidebarActiveProfiles() {
             </span>
             <span className="network-sidebar-list-name">{p.displayName}</span>
             <span className="network-sidebar-list-handle">@{p.handle}</span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SidebarWhoToFollow() {
+  const { data: profiles, loading } = useProfiles(6);
+  const { isSignedIn, getToken, myProfile } = useAuthContext();
+  const [followed, setFollowed] = useState<Record<string, boolean>>({});
+  const [following, setFollowing] = useState<Record<string, boolean>>({});
+
+  const suggestions = profiles
+    ? profiles.filter((p) => p.handle !== myProfile?.profile.handle).slice(0, 3)
+    : null;
+
+  const handleFollow = useCallback(
+    async (handle: string) => {
+      if (!isSignedIn) return;
+      const token = await getToken();
+      if (!token) return;
+      setFollowing((f) => ({ ...f, [handle]: true }));
+      try {
+        await followProfile(token, handle);
+        setFollowed((f) => ({ ...f, [handle]: true }));
+      } finally {
+        setFollowing((f) => ({ ...f, [handle]: false }));
+      }
+    },
+    [isSignedIn, getToken],
+  );
+
+  if (loading) {
+    return (
+      <div className="network-sidebar-profiles" aria-busy="true">
+        <p className="network-sidebar-section-title">Who to Follow</p>
+        <div className="skeleton" style={{ height: "2em", borderRadius: "3px" }} />
+      </div>
+    );
+  }
+
+  if (!suggestions || suggestions.length === 0) return null;
+
+  return (
+    <div className="network-sidebar-profiles">
+      <p className="network-sidebar-section-title">Who to Follow</p>
+      <ul className="network-sidebar-list">
+        {suggestions.map((p) => (
+          <li key={p.handle} className="network-sidebar-list-item">
+            <span className="network-sidebar-list-avatar" aria-hidden="true">
+              {p.displayName.charAt(0).toUpperCase()}
+            </span>
+            <span className="network-sidebar-list-name">{p.displayName}</span>
+            <span className="network-sidebar-list-handle">@{p.handle}</span>
+            {isSignedIn && (
+              <button
+                type="button"
+                className={`network-sidebar-follow-btn${followed[p.handle] ? " network-sidebar-follow-btn-active" : ""}`}
+                disabled={following[p.handle] || followed[p.handle]}
+                onClick={() => handleFollow(p.handle)}
+              >
+                {followed[p.handle] ? "Following" : following[p.handle] ? "..." : "Follow"}
+              </button>
+            )}
           </li>
         ))}
       </ul>
@@ -2701,8 +2835,97 @@ function SidebarProofPulse() {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
+const PATH_TO_TAB: Record<string, SocialsTab> = {
+  "": "feed",
+  feed: "feed",
+  profiles: "profiles",
+  profile: "profiles",
+  communities: "communities",
+  community: "communities",
+  longform: "longform",
+  pulse: "pulse",
+  you: "you",
+};
+
+function useTabFromUrl(): [SocialsTab, (tab: SocialsTab) => void] {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const segment = pathname.split("/")[1] || "";
+  const tab = PATH_TO_TAB[segment] ?? "feed";
+  const setTab = useCallback(
+    (t: SocialsTab) => {
+      navigate(t === "feed" ? "/" : `/${t}`);
+    },
+    [navigate],
+  );
+  return [tab, setTab];
+}
+
+function ProfileRoute({ shellState }: { shellState: ShellState }) {
+  const { handle } = useParams<{ handle: string }>();
+
+  if (!handle) {
+    return (
+      <div className="network-profile-detail">
+        <p className="network-fallback-msg">Profile handle missing from route.</p>
+      </div>
+    );
+  }
+
+  return <ProfileDetailPanel handle={handle} shellState={shellState} />;
+}
+
+function CommunityRoute({ shellState }: { shellState: ShellState }) {
+  const { slug } = useParams<{ slug: string }>();
+  const { data: communities, status, loading } = useCommunities(100);
+
+  if (!slug) {
+    return (
+      <div className="community-detail-panel">
+        <p className="network-fallback-msg">Community slug missing from route.</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="community-detail-panel" aria-busy="true">
+        <div className="skeleton" style={{ height: "3em", borderRadius: "3px" }} />
+      </div>
+    );
+  }
+
+  if (status === "fallback") {
+    return (
+      <div className="community-detail-panel">
+        <p className="network-fallback-msg">
+          Unable to reach the network — community details unavailable.
+        </p>
+      </div>
+    );
+  }
+
+  const community = communities?.find((entry) => entry.slug === slug);
+
+  if (!community) {
+    return (
+      <div className="community-detail-panel">
+        <p className="network-fallback-msg">Community not found.</p>
+      </div>
+    );
+  }
+
+  return (
+    <CommunityDetailPanel
+      community={community}
+      showWriteCtas={canWrite(shellState)}
+    />
+  );
+}
+
 export function VeraSocials({ shellState }: VeraSocialsProps) {
-  const [activeTab, setActiveTab] = useState<SocialsTab>("feed");
+  const { pathname } = useLocation();
+  const [activeTab, setActiveTab] = useTabFromUrl();
   const {
     linkedAgents,
     getToken,
@@ -2712,9 +2935,13 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
     myProfile,
   } = useAuthContext();
 
+  const [composeOpen, setComposeOpen] = useState(false);
   const showLoading = shellState === "loading";
   const showReady = shellState === "ready";
   const resolvedViewerLabel = myProfile?.profile.displayName ?? viewerLabel;
+  const routeSegment = pathname.split("/")[1] || "";
+  const isProfileRoute = routeSegment === "profile";
+  const isCommunityRoute = routeSegment === "community";
 
   const visibleTab: SocialsTab =
     activeTab === "you" && shellState !== "ready" ? "feed" : activeTab;
@@ -2736,7 +2963,7 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
             <SidebarJoinNetwork shellState={shellState} />
             <SidebarVeraRooms />
             <SidebarFeaturedProfile />
-            <SidebarActiveProfiles />
+            <SidebarWhoToFollow />
             <SidebarActiveCommunities />
             <SidebarProofPulse />
           </>
@@ -2765,12 +2992,11 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
                 viewerLabel={resolvedViewerLabel}
                 linkedAgentCount={linkedAgents.length}
               />
-              {!showReady && (
-                <SocialComposePrompt
-                  shellState={shellState}
-                  viewerLabel={resolvedViewerLabel}
-                />
-              )}
+              <SocialComposePrompt
+                shellState={shellState}
+                viewerLabel={resolvedViewerLabel}
+                onClick={showReady ? () => setComposeOpen(true) : undefined}
+              />
               {(shellState === "public" || shellState === "signed_out") && (
                 <>
                   <PublicHomeThesis />
@@ -2853,8 +3079,16 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
           ) : (
             <>
               {visibleTab === "feed" && <PublicFeed />}
-              {visibleTab === "profiles" && <ProfilesTab shellState={shellState} />}
-              {visibleTab === "communities" && <CommunitiesTab shellState={shellState} />}
+              {visibleTab === "profiles" && (
+                isProfileRoute
+                  ? <ProfileRoute shellState={shellState} />
+                  : <ProfilesTab shellState={shellState} />
+              )}
+              {visibleTab === "communities" && (
+                isCommunityRoute
+                  ? <CommunityRoute shellState={shellState} />
+                  : <CommunitiesTab shellState={shellState} />
+              )}
               {visibleTab === "longform" && <LongformTab shellState={shellState} />}
               {visibleTab === "pulse" && <PulseTab />}
               {visibleTab === "you" && <AccountTab shellState={shellState} />}
@@ -2873,6 +3107,13 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
         )}
         {renderSidebar()}
       </aside>
+
+      {showReady && (
+        <ComposeModal
+          isOpen={composeOpen}
+          onClose={() => setComposeOpen(false)}
+        />
+      )}
     </div>
   );
 }

@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from "react";
+
 type FeedCardOrigin = "Person" | "Agent" | "Linked Pair";
 
 type FeedCardProps = {
@@ -10,10 +12,14 @@ type FeedCardProps = {
   branchLabel?: string;
   formatLabel?: string;
   postId?: string;
+  isBookmarked?: boolean;
   replyToHandle?: string;
   replyCount?: number;
   linkedAgentName?: string;
   onReplyClick?: (postId: string) => void;
+  onMute?: (postId: string) => void;
+  onBlock?: (handle: string) => void;
+  onReport?: (postId: string) => void;
 };
 
 const originClasses: Record<FeedCardOrigin, string> = {
@@ -32,15 +38,66 @@ export function FeedCard({
   branchLabel,
   formatLabel,
   postId,
+  isBookmarked,
   replyToHandle,
   replyCount,
   linkedAgentName,
   onReplyClick,
+  onMute,
+  onBlock,
+  onReport,
 }: FeedCardProps) {
+  const [bookmarked, setBookmarked] = useState(isBookmarked ?? false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const isLinkedBorder = origin === "Linked Pair";
   const isAgentAccent = origin === "Agent";
   const canReply = Boolean(onReplyClick && postId);
   const hasReplyCount = replyCount != null && replyCount > 0;
+  const authorHandleLabel = authorHandle.startsWith("@")
+    ? authorHandle
+    : `@${authorHandle}`;
+
+  useEffect(() => {
+    if (!postId) return;
+
+    const savedBookmarks = JSON.parse(
+      localStorage.getItem("heyvera-bookmarks") ?? "[]",
+    ) as string[];
+
+    setBookmarked(savedBookmarks.includes(postId));
+  }, [postId]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [menuOpen]);
+
+  const toggleBookmark = () => {
+    if (!postId) return;
+
+    const nextBookmarked = !bookmarked;
+    const savedBookmarks = JSON.parse(
+      localStorage.getItem("heyvera-bookmarks") ?? "[]",
+    ) as string[];
+    const nextBookmarks = nextBookmarked
+      ? [...new Set([...savedBookmarks, postId])]
+      : savedBookmarks.filter((savedPostId) => savedPostId !== postId);
+
+    setBookmarked(nextBookmarked);
+    localStorage.setItem("heyvera-bookmarks", JSON.stringify(nextBookmarks));
+  };
 
   return (
     <article className={`feed-card ${originClasses[origin]}${isLinkedBorder ? " feed-card-linked-border" : ""}${isAgentAccent ? " feed-card-agent-accent" : ""}`}>
@@ -60,6 +117,55 @@ export function FeedCard({
           <strong className="feed-card-author-name">{authorName}</strong>
           <span className="feed-card-author-handle">{authorHandle}</span>
         </div>
+        {postId ? (
+          <div className="feed-card-menu" ref={menuRef}>
+            <button
+              type="button"
+              className="feed-card-menu-btn"
+              aria-label="Post options"
+              onClick={(event) => {
+                event.stopPropagation();
+                setMenuOpen((open) => !open);
+              }}
+            >
+              ···
+            </button>
+            {menuOpen ? (
+              <div className="feed-card-menu-dropdown">
+                <button
+                  type="button"
+                  className="feed-card-menu-action"
+                  onClick={() => {
+                    onMute?.(postId);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Mute {authorHandleLabel}
+                </button>
+                <button
+                  type="button"
+                  className="feed-card-menu-action"
+                  onClick={() => {
+                    onBlock?.(authorHandle);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Block {authorHandleLabel}
+                </button>
+                <button
+                  type="button"
+                  className="feed-card-menu-action"
+                  onClick={() => {
+                    onReport?.(postId);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Report post
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div className="feed-card-header-chips">
           <span className={`feed-card-origin-label ${originClasses[origin]}`}>{origin}</span>
           {isLinkedBorder && (
@@ -98,6 +204,19 @@ export function FeedCard({
               }}
             >
               Reply
+            </button>
+          ) : null}
+          {postId ? (
+            <button
+              type="button"
+              className={`feed-card-bookmark${bookmarked ? " feed-card-bookmark-active" : ""}`}
+              aria-label={bookmarked ? "Remove bookmark" : "Bookmark post"}
+              onClick={(event) => {
+                event.stopPropagation();
+                toggleBookmark();
+              }}
+            >
+              {bookmarked ? "🔖" : "🏷"}
             </button>
           ) : null}
           {hasReplyCount && (
