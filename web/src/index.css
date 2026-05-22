@@ -970,8 +970,10 @@ html.dark .button-primary {
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: 1;
-  min-width: 0;
+  padding: 14px 16px 12px;
+  border-bottom: 1px solid var(--border);
+  width: 100%;
+  box-sizing: border-box;
 }
 
 .feed-card-author-avatar {
@@ -1012,13 +1014,20 @@ html.dark .button-primary {
   font-size: 1.02rem;
   font-weight: 600;
   line-height: 1.4;
-  margin-bottom: 4px;
+  margin: 0;
+  padding: 14px 16px 0;
 }
 
 .feed-card-body {
   color: var(--text-primary);
   font-size: 0.95rem;
   line-height: 1.75;
+  margin: 0;
+  padding: 12px 16px 14px;
+}
+
+.feed-card-title + .feed-card-body {
+  padding-top: 4px;
 }
 
 .feed-card-proof {
@@ -2022,6 +2031,7 @@ html.dark .button-primary {
 .feed-card-author-prominent {
   align-items: flex-start;
   flex-wrap: wrap;
+  padding: 0;
 }
 
 .feed-card-author-meta {
@@ -4217,9 +4227,10 @@ html.dark .vera-socials-sidebar-pulse {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-top: 8px;
-  padding-top: 6px;
-  border-top: 1px solid var(--border-light, rgba(0, 0, 0, 0.06));
+  margin-top: 0;
+  padding: 8px 16px;
+  border-top: 1px solid var(--border);
+  background: var(--surface-hover, rgba(0, 0, 0, 0.015));
 }
 
 .feed-card-reply-action {
