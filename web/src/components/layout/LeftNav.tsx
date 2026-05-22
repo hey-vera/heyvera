@@ -1,4 +1,3 @@
-import React from "react";
 
 interface LeftNavProps {
   activeRoute: string;
@@ -57,8 +56,6 @@ export function LeftNav({ activeRoute, onNavigate, onCompose }: LeftNavProps) {
         <div className="flex flex-col w-full gap-0.5 mt-1">
           {navItems.map((item) => {
             const isActive = item.route !== "" && activeRoute === item.route;
-            const isMore = item.route === "";
-
             return (
               <button
                 key={item.label}

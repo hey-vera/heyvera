@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { createBrowserRouter, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { AppShell } from './components/layout/AppShell';
 import { HomePage } from './pages/HomePage';
 import { ExplorePage } from './pages/ExplorePage';
@@ -13,7 +13,6 @@ import { AIPage } from './pages/AIPage';
 
 function RootLayout() {
   const location = useLocation();
-  const navigate = useNavigate();
   const activeRoute = '/' + (location.pathname.split('/')[1] || 'home');
 
   return (
