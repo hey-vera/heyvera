@@ -1,38 +1,90 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::Json;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::clerk::ClerkUser;
+use crate::db::{CodeRedemption, PromoCode};
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
 
-fn is_admin(_state: &AppState, user_id: &str) -> bool {
-    let admins: HashSet<String> = std::env::var("CORTEX_ADMIN_USERS")
-        .unwrap_or_default()
-        .split(',')
-        .map(|s| s.trim().to_string())
+fn admin_set() -> HashSet<String> {
+    let raw = std::env::var("CORTEX_ADMIN_EMAILS")
+        .or_else(|_| std::env::var("CORTEX_ADMIN_USERS"))
+        .unwrap_or_default();
+    raw.split(',')
+        .map(|s| s.trim().to_lowercase())
         .filter(|s| !s.is_empty())
-        .collect();
-    admins.is_empty() || admins.contains(user_id)
+        .collect()
 }
 
-fn require_admin(
+pub fn is_admin(_state: &AppState, user_id: &str) -> bool {
+    let admins = admin_set();
+    if admins.is_empty() {
+        return std::env::var("CLERK_SECRET_KEY").is_err();
+    }
+    admins.contains(&user_id.to_lowercase())
+}
+
+async fn resolve_admin(
     state: &AppState,
     user: &ClerkUser,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    if !is_admin(state, &user.user_id) {
+    let admins = admin_set();
+    if admins.is_empty() {
+        if std::env::var("CLERK_SECRET_KEY").is_err() {
+            return Ok(());
+        }
         return Err((
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "admin access required".into(),
-            }),
+            Json(ErrorResponse { error: "admin access required".into() }),
         ));
     }
-    Ok(())
+
+    if admins.contains(&user.user_id.to_lowercase()) {
+        return Ok(());
+    }
+
+    if let Some(clerk_secret) = &state.clerk_secret_key {
+        if let Ok(email) = lookup_clerk_email(clerk_secret, &user.user_id).await {
+            if admins.contains(&email.to_lowercase()) {
+                return Ok(());
+            }
+        }
+    }
+
+    Err((
+        StatusCode::FORBIDDEN,
+        Json(ErrorResponse { error: "admin access required".into() }),
+    ))
+}
+
+async fn lookup_clerk_email(clerk_secret: &str, user_id: &str) -> Result<String, String> {
+    let url = format!("https://api.clerk.com/v1/users/{user_id}");
+    let client = reqwest::Client::new();
+    let res = client
+        .get(&url)
+        .bearer_auth(clerk_secret)
+        .send()
+        .await
+        .map_err(|e| format!("clerk user lookup failed: {e}"))?;
+
+    if !res.status().is_success() {
+        return Err(format!("clerk returned {}", res.status()));
+    }
+
+    let body: serde_json::Value = res.json().await.map_err(|e| format!("parse error: {e}"))?;
+
+    body.get("email_addresses")
+        .and_then(|arr| arr.as_array())
+        .and_then(|arr| arr.first())
+        .and_then(|obj| obj.get("email_address"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string())
+        .ok_or_else(|| "no email found".into())
 }
 
 // --- Worker status ---
@@ -41,7 +93,7 @@ pub async fn get_workers(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    require_admin(&state, &user)?;
+    resolve_admin(&state, &user).await?;
 
     let in_memory: Vec<serde_json::Value> = {
         let workers = state.workers.read().await;
@@ -78,7 +130,7 @@ pub async fn system_stats(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    require_admin(&state, &user)?;
+    resolve_admin(&state, &user).await?;
     let stats = state
         .db
         .as_ref()
@@ -116,7 +168,7 @@ pub async fn list_decisions(
     user: ClerkUser,
     Query(query): Query<DecisionQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, Json<ErrorResponse>)> {
-    require_admin(&state, &user)?;
+    resolve_admin(&state, &user).await?;
     let decisions = state
         .db
         .as_ref()
@@ -141,7 +193,7 @@ pub async fn list_all_runs(
     user: ClerkUser,
     Query(query): Query<RunListQuery>,
 ) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, Json<ErrorResponse>)> {
-    require_admin(&state, &user)?;
+    resolve_admin(&state, &user).await?;
     let runs = state
         .db
         .as_ref()
@@ -171,7 +223,7 @@ pub async fn get_run_detail(
     user: ClerkUser,
     axum::extract::Path(id): axum::extract::Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    require_admin(&state, &user)?;
+    resolve_admin(&state, &user).await?;
     let db = state.db.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -317,4 +369,171 @@ fn parse_tier(s: &str) -> cortex_core::provider::Tier {
         "think" => cortex_core::provider::Tier::Think,
         _ => cortex_core::provider::Tier::Execute,
     }
+}
+
+// --- Promo Code Management ---
+
+#[derive(Deserialize)]
+pub struct CreatePromoCodeRequest {
+    pub code: String,
+    pub discount_type: String,
+    pub discount_value: f64,
+    #[serde(default = "default_max_uses")]
+    pub max_uses: i32,
+    pub expires_at: Option<String>,
+    pub description: Option<String>,
+    pub discount_options: Option<Vec<DiscountOption>>,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct DiscountOption {
+    pub label: String,
+    pub discount_type: String,
+    pub discount_value: f64,
+}
+
+fn default_max_uses() -> i32 { 25 }
+
+#[derive(Deserialize)]
+pub struct UpdatePromoCodeRequest {
+    pub active: Option<bool>,
+    pub max_uses: Option<i32>,
+    pub expires_at: Option<Option<String>>,
+    pub description: Option<Option<String>>,
+}
+
+#[derive(Serialize)]
+pub struct PromoCodeListResponse {
+    pub codes: Vec<PromoCode>,
+    pub total: usize,
+}
+
+#[derive(Serialize)]
+pub struct RedemptionListResponse {
+    pub redemptions: Vec<CodeRedemption>,
+    pub total: usize,
+}
+
+pub async fn create_promo_code(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Json(req): Json<CreatePromoCodeRequest>,
+) -> Result<Json<PromoCode>, (StatusCode, Json<ErrorResponse>)> {
+    resolve_admin(&state, &user).await?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+
+    if req.code.len() < 3 || req.code.len() > 32 {
+        return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
+            error: "code must be 3-32 characters".into(),
+        })));
+    }
+    if !req.code.chars().all(|c| c.is_alphanumeric() || c == '-' || c == '_') {
+        return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
+            error: "code may only contain letters, numbers, hyphens, and underscores".into(),
+        })));
+    }
+    match req.discount_type.as_str() {
+        "trial_extension" | "percent_off" | "free_trial" => {}
+        _ => return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
+            error: "discount_type must be trial_extension, percent_off, or free_trial".into(),
+        }))),
+    }
+
+    let options_json = req.discount_options.as_ref().map(|opts| {
+        serde_json::to_string(opts).unwrap_or_default()
+    });
+    let promo = db.create_promo_code(
+        &req.code,
+        &req.discount_type,
+        req.discount_value,
+        req.max_uses,
+        req.expires_at.as_deref(),
+        &user.user_id,
+        req.description.as_deref(),
+        options_json.as_deref(),
+    ).map_err(|e| (StatusCode::CONFLICT, Json(ErrorResponse { error: e })))?;
+
+    tracing::info!("admin {} created promo code {}", user.user_id, promo.code);
+    Ok(Json(promo))
+}
+
+pub async fn list_promo_codes(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+) -> Result<Json<PromoCodeListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    resolve_admin(&state, &user).await?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    let codes = db.list_promo_codes();
+    let total = codes.len();
+    Ok(Json(PromoCodeListResponse { codes, total }))
+}
+
+pub async fn update_promo_code(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(id): Path<String>,
+    Json(req): Json<UpdatePromoCodeRequest>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    resolve_admin(&state, &user).await?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    let updated = db.update_promo_code(
+        &id,
+        req.active,
+        req.max_uses,
+        req.expires_at.as_ref().map(|e| e.as_deref()),
+        req.description.as_ref().map(|d| d.as_deref()),
+    );
+    if updated {
+        tracing::info!("admin {} updated promo code {}", user.user_id, id);
+        Ok(Json(serde_json::json!({"updated": true})))
+    } else {
+        Err((StatusCode::NOT_FOUND, Json(ErrorResponse { error: "promo code not found".into() })))
+    }
+}
+
+pub async fn delete_promo_code(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    resolve_admin(&state, &user).await?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    if db.delete_promo_code(&id) {
+        tracing::info!("admin {} deleted promo code {}", user.user_id, id);
+        Ok(Json(serde_json::json!({"deleted": true})))
+    } else {
+        Err((StatusCode::NOT_FOUND, Json(ErrorResponse { error: "promo code not found".into() })))
+    }
+}
+
+#[derive(Deserialize)]
+pub struct RedemptionQuery {
+    pub code: Option<String>,
+}
+
+pub async fn list_redemptions(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Query(query): Query<RedemptionQuery>,
+) -> Result<Json<RedemptionListResponse>, (StatusCode, Json<ErrorResponse>)> {
+    resolve_admin(&state, &user).await?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    let redemptions = db.list_redemptions(query.code.as_deref());
+    let total = redemptions.len();
+    Ok(Json(RedemptionListResponse { redemptions, total }))
 }

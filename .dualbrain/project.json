@@ -4,11 +4,11 @@
   "created": "2026-05-17T15:05:01.929Z",
   "workStyle": "balanced",
   "userCalibration": {
-    "specificity": 3,
-    "corrections": 3.1,
-    "autonomy": 3,
-    "interactions": 1,
-    "lastUpdated": "2026-05-17T15:05:02.580Z"
+    "specificity": 4,
+    "corrections": 2.5,
+    "autonomy": 4,
+    "interactions": 3,
+    "lastUpdated": "2026-05-20T16:16:10.454Z"
   },
   "team": [],
   "providers": {}

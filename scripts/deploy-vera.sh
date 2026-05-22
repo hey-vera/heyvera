@@ -7,7 +7,7 @@ set -euo pipefail
 
 VPS_HOST="${VPS_HOST:-guardian@clawguard}"
 REPO_DIR="/home/guardian/claw-net"
-BRANCH="${BRANCH:-feat/dual-brain-orchestrator-v2}"
+BRANCH="${BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
 CORTEX_WWW="/var/www/cortex"
 DASHBOARD_WWW="/var/www/claw-net-dashboard"
 
@@ -24,6 +24,14 @@ CORTEX_WWW="$3"
 DASHBOARD_WWW="$4"
 
 cd "$REPO_DIR"
+
+ENV_FILE="/etc/cortex/cortex.env"
+if [ -f "$ENV_FILE" ]; then
+  echo "[env] Sourcing $ENV_FILE..."
+  set -a
+  eval "$(sudo cat "$ENV_FILE")"
+  set +a
+fi
 
 echo "[git] Fetching and checking out $BRANCH..."
 git fetch heyvera "$BRANCH"

@@ -100,25 +100,44 @@ impl RateLimiter {
 }
 
 /// Extract user identity from the Authorization header for rate limiting.
-/// Parses the JWT subject claim without full verification (rate limiting runs
-/// before auth, so we just need a consistent key). Falls back to "anonymous".
+/// Handles both Bearer JWT and Soma delegation tokens.
+/// Falls back to IP-based key, then "anonymous".
 fn extract_user_key(req: &Request<axum::body::Body>) -> String {
-    req.headers()
+    let auth = req.headers()
         .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|v| v.strip_prefix("Bearer "))
-        .and_then(|token| {
-            // JWT is header.payload.signature — decode the payload for `sub`
+        .and_then(|v| v.to_str().ok());
+
+    if let Some(header) = auth {
+        // Bearer JWT: extract `sub` claim without full verification
+        if let Some(token) = header.strip_prefix("Bearer ") {
             let parts: Vec<&str> = token.splitn(3, '.').collect();
-            if parts.len() < 2 {
-                return None;
+            if parts.len() >= 2 {
+                if let Some(payload) = base64url_decode(parts[1]) {
+                    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(&payload) {
+                        if let Some(sub) = value.get("sub").and_then(|s| s.as_str()) {
+                            return sub.to_string();
+                        }
+                    }
+                }
             }
-            // base64url decode the payload
-            let payload = base64url_decode(parts[1])?;
-            let value: serde_json::Value = serde_json::from_slice(&payload).ok()?;
-            value.get("sub").and_then(|s| s.as_str()).map(String::from)
-        })
-        .unwrap_or_else(|| "anonymous".to_string())
+        }
+
+        // Soma delegation: extract subject_did from the JSON token
+        if let Some(token) = header.strip_prefix("Soma ") {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(token) {
+                if let Some(did) = value.get("subject_did").and_then(|s| s.as_str()) {
+                    return did.to_string();
+                }
+            }
+        }
+    }
+
+    // API key: use the key itself as the rate limit bucket
+    if let Some(api_key) = req.headers().get("x-api-key").and_then(|v| v.to_str().ok()) {
+        return format!("apikey:{}", &api_key[..api_key.len().min(16)]);
+    }
+
+    "anonymous".to_string()
 }
 
 /// Minimal base64url decode (no padding required).

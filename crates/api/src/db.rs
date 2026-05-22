@@ -49,9 +49,79 @@ pub struct ConversationSummary {
     pub last_message_preview: Option<String>,
 }
 
+pub struct ActiveRunSummary {
+    pub id: String,
+    pub goal: String,
+    pub status: String,
+    pub created_at: String,
+    pub step_count: usize,
+    pub steps_completed: usize,
+    pub steps_failed: usize,
+}
+
+// --- Billing types ---
+
+pub struct SubscriptionRecord {
+    pub clerk_user_id: String,
+    pub stripe_customer_id: String,
+    pub stripe_subscription_id: Option<String>,
+    pub plan_type: String,
+    pub status: String,
+    pub trial_end: Option<String>,
+    pub current_period_start: Option<String>,
+    pub current_period_end: Option<String>,
+}
+
+pub struct CreditBalanceRecord {
+    pub subscription_remaining: f64,
+    pub subscription_total: f64,
+    pub pack_remaining: f64,
+}
+
+pub struct BillingHistoryRecord {
+    pub id: String,
+    pub amount_cents: i64,
+    pub description: String,
+    pub status: String,
+    pub created_at: String,
+}
+
+pub struct ReferralCodeRecord {
+    pub code: String,
+    pub creator_user_id: String,
+    pub uses_remaining: i32,
+    pub total_uses: i32,
+    pub weeks_earned: i32,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct PromoCode {
+    pub id: String,
+    pub code: String,
+    pub discount_type: String,
+    pub discount_value: f64,
+    pub max_uses: i32,
+    pub current_uses: i32,
+    pub expires_at: Option<String>,
+    pub active: bool,
+    pub created_by: String,
+    pub created_at: String,
+    pub description: Option<String>,
+    pub discount_options: Option<String>,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct CodeRedemption {
+    pub id: String,
+    pub promo_code_id: String,
+    pub code: String,
+    pub user_id: String,
+    pub redeemed_at: String,
+}
+
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 5;
+const SCHEMA_VERSION: i64 = 9;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -78,6 +148,18 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 5 {
         migrate_v5(conn);
+    }
+    if current < 6 {
+        migrate_v6(conn);
+    }
+    if current < 7 {
+        migrate_v7(conn);
+    }
+    if current < 8 {
+        migrate_v8(conn);
+    }
+    if current < 9 {
+        migrate_v9(conn);
     }
 }
 
@@ -375,6 +457,128 @@ fn migrate_v5(conn: &Connection) {
     ).expect("migration v5 failed");
 
     tracing::info!("applied migration v5: runs.file_paths for workspace context");
+}
+
+fn migrate_v6(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS subscriptions (
+            clerk_user_id TEXT PRIMARY KEY,
+            stripe_customer_id TEXT NOT NULL,
+            stripe_subscription_id TEXT,
+            plan_type TEXT NOT NULL DEFAULT 'monthly',
+            status TEXT NOT NULL DEFAULT 'trialing',
+            trial_end TEXT,
+            current_period_start TEXT,
+            current_period_end TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS credit_balances (
+            clerk_user_id TEXT PRIMARY KEY,
+            subscription_remaining REAL NOT NULL DEFAULT 200.0,
+            subscription_total REAL NOT NULL DEFAULT 200.0,
+            pack_remaining REAL NOT NULL DEFAULT 0.0,
+            last_reset_at TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS credit_transactions (
+            id TEXT PRIMARY KEY,
+            clerk_user_id TEXT NOT NULL,
+            amount REAL NOT NULL,
+            balance_type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS billing_history (
+            id TEXT PRIMARY KEY,
+            clerk_user_id TEXT NOT NULL,
+            stripe_event_id TEXT UNIQUE,
+            amount_cents INTEGER NOT NULL,
+            description TEXT NOT NULL,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        CREATE TABLE IF NOT EXISTS referral_codes (
+            code TEXT PRIMARY KEY,
+            creator_user_id TEXT NOT NULL,
+            uses_remaining INTEGER NOT NULL DEFAULT 1,
+            total_uses INTEGER NOT NULL DEFAULT 0,
+            credits_earned REAL NOT NULL DEFAULT 0.0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+
+        UPDATE schema_version SET version = 6;"
+    ).expect("migration v6 failed");
+
+    tracing::info!("applied migration v6: subscriptions, credit_balances, credit_transactions, billing_history, referral_codes");
+}
+
+fn migrate_v7(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS promo_codes (
+            id TEXT PRIMARY KEY,
+            code TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            discount_type TEXT NOT NULL DEFAULT 'trial_extension',
+            discount_value REAL NOT NULL DEFAULT 14.0,
+            max_uses INTEGER NOT NULL DEFAULT 25,
+            current_uses INTEGER NOT NULL DEFAULT 0,
+            expires_at TEXT,
+            active INTEGER NOT NULL DEFAULT 1,
+            created_by TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            description TEXT
+        );
+
+        CREATE TABLE IF NOT EXISTS code_redemptions (
+            id TEXT PRIMARY KEY,
+            promo_code_id TEXT NOT NULL REFERENCES promo_codes(id),
+            code TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            redeemed_at TEXT NOT NULL DEFAULT (datetime('now')),
+            UNIQUE(code, user_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_code_redemptions_user ON code_redemptions(user_id);
+        CREATE INDEX IF NOT EXISTS idx_code_redemptions_code ON code_redemptions(code);
+
+        UPDATE schema_version SET version = 7;"
+    ).expect("migration v7 failed");
+
+    tracing::info!("applied migration v7: promo_codes, code_redemptions");
+}
+
+fn migrate_v8(conn: &Connection) {
+    conn.execute(
+        "ALTER TABLE referral_codes ADD COLUMN weeks_earned INTEGER NOT NULL DEFAULT 0",
+        [],
+    ).ok();
+
+    conn.execute(
+        "ALTER TABLE referral_codes ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 50",
+        [],
+    ).ok();
+
+    conn.execute_batch(
+        "UPDATE schema_version SET version = 8;"
+    ).expect("migration v8 failed");
+
+    tracing::info!("applied migration v8: referral_codes weeks_earned + max_uses");
+}
+
+fn migrate_v9(conn: &Connection) {
+    conn.execute(
+        "ALTER TABLE promo_codes ADD COLUMN discount_options TEXT",
+        [],
+    ).ok();
+
+    conn.execute_batch(
+        "UPDATE schema_version SET version = 9;"
+    ).expect("migration v9 failed");
+
+    tracing::info!("applied migration v9: promo_codes discount_options JSON column");
 }
 
 // --- Database implementation ---
@@ -1430,6 +1634,34 @@ impl Database {
         ).ok()
     }
 
+    /// List runs with active (non-terminal) status for the MC snapshot.
+    pub fn list_active_runs(&self) -> Vec<ActiveRunSummary> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT r.id, r.goal, r.status, r.created_at,
+                    COUNT(s.id) as step_count,
+                    SUM(CASE WHEN s.status = 'succeeded' THEN 1 ELSE 0 END) as steps_completed,
+                    SUM(CASE WHEN s.status = 'failed' THEN 1 ELSE 0 END) as steps_failed
+             FROM runs r
+             LEFT JOIN steps s ON s.run_id = r.id
+             WHERE r.status IN ('pending', 'running', 'leased')
+             GROUP BY r.id
+             ORDER BY r.created_at DESC
+             LIMIT 50"
+        ).unwrap();
+        stmt.query_map([], |row| {
+            Ok(ActiveRunSummary {
+                id: row.get(0)?,
+                goal: row.get(1)?,
+                status: row.get(2)?,
+                created_at: row.get::<_, i64>(3)?.to_string(),
+                step_count: row.get::<_, i64>(4)? as usize,
+                steps_completed: row.get::<_, i64>(5)? as usize,
+                steps_failed: row.get::<_, i64>(6)? as usize,
+            })
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
     // --- Admin queries ---
 
     pub fn list_all_runs(&self, limit: usize, offset: usize) -> Vec<(String, String, String, String, String)> {
@@ -1856,6 +2088,504 @@ impl Database {
             .timestamp_millis();
         let summary = self.get_user_usage_summary(user_id, first_ms);
         summary.total_cost_estimate
+    }
+
+    // --- Billing & Credits ---
+
+    pub fn get_subscription(&self, clerk_user_id: &str) -> Option<SubscriptionRecord> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT clerk_user_id, stripe_customer_id, stripe_subscription_id, plan_type, status,
+                    trial_end, current_period_start, current_period_end
+             FROM subscriptions WHERE clerk_user_id = ?1",
+            params![clerk_user_id],
+            |row| Ok(SubscriptionRecord {
+                clerk_user_id: row.get(0)?,
+                stripe_customer_id: row.get(1)?,
+                stripe_subscription_id: row.get(2)?,
+                plan_type: row.get(3)?,
+                status: row.get(4)?,
+                trial_end: row.get(5)?,
+                current_period_start: row.get(6)?,
+                current_period_end: row.get(7)?,
+            }),
+        ).ok()
+    }
+
+    pub fn upsert_subscription(&self, sub: &SubscriptionRecord) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR REPLACE INTO subscriptions
+                (clerk_user_id, stripe_customer_id, stripe_subscription_id, plan_type, status,
+                 trial_end, current_period_start, current_period_end, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, datetime('now'))",
+            params![
+                sub.clerk_user_id,
+                sub.stripe_customer_id,
+                sub.stripe_subscription_id,
+                sub.plan_type,
+                sub.status,
+                sub.trial_end,
+                sub.current_period_start,
+                sub.current_period_end,
+            ],
+        ).expect("failed to upsert subscription");
+    }
+
+    pub fn get_subscription_by_customer(&self, stripe_customer_id: &str) -> Option<SubscriptionRecord> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT clerk_user_id, stripe_customer_id, stripe_subscription_id, plan_type, status,
+                    trial_end, current_period_start, current_period_end
+             FROM subscriptions WHERE stripe_customer_id = ?1",
+            params![stripe_customer_id],
+            |row| Ok(SubscriptionRecord {
+                clerk_user_id: row.get(0)?,
+                stripe_customer_id: row.get(1)?,
+                stripe_subscription_id: row.get(2)?,
+                plan_type: row.get(3)?,
+                status: row.get(4)?,
+                trial_end: row.get(5)?,
+                current_period_start: row.get(6)?,
+                current_period_end: row.get(7)?,
+            }),
+        ).ok()
+    }
+
+    pub fn get_credit_balance(&self, clerk_user_id: &str) -> CreditBalanceRecord {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT subscription_remaining, subscription_total, pack_remaining
+             FROM credit_balances WHERE clerk_user_id = ?1",
+            params![clerk_user_id],
+            |row| Ok(CreditBalanceRecord {
+                subscription_remaining: row.get(0)?,
+                subscription_total: row.get(1)?,
+                pack_remaining: row.get(2)?,
+            }),
+        ).unwrap_or(CreditBalanceRecord {
+            subscription_remaining: 200.0,
+            subscription_total: 200.0,
+            pack_remaining: 0.0,
+        })
+    }
+
+    pub fn deduct_credits(
+        &self,
+        clerk_user_id: &str,
+        amount: f64,
+        description: &str,
+    ) -> Result<CreditBalanceRecord, String> {
+        let conn = self.conn.lock().unwrap();
+
+        conn.execute("BEGIN IMMEDIATE", [])
+            .map_err(|e| format!("failed to begin transaction: {e}"))?;
+
+        let (sub_rem, pack_rem) = conn.query_row(
+            "SELECT subscription_remaining, pack_remaining FROM credit_balances WHERE clerk_user_id = ?1",
+            params![clerk_user_id],
+            |row| Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?)),
+        ).unwrap_or((200.0, 0.0));
+
+        let total_available = sub_rem + pack_rem;
+        if total_available < amount {
+            conn.execute("ROLLBACK", []).ok();
+            return Err(format!(
+                "insufficient credits: need {amount:.2}, have {total_available:.2}"
+            ));
+        }
+
+        let from_sub = amount.min(sub_rem);
+        let from_pack = amount - from_sub;
+
+        let new_sub_rem = sub_rem - from_sub;
+        let new_pack_rem = pack_rem - from_pack;
+
+        conn.execute(
+            "INSERT INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining)
+             VALUES (?1, ?2, 200.0, ?3)
+             ON CONFLICT(clerk_user_id) DO UPDATE SET
+                subscription_remaining = ?2, pack_remaining = ?3",
+            params![clerk_user_id, new_sub_rem, new_pack_rem],
+        ).map_err(|e| {
+            conn.execute("ROLLBACK", []).ok();
+            format!("failed to update credit balance: {e}")
+        })?;
+
+        if from_sub > 0.0 {
+            let tx_id = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO credit_transactions (id, clerk_user_id, amount, balance_type, description)
+                 VALUES (?1, ?2, ?3, 'subscription', ?4)",
+                params![tx_id, clerk_user_id, -from_sub, description],
+            ).map_err(|e| {
+                conn.execute("ROLLBACK", []).ok();
+                format!("failed to record subscription transaction: {e}")
+            })?;
+        }
+
+        if from_pack > 0.0 {
+            let tx_id = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO credit_transactions (id, clerk_user_id, amount, balance_type, description)
+                 VALUES (?1, ?2, ?3, 'pack', ?4)",
+                params![tx_id, clerk_user_id, -from_pack, description],
+            ).map_err(|e| {
+                conn.execute("ROLLBACK", []).ok();
+                format!("failed to record pack transaction: {e}")
+            })?;
+        }
+
+        conn.execute("COMMIT", [])
+            .map_err(|e| format!("failed to commit transaction: {e}"))?;
+
+        let sub_total = conn.query_row(
+            "SELECT subscription_total FROM credit_balances WHERE clerk_user_id = ?1",
+            params![clerk_user_id],
+            |row| row.get::<_, f64>(0),
+        ).unwrap_or(200.0);
+
+        Ok(CreditBalanceRecord {
+            subscription_remaining: new_sub_rem,
+            subscription_total: sub_total,
+            pack_remaining: new_pack_rem,
+        })
+    }
+
+    pub fn reset_subscription_credits(&self, clerk_user_id: &str, total: f64) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining, last_reset_at)
+             VALUES (?1, ?2, ?2, 0.0, datetime('now'))
+             ON CONFLICT(clerk_user_id) DO UPDATE SET
+                subscription_remaining = ?2, subscription_total = ?2, last_reset_at = datetime('now')",
+            params![clerk_user_id, total],
+        ).expect("failed to reset subscription credits");
+    }
+
+    pub fn init_credit_balance(&self, clerk_user_id: &str, subscription_total: f64) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining)
+             VALUES (?1, ?2, ?2, 0.0)",
+            params![clerk_user_id, subscription_total],
+        ).expect("failed to init credit balance");
+    }
+
+    pub fn add_pack_credits(&self, clerk_user_id: &str, amount: f64) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining)
+             VALUES (?1, 200.0, 200.0, ?2)
+             ON CONFLICT(clerk_user_id) DO UPDATE SET pack_remaining = pack_remaining + ?2",
+            params![clerk_user_id, amount],
+        ).expect("failed to add pack credits");
+    }
+
+    pub fn record_billing_event(
+        &self,
+        clerk_user_id: &str,
+        stripe_event_id: &str,
+        amount_cents: i64,
+        description: &str,
+        status: &str,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        let rows = conn.execute(
+            "INSERT OR IGNORE INTO billing_history (id, clerk_user_id, stripe_event_id, amount_cents, description, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, clerk_user_id, stripe_event_id, amount_cents, description, status],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
+    pub fn get_billing_history(&self, clerk_user_id: &str, limit: i64) -> Vec<BillingHistoryRecord> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, amount_cents, description, status, created_at
+             FROM billing_history WHERE clerk_user_id = ?1
+             ORDER BY created_at DESC LIMIT ?2"
+        ).unwrap();
+
+        stmt.query_map(params![clerk_user_id, limit], |row| {
+            Ok(BillingHistoryRecord {
+                id: row.get(0)?,
+                amount_cents: row.get(1)?,
+                description: row.get(2)?,
+                status: row.get(3)?,
+                created_at: row.get(4)?,
+            })
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn get_referral_code(&self, code: &str) -> Option<ReferralCodeRecord> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT code, creator_user_id, uses_remaining, total_uses, weeks_earned
+             FROM referral_codes WHERE code = ?1",
+            params![code],
+            |row| Ok(ReferralCodeRecord {
+                code: row.get(0)?,
+                creator_user_id: row.get(1)?,
+                uses_remaining: row.get(2)?,
+                total_uses: row.get(3)?,
+                weeks_earned: row.get(4)?,
+            }),
+        ).ok()
+    }
+
+    pub fn get_user_referral_code(&self, user_id: &str) -> Option<ReferralCodeRecord> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT code, creator_user_id, uses_remaining, total_uses, weeks_earned
+             FROM referral_codes WHERE creator_user_id = ?1",
+            params![user_id],
+            |row| Ok(ReferralCodeRecord {
+                code: row.get(0)?,
+                creator_user_id: row.get(1)?,
+                uses_remaining: row.get(2)?,
+                total_uses: row.get(3)?,
+                weeks_earned: row.get(4)?,
+            }),
+        ).ok()
+    }
+
+    pub fn create_user_referral_code(&self, user_id: &str) -> ReferralCodeRecord {
+        if let Some(existing) = self.get_user_referral_code(user_id) {
+            return existing;
+        }
+        let short_id = &user_id[user_id.len().saturating_sub(5)..];
+        let code = format!("REF-{}", short_id.to_uppercase());
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO referral_codes (code, creator_user_id, uses_remaining, max_uses, total_uses, weeks_earned)
+             VALUES (?1, ?2, 50, 50, 0, 0)",
+            params![code, user_id],
+        ).ok();
+        drop(conn);
+        self.get_user_referral_code(user_id).unwrap_or(ReferralCodeRecord {
+            code,
+            creator_user_id: user_id.to_string(),
+            uses_remaining: 50,
+            total_uses: 0,
+            weeks_earned: 0,
+        })
+    }
+
+    pub fn consume_referral(&self, code: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "UPDATE referral_codes SET uses_remaining = uses_remaining - 1, total_uses = total_uses + 1
+             WHERE code = ?1 AND uses_remaining > 0",
+            params![code],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
+    pub fn reward_referrer(&self, code: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE referral_codes SET weeks_earned = weeks_earned + 1 WHERE code = ?1",
+            params![code],
+        ).ok();
+    }
+
+    // --- Promo Codes ---
+
+    pub fn create_promo_code(
+        &self,
+        code: &str,
+        discount_type: &str,
+        discount_value: f64,
+        max_uses: i32,
+        expires_at: Option<&str>,
+        created_by: &str,
+        description: Option<&str>,
+        discount_options: Option<&str>,
+    ) -> Result<PromoCode, String> {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO promo_codes (id, code, discount_type, discount_value, max_uses, expires_at, created_by, description, discount_options)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![id, code.to_uppercase(), discount_type, discount_value, max_uses, expires_at, created_by, description, discount_options],
+        ).map_err(|e| {
+            if e.to_string().contains("UNIQUE") {
+                "a promo code with that name already exists".to_string()
+            } else {
+                format!("failed to create promo code: {e}")
+            }
+        })?;
+        Ok(PromoCode {
+            id,
+            code: code.to_uppercase(),
+            discount_type: discount_type.to_string(),
+            discount_value,
+            max_uses,
+            current_uses: 0,
+            expires_at: expires_at.map(String::from),
+            active: true,
+            created_by: created_by.to_string(),
+            created_at: Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
+            description: description.map(String::from),
+            discount_options: discount_options.map(String::from),
+        })
+    }
+
+    pub fn list_promo_codes(&self) -> Vec<PromoCode> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, code, discount_type, discount_value, max_uses, current_uses, expires_at, active, created_by, created_at, description, discount_options
+             FROM promo_codes ORDER BY created_at DESC"
+        ).unwrap();
+        stmt.query_map([], |row| {
+            Ok(PromoCode {
+                id: row.get(0)?,
+                code: row.get(1)?,
+                discount_type: row.get(2)?,
+                discount_value: row.get(3)?,
+                max_uses: row.get(4)?,
+                current_uses: row.get(5)?,
+                expires_at: row.get(6)?,
+                active: row.get::<_, i32>(7)? != 0,
+                created_by: row.get(8)?,
+                created_at: row.get(9)?,
+                description: row.get(10)?,
+                discount_options: row.get(11)?,
+            })
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn get_promo_code(&self, code: &str) -> Option<PromoCode> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, code, discount_type, discount_value, max_uses, current_uses, expires_at, active, created_by, created_at, description, discount_options
+             FROM promo_codes WHERE code = ?1 COLLATE NOCASE",
+            params![code],
+            |row| Ok(PromoCode {
+                id: row.get(0)?,
+                code: row.get(1)?,
+                discount_type: row.get(2)?,
+                discount_value: row.get(3)?,
+                max_uses: row.get(4)?,
+                current_uses: row.get(5)?,
+                expires_at: row.get(6)?,
+                active: row.get::<_, i32>(7)? != 0,
+                created_by: row.get(8)?,
+                created_at: row.get(9)?,
+                description: row.get(10)?,
+                discount_options: row.get(11)?,
+            }),
+        ).ok()
+    }
+
+    pub fn update_promo_code(
+        &self,
+        id: &str,
+        active: Option<bool>,
+        max_uses: Option<i32>,
+        expires_at: Option<Option<&str>>,
+        description: Option<Option<&str>>,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let mut sets = Vec::new();
+        let mut values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        if let Some(a) = active {
+            sets.push("active = ?");
+            values.push(Box::new(a as i32));
+        }
+        if let Some(m) = max_uses {
+            sets.push("max_uses = ?");
+            values.push(Box::new(m));
+        }
+        if let Some(e) = expires_at {
+            sets.push("expires_at = ?");
+            values.push(Box::new(e.map(String::from)));
+        }
+        if let Some(d) = description {
+            sets.push("description = ?");
+            values.push(Box::new(d.map(String::from)));
+        }
+        if sets.is_empty() {
+            return false;
+        }
+        values.push(Box::new(id.to_string()));
+        let sql = format!("UPDATE promo_codes SET {} WHERE id = ?", sets.join(", "));
+        let params: Vec<&dyn rusqlite::types::ToSql> = values.iter().map(|v| v.as_ref()).collect();
+        conn.execute(&sql, params.as_slice()).unwrap_or(0) > 0
+    }
+
+    pub fn delete_promo_code(&self, id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM promo_codes WHERE id = ?1", params![id]).unwrap_or(0) > 0
+    }
+
+    pub fn validate_promo_code(&self, code: &str, user_id: &str) -> Result<PromoCode, String> {
+        let promo = self.get_promo_code(code).ok_or("invalid promo code")?;
+        if !promo.active {
+            return Err("this promo code is no longer active".into());
+        }
+        if promo.current_uses >= promo.max_uses {
+            return Err("this promo code has reached its usage limit".into());
+        }
+        if let Some(ref exp) = promo.expires_at {
+            if let Ok(expiry) = chrono::NaiveDateTime::parse_from_str(exp, "%Y-%m-%d %H:%M:%S") {
+                if expiry < Utc::now().naive_utc() {
+                    return Err("this promo code has expired".into());
+                }
+            }
+        }
+        let conn = self.conn.lock().unwrap();
+        let already_used: bool = conn.query_row(
+            "SELECT COUNT(*) > 0 FROM code_redemptions WHERE code = ?1 COLLATE NOCASE AND user_id = ?2",
+            params![code, user_id],
+            |row| row.get(0),
+        ).unwrap_or(false);
+        if already_used {
+            return Err("you have already used this promo code".into());
+        }
+        Ok(promo)
+    }
+
+    pub fn redeem_promo_code(&self, code: &str, user_id: &str) -> Result<PromoCode, String> {
+        let promo = self.validate_promo_code(code, user_id)?;
+        let conn = self.conn.lock().unwrap();
+        let redemption_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO code_redemptions (id, promo_code_id, code, user_id) VALUES (?1, ?2, ?3, ?4)",
+            params![redemption_id, promo.id, promo.code, user_id],
+        ).map_err(|e| format!("redemption failed: {e}"))?;
+        conn.execute(
+            "UPDATE promo_codes SET current_uses = current_uses + 1 WHERE id = ?1",
+            params![promo.id],
+        ).map_err(|e| format!("usage update failed: {e}"))?;
+        Ok(promo)
+    }
+
+    pub fn list_redemptions(&self, code: Option<&str>) -> Vec<CodeRedemption> {
+        let conn = self.conn.lock().unwrap();
+        let (sql, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match code {
+            Some(c) => (
+                "SELECT id, promo_code_id, code, user_id, redeemed_at FROM code_redemptions WHERE code = ?1 COLLATE NOCASE ORDER BY redeemed_at DESC",
+                vec![Box::new(c.to_string())],
+            ),
+            None => (
+                "SELECT id, promo_code_id, code, user_id, redeemed_at FROM code_redemptions ORDER BY redeemed_at DESC",
+                vec![],
+            ),
+        };
+        let mut stmt = conn.prepare(sql).unwrap();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|v| v.as_ref()).collect();
+        stmt.query_map(param_refs.as_slice(), |row| {
+            Ok(CodeRedemption {
+                id: row.get(0)?,
+                promo_code_id: row.get(1)?,
+                code: row.get(2)?,
+                user_id: row.get(3)?,
+                redeemed_at: row.get(4)?,
+            })
+        }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
 }

@@ -42,6 +42,16 @@ async function authedFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, { ...init, headers });
 }
 
+async function bearerFetch(url: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  const token = await getAuthToken();
+  if (token) headers.set('Authorization', `Bearer ${token}`);
+  if (!headers.has('Content-Type') && init?.method && init.method !== 'GET') {
+    headers.set('Content-Type', 'application/json');
+  }
+  return fetch(url, { ...init, headers });
+}
+
 export class CortexApiError extends Error {
   status: number;
   retryAfter: string | null;
@@ -70,6 +80,14 @@ async function readErrorMessage(res: Response): Promise<string> {
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await authedFetch(apiUrl(path), init);
+  if (!res.ok) {
+    throw new CortexApiError(res.status, await readErrorMessage(res), res.headers.get('Retry-After'));
+  }
+  return res.json() as Promise<T>;
+}
+
+async function requestBillingJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await bearerFetch(apiUrl(path), init);
   if (!res.ok) {
     throw new CortexApiError(res.status, await readErrorMessage(res), res.headers.get('Retry-After'));
   }
@@ -278,6 +296,110 @@ export async function revokeSomaDelegation(delegationId: string, subjectDid: str
   });
 }
 
+export type BillingAccessState =
+  | 'signed_out'
+  | 'needs_phone'
+  | 'needs_checkout'
+  | 'trial_active'
+  | 'active'
+  | 'payment_failed'
+  | 'cancelled';
+
+export interface BillingStatus {
+  access_state: BillingAccessState;
+  plan: {
+    plan_type: 'monthly' | 'annual';
+    status: 'trialing' | 'active' | 'past_due' | 'cancelled' | 'paused';
+    billing_period_end: string;
+    next_charge_amount_cents: number | null;
+    next_charge_date: string | null;
+    started_at: string;
+  } | null;
+  trial: {
+    trial_end: string;
+    days_remaining: number;
+    auto_charge_amount_cents: number;
+    auto_charge_plan: 'monthly' | 'annual';
+  } | null;
+  delegation: {
+    status: 'active' | 'pending' | 'expired' | 'revoked' | 'not_issued';
+    budget_enforced: boolean;
+    delegation_id: string | null;
+    expires_at: string | null;
+  };
+  payment_method: {
+    last4: string;
+    brand: string;
+    exp_month: number;
+    exp_year: number;
+  } | null;
+  referral: {
+    code: string;
+    uses_remaining: number;
+    total_uses: number;
+    weeks_earned: number;
+  } | null;
+}
+
+export interface CheckoutResponse {
+  checkout_url: string;
+  session_id: string;
+}
+
+export interface DiscountOption {
+  label: string;
+  discount_type: string;
+  discount_value: number;
+}
+
+export interface ReferralValidateResponse {
+  valid: boolean;
+  discount_type: string | null;
+  discount_value: number | null;
+  description: string | null;
+  options: DiscountOption[];
+  uses_remaining: number | null;
+  error: string | null;
+}
+
+export interface BillingHistoryEntry {
+  date: string;
+  amount_cents: number;
+  description: string;
+  status: string;
+}
+
+export async function getBillingStatus(): Promise<BillingStatus> {
+  return requestBillingJson<BillingStatus>('/api/billing/status');
+}
+
+export async function createBillingCheckout(body: {
+  plan: 'monthly' | 'annual';
+  email?: string;
+  referral_code?: string;
+  referral_choice?: string;
+}): Promise<CheckoutResponse> {
+  return requestBillingJson<CheckoutResponse>('/api/billing/checkout', {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
+export async function createBillingPortal(): Promise<{ portal_url: string }> {
+  return requestBillingJson<{ portal_url: string }>('/api/billing/portal', { method: 'POST' });
+}
+
+export async function validateReferralCode(code: string): Promise<ReferralValidateResponse> {
+  return requestBillingJson<ReferralValidateResponse>('/api/billing/referral/validate', {
+    method: 'POST',
+    body: JSON.stringify({ code }),
+  });
+}
+
+export async function getBillingHistory(): Promise<BillingHistoryEntry[]> {
+  return requestBillingJson<BillingHistoryEntry[]>('/api/billing/history');
+}
+
 export interface GitHubStatus {
   linked: boolean;
   username: string | null;
@@ -368,6 +490,76 @@ export async function getAdminStats(): Promise<AdminStats> {
 
 export async function getAdminWorkers(): Promise<AdminWorkers> {
   return requestJson<AdminWorkers>('/api/admin/workers');
+}
+
+// Admin — Promo Codes
+
+export interface PromoCode {
+  id: string;
+  code: string;
+  discount_type: 'trial_extension' | 'percent_off' | 'free_trial';
+  discount_value: number;
+  max_uses: number;
+  current_uses: number;
+  expires_at: string | null;
+  active: boolean;
+  created_by: string;
+  created_at: string;
+  description: string | null;
+}
+
+export interface CreatePromoCodeRequest {
+  code: string;
+  discount_type: string;
+  discount_value: number;
+  max_uses?: number;
+  expires_at?: string;
+  description?: string;
+  discount_options?: DiscountOption[];
+}
+
+export interface UpdatePromoCodeRequest {
+  active?: boolean;
+  max_uses?: number;
+  expires_at?: string | null;
+  description?: string | null;
+}
+
+export interface CodeRedemption {
+  id: string;
+  promo_code_id: string;
+  code: string;
+  user_id: string;
+  redeemed_at: string;
+}
+
+export async function getAdminPromoCodes(): Promise<{ codes: PromoCode[]; total: number }> {
+  return requestJson<{ codes: PromoCode[]; total: number }>('/api/admin/codes');
+}
+
+export async function createAdminPromoCode(req: CreatePromoCodeRequest): Promise<PromoCode> {
+  return requestJson<PromoCode>('/api/admin/codes', {
+    method: 'POST',
+    body: JSON.stringify(req),
+  });
+}
+
+export async function updateAdminPromoCode(id: string, req: UpdatePromoCodeRequest): Promise<{ updated: boolean }> {
+  return requestJson<{ updated: boolean }>(`/api/admin/codes/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    body: JSON.stringify(req),
+  });
+}
+
+export async function deleteAdminPromoCode(id: string): Promise<{ deleted: boolean }> {
+  return requestJson<{ deleted: boolean }>(`/api/admin/codes/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  });
+}
+
+export async function getAdminRedemptions(code?: string): Promise<{ redemptions: CodeRedemption[]; total: number }> {
+  const query = code ? `?code=${encodeURIComponent(code)}` : '';
+  return requestJson<{ redemptions: CodeRedemption[]; total: number }>(`/api/admin/redemptions${query}`);
 }
 
 // Decision ledger
@@ -555,30 +747,30 @@ export interface ConversationWithMessages {
   messages: ConversationMessage[];
 }
 
-export async function listConversations(userId = 'local'): Promise<ConversationSummary[]> {
-  const res = await authedFetch(apiUrl(`/api/conversations?user_id=${userId}`));
+export async function listConversations(_userId = 'local'): Promise<ConversationSummary[]> {
+  const res = await authedFetch(apiUrl('/api/conversations'));
   return res.json();
 }
 
-export async function createConversation(userId = 'local', title?: string): Promise<{ id: string }> {
+export async function createConversation(_userId = 'local', title?: string): Promise<{ id: string }> {
   const res = await authedFetch(apiUrl('/api/conversations'), {
     method: 'POST',
-    body: JSON.stringify({ user_id: userId, title }),
+    body: JSON.stringify({ title }),
   });
   return res.json();
 }
 
-export async function getConversation(id: string, userId = 'local'): Promise<ConversationWithMessages> {
-  const res = await authedFetch(apiUrl(`/api/conversations/${id}?user_id=${userId}`));
+export async function getConversation(id: string, _userId = 'local'): Promise<ConversationWithMessages> {
+  const res = await authedFetch(apiUrl(`/api/conversations/${id}`));
   return res.json();
 }
 
-export async function deleteConversation(id: string, userId = 'local'): Promise<void> {
-  await authedFetch(apiUrl(`/api/conversations/${id}?user_id=${userId}`), { method: 'DELETE' });
+export async function deleteConversation(id: string, _userId = 'local'): Promise<void> {
+  await authedFetch(apiUrl(`/api/conversations/${id}`), { method: 'DELETE' });
 }
 
-export async function updateConversationTitle(id: string, title: string, userId = 'local'): Promise<void> {
-  await authedFetch(apiUrl(`/api/conversations/${id}?user_id=${userId}`), {
+export async function updateConversationTitle(id: string, title: string, _userId = 'local'): Promise<void> {
+  await authedFetch(apiUrl(`/api/conversations/${id}`), {
     method: 'PATCH',
     body: JSON.stringify({ title }),
   });

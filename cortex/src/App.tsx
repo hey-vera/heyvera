@@ -1,15 +1,16 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { PanelRight, Loader2, Menu } from 'lucide-react';
+import PaymentFailed from './components/billing/PaymentFailed';
+import TrialBanner from './components/billing/TrialBanner';
 import ChatComposer from './components/chat/ChatComposer';
 import ChatTimeline from './components/chat/ChatTimeline';
 import SessionControls from './components/session/SessionControls';
 import Sidebar from './components/Sidebar';
-import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { useSomaSession } from './lib/useSomaSession';
-import { getUserRouting, setAuthTokenGetter, updateUserRouting } from './lib/cortexApi';
-import { isOnboarded, markOnboarded } from './lib/onboarding';
+import { useBilling } from './lib/useBilling';
+import { CortexApiError, getAdminStats, getUserRouting, setAuthTokenGetter, updateUserRouting } from './lib/cortexApi';
 import type { ChatSessionControls, RunProfile } from './types';
 
 const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
@@ -72,6 +73,8 @@ function looksLikeRunGoal(value: string) {
   return connectiveMatches > 0 && actionMatches >= 2;
 }
 
+const AdminPanel = lazy(() => import('./components/admin/AdminPanel'));
+const PricingCards = lazy(() => import('./components/billing/PricingCards'));
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 const WorkSurface = lazy(() => import('./components/work-surface/WorkSurface'));
 
@@ -80,6 +83,7 @@ export default function App() {
   // Auto-creates user's Soma identity + session-scoped delegation on sign-in
   useSomaSession(userId ?? 'anonymous', isSignedIn);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialTab, setSettingsInitialTab] = useState<'providers' | 'spend' | 'billing'>('providers');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workSurfaceOpen, setWorkSurfaceOpen] = useState(false);
   const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
@@ -92,7 +96,10 @@ export default function App() {
   const [runProfile, setRunProfile] = useState<RunProfile>(readRunProfile);
   const [runBridgeGoal, setRunBridgeGoal] = useState<string | null>(null);
   const [runBridgeNonce, setRunBridgeNonce] = useState(0);
-  const [onboarded, setOnboarded] = useState(() => !clerkEnabled || isOnboarded(userId ?? 'local'));
+  const [adminOpen, setAdminOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const billingEnabled = clerkEnabled && isSignedIn;
 
   const handleConversationCreated = useCallback((conversationId: string) => {
     setActiveConversationId(conversationId);
@@ -106,9 +113,25 @@ export default function App() {
     if (getToken) setAuthTokenGetter(getToken);
   }, [getToken]);
 
+  const billing = useBilling(billingEnabled);
+
   useEffect(() => {
-    setOnboarded(!clerkEnabled || isOnboarded(userId ?? 'local'));
-  }, [clerkEnabled, userId]);
+    if (!isSignedIn) {
+      setIsAdmin(false);
+      return;
+    }
+    let cancelled = false;
+    async function checkAdmin() {
+      try {
+        await getAdminStats();
+        if (!cancelled) setIsAdmin(true);
+      } catch (err) {
+        if (!cancelled) setIsAdmin(err instanceof CortexApiError ? false : false);
+      }
+    }
+    void checkAdmin();
+    return () => { cancelled = true; };
+  }, [isSignedIn]);
 
   useEffect(() => {
     try {
@@ -181,8 +204,14 @@ export default function App() {
     setSidebarOpen(false);
   }, []);
 
-  const handleOpenSettings = useCallback(() => {
+  const handleOpenSettings = useCallback((tab: 'providers' | 'spend' | 'billing' = 'providers') => {
+    setSettingsInitialTab(tab);
     setSettingsOpen(true);
+    setSidebarOpen(false);
+  }, []);
+
+  const handleOpenAdmin = useCallback(() => {
+    setAdminOpen(true);
     setSidebarOpen(false);
   }, []);
 
@@ -213,7 +242,7 @@ export default function App() {
   const approvalCount = messages.filter((message) => message.approvalRequest?.state === 'pending').length;
   const showWorkBadge = isStreaming || approvalCount > 0;
   const showRunBridge = looksLikeRunGoal(draft) && !isStreaming;
-
+  const accessState = billing.status?.access_state;
   useEffect(() => {
     if (!renamingTitle) return;
     titleInputRef.current?.focus();
@@ -253,6 +282,14 @@ export default function App() {
         || target?.isContentEditable;
 
       if (event.key === 'Escape') {
+        if (checkoutOpen) {
+          setCheckoutOpen(false);
+          return;
+        }
+        if (adminOpen) {
+          setAdminOpen(false);
+          return;
+        }
         if (settingsOpen) {
           setSettingsOpen(false);
           return;
@@ -295,6 +332,8 @@ export default function App() {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
+    adminOpen,
+    checkoutOpen,
     handleNewChat,
     handleOpenSettings,
     isStreaming,
@@ -316,17 +355,11 @@ export default function App() {
     return <AuthScreen />;
   }
 
-  if (clerkEnabled && isSignedIn && !onboarded) {
-    return (
-      <OnboardingFlow
-        userId={userId ?? 'anonymous'}
-        onComplete={() => {
-          markOnboarded(userId ?? 'anonymous');
-          setOnboarded(true);
-        }}
-      />
-    );
+  if (billingEnabled && accessState === 'payment_failed') {
+    return <PaymentFailed billing={billing.status} />;
   }
+
+  const needsSubscription = billingEnabled && (accessState === 'needs_checkout' || accessState === 'cancelled' || accessState === 'needs_phone');
 
   return (
     <div className="flex h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
@@ -342,6 +375,9 @@ export default function App() {
             setConversationListVersion((version) => version + 1);
           }}
           onOpenSettings={handleOpenSettings}
+          onOpenAdmin={handleOpenAdmin}
+          isAdmin={isAdmin}
+          billing={billing.status}
         />
       </aside>
 
@@ -365,6 +401,9 @@ export default function App() {
                 setConversationListVersion((version) => version + 1);
               }}
               onOpenSettings={handleOpenSettings}
+              onOpenAdmin={handleOpenAdmin}
+              isAdmin={isAdmin}
+              billing={billing.status}
             />
           </div>
         </div>
@@ -444,22 +483,25 @@ export default function App() {
             </button>
           </div>
         </header>
+        <TrialBanner billing={billing.status} onOpenBilling={() => handleOpenSettings('billing')} />
 
         <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
           <ChatTimeline
             messages={messages}
             isLoading={isLoadingConversation}
             showStarters={!activeConversationId && !isStreaming}
-            onSelectStarter={handleSelectStarter}
+            onSelectStarter={needsSubscription ? undefined : handleSelectStarter}
             onApprovalAction={updateApproval}
           />
-          <SessionControls
-            value={sessionControls}
-            runProfile={runProfile}
-            onChange={setSessionControls}
-            onRunProfileChange={handleRunProfileChange}
-          />
-          {showRunBridge && (
+          {!needsSubscription && (
+            <SessionControls
+              value={sessionControls}
+              runProfile={runProfile}
+              onChange={setSessionControls}
+              onRunProfileChange={handleRunProfileChange}
+            />
+          )}
+          {!needsSubscription && showRunBridge && (
             <div className="border-t border-white/6 px-3 py-2 sm:px-4">
               <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-2">
                 <p className="min-w-0 truncate text-xs text-[var(--muted-strong)]">
@@ -478,9 +520,11 @@ export default function App() {
           <ChatComposer
             draft={draft}
             disabled={isStreaming}
+            locked={needsSubscription}
             onDraftChange={setDraft}
             onSend={sendMessage}
-            onStop={stopStreaming}
+            onStop={isStreaming ? stopStreaming : undefined}
+            onSubscribe={() => setCheckoutOpen(true)}
           />
         </main>
       </div>
@@ -503,7 +547,37 @@ export default function App() {
       {/* Settings modal */}
       {settingsOpen && (
         <Suspense fallback={null}>
-          <SettingsPanel onClose={() => setSettingsOpen(false)} />
+          <SettingsPanel
+            onClose={() => setSettingsOpen(false)}
+            initialTab={settingsInitialTab}
+            billing={billing.status}
+          />
+        </Suspense>
+      )}
+
+      {/* Admin panel */}
+      {adminOpen && (
+        <Suspense fallback={null}>
+          <AdminPanel onClose={() => setAdminOpen(false)} />
+        </Suspense>
+      )}
+
+      {/* Checkout modal */}
+      {checkoutOpen && (
+        <Suspense fallback={null}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6">
+            <div className="relative w-full max-w-2xl">
+              <button
+                type="button"
+                onClick={() => setCheckoutOpen(false)}
+                className="absolute -top-10 right-0 rounded-lg p-1.5 text-[var(--muted)] transition hover:text-white"
+                aria-label="Close"
+              >
+                <span className="text-sm">ESC</span>
+              </button>
+              <PricingCards />
+            </div>
+          </div>
         </Suspense>
       )}
     </div>

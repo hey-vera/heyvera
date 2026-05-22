@@ -134,10 +134,17 @@ async fn handle_mc_connection(
 
     tracing::info!("mission control client connected: user={user_id}");
 
-    // Send welcome
+    // Send welcome with protocol version
     let welcome = serde_json::json!({
         "type": "welcome",
         "user_id": user_id,
+        "protocol": "mc/v1",
+        "events": [
+            "run_created", "step_dispatched", "step_started", "step_output",
+            "step_completed", "step_failed", "run_completed",
+            "worker_connected", "worker_disconnected",
+            "routing_decision", "bandit_update"
+        ],
     });
     if socket
         .send(Message::Text(
@@ -253,6 +260,157 @@ async fn handle_mc_connection(
 
     state.unsubscribe_mc(&user_id, sub_id).await;
     tracing::info!("mission control client disconnected: user={user_id}");
+}
+
+// --- Snapshot endpoint: GET /api/mc/snapshot ---
+// Provides the current system state so the frontend map can render immediately
+// on connect, before any delta events arrive.
+
+#[derive(Debug, Serialize)]
+pub struct McSnapshot {
+    pub heart: Option<McHeartState>,
+    pub workers: Vec<McWorkerState>,
+    pub active_runs: Vec<McRunState>,
+    pub providers: Vec<McProviderState>,
+    pub spend: Option<McSpendState>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct McHeartState {
+    pub did: String,
+    pub heartbeat_count: usize,
+    pub head_hash: String,
+    pub has_lineage: bool,
+    pub root_did: Option<String>,
+    pub capabilities: Vec<String>,
+    pub revoked_count: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct McWorkerState {
+    pub worker_id: String,
+    pub user_id: String,
+    pub providers: Vec<String>,
+    pub disabled_providers: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct McRunState {
+    pub run_id: String,
+    pub goal: String,
+    pub status: String,
+    pub step_count: usize,
+    pub steps_completed: usize,
+    pub steps_failed: usize,
+    pub created_at: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct McProviderState {
+    pub id: String,
+    pub label: String,
+    pub authenticated: bool,
+    pub pressure: f64,
+    pub tiers: Vec<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct McSpendState {
+    pub total_spend: f64,
+    pub delegation_count: usize,
+    pub active_delegation_count: usize,
+}
+
+pub async fn mc_snapshot(
+    State(state): State<Arc<AppState>>,
+    _user: crate::clerk::ClerkUser,
+) -> axum::Json<McSnapshot> {
+    // Heart state
+    let heart = state.soma_heart.as_ref().map(|h| {
+        let chain = h.heartbeat_chain.lock().unwrap();
+        let revoked = h.revoked_delegations.lock().unwrap();
+        let capabilities = h.lineage.as_ref()
+            .map(|l| soma::lineage::effective_capabilities(l))
+            .unwrap_or_else(|| vec!["*".into()]);
+        McHeartState {
+            did: h.did().to_string(),
+            heartbeat_count: chain.len(),
+            head_hash: chain.head_hash().to_string(),
+            has_lineage: h.lineage.is_some(),
+            root_did: h.root_did.clone(),
+            capabilities,
+            revoked_count: revoked.len(),
+        }
+    });
+
+    // Worker states
+    let workers_guard = state.workers.read().await;
+    let workers: Vec<McWorkerState> = workers_guard.iter().map(|(id, w)| {
+        McWorkerState {
+            worker_id: id.clone(),
+            user_id: w.user_id.clone(),
+            providers: w.available_providers.iter().map(|p| p.to_string()).collect(),
+            disabled_providers: w.disabled_providers.iter().map(|p| p.to_string()).collect(),
+        }
+    }).collect();
+    drop(workers_guard);
+
+    // Active runs from DB
+    let active_runs = if let Some(db) = &state.db {
+        db.list_active_runs()
+            .into_iter()
+            .map(|r| McRunState {
+                run_id: r.id.clone(),
+                goal: r.goal.clone(),
+                status: r.status.clone(),
+                step_count: r.step_count,
+                steps_completed: r.steps_completed,
+                steps_failed: r.steps_failed,
+                created_at: r.created_at.clone(),
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+
+    // Provider states
+    let providers_guard = state.providers.read().await;
+    let providers: Vec<McProviderState> = providers_guard.iter().map(|p| {
+        McProviderState {
+            id: p.provider.to_string(),
+            label: p.provider.to_string(),
+            authenticated: p.authenticated,
+            pressure: p.pressure,
+            tiers: p.available_tiers.iter().map(|t| format!("{t:?}")).collect(),
+        }
+    }).collect();
+    drop(providers_guard);
+
+    // Spend state
+    let spend = state.soma_heart.as_ref().map(|h| {
+        let logs = h.spend_logs.lock().unwrap();
+        let mut total = 0.0;
+        let mut active = 0usize;
+        for log in logs.values() {
+            total += log.cumulative();
+            if log.last_activity_ms() > 0 {
+                active += 1;
+            }
+        }
+        McSpendState {
+            total_spend: total,
+            delegation_count: logs.len(),
+            active_delegation_count: active,
+        }
+    });
+
+    axum::Json(McSnapshot {
+        heart,
+        workers,
+        active_runs,
+        providers,
+        spend,
+    })
 }
 
 async fn authenticate_mc(state: &AppState, token: &str) -> Result<String, String> {

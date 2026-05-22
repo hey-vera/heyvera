@@ -192,8 +192,8 @@ async fn schedule_until_blocked(state: &AppState, sched: &mut SchedulerState) {
 }
 
 async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
-    let worker_tx = match state.find_worker_for_user(&step.user_id).await {
-        Some(tx) => tx,
+    let (worker_id, worker_tx) = match state.find_worker_for_user(&step.user_id).await {
+        Some(pair) => pair,
         None => {
             tracing::warn!(
                 "no worker for user {} — step {} stays queued",
@@ -378,8 +378,8 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
         .budget
         .pressure_for(decision.provider, tier);
 
-    // Issue a step-scoped sub-delegation from Cortex's heart
-    let step_delegation = issue_step_delegation(state, &step.step_id, deadline);
+    // Issue a step-scoped sub-delegation from Cortex's heart to the worker
+    let step_delegation = issue_step_delegation(state, &step.step_id, deadline, &worker_id);
 
     let msg = BrainMessage::ExecuteStep {
         run_id: step.run_id.clone(),
@@ -715,7 +715,7 @@ fn record_evidence(db: &Database, decision_id: &str, evidence: &DecisionEvidence
 
 // --- Sub-delegation for worker steps ---
 
-fn issue_step_delegation(state: &AppState, step_id: &str, lease_deadline_ms: i64) -> Option<serde_json::Value> {
+fn issue_step_delegation(state: &AppState, step_id: &str, lease_deadline_ms: i64, worker_id: &str) -> Option<serde_json::Value> {
     let heart = state.soma_heart.as_ref()?;
 
     let caveats = vec![
@@ -726,13 +726,20 @@ fn issue_step_delegation(state: &AppState, step_id: &str, lease_deadline_ms: i64
             allow: vec![format!("execute:step:{step_id}")],
         },
         soma::delegation::Caveat::MaxInvocations { count: 1 },
+        soma::delegation::Caveat::Audience {
+            did: heart.identity.did.clone(),
+        },
     ];
+
+    // Use the worker_id as subject — workers don't have DIDs yet,
+    // so we use a deterministic DID-like identifier derived from the worker_id.
+    let worker_subject = format!("did:cortex:worker:{worker_id}");
 
     match soma::delegation::create_delegation(
         &heart.identity.secret_key,
         &heart.identity.public_key,
         &heart.identity.did,
-        &heart.identity.did, // self-delegation — worker presents this to prove dispatch authority
+        &worker_subject,
         vec![format!("execute:step:{step_id}")],
         caveats,
         None,
@@ -743,6 +750,8 @@ fn issue_step_delegation(state: &AppState, step_id: &str, lease_deadline_ms: i64
                 &serde_json::json!({
                     "delegation_id": delegation.id,
                     "step_id": step_id,
+                    "worker_id": worker_id,
+                    "subject": worker_subject,
                     "capability": format!("execute:step:{step_id}"),
                 })
                 .to_string(),

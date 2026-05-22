@@ -16,8 +16,11 @@ pub mod soma;
 mod soma_bridge;
 mod sse;
 pub mod state;
+pub mod stripe_client;
 mod usage_api;
 mod user;
+mod validate;
+pub mod vera;
 mod ws;
 
 use std::sync::Arc;
@@ -29,6 +32,39 @@ use axum::Router;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 
 use state::AppState;
+
+async fn vera_snapshot(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+) -> impl axum::response::IntoResponse {
+    axum::Json(state.vera_tracker.snapshot())
+}
+
+async fn vera_personal(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    user: clerk::ClerkUser,
+) -> impl axum::response::IntoResponse {
+    axum::Json(state.vera_tracker.personal_view(&user.user_id))
+}
+
+#[derive(serde::Deserialize)]
+struct SimulateParams {
+    #[serde(default = "default_agent_count")]
+    agents: usize,
+    #[serde(default = "default_per_agent")]
+    per_agent: usize,
+}
+fn default_agent_count() -> usize { 20 }
+fn default_per_agent() -> usize { 10 }
+
+async fn vera_simulate(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+    axum::extract::Query(params): axum::extract::Query<SimulateParams>,
+) -> impl axum::response::IntoResponse {
+    let agents = params.agents.min(1000);
+    let per_agent = params.per_agent.min(100);
+    state.vera_tracker.simulate_ecosystem(agents, per_agent);
+    axum::Json(state.vera_tracker.snapshot())
+}
 
 async fn soma_identity(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
@@ -64,21 +100,15 @@ fn cors_layer() -> CorsLayer {
                 .split(',')
                 .filter_map(|s| s.trim().parse().ok())
                 .collect();
+            tracing::info!("CORS: restricted to {} origin(s)", origins.len());
             CorsLayer::new()
                 .allow_origin(AllowOrigin::list(origins))
                 .allow_methods(AllowMethods::any())
                 .allow_headers(AllowHeaders::any())
         }
         _ => {
-            if std::env::var("CORTEX_PRODUCTION").ok().map(|v| v == "1" || v.eq_ignore_ascii_case("true")).unwrap_or(false) {
-                tracing::warn!("CORTEX_PRODUCTION=true but no CORTEX_ALLOWED_ORIGINS set — CORS will reject cross-origin requests");
-                CorsLayer::new()
-                    .allow_origin(AllowOrigin::exact("https://cortex.heyvera.org".parse().unwrap()))
-                    .allow_methods(AllowMethods::any())
-                    .allow_headers(AllowHeaders::any())
-            } else {
-                CorsLayer::permissive()
-            }
+            tracing::info!("CORS: permissive (set CORTEX_ALLOWED_ORIGINS to restrict)");
+            CorsLayer::permissive()
         }
     }
 }
@@ -95,6 +125,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/runs/{id}", get(routes::get_run))
         .route("/api/runs/{id}/pr", post(routes::create_pr))
         .route("/api/runs/{id}/stream", get(run_stream::stream_run))
+        // Chat intelligence
+        .route("/api/chat/suggestions", get(chat::chat_suggestions))
+        .route("/api/chat/options", post(chat::chat_options))
         .route("/api/conversations", post(conversations::create_conversation))
         .route("/api/conversations/{id}/messages", post(conversations::add_message))
         .layer(middleware::from_fn_with_state(
@@ -109,6 +142,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/auth/status", get(auth::auth_status))
         // Soma identity (public — lets clients discover Cortex's DID)
         .route("/api/soma/identity", get(soma_identity))
+        // Vera observation layer — live network state
+        .route("/api/vera/network", get(vera_snapshot))
+        .route("/api/vera/me", get(vera_personal))
+        .route("/api/vera/simulate", post(vera_simulate))
         // Soma delegation bridge (Clerk user → Soma session)
         .route("/api/soma/session", post(soma_bridge::create_session))
         .route("/api/soma/revoke", post(soma_bridge::revoke_delegation))
@@ -132,6 +169,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/user/routing", post(user::update_profile))
         .route("/api/user/github/status", get(user::github_status))
         .route("/api/user/repos/select", post(user::select_repos))
+        // Billing & Subscription
+        .route("/api/billing/status", get(billing::get_billing_status))
+        .route("/api/billing/checkout", post(billing::create_checkout))
+        .route("/api/billing/portal", post(billing::create_portal))
+        .route("/api/billing/referral/validate", post(billing::validate_referral))
+        .route("/api/billing/history", get(billing::get_billing_history))
+        // Stripe webhook (no auth — verified by signature)
+        .route("/api/stripe/webhook", post(billing::stripe_webhook))
         // Usage
         .route("/api/usage", get(usage_api::get_usage))
         .route("/api/usage/daily", get(usage_api::get_daily_usage))
@@ -144,10 +189,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/admin/pressure", get(admin::pressure_dashboard))
         .route("/api/admin/usage", get(usage_api::admin_usage))
         .route("/api/admin/usage/users", get(usage_api::admin_usage_users))
+        // Admin — Promo Codes
+        .route("/api/admin/codes", get(admin::list_promo_codes).post(admin::create_promo_code))
+        .route("/api/admin/codes/{id}", patch(admin::update_promo_code).delete(admin::delete_promo_code))
+        .route("/api/admin/redemptions", get(admin::list_redemptions))
         // Worker WebSocket
         .route("/api/ws", get(ws::ws_handler))
-        // Mission Control WebSocket (frontend observers)
+        // Mission Control WebSocket (frontend observers) + snapshot
         .route("/api/mc", get(mission_control::mc_handler))
+        .route("/api/mc/snapshot", get(mission_control::mc_snapshot))
         // Merge rate-limited routes
         .merge(rate_limited)
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB max request body

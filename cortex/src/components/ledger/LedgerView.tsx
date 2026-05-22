@@ -83,7 +83,7 @@ export default function LedgerView() {
       try {
         const nextEntries = await getLedger();
         if (!cancelled) {
-          setEntries(nextEntries);
+          setEntries(Array.isArray(nextEntries) ? nextEntries : []);
           setError(null);
         }
       } catch (err) {

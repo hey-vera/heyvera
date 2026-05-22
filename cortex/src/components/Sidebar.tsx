@@ -10,6 +10,7 @@ import {
   RefreshCcw,
   Search,
   Settings,
+  ShieldCheck,
   Trash2,
 } from 'lucide-react';
 import {
@@ -17,6 +18,7 @@ import {
   getProviders,
   listConversations,
   updateConversationTitle,
+  type BillingStatus,
   type ConversationSummary,
 } from '../lib/cortexApi';
 import SomaIdentityBadge from './SomaIdentityBadge';
@@ -34,7 +36,10 @@ interface SidebarProps {
   onNewChat: () => void;
   onSelectConversation: (id: string) => void;
   onConversationsChanged: () => void;
-  onOpenSettings: () => void;
+  onOpenSettings: (tab?: 'providers' | 'spend' | 'billing') => void;
+  onOpenAdmin?: () => void;
+  isAdmin?: boolean;
+  billing: BillingStatus | null;
 }
 
 interface MenuState {
@@ -135,6 +140,9 @@ export default function Sidebar({
   onSelectConversation,
   onConversationsChanged,
   onOpenSettings,
+  onOpenAdmin,
+  isAdmin,
+  billing: _billing,
 }: SidebarProps) {
   const [conversations, setConversations] = useState<ConversationSummary[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -614,8 +622,17 @@ export default function Sidebar({
             </div>
           )}
         </div>
+        {isAdmin && onOpenAdmin && (
+          <button
+            onClick={onOpenAdmin}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-[var(--muted)] transition hover:bg-white/4 hover:text-white active:scale-[0.98]"
+          >
+            <ShieldCheck className="h-4 w-4 text-[var(--accent)]" />
+            Admin
+          </button>
+        )}
         <button
-          onClick={onOpenSettings}
+          onClick={() => onOpenSettings()}
           className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-xs text-[var(--muted)] transition hover:bg-white/4 hover:text-white active:scale-[0.98]"
         >
           <Settings className="h-4 w-4" />

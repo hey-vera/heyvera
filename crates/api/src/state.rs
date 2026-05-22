@@ -25,6 +25,7 @@ use crate::mission_control::{McSubscriber, MissionControlEvent, SubscriberId};
 use crate::ratelimit::RateLimiter;
 use crate::soma::CortexHeart;
 use crate::storage::Storage;
+use crate::vera::VeraTracker;
 
 pub struct ConnectedWorker {
     pub worker_id: String,
@@ -59,6 +60,12 @@ pub struct AppState {
     pub ucb_scorer: RwLock<UcbScorer>,
     /// Cortex's Soma heart — cryptographic identity for this agent.
     pub soma_heart: Option<CortexHeart>,
+    /// Stripe API client for billing operations.
+    pub stripe_client: Option<crate::stripe_client::StripeClient>,
+    /// Stripe webhook signing secret for verifying incoming events.
+    pub stripe_webhook_secret: Option<String>,
+    /// Vera observation layer — every Cortex interaction flows through here.
+    pub vera_tracker: VeraTracker,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -197,6 +204,44 @@ impl AppState {
             }
         };
 
+        let (stripe_client, stripe_webhook_secret) =
+            match crate::stripe_client::StripeClient::from_env() {
+                Some((client, secret)) => {
+                    tracing::info!("Stripe billing configured");
+                    (Some(client), Some(secret))
+                }
+                None => {
+                    tracing::info!("STRIPE_SECRET_KEY not set — billing stubs active");
+                    (None, None)
+                }
+            };
+
+        let cortex_heart_id = soma_heart
+            .as_ref()
+            .map(|h| {
+                let did_bytes = h.did().as_bytes();
+                let mut id = [0u8; 32];
+                for (i, b) in did_bytes.iter().enumerate().take(32) {
+                    id[i] = *b;
+                }
+                soma_core::types::HeartId(id)
+            })
+            .unwrap_or_else(|| {
+                use std::collections::hash_map::DefaultHasher;
+                use std::hash::{Hash, Hasher};
+                let mut hasher = DefaultHasher::new();
+                "cortex-heart-v1".hash(&mut hasher);
+                let hash = hasher.finish().to_le_bytes();
+                let mut id = [0u8; 32];
+                id[..8].copy_from_slice(&hash);
+                id[8..16].copy_from_slice(&hash);
+                id[16..24].copy_from_slice(&hash);
+                id[24..32].copy_from_slice(&hash);
+                soma_core::types::HeartId(id)
+            });
+        let vera_tracker = VeraTracker::new(cortex_heart_id);
+        tracing::info!("vera tracker alive — cortex heart: {cortex_heart_id}");
+
         Arc::new(Self {
             providers: RwLock::new(providers),
             ledger: Ledger::new(ledger_path),
@@ -217,6 +262,9 @@ impl AppState {
             cortex_store,
             ucb_scorer: RwLock::new(ucb_scorer),
             soma_heart,
+            stripe_client,
+            stripe_webhook_secret,
+            vera_tracker,
         })
     }
 
@@ -255,19 +303,18 @@ impl AppState {
         tracing::info!("worker {worker_id} removed, active: {}", workers.len());
     }
 
-    pub async fn find_worker_for_user(&self, user_id: &str) -> Option<mpsc::Sender<BrainMessage>> {
+    pub async fn find_worker_for_user(&self, user_id: &str) -> Option<(String, mpsc::Sender<BrainMessage>)> {
         let workers = self.workers.read().await;
         workers
-            .values()
-            .find(|w| {
+            .iter()
+            .find(|(_, w)| {
                 w.user_id == user_id && {
-                    // Skip workers whose every provider is disabled
                     let has_usable = w.available_providers.iter()
                         .any(|p| !w.disabled_providers.contains(p));
                     has_usable || w.available_providers.is_empty()
                 }
             })
-            .map(|w| w.tx.clone())
+            .map(|(id, w)| (id.clone(), w.tx.clone()))
     }
 
     /// Mark a specific provider as unhealthy on a worker (e.g. auth expired).
@@ -304,18 +351,32 @@ impl AppState {
         decision: RoutingDecision,
         result_tx: mpsc::Sender<StepEvent>,
     ) -> Result<String, String> {
-        let worker_tx = self
+        let (worker_id, worker_tx) = self
             .find_worker_for_user(user_id)
             .await
             .ok_or_else(|| {
                 "no connected worker — run `npx cortex connect` in your environment".to_string()
             })?;
 
-        let step_id = Uuid::new_v4().to_string();
         let attempt_id = Uuid::new_v4().to_string();
-        let run_id = Uuid::new_v4().to_string();
         let lease_gen = 1;
-        let lease_deadline_ms = chrono::Utc::now().timestamp_millis() + 600_000;
+        let now = chrono::Utc::now().timestamp_millis();
+        let lease_deadline_ms = now + 600_000;
+
+        // Register run + step in DB so worker ownership verification passes
+        let (run_id, step_id) = if let Some(db) = &self.db {
+            let rid = db.create_run(user_id, &task.objective, "chat", &[]);
+            let sid = db.create_step(
+                &rid, "chat",
+                &format!("{:?}", decision.tier),
+                &format!("{:?}", task.risk),
+                &task.objective,
+            );
+            db.lease_step(&sid, &worker_id, lease_deadline_ms);
+            (rid, sid)
+        } else {
+            (Uuid::new_v4().to_string(), Uuid::new_v4().to_string())
+        };
 
         self.step_senders
             .write()
@@ -472,6 +533,7 @@ impl AppState {
         if let Some(heart) = &self.soma_heart {
             heart.persist_heartbeats();
             heart.persist_spend_logs();
+            heart.persist_invocation_counts();
         }
 
         let final_workers = self.workers.read().await.len();

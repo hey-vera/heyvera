@@ -1,16 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DEPLOY_USER="${DEPLOY_USER:-deploy}"
+DEPLOY_USER="${DEPLOY_USER:-guardian}"
 REPO_DIR="${REPO_DIR:-/home/${DEPLOY_USER}/claw-net}"
 WWW_DIR="${WWW_DIR:-/var/www/claw-net}"
-EXTERNAL_ENV_FILE="${EXTERNAL_ENV_FILE:-/etc/claw-net/claw-net.env}"
+EXTERNAL_ENV_FILE="${EXTERNAL_ENV_FILE:-/etc/cortex/cortex.env}"
 PORT="${PORT:-3402}"
 MAX_WAIT="${MAX_WAIT:-45}"
 ALLOW_DIRTY="${ALLOW_DIRTY:-0}"
 AUTO_SWITCH_BRANCH="${AUTO_SWITCH_BRANCH:-0}"
+GIT_REMOTE="${GIT_REMOTE:-}"
 
 cd "$REPO_DIR"
+
+if [ -z "$GIT_REMOTE" ]; then
+  GIT_REMOTE=$(git remote | head -1)
+  echo "[git] Auto-detected remote: $GIT_REMOTE"
+fi
 
 SUDO_AVAILABLE=0
 if command -v sudo >/dev/null 2>&1 && sudo -n true >/dev/null 2>&1; then
@@ -43,7 +49,7 @@ fi
 if [ "$CURRENT_BRANCH" != "$TARGET_BRANCH" ]; then
   if [ "$AUTO_SWITCH_BRANCH" = "1" ]; then
     echo "[git] Switching from ${CURRENT_BRANCH} to ${TARGET_BRANCH}..."
-    git fetch origin "$TARGET_BRANCH"
+    git fetch "$GIT_REMOTE" "$TARGET_BRANCH"
     git checkout "$TARGET_BRANCH"
     CURRENT_BRANCH="$TARGET_BRANCH"
   else
@@ -61,6 +67,21 @@ else
   echo "[env] External env file not found, falling back to repo-local .env"
 fi
 
+# Source VITE_* vars so frontend builds pick them up
+if [ -f "$ENV_FILE" ]; then
+  set -a
+  if [ -r "$ENV_FILE" ]; then
+    # shellcheck disable=SC1090
+    source "$ENV_FILE"
+  elif [ "$SUDO_AVAILABLE" = "1" ]; then
+    eval "$(sudo cat "$ENV_FILE")"
+  else
+    echo "[env] WARNING: cannot read $ENV_FILE (no permission and no sudo)"
+  fi
+  set +a
+  echo "[env] Sourced env vars from $ENV_FILE"
+fi
+
 echo "[backup] Pre-deploy database backup..."
 if [ -f "$REPO_DIR/scripts/backup.sh" ]; then
   bash "$REPO_DIR/scripts/backup.sh" || echo "[backup] WARNING: backup failed - continuing deploy"
@@ -69,9 +90,9 @@ else
 fi
 
 echo "[git] Fetching and fast-forwarding ${TARGET_BRANCH}..."
-git fetch origin "$TARGET_BRANCH"
+git fetch "$GIT_REMOTE" "$TARGET_BRANCH"
 git checkout "$TARGET_BRANCH"
-git reset --hard "origin/$TARGET_BRANCH"
+git reset --hard "$GIT_REMOTE/$TARGET_BRANCH"
 
 DEPLOY_COMMIT="$(git rev-parse HEAD)"
 DEPLOY_COMMIT_SHORT="$(git rev-parse --short HEAD)"
@@ -150,14 +171,26 @@ if [ -f "$REPO_DIR/Cargo.toml" ] && [ -f "$REPO_DIR/cortex/package.json" ]; then
   if command -v cargo >/dev/null 2>&1; then
     cargo build --release
     if [ "$SUDO_AVAILABLE" = "1" ]; then
+      sudo systemctl stop cortex 2>/dev/null || true
+
       sudo cp "$REPO_DIR/target/release/cortex-server" /usr/local/bin/cortex-server
       echo "[cortex] Installed cortex-server binary"
 
+      if [ -f "$REPO_DIR/target/release/cortex-worker" ]; then
+        sudo cp "$REPO_DIR/target/release/cortex-worker" /usr/local/bin/cortex-worker
+        echo "[cortex] Installed cortex-worker binary"
+      fi
+
       if [ -f /etc/systemd/system/cortex.service ]; then
-        sudo systemctl restart cortex
-        echo "[cortex] Restarted cortex service"
+        sudo systemctl start cortex
+        echo "[cortex] Started cortex service"
       else
         echo "[cortex] WARNING: no systemd service found — run scripts/cortex-install-service.sh first"
+      fi
+
+      if [ -f /etc/systemd/system/cortex-worker.service ]; then
+        sudo systemctl restart cortex-worker
+        echo "[cortex] Restarted cortex-worker service"
       fi
     elif [ "${CORTEX_BACKEND_REQUIRED:-0}" = "1" ]; then
       echo "[cortex] ERROR: passwordless sudo unavailable; cannot install required Cortex backend"
@@ -191,33 +224,41 @@ else
   echo "[caddy] No Caddyfile found - skipping"
 fi
 
-echo "[docker] Building and restarting containers..."
-docker compose up --build -d --remove-orphans
+# Docker compose is for legacy Node.js orchestrator. Skip if cortex systemd service is active.
+if systemctl is-active cortex >/dev/null 2>&1; then
+  echo "[docker] Skipping — cortex runs as native systemd service"
+else
+  echo "[docker] Building and restarting containers..."
+  docker compose up --build -d --remove-orphans
+fi
 
 echo -n "[health] Waiting for startup"
 HEALTHY=false
+HEALTH_PORT="${CORTEX_PORT:-$PORT}"
 for i in $(seq 1 "$MAX_WAIT"); do
   sleep 1
   echo -n "."
-  if curl -sf "http://localhost:${PORT}/health" >/dev/null 2>&1; then
+  if curl -sf "http://localhost:${HEALTH_PORT}/api/health" >/dev/null 2>&1; then
     HEALTHY=true
     break
   fi
-  if ! docker compose ps --status running | grep -q orchestrator; then
+  if systemctl is-active cortex >/dev/null 2>&1; then
+    : # native service — just keep waiting
+  elif ! docker compose ps --status running | grep -q orchestrator 2>/dev/null; then
     echo ""
-    echo "[fail] Orchestrator container is not running. Recent logs:"
-    docker compose logs --tail 60 orchestrator
+    echo "[fail] No running service found. Recent logs:"
+    docker compose logs --tail 60 orchestrator 2>/dev/null || journalctl -u cortex --no-pager -n 30
     exit 1
   fi
 done
 echo ""
 
 if $HEALTHY; then
-  echo "[done] ClawNet deployed successfully - healthy on port ${PORT}"
+  echo "[done] Cortex deployed — healthy on port ${HEALTH_PORT}"
   echo "       Commit: ${DEPLOY_COMMIT_SHORT} (${TARGET_BRANCH})"
-  echo "       View logs: docker compose logs -f orchestrator"
+  echo "       Logs: sudo journalctl -u cortex -f"
 else
   echo "[fail] Health check failed after ${MAX_WAIT}s. Recent logs:"
-  docker compose logs --tail 60 orchestrator
+  journalctl -u cortex --no-pager -n 30 2>/dev/null || docker compose logs --tail 60 orchestrator 2>/dev/null
   exit 1
 fi

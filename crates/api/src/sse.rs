@@ -33,8 +33,10 @@ pub async fn execute_task(
     _user: ClerkUser,
     Json(req): Json<ExecuteRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    let file_paths = crate::validate::sanitize_file_paths(&req.file_paths)
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(crate::routes::ErrorResponse { error: e })))?;
     let providers = state.providers.read().await;
-    let path_refs: Vec<&str> = req.file_paths.iter().map(|s| s.as_str()).collect();
+    let path_refs: Vec<&str> = file_paths.iter().map(|s| s.as_str()).collect();
 
     let (task, decision) = Router::route(&req.input, &path_refs, &providers).map_err(|e| {
         (

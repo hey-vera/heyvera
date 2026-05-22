@@ -20,14 +20,19 @@ sudo mkdir -p "$(dirname "$CORTEX_ENV")"
 if [ ! -f "$CORTEX_ENV" ]; then
   cat <<ENVEOF | sudo tee "$CORTEX_ENV"
 CORTEX_PORT=$CORTEX_PORT
-CORTEX_LEDGER_PATH=$CORTEX_LEDGER
 CORTEX_WORKSPACE=/home/$CORTEX_USER/claw-net
+CORTEX_ALLOWED_ORIGINS=https://cortex.heyvera.org
 RUST_LOG=info
-# CLERK_SECRET_KEY=sk_live_...
+# Auth — set these to enable real user accounts
+# CLERK_SECRET_KEY=
+# VITE_CLERK_PUBLISHABLE_KEY=
+# Billing — set these to enable subscriptions
+# STRIPE_SECRET_KEY=
+# STRIPE_WEBHOOK_SECRET=
 ENVEOF
   sudo chmod 600 "$CORTEX_ENV"
   sudo chown root:root "$CORTEX_ENV"
-  echo "[cortex] Created env file at $CORTEX_ENV — add CLERK_SECRET_KEY to it"
+  echo "[cortex] Created env file at $CORTEX_ENV — fill in keys to go live"
 fi
 
 cat <<EOF | sudo tee /etc/systemd/system/cortex.service

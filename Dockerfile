@@ -14,14 +14,22 @@ COPY crates/core/Cargo.toml crates/core/Cargo.toml
 COPY crates/engine/Cargo.toml crates/engine/Cargo.toml
 COPY crates/api/Cargo.toml crates/api/Cargo.toml
 COPY crates/worker/Cargo.toml crates/worker/Cargo.toml
+COPY crates/soma/Cargo.toml crates/soma/Cargo.toml
+COPY crates/soma-crypto/Cargo.toml crates/soma-crypto/Cargo.toml
+COPY crates/soma-core/Cargo.toml crates/soma-core/Cargo.toml
 
 # Create minimal stub files so cargo can resolve the workspace
 RUN mkdir -p crates/core/src crates/engine/src crates/api/src crates/worker/src/bin \
+             crates/soma/src crates/soma/src/bin crates/soma-crypto/src crates/soma-core/src \
     && echo "pub fn _stub() {}" > crates/core/src/lib.rs \
     && echo "pub fn _stub() {}" > crates/engine/src/lib.rs \
     && echo "pub fn _stub() {}" > crates/api/src/lib.rs \
     && echo "fn main() {}" > crates/api/src/main.rs \
-    && echo "fn main() {}" > crates/worker/src/bin/worker.rs
+    && echo "fn main() {}" > crates/worker/src/bin/worker.rs \
+    && echo "pub fn _stub() {}" > crates/soma/src/lib.rs \
+    && echo "fn main() {}" > crates/soma/src/bin/ceremony.rs \
+    && echo "pub fn _stub() {}" > crates/soma-crypto/src/lib.rs \
+    && echo "pub fn _stub() {}" > crates/soma-core/src/lib.rs
 
 # Build deps only (this layer is cached until Cargo.toml/lock changes)
 RUN cargo build --release -p cortex-api 2>/dev/null || true
@@ -31,7 +39,8 @@ COPY crates/ crates/
 RUN touch crates/core/src/lib.rs crates/engine/src/lib.rs \
          crates/api/src/lib.rs crates/api/src/main.rs \
          crates/worker/src/bin/worker.rs \
-    && cargo build --release -p cortex-api
+         crates/soma/src/lib.rs crates/soma-crypto/src/lib.rs crates/soma-core/src/lib.rs \
+    && cargo build --release -p cortex-api -p cortex-worker
 
 # ── Stage 2: Runtime ───────────────────────────────────────────
 FROM debian:bookworm-slim AS runtime

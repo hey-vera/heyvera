@@ -22,6 +22,8 @@ pub struct ClerkUser {
 struct ClerkClaims {
     sub: String,
     exp: usize,
+    #[serde(flatten)]
+    _extra: std::collections::HashMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -188,6 +190,14 @@ where
         let clerk_secret = match &app_state.clerk_secret_key {
             Some(key) => key.clone(),
             None => {
+                if raw_auth.is_some() {
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: "CLERK_SECRET_KEY not configured — cannot verify token".to_string(),
+                        }),
+                    ));
+                }
                 return Ok(ClerkUser {
                     user_id: "local".to_string(),
                 });
