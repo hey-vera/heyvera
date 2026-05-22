@@ -1,23 +1,27 @@
-import { ArrowUp, Square } from 'lucide-react';
+import { ArrowRight, ArrowUp, Square } from 'lucide-react';
 import { useEffect, useRef } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 
 interface ChatComposerProps {
   draft: string;
   disabled?: boolean;
+  locked?: boolean;
   onDraftChange: (value: string) => void;
   onSend: () => void;
   onStop?: () => void;
+  onSubscribe?: () => void;
 }
 
 export default function ChatComposer({
   draft,
   disabled = false,
+  locked = false,
   onDraftChange,
   onSend,
   onStop,
+  onSubscribe,
 }: ChatComposerProps) {
-  const canSend = draft.trim().length > 0 && !disabled;
+  const canSend = draft.trim().length > 0 && !disabled && !locked;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   useEffect(() => {
@@ -29,14 +33,44 @@ export default function ChatComposer({
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (locked && onSubscribe) {
+      onSubscribe();
+      return;
+    }
     if (canSend) onSend();
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
+      if (locked && onSubscribe) {
+        onSubscribe();
+        return;
+      }
       if (canSend) onSend();
     }
+  }
+
+  if (locked) {
+    return (
+      <div className="border-t border-white/6 p-3 sm:p-4">
+        <div className="rounded-[24px] border border-white/8 bg-[var(--composer)] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          <div className="flex min-h-[52px] items-center px-3 py-2">
+            <p className="flex-1 text-sm text-[var(--muted)]">
+              Start your free trial to chat with Cortex.
+            </p>
+            <button
+              type="button"
+              onClick={onSubscribe}
+              className="inline-flex h-10 items-center gap-2 rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-black transition hover:brightness-110 active:scale-95"
+            >
+              Start free trial
+              <ArrowRight className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   return (

@@ -1,19 +1,16 @@
 import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
 import { PanelRight, Loader2, Menu } from 'lucide-react';
 import PaymentFailed from './components/billing/PaymentFailed';
-import PricingCards from './components/billing/PricingCards';
 import TrialBanner from './components/billing/TrialBanner';
 import ChatComposer from './components/chat/ChatComposer';
 import ChatTimeline from './components/chat/ChatTimeline';
 import SessionControls from './components/session/SessionControls';
 import Sidebar from './components/Sidebar';
-import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { useSomaSession } from './lib/useSomaSession';
 import { useBilling } from './lib/useBilling';
 import { CortexApiError, getAdminStats, getUserRouting, setAuthTokenGetter, updateUserRouting } from './lib/cortexApi';
-import { isOnboarded, markOnboarded } from './lib/onboarding';
 import type { ChatSessionControls, RunProfile } from './types';
 
 const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
@@ -77,6 +74,7 @@ function looksLikeRunGoal(value: string) {
 }
 
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel'));
+const PricingCards = lazy(() => import('./components/billing/PricingCards'));
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 const WorkSurface = lazy(() => import('./components/work-surface/WorkSurface'));
 
@@ -98,8 +96,8 @@ export default function App() {
   const [runProfile, setRunProfile] = useState<RunProfile>(readRunProfile);
   const [runBridgeGoal, setRunBridgeGoal] = useState<string | null>(null);
   const [runBridgeNonce, setRunBridgeNonce] = useState(0);
-  const [onboarded, setOnboarded] = useState(() => !clerkEnabled || isOnboarded(userId ?? 'local'));
   const [adminOpen, setAdminOpen] = useState(false);
+  const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [isAdmin, setIsAdmin] = useState(false);
   const billingEnabled = clerkEnabled && isSignedIn;
 
@@ -116,10 +114,6 @@ export default function App() {
   }, [getToken]);
 
   const billing = useBilling(billingEnabled);
-
-  useEffect(() => {
-    setOnboarded(!clerkEnabled || isOnboarded(userId ?? 'local'));
-  }, [clerkEnabled, userId]);
 
   useEffect(() => {
     if (!isSignedIn) {
@@ -288,6 +282,10 @@ export default function App() {
         || target?.isContentEditable;
 
       if (event.key === 'Escape') {
+        if (checkoutOpen) {
+          setCheckoutOpen(false);
+          return;
+        }
         if (adminOpen) {
           setAdminOpen(false);
           return;
@@ -335,6 +333,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [
     adminOpen,
+    checkoutOpen,
     handleNewChat,
     handleOpenSettings,
     isStreaming,
@@ -356,72 +355,11 @@ export default function App() {
     return <AuthScreen />;
   }
 
-  if (billingEnabled && billing.loading && !billing.status) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)]">
-        <div className="flex items-center gap-2 text-sm text-[var(--muted)]">
-          <Loader2 className="h-5 w-5 animate-spin" />
-          Checking billing...
-        </div>
-      </div>
-    );
-  }
-
-  if (billingEnabled && billing.error && !billing.status) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-4 text-[var(--fg)]">
-        <div className="w-full max-w-md rounded-2xl border border-white/8 bg-[var(--panel)] p-5 text-center">
-          <h1 className="text-lg font-semibold text-white">Billing unavailable</h1>
-          <p className="mt-2 text-sm text-[var(--muted)]">{billing.error}</p>
-          <button
-            type="button"
-            onClick={() => void billing.refresh()}
-            className="mt-4 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110 active:scale-95"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  const needsSubscription = billingEnabled && (accessState === 'needs_checkout' || accessState === 'cancelled');
-
-  if (billingEnabled && accessState === 'needs_phone') {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-[var(--bg)] p-4 text-[var(--fg)]">
-        <div className="w-full max-w-md rounded-2xl border border-white/8 bg-[var(--panel)] p-5 text-center">
-          <h1 className="text-lg font-semibold text-white">Verify your phone</h1>
-          <p className="mt-2 text-sm leading-6 text-[var(--muted)]">
-            Phone verification is required before starting a Cortex trial. Complete verification in your account, then refresh billing.
-          </p>
-          <button
-            type="button"
-            onClick={() => void billing.refresh()}
-            className="mt-4 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-black transition hover:brightness-110 active:scale-95"
-          >
-            Refresh
-          </button>
-        </div>
-      </div>
-    );
-  }
-
   if (billingEnabled && accessState === 'payment_failed') {
     return <PaymentFailed billing={billing.status} />;
   }
 
-  if (clerkEnabled && isSignedIn && !onboarded) {
-    return (
-      <OnboardingFlow
-        userId={userId ?? 'anonymous'}
-        onComplete={() => {
-          markOnboarded(userId ?? 'anonymous');
-          setOnboarded(true);
-        }}
-      />
-    );
-  }
+  const needsSubscription = billingEnabled && (accessState === 'needs_checkout' || accessState === 'cancelled' || accessState === 'needs_phone');
 
   return (
     <div className="flex h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
@@ -548,50 +486,46 @@ export default function App() {
         <TrialBanner billing={billing.status} onOpenBilling={() => handleOpenSettings('billing')} />
 
         <main className="mx-auto flex min-h-0 w-full max-w-3xl flex-1 flex-col">
-          {needsSubscription ? (
-            <div className="flex flex-1 items-center justify-center p-4">
-              <PricingCards />
-            </div>
-          ) : (
-            <>
-              <ChatTimeline
-                messages={messages}
-                isLoading={isLoadingConversation}
-                showStarters={!activeConversationId && !isStreaming}
-                onSelectStarter={handleSelectStarter}
-                onApprovalAction={updateApproval}
-              />
-              <SessionControls
-                value={sessionControls}
-                runProfile={runProfile}
-                onChange={setSessionControls}
-                onRunProfileChange={handleRunProfileChange}
-              />
-              {showRunBridge && (
-                <div className="border-t border-white/6 px-3 py-2 sm:px-4">
-                  <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-2">
-                    <p className="min-w-0 truncate text-xs text-[var(--muted-strong)]">
-                      This looks like a multi-step coding goal.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={bridgeDraftToRun}
-                      className="shrink-0 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-black transition hover:brightness-110 active:scale-95"
-                    >
-                      Create run
-                    </button>
-                  </div>
-                </div>
-              )}
-              <ChatComposer
-                draft={draft}
-                disabled={isStreaming}
-                onDraftChange={setDraft}
-                onSend={sendMessage}
-                onStop={isStreaming ? stopStreaming : undefined}
-              />
-            </>
+          <ChatTimeline
+            messages={messages}
+            isLoading={isLoadingConversation}
+            showStarters={!activeConversationId && !isStreaming}
+            onSelectStarter={needsSubscription ? undefined : handleSelectStarter}
+            onApprovalAction={updateApproval}
+          />
+          {!needsSubscription && (
+            <SessionControls
+              value={sessionControls}
+              runProfile={runProfile}
+              onChange={setSessionControls}
+              onRunProfileChange={handleRunProfileChange}
+            />
           )}
+          {!needsSubscription && showRunBridge && (
+            <div className="border-t border-white/6 px-3 py-2 sm:px-4">
+              <div className="mx-auto flex w-full max-w-3xl items-center justify-between gap-3 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-2">
+                <p className="min-w-0 truncate text-xs text-[var(--muted-strong)]">
+                  This looks like a multi-step coding goal.
+                </p>
+                <button
+                  type="button"
+                  onClick={bridgeDraftToRun}
+                  className="shrink-0 rounded-lg bg-[var(--accent)] px-3 py-1.5 text-xs font-medium text-black transition hover:brightness-110 active:scale-95"
+                >
+                  Create run
+                </button>
+              </div>
+            </div>
+          )}
+          <ChatComposer
+            draft={draft}
+            disabled={isStreaming}
+            locked={needsSubscription}
+            onDraftChange={setDraft}
+            onSend={sendMessage}
+            onStop={isStreaming ? stopStreaming : undefined}
+            onSubscribe={() => setCheckoutOpen(true)}
+          />
         </main>
       </div>
 
@@ -625,6 +559,25 @@ export default function App() {
       {adminOpen && (
         <Suspense fallback={null}>
           <AdminPanel onClose={() => setAdminOpen(false)} />
+        </Suspense>
+      )}
+
+      {/* Checkout modal */}
+      {checkoutOpen && (
+        <Suspense fallback={null}>
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6">
+            <div className="relative w-full max-w-2xl">
+              <button
+                type="button"
+                onClick={() => setCheckoutOpen(false)}
+                className="absolute -top-10 right-0 rounded-lg p-1.5 text-[var(--muted)] transition hover:text-white"
+                aria-label="Close"
+              >
+                <span className="text-sm">ESC</span>
+              </button>
+              <PricingCards />
+            </div>
+          </div>
         </Suspense>
       )}
     </div>
