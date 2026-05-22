@@ -15,7 +15,8 @@
   "dependencies": {
     "@clerk/clerk-react": "^5.61.6",
     "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "react-dom": "^19.0.0",
+    "react-router-dom": "^7.15.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.1.4",
