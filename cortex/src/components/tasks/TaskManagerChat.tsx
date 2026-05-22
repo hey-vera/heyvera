@@ -21,8 +21,6 @@ import type { CortexGroup } from '../../lib/groups';
 import type {
   ApprovalState,
   ChatMessage,
-  ChatSessionControls,
-  RunProfile,
   TaskManagerTask,
   TaskMember,
 } from '../../types';
@@ -37,14 +35,10 @@ interface TaskManagerChatProps {
   isStreaming: boolean;
   isLoadingConversation: boolean;
   needsSubscription: boolean;
-  sessionControls: ChatSessionControls;
-  runProfile: RunProfile;
   onDraftChange: (value: string) => void;
   onSend: () => void;
   onStop?: () => void;
   onSubscribe: () => void;
-  onSessionControlsChange: (value: ChatSessionControls) => void;
-  onRunProfileChange: (profile: RunProfile) => void;
   onApprovalAction: (messageId: string, nextState: ApprovalState) => void;
   onTaskStateChange?: (state: ReturnType<typeof useTaskManager>['state']) => void;
 }
@@ -226,14 +220,10 @@ export default function TaskManagerChat({
   isStreaming,
   isLoadingConversation,
   needsSubscription,
-  sessionControls,
-  runProfile,
   onDraftChange,
   onSend,
   onStop,
   onSubscribe,
-  onSessionControlsChange,
-  onRunProfileChange,
   onApprovalAction,
   onTaskStateChange,
 }: TaskManagerChatProps) {

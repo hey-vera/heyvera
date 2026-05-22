@@ -718,14 +718,10 @@ function CortexShell() {
           isStreaming={isStreaming}
           isLoadingConversation={isLoadingConversation}
           needsSubscription={false}
-          sessionControls={sessionControls}
-          runProfile={runProfile}
           onDraftChange={setDraft}
           onSend={sendMessage}
           onStop={isStreaming ? stopStreaming : undefined}
           onSubscribe={() => setCheckoutOpen(true)}
-          onSessionControlsChange={setSessionControls}
-          onRunProfileChange={handleRunProfileChange}
           onApprovalAction={updateApproval}
           onTaskStateChange={setTaskState}
         />
