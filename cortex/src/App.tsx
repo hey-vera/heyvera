@@ -198,7 +198,7 @@ function CortexShell() {
     [groupId, groups],
   );
   const activeGroupId = activeGroup.id;
-  const { isLoaded, isSignedIn, userId, AuthScreen, getToken, clerkEnabled } = useAuthGate();
+  const { isLoaded, isSignedIn, userId, getToken, clerkEnabled } = useAuthGate();
   // Auto-creates user's Soma identity + session-scoped delegation on sign-in
   useSomaSession(userId ?? 'anonymous', isSignedIn);
   const [settingsOpen, setSettingsOpen] = useState(false);
