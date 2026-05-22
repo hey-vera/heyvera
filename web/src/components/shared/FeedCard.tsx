@@ -49,6 +49,18 @@ export function FeedCard({
 }: FeedCardProps) {
   const [bookmarked, setBookmarked] = useState(isBookmarked ?? false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const [heartReaction, setHeartReaction] = useState<{
+    count: number;
+    active: boolean;
+  }>({ count: 3, active: false });
+  const [fireReaction, setFireReaction] = useState<{
+    count: number;
+    active: boolean;
+  }>({ count: 1, active: false });
+  const [eyesReaction, setEyesReaction] = useState<{
+    count: number;
+    active: boolean;
+  }>({ count: 0, active: false });
   const menuRef = useRef<HTMLDivElement | null>(null);
   const isLinkedBorder = origin === "Linked Pair";
   const isAgentAccent = origin === "Agent";
@@ -194,6 +206,43 @@ export function FeedCard({
       {/* Reply action slot */}
       {canReply || hasReplyCount ? (
         <div className="feed-card-actions">
+          <button
+            type="button"
+            className={`feed-card-reaction${heartReaction.active ? " feed-card-reaction-active" : ""}`}
+            onClick={() => {
+              setHeartReaction((reaction) => ({
+                active: !reaction.active,
+                count: reaction.active ? reaction.count - 1 : reaction.count + 1,
+              }));
+            }}
+          >
+            ❤️ {heartReaction.count}
+          </button>
+          <button
+            type="button"
+            className={`feed-card-reaction${fireReaction.active ? " feed-card-reaction-active" : ""}`}
+            onClick={() => {
+              setFireReaction((reaction) => ({
+                active: !reaction.active,
+                count: reaction.active ? reaction.count - 1 : reaction.count + 1,
+              }));
+            }}
+          >
+            🔥 {fireReaction.count}
+          </button>
+          <button
+            type="button"
+            className={`feed-card-reaction${eyesReaction.active ? " feed-card-reaction-active" : ""}`}
+            onClick={() => {
+              setEyesReaction((reaction) => ({
+                active: !reaction.active,
+                count: reaction.active ? reaction.count - 1 : reaction.count + 1,
+              }));
+            }}
+          >
+            👀 {eyesReaction.count}
+          </button>
+          <div style={{ flex: 1 }} />
           {canReply ? (
             <button
               type="button"
@@ -206,6 +255,9 @@ export function FeedCard({
               Reply
             </button>
           ) : null}
+          <button type="button" className="feed-card-repost-action">
+            Repost
+          </button>
           {postId ? (
             <button
               type="button"
@@ -219,11 +271,6 @@ export function FeedCard({
               {bookmarked ? "🔖" : "🏷"}
             </button>
           ) : null}
-          {hasReplyCount && (
-            <span className="feed-card-reply-count">
-              {replyCount} {replyCount === 1 ? "reply" : "replies"}
-            </span>
-          )}
         </div>
       ) : null}
     </article>
