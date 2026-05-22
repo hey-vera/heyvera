@@ -361,6 +361,18 @@ export default function App() {
 
   const needsSubscription = billingEnabled && (accessState === 'needs_checkout' || accessState === 'cancelled' || accessState === 'needs_phone');
 
+  if (needsSubscription) {
+    return (
+      <Suspense fallback={
+        <div className="flex min-h-screen items-center justify-center bg-[var(--bg)]">
+          <Loader2 className="h-6 w-6 animate-spin text-[var(--muted)]" />
+        </div>
+      }>
+        <PricingCards />
+      </Suspense>
+    );
+  }
+
   return (
     <div className="flex h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
       <aside className="hidden h-full shrink-0 lg:block">
@@ -562,11 +574,11 @@ export default function App() {
         </Suspense>
       )}
 
-      {/* Checkout modal */}
+      {/* Checkout modal (fallback for in-app subscribe links) */}
       {checkoutOpen && (
         <Suspense fallback={null}>
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6">
-            <div className="relative w-full max-w-2xl">
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-3 backdrop-blur-md sm:p-6">
+            <div className="relative w-full max-w-lg">
               <button
                 type="button"
                 onClick={() => setCheckoutOpen(false)}
@@ -575,7 +587,7 @@ export default function App() {
               >
                 <span className="text-sm">ESC</span>
               </button>
-              <PricingCards />
+              <PricingCards compact />
             </div>
           </div>
         </Suspense>
