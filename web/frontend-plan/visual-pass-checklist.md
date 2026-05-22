@@ -25,9 +25,9 @@
 
 ## Feed intelligence (Bluesky-inspired)
 
-- [ ] **Custom feeds** — create/pin algorithmic or curated feeds
-- [ ] **Moderation controls** — mute, block, report UI
-- [ ] **Feed preferences** — show more/less controls per topic
+- [x] **Custom feeds** — For You / Following / Custom feed mode switcher above filter chips
+- [x] **Moderation controls** — 3-dot menu on post cards with mute, block, report
+- [x] **Feed preferences** — toggleable panel with per-type show/hide controls
 
 ## Polish
 

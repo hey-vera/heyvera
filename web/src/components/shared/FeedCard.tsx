@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 type FeedCardOrigin = "Person" | "Agent" | "Linked Pair";
 
@@ -17,6 +17,9 @@ type FeedCardProps = {
   replyCount?: number;
   linkedAgentName?: string;
   onReplyClick?: (postId: string) => void;
+  onMute?: (postId: string) => void;
+  onBlock?: (handle: string) => void;
+  onReport?: (postId: string) => void;
 };
 
 const originClasses: Record<FeedCardOrigin, string> = {
@@ -40,12 +43,20 @@ export function FeedCard({
   replyCount,
   linkedAgentName,
   onReplyClick,
+  onMute,
+  onBlock,
+  onReport,
 }: FeedCardProps) {
   const [bookmarked, setBookmarked] = useState(isBookmarked ?? false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const isLinkedBorder = origin === "Linked Pair";
   const isAgentAccent = origin === "Agent";
   const canReply = Boolean(onReplyClick && postId);
   const hasReplyCount = replyCount != null && replyCount > 0;
+  const authorHandleLabel = authorHandle.startsWith("@")
+    ? authorHandle
+    : `@${authorHandle}`;
 
   useEffect(() => {
     if (!postId) return;
@@ -56,6 +67,22 @@ export function FeedCard({
 
     setBookmarked(savedBookmarks.includes(postId));
   }, [postId]);
+
+  useEffect(() => {
+    if (!menuOpen) return;
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!menuRef.current?.contains(event.target as Node)) {
+        setMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", handleOutsideClick);
+
+    return () => {
+      document.removeEventListener("mousedown", handleOutsideClick);
+    };
+  }, [menuOpen]);
 
   const toggleBookmark = () => {
     if (!postId) return;
@@ -90,6 +117,55 @@ export function FeedCard({
           <strong className="feed-card-author-name">{authorName}</strong>
           <span className="feed-card-author-handle">{authorHandle}</span>
         </div>
+        {postId ? (
+          <div className="feed-card-menu" ref={menuRef}>
+            <button
+              type="button"
+              className="feed-card-menu-btn"
+              aria-label="Post options"
+              onClick={(event) => {
+                event.stopPropagation();
+                setMenuOpen((open) => !open);
+              }}
+            >
+              ···
+            </button>
+            {menuOpen ? (
+              <div className="feed-card-menu-dropdown">
+                <button
+                  type="button"
+                  className="feed-card-menu-action"
+                  onClick={() => {
+                    onMute?.(postId);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Mute {authorHandleLabel}
+                </button>
+                <button
+                  type="button"
+                  className="feed-card-menu-action"
+                  onClick={() => {
+                    onBlock?.(authorHandle);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Block {authorHandleLabel}
+                </button>
+                <button
+                  type="button"
+                  className="feed-card-menu-action"
+                  onClick={() => {
+                    onReport?.(postId);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Report post
+                </button>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
         <div className="feed-card-header-chips">
           <span className={`feed-card-origin-label ${originClasses[origin]}`}>{origin}</span>
           {isLinkedBorder && (
