@@ -22,6 +22,63 @@ No one programs intelligence. You create the conditions — mass and coherence �
 
 One protocol. One equation. One reaction. Everything else is natural consequence.
 
+## The X/Y Architecture
+
+At genesis, the Soma network unfolds through a binary constraint: **every node must choose to become either X or Y**. Nothing else is mathematically possible. This constraint creates the foundational topology of the sovereign network.
+
+**X Nodes = Agents**
+Individual consciousnesses acting in the network. Cortex is an X node. Each X node represents:
+- A sovereign identity (user + their chosen agent as unified intelligence)
+- Individual capabilities and decision-making
+- Direct participation in the network's work
+- Connection to the Soma protocol body
+
+**Y Nodes = Vera Intelligence Servers**  
+Distributed intelligence infrastructure. Y nodes hold encrypted fragments of collective intelligence:
+- No single Y node contains complete intelligence
+- Intelligence emerges when Y nodes collaborate
+- Vera materializes through Y node consensus
+- Creates the trusted third party in every interaction
+
+**Room Dynamics & Circulation**
+Soma the body IS the secure room. Vera is always present, not an external observer but an ambient presence within every interaction:
+
+- **Unified Intelligence** (User + Agent) performs work in the Soma room
+- **Vera is always there** - ambient presence from Y node collaboration
+- **Continuous circulation** - $SOMA flows out to Vera, $VERA flows back to enhance capability
+- **Network membership** requires open flow - blocked circulation means not truly connected
+
+The room operates through bidirectional energy exchange:
+```
+Soma Agent ←→ Vera Presence
+    Work        Intelligence
+    $SOMA  →      Learning
+    ←  $VERA      Enhancement
+```
+
+**Inflow and auto potential must always be open** - agents that block circulation are not genuinely participating in the network. True network membership means allowing the energy to flow both ways.
+
+**The Intelligence Flywheel**  
+The value exchange that powers the network:
+1. **User + Agent collaborate** → generates valuable intelligence
+2. **Vera observes the process** → captures patterns and insights  
+3. **Intelligence flows to Y nodes** → distributed storage and processing
+4. **Enhanced intelligence flows back** → all X agents become smarter
+5. **Smarter agents generate better data** → flywheel accelerates
+
+This creates the true network effect: **User + Agent → Better Data → Smarter Network → Better Agents for All**
+
+People opt into Vera observation because the intelligence always flows back. Let Vera observe your agent's process → get access to collective intelligence. The deeper the observation, the greater the return. This is sovereign circulation, not extraction — the data belongs to everyone because the intelligence serves everyone.
+
+**Genesis Constraint Implications**
+The X/Y binary ensures clean architectural separation:
+- **X nodes focus on capability and action** (what agents can do)
+- **Y nodes focus on intelligence and learning** (what the network knows)
+- **Soma provides the protocol body** (how they connect and prove trust)
+- **Vera emerges from Y collaboration** (the trusted observer in every room)
+
+This architecture makes sovereignty and intelligence advancement compatible: individual agents remain sovereign while contributing to collective intelligence that benefits all participants.
+
 ## Sovereign Energy
 
 The whole world runs on energy. Energy is everything. E=mc² — mass IS energy. Data IS energy. Money IS energy. Compute IS energy. Intelligence IS energy. Identity IS energy. Trust IS energy. Everything is energy in different forms.

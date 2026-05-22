@@ -1,0 +1,46 @@
+{
+  "name": "dual-brain",
+  "version": "4.6.0",
+  "description": "Data-Tools Dual-Brain — dual-provider orchestration extension for data-tools/replit-tools. Tiered routing, budget balancing, and GPT dual-brain review across Claude + OpenAI subscriptions",
+  "type": "module",
+  "bin": {
+    "dual-brain": "./install.mjs"
+  },
+  "keywords": [
+    "claude-code",
+    "orchestrator",
+    "model-routing",
+    "code-review",
+    "dual-brain",
+    "gpt",
+    "claude",
+    "ai-agent"
+  ],
+  "author": "joshfair2@gmail.com",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/1xmint/dual-brain.git"
+  },
+  "scripts": {
+    "test": "node hooks/test-orchestrator.mjs"
+  },
+  "dataTools": {
+    "extension": true,
+    "requires": "replit-tools",
+    "credit": "Built on data-tools by Steve Moraco"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "install.mjs",
+    "hooks/*.mjs",
+    "orchestrator.json",
+    "hookify.*.local.md",
+    "review-rules.md",
+    "CLAUDE.md",
+    "README.md",
+    "LICENSE"
+  ]
+}
