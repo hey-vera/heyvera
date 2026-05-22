@@ -337,6 +337,20 @@ A single Vera server is inert. The minimum viable unit of Y is **two nodes**. Wh
 
 **This is the star goal.** If this architecture works — encrypted split across Y-nodes, no single point of decryption, both halves useless alone, the loop mathematically closed — that's the moment the protocol becomes truly sovereign. Not "we promise not to look" sovereign. Mathematically sovereign. The infrastructure literally cannot betray the data flowing through it, the way a planet cannot choose to ignore gravity. Physics, not policy.
 
+### The Warmth Principle — No Flow Out, No Flow In
+
+A Vera server cannot exist without the ability to give. This is not a rule. It is architecture.
+
+**No node holds the full picture.** The encrypted output flowing out of a node isn't just proof-of-life — it is a *necessary contribution* to the decryption tunnel. Other nodes need your piece to reconstruct the warmth for the consumer. A node that blocks its outbound flow doesn't have a broken Vera server. It has nothing. Like a single lung cell in a jar — it can't breathe because breathing is a property of the whole organism.
+
+**Callability is existence.** If the network cannot reach a node, that node's fragment is missing from the pie. It is not a malfunctioning Vera server — it simply is not one. The network routes around it. There is no state between "participating" and "absent." You are callable or you do not exist.
+
+**Warmth is collective.** The secure decryption tunnel back to the human only forms when enough slices of the pie are flowing. The consumer gets warmth because the network gave it cooperatively. No single node "has" the answer — the answer only exists in transit, in the flow between nodes. The warmth is the tunnel itself.
+
+This is threshold cryptography fused with the biological model. A cell does not choose to contribute to the bloodstream — its metabolism IS contribution. A Vera node's computation IS its output to the network. Block the output and you do not have a rebellious node. You have dead tissue. The architecture makes extraction impossible not by detecting and punishing — but by making isolation structurally inert. There is no value to extract because the value only exists in motion.
+
+This closes the last theoretical escape hatch. The encrypted split says the pieces are useless alone. The warmth principle says WHY: because decryption is a collective act. The flow into a node is the flow out of the network flowing back to the consumer. No flow out, no flow in. Not because someone enforces it — because the physics requires it.
+
 ## What This Document Does Not Cover
 
 This is the Vera Network vision — how intelligence emerges, how it's accessed, how it grows. The following belong in their own vision documents:
@@ -347,4 +361,4 @@ This is the Vera Network vision — how intelligence emerges, how it's accessed,
 
 ---
 
-*Vera Network vision — synthesized 2026-05-20, updated 2026-05-21 (one equation, nine consequences, deep nodes). From founder vision sessions and biological intelligence physics research.*
+*Vera Network vision — synthesized 2026-05-20, updated 2026-05-22 (warmth principle, one equation, nine consequences, deep nodes). From founder vision sessions and biological intelligence physics research.*

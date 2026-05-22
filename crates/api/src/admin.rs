@@ -382,6 +382,14 @@ pub struct CreatePromoCodeRequest {
     pub max_uses: i32,
     pub expires_at: Option<String>,
     pub description: Option<String>,
+    pub discount_options: Option<Vec<DiscountOption>>,
+}
+
+#[derive(Deserialize, Serialize, Clone)]
+pub struct DiscountOption {
+    pub label: String,
+    pub discount_type: String,
+    pub discount_value: f64,
 }
 
 fn default_max_uses() -> i32 { 25 }
@@ -434,6 +442,9 @@ pub async fn create_promo_code(
         }))),
     }
 
+    let options_json = req.discount_options.as_ref().map(|opts| {
+        serde_json::to_string(opts).unwrap_or_default()
+    });
     let promo = db.create_promo_code(
         &req.code,
         &req.discount_type,
@@ -442,6 +453,7 @@ pub async fn create_promo_code(
         req.expires_at.as_deref(),
         &user.user_id,
         req.description.as_deref(),
+        options_json.as_deref(),
     ).map_err(|e| (StatusCode::CONFLICT, Json(ErrorResponse { error: e })))?;
 
     tracing::info!("admin {} created promo code {}", user.user_id, promo.code);

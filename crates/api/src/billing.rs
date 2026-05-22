@@ -409,21 +409,61 @@ pub async fn create_checkout(
 ) -> Result<Json<CheckoutResponse>, (StatusCode, Json<ErrorResponse>)> {
     let stripe = require_stripe(&state)?;
 
-    if let Some(ref choice) = req.referral_choice {
-        if choice == "discount_25_annual" && req.plan != PlanType::Annual {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse {
-                    error: "25% annual discount requires selecting the annual plan".into(),
-                }),
-            ));
-        }
-    }
-
     let db = state.db.as_ref().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(ErrorResponse { error: "database unavailable".into() }),
     ))?;
+
+    let mut extra_trial_days: i64 = 0;
+    let mut coupon_percent_off: Option<f64> = None;
+
+    if let (Some(code), Some(choice_idx_str)) = (&req.referral_code, &req.referral_choice) {
+        let promo = db.get_promo_code(code).ok_or((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse { error: "invalid promo code".into() }),
+        ))?;
+        if !promo.active {
+            return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "promo code is no longer active".into() })));
+        }
+        if promo.current_uses >= promo.max_uses {
+            return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "promo code has been fully redeemed".into() })));
+        }
+
+        let parsed_options: Vec<serde_json::Value> = promo.discount_options
+            .as_deref()
+            .and_then(|s| serde_json::from_str(s).ok())
+            .unwrap_or_default();
+
+        let choice_idx: usize = choice_idx_str.parse().unwrap_or(0);
+
+        let (dtype, dvalue) = if !parsed_options.is_empty() {
+            let opt = parsed_options.get(choice_idx).ok_or((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse { error: "invalid discount option".into() }),
+            ))?;
+            (
+                opt.get("discount_type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
+                opt.get("discount_value").and_then(|v| v.as_f64()).unwrap_or(0.0),
+            )
+        } else {
+            (promo.discount_type.clone(), promo.discount_value)
+        };
+
+        match dtype.as_str() {
+            "percent_off" => {
+                if req.plan != PlanType::Annual {
+                    return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
+                        error: "percent-off discount requires the annual plan".into(),
+                    })));
+                }
+                coupon_percent_off = Some(dvalue);
+            }
+            "trial_extension" | "free_trial" => {
+                extra_trial_days = dvalue as i64;
+            }
+            _ => {}
+        }
+    }
 
     let customer_id = match db.get_subscription(&user.user_id) {
         Some(sub) => sub.stripe_customer_id,
@@ -443,7 +483,10 @@ pub async fn create_checkout(
     };
 
     let has_had_trial = db.get_subscription(&user.user_id).is_some();
-    let trial_days = if has_had_trial { None } else { Some(7) };
+    let base_trial = if has_had_trial { 0 } else { 7 };
+    let total_trial = base_trial + extra_trial_days;
+    let trial_days = if total_trial > 0 { Some(total_trial as u32) } else { None };
+    let _ = coupon_percent_off;
 
     let session = stripe
         .create_checkout_session(&customer_id, price_id, trial_days, None)
@@ -526,12 +569,26 @@ pub async fn validate_referral(
 
     match db.validate_promo_code(&req.code, &user.user_id) {
         Ok(promo) => {
-            let options = match promo.discount_type.as_str() {
-                "percent_off" => vec!["discount_annual".into()],
-                "trial_extension" => vec!["extended_trial".into()],
-                "free_trial" => vec!["free_trial".into()],
-                _ => vec![],
+            let parsed_options: Vec<serde_json::Value> = promo.discount_options
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok())
+                .unwrap_or_default();
+
+            let options: Vec<serde_json::Value> = if parsed_options.is_empty() {
+                vec![serde_json::json!({
+                    "label": match promo.discount_type.as_str() {
+                        "percent_off" => format!("{}% off annual", promo.discount_value),
+                        "trial_extension" => format!("{} extra free days", promo.discount_value),
+                        "free_trial" => format!("{}-day free trial", promo.discount_value),
+                        _ => "Discount applied".to_string(),
+                    },
+                    "discount_type": promo.discount_type,
+                    "discount_value": promo.discount_value,
+                })]
+            } else {
+                parsed_options
             };
+
             Json(ReferralValidateResponse {
                 valid: true,
                 discount_type: Some(promo.discount_type),
@@ -565,7 +622,7 @@ pub struct ReferralValidateResponse {
     pub discount_type: Option<String>,
     pub discount_value: Option<f64>,
     pub description: Option<String>,
-    pub options: Vec<String>,
+    pub options: Vec<serde_json::Value>,
     pub uses_remaining: Option<u32>,
     pub error: Option<String>,
 }

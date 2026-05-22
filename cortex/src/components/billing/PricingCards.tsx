@@ -1,6 +1,6 @@
 import { ArrowRight, Check, Loader2 } from 'lucide-react';
 import { useState } from 'react';
-import { createBillingCheckout } from '../../lib/cortexApi';
+import { createBillingCheckout, type DiscountOption } from '../../lib/cortexApi';
 import ReferralInput from './ReferralInput';
 
 interface PricingCardsProps {
@@ -12,13 +12,22 @@ const DEFAULT_TRIAL_DAYS = 7;
 export default function PricingCards({ compact = false }: PricingCardsProps) {
   const [plan, setPlan] = useState<'monthly' | 'annual'>('monthly');
   const [referralCode, setReferralCode] = useState('');
-  const [referralChoice, setReferralChoice] = useState<'discount_25_annual' | 'extra_2_weeks' | null>(null);
-  const [promoTrialDays, setPromoTrialDays] = useState<number | null>(null);
-  const [promoPercentOff, setPromoPercentOff] = useState<number | null>(null);
+  const [chosenOptionIndex, setChosenOptionIndex] = useState<number | null>(null);
+  const [chosenOption, setChosenOption] = useState<DiscountOption | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const effectiveTrialDays = promoTrialDays ?? DEFAULT_TRIAL_DAYS;
+  const promoTrialDays = chosenOption?.discount_type === 'trial_extension' || chosenOption?.discount_type === 'free_trial'
+    ? chosenOption.discount_value
+    : null;
+  const promoPercentOff = chosenOption?.discount_type === 'percent_off'
+    ? chosenOption.discount_value
+    : null;
+
+  const effectiveTrialDays = promoTrialDays
+    ? DEFAULT_TRIAL_DAYS + promoTrialDays
+    : DEFAULT_TRIAL_DAYS;
+
   const annualPrice = promoPercentOff && plan === 'annual'
     ? `$${(69 * (1 - promoPercentOff / 100)).toFixed(0)}/yr`
     : '$69/yr';
@@ -38,7 +47,7 @@ export default function PricingCards({ compact = false }: PricingCardsProps) {
       const result = await createBillingCheckout({
         plan,
         referral_code: referralCode.trim() || undefined,
-        referral_choice: referralChoice ?? undefined,
+        referral_choice: chosenOptionIndex != null ? String(chosenOptionIndex) : undefined,
       });
       window.location.assign(result.checkout_url);
     } catch (err) {
@@ -47,17 +56,11 @@ export default function PricingCards({ compact = false }: PricingCardsProps) {
     }
   }
 
-  function handlePromoChoiceChange(choice: 'discount_25_annual' | 'extra_2_weeks' | null) {
-    setReferralChoice(choice);
-    if (choice === 'discount_25_annual') {
-      setPromoPercentOff(25);
-      setPromoTrialDays(null);
-    } else if (choice === 'extra_2_weeks') {
-      setPromoTrialDays(14);
-      setPromoPercentOff(null);
-    } else {
-      setPromoTrialDays(null);
-      setPromoPercentOff(null);
+  function handleOptionChosen(index: number | null, option: DiscountOption | null) {
+    setChosenOptionIndex(index);
+    setChosenOption(option);
+    if (option?.discount_type === 'percent_off' && plan === 'monthly') {
+      setPlan('annual');
     }
   }
 
@@ -77,12 +80,7 @@ export default function PricingCards({ compact = false }: PricingCardsProps) {
             <button
               key={item.id}
               type="button"
-              onClick={() => {
-                setPlan(item.id);
-                if (item.id === 'monthly' && referralChoice === 'discount_25_annual') {
-                  handlePromoChoiceChange(null);
-                }
-              }}
+              onClick={() => setPlan(item.id)}
               className={`rounded-xl border p-4 text-left transition hover:bg-white/[0.04] active:scale-[0.99] ${
                 plan === item.id ? 'border-[var(--accent)]/50 bg-[var(--accent)]/10' : 'border-white/8 bg-white/[0.02]'
               }`}
@@ -99,16 +97,16 @@ export default function PricingCards({ compact = false }: PricingCardsProps) {
         <div className="mt-4">
           <ReferralInput
             value={referralCode}
-            choice={referralChoice}
+            chosenOptionIndex={chosenOptionIndex}
             selectedPlan={plan}
             onChange={(code) => {
               setReferralCode(code);
               if (!code.trim()) {
-                setPromoTrialDays(null);
-                setPromoPercentOff(null);
+                setChosenOption(null);
+                setChosenOptionIndex(null);
               }
             }}
-            onChoiceChange={handlePromoChoiceChange}
+            onOptionChosen={handleOptionChosen}
           />
         </div>
         {error && <p className="mt-3 rounded-lg border border-red-400/15 bg-red-400/8 px-3 py-2 text-sm text-red-100">{error}</p>}

@@ -107,6 +107,7 @@ pub struct PromoCode {
     pub created_by: String,
     pub created_at: String,
     pub description: Option<String>,
+    pub discount_options: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -120,7 +121,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 8;
+const SCHEMA_VERSION: i64 = 9;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -156,6 +157,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 8 {
         migrate_v8(conn);
+    }
+    if current < 9 {
+        migrate_v9(conn);
     }
 }
 
@@ -562,6 +566,19 @@ fn migrate_v8(conn: &Connection) {
     ).expect("migration v8 failed");
 
     tracing::info!("applied migration v8: referral_codes weeks_earned + max_uses");
+}
+
+fn migrate_v9(conn: &Connection) {
+    conn.execute(
+        "ALTER TABLE promo_codes ADD COLUMN discount_options TEXT",
+        [],
+    ).ok();
+
+    conn.execute_batch(
+        "UPDATE schema_version SET version = 9;"
+    ).expect("migration v9 failed");
+
+    tracing::info!("applied migration v9: promo_codes discount_options JSON column");
 }
 
 // --- Database implementation ---
@@ -2385,13 +2402,14 @@ impl Database {
         expires_at: Option<&str>,
         created_by: &str,
         description: Option<&str>,
+        discount_options: Option<&str>,
     ) -> Result<PromoCode, String> {
         let conn = self.conn.lock().unwrap();
         let id = Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO promo_codes (id, code, discount_type, discount_value, max_uses, expires_at, created_by, description)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![id, code.to_uppercase(), discount_type, discount_value, max_uses, expires_at, created_by, description],
+            "INSERT INTO promo_codes (id, code, discount_type, discount_value, max_uses, expires_at, created_by, description, discount_options)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![id, code.to_uppercase(), discount_type, discount_value, max_uses, expires_at, created_by, description, discount_options],
         ).map_err(|e| {
             if e.to_string().contains("UNIQUE") {
                 "a promo code with that name already exists".to_string()
@@ -2411,13 +2429,14 @@ impl Database {
             created_by: created_by.to_string(),
             created_at: Utc::now().format("%Y-%m-%d %H:%M:%S").to_string(),
             description: description.map(String::from),
+            discount_options: discount_options.map(String::from),
         })
     }
 
     pub fn list_promo_codes(&self) -> Vec<PromoCode> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, code, discount_type, discount_value, max_uses, current_uses, expires_at, active, created_by, created_at, description
+            "SELECT id, code, discount_type, discount_value, max_uses, current_uses, expires_at, active, created_by, created_at, description, discount_options
              FROM promo_codes ORDER BY created_at DESC"
         ).unwrap();
         stmt.query_map([], |row| {
@@ -2433,6 +2452,7 @@ impl Database {
                 created_by: row.get(8)?,
                 created_at: row.get(9)?,
                 description: row.get(10)?,
+                discount_options: row.get(11)?,
             })
         }).unwrap().filter_map(|r| r.ok()).collect()
     }
@@ -2440,7 +2460,7 @@ impl Database {
     pub fn get_promo_code(&self, code: &str) -> Option<PromoCode> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, code, discount_type, discount_value, max_uses, current_uses, expires_at, active, created_by, created_at, description
+            "SELECT id, code, discount_type, discount_value, max_uses, current_uses, expires_at, active, created_by, created_at, description, discount_options
              FROM promo_codes WHERE code = ?1 COLLATE NOCASE",
             params![code],
             |row| Ok(PromoCode {
@@ -2455,6 +2475,7 @@ impl Database {
                 created_by: row.get(8)?,
                 created_at: row.get(9)?,
                 description: row.get(10)?,
+                discount_options: row.get(11)?,
             }),
         ).ok()
     }

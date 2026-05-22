@@ -346,13 +346,18 @@ export interface CheckoutResponse {
   session_id: string;
 }
 
+export interface DiscountOption {
+  label: string;
+  discount_type: string;
+  discount_value: number;
+}
+
 export interface ReferralValidateResponse {
   valid: boolean;
-  creator_name: string | null;
   discount_type: string | null;
   discount_value: number | null;
   description: string | null;
-  options: Array<'discount_25_annual' | 'extra_2_weeks'>;
+  options: DiscountOption[];
   uses_remaining: number | null;
   error: string | null;
 }
@@ -372,7 +377,7 @@ export async function createBillingCheckout(body: {
   plan: 'monthly' | 'annual';
   email?: string;
   referral_code?: string;
-  referral_choice?: 'discount_25_annual' | 'extra_2_weeks';
+  referral_choice?: string;
 }): Promise<CheckoutResponse> {
   return requestBillingJson<CheckoutResponse>('/api/billing/checkout', {
     method: 'POST',
@@ -510,6 +515,7 @@ export interface CreatePromoCodeRequest {
   max_uses?: number;
   expires_at?: string;
   description?: string;
+  discount_options?: DiscountOption[];
 }
 
 export interface UpdatePromoCodeRequest {
