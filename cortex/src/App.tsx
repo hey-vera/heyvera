@@ -6,6 +6,7 @@ import GroupSidebar from './components/groups/GroupSidebar';
 import CommandPalette from './components/shell/CommandPalette';
 import StatusBar from './components/shell/StatusBar';
 import TaskManagerChat from './components/tasks/TaskManagerChat';
+import HomePage from './components/marketing/HomePage';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { useSomaSession } from './lib/useSomaSession';
@@ -276,7 +277,7 @@ function CortexShell() {
 
   useEffect(() => {
     if (!groupId || groups.some((group) => group.id === groupId)) return;
-    navigate(`/groups/${DEFAULT_GROUPS[0].id}/tasks`, { replace: true });
+    navigate(`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`, { replace: true });
   }, [groupId, groups, navigate]);
 
   const billing = useBilling(billingEnabled);
@@ -377,7 +378,7 @@ function CortexShell() {
   const handleCreateGroup = useCallback(() => {
     const nextGroup = createTeamGroup(groups);
     addTeamGroup(nextGroup);
-    navigate(`/groups/${nextGroup.id}/tasks`);
+    navigate(`/app/groups/${nextGroup.id}/tasks`);
     setSidebarOpen(false);
   }, [addTeamGroup, groups, navigate]);
 
@@ -803,7 +804,7 @@ function CortexShell() {
         onCreateTask={handleCreateTaskFromPalette}
         onCreateGroup={handleCreateGroup}
         onNewChat={handleNewChat}
-        onSelectGroup={(nextGroupId) => navigate(`/groups/${nextGroupId}/tasks`)}
+        onSelectGroup={(nextGroupId) => navigate(`/app/groups/${nextGroupId}/tasks`)}
         onSelectConversation={handleSelectConversation}
         onOpenSettings={() => handleOpenSettings()}
         onOpenWorkSurface={() => setWorkSurfaceOpen(true)}
@@ -817,9 +818,12 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to={`/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
-        <Route path="/groups/:groupId/tasks" element={<CortexShell />} />
-        <Route path="*" element={<Navigate to={`/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+        <Route path="/" element={<HomePage />} />
+        <Route path="/app" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+        <Route path="/app/groups/:groupId/tasks" element={<CortexShell />} />
+        {/* Legacy redirects */}
+        <Route path="/groups/:groupId/tasks" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+        <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>
   );
