@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from "react";
+import { useLocation, useNavigate, useParams } from "react-router-dom";
 import type { ShellState } from "../../hooks/useShellState";
 import { useAuthContext } from "../../hooks/useAuthContext";
 import { useProfiles } from "../../hooks/useProfiles";
@@ -592,13 +593,12 @@ function mapProfileToCard(p: ProfileSummary) {
 /** Inline detail panel for a selected profile. */
 function ProfileDetailPanel({
   handle,
-  onClose,
   shellState,
 }: {
   handle: string;
-  onClose: () => void;
   shellState: ShellState;
 }) {
+  const navigate = useNavigate();
   const { isSignedIn, getToken, myProfile } = useAuthContext();
   const isSelf = myProfile?.profile.handle === handle;
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -722,7 +722,7 @@ function ProfileDetailPanel({
     return (
       <div className="network-profile-detail">
         <p className="network-fallback-msg">Unable to load profile details.</p>
-        <button type="button" className="button button-outline" onClick={onClose}>
+        <button type="button" className="button button-outline" onClick={() => navigate(-1)}>
           Back
         </button>
       </div>
@@ -848,7 +848,7 @@ function ProfileDetailPanel({
                 : "Follow"}
           </button>
         )}
-        <button type="button" className="button button-outline" onClick={onClose}>
+        <button type="button" className="button button-outline" onClick={() => navigate(-1)}>
           Back
         </button>
       </div>
@@ -939,7 +939,7 @@ function ProfileConnectionPanel({
 function ProfilesTab({ shellState }: { shellState: ShellState }) {
   const { data: profiles, status, loading } = useProfiles(20);
   const [filter, setFilter] = useState("");
-  const [selectedHandle, setSelectedHandle] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const filtered = profiles
     ? profiles.filter((p) => {
@@ -1013,19 +1013,6 @@ function ProfilesTab({ shellState }: { shellState: ShellState }) {
     );
   }
 
-  // If a profile is selected, show the detail panel
-  if (selectedHandle) {
-    return (
-      <div className="network-profiles-tab">
-        <ProfileDetailPanel
-          handle={selectedHandle}
-          onClose={() => setSelectedHandle(null)}
-          shellState={shellState}
-        />
-      </div>
-    );
-  }
-
   return (
     <div className="network-profiles-tab">
       <input
@@ -1046,7 +1033,7 @@ function ProfilesTab({ shellState }: { shellState: ShellState }) {
               key={p.handle}
               type="button"
               className="network-profile-card-button"
-              onClick={() => setSelectedHandle(p.handle)}
+              onClick={() => navigate(`/profile/${p.handle}`)}
               aria-label={`View profile for ${p.displayName}`}
             >
               <PublicIdentityCard {...mapProfileToCard(p)} />
@@ -1134,12 +1121,11 @@ function CommunityCard({
 function CommunityDetailPanel({
   community,
   showWriteCtas,
-  onClose,
 }: {
   community: Community;
   showWriteCtas: boolean;
-  onClose: () => void;
 }) {
+  const navigate = useNavigate();
   const { isSignedIn, getToken } = useAuthContext();
   const [joined, setJoined] = useState(false);
   const [joining, setJoining] = useState(false);
@@ -1205,7 +1191,7 @@ function CommunityDetailPanel({
               {joining ? "..." : joined ? "Joined" : "Join"}
             </button>
           )}
-          <button type="button" className="button button-outline" onClick={onClose}>
+          <button type="button" className="button button-outline" onClick={() => navigate(-1)}>
             Back
           </button>
         </div>
@@ -1283,7 +1269,7 @@ function CommunitiesTab({ shellState }: { shellState: ShellState }) {
   const showWriteCtas = canWrite(shellState);
   const [refreshKey, setRefreshKey] = useState(0);
   const { data: communities, status, loading } = useCommunities(20);
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  const navigate = useNavigate();
 
   const handleCreated = useCallback(() => {
     setRefreshKey((k) => k + 1);
@@ -1339,22 +1325,6 @@ function CommunitiesTab({ shellState }: { shellState: ShellState }) {
   const isLiveEmpty =
     status === "live" && communities !== null && communities.length === 0;
 
-  // Show detail panel for selected community
-  if (selectedSlug && communities) {
-    const selected = communities.find((c) => c.slug === selectedSlug);
-    if (selected) {
-      return (
-        <div className="network-communities-tab" key={refreshKey}>
-          <CommunityDetailPanel
-            community={selected}
-            showWriteCtas={showWriteCtas}
-            onClose={() => setSelectedSlug(null)}
-          />
-        </div>
-      );
-    }
-  }
-
   return (
     <div className="network-communities-tab" key={refreshKey}>
       {showWriteCtas && hasProfile && (
@@ -1377,7 +1347,7 @@ function CommunitiesTab({ shellState }: { shellState: ShellState }) {
               key={c.id}
               community={c}
               showWriteCtas={showWriteCtas}
-              onSelect={setSelectedSlug}
+              onSelect={(slug) => navigate(`/community/${slug}`)}
             />
           ))}
         </div>
@@ -2701,8 +2671,97 @@ function SidebarProofPulse() {
 
 // ─── Component ──────────────────────────────────────────────────────────────
 
+const PATH_TO_TAB: Record<string, SocialsTab> = {
+  "": "feed",
+  feed: "feed",
+  profiles: "profiles",
+  profile: "profiles",
+  communities: "communities",
+  community: "communities",
+  longform: "longform",
+  pulse: "pulse",
+  you: "you",
+};
+
+function useTabFromUrl(): [SocialsTab, (tab: SocialsTab) => void] {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const segment = pathname.split("/")[1] || "";
+  const tab = PATH_TO_TAB[segment] ?? "feed";
+  const setTab = useCallback(
+    (t: SocialsTab) => {
+      navigate(t === "feed" ? "/" : `/${t}`);
+    },
+    [navigate],
+  );
+  return [tab, setTab];
+}
+
+function ProfileRoute({ shellState }: { shellState: ShellState }) {
+  const { handle } = useParams<{ handle: string }>();
+
+  if (!handle) {
+    return (
+      <div className="network-profile-detail">
+        <p className="network-fallback-msg">Profile handle missing from route.</p>
+      </div>
+    );
+  }
+
+  return <ProfileDetailPanel handle={handle} shellState={shellState} />;
+}
+
+function CommunityRoute({ shellState }: { shellState: ShellState }) {
+  const { slug } = useParams<{ slug: string }>();
+  const { data: communities, status, loading } = useCommunities(100);
+
+  if (!slug) {
+    return (
+      <div className="community-detail-panel">
+        <p className="network-fallback-msg">Community slug missing from route.</p>
+      </div>
+    );
+  }
+
+  if (loading) {
+    return (
+      <div className="community-detail-panel" aria-busy="true">
+        <div className="skeleton" style={{ height: "3em", borderRadius: "3px" }} />
+      </div>
+    );
+  }
+
+  if (status === "fallback") {
+    return (
+      <div className="community-detail-panel">
+        <p className="network-fallback-msg">
+          Unable to reach the network — community details unavailable.
+        </p>
+      </div>
+    );
+  }
+
+  const community = communities?.find((entry) => entry.slug === slug);
+
+  if (!community) {
+    return (
+      <div className="community-detail-panel">
+        <p className="network-fallback-msg">Community not found.</p>
+      </div>
+    );
+  }
+
+  return (
+    <CommunityDetailPanel
+      community={community}
+      showWriteCtas={canWrite(shellState)}
+    />
+  );
+}
+
 export function VeraSocials({ shellState }: VeraSocialsProps) {
-  const [activeTab, setActiveTab] = useState<SocialsTab>("feed");
+  const { pathname } = useLocation();
+  const [activeTab, setActiveTab] = useTabFromUrl();
   const {
     linkedAgents,
     getToken,
@@ -2715,6 +2774,9 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
   const showLoading = shellState === "loading";
   const showReady = shellState === "ready";
   const resolvedViewerLabel = myProfile?.profile.displayName ?? viewerLabel;
+  const routeSegment = pathname.split("/")[1] || "";
+  const isProfileRoute = routeSegment === "profile";
+  const isCommunityRoute = routeSegment === "community";
 
   const visibleTab: SocialsTab =
     activeTab === "you" && shellState !== "ready" ? "feed" : activeTab;
@@ -2853,8 +2915,16 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
           ) : (
             <>
               {visibleTab === "feed" && <PublicFeed />}
-              {visibleTab === "profiles" && <ProfilesTab shellState={shellState} />}
-              {visibleTab === "communities" && <CommunitiesTab shellState={shellState} />}
+              {visibleTab === "profiles" && (
+                isProfileRoute
+                  ? <ProfileRoute shellState={shellState} />
+                  : <ProfilesTab shellState={shellState} />
+              )}
+              {visibleTab === "communities" && (
+                isCommunityRoute
+                  ? <CommunityRoute shellState={shellState} />
+                  : <CommunitiesTab shellState={shellState} />
+              )}
               {visibleTab === "longform" && <LongformTab shellState={shellState} />}
               {visibleTab === "pulse" && <PulseTab />}
               {visibleTab === "you" && <AccountTab shellState={shellState} />}
