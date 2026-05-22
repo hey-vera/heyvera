@@ -239,6 +239,7 @@ export default function TaskManagerChat({
 }: TaskManagerChatProps) {
   const taskManager = useTaskManager(group, userId);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('chat');
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
   const parsedPreview = useMemo(
     () => parseTaskCommand(draft, taskManager.state),
     [draft, taskManager.state],
@@ -341,13 +342,14 @@ export default function TaskManagerChat({
         </div>
       </div>
 
-      <ResizablePanels
-        storageKey="cortex:task-manager:panel-ratio"
-        className="task-manager-panels"
-        minLeft={460}
-        minRight={390}
-        left={(
-        <section className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} h-full min-h-0 flex-col border-r border-white/6 lg:flex`}>
+      {rightPanelOpen ? (
+        <ResizablePanels
+          storageKey="cortex:task-manager:panel-ratio"
+          className="task-manager-panels"
+          minLeft={460}
+          minRight={390}
+          left={(
+          <section className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} h-full min-h-0 flex-col border-r border-white/6 lg:flex`}>
           <div className="border-b border-white/6 px-4 py-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
@@ -359,9 +361,19 @@ export default function TaskManagerChat({
                   Coordinate assignments, handoffs, repo work, and live priorities for {group.name}.
                 </p>
               </div>
-              <span className="hidden rounded-full border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-2.5 py-1 text-[11px] text-[var(--muted-strong)] sm:inline">
-                {group.kind === 'personal' ? 'Personal' : 'Team'} brain
-              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  title={rightPanelOpen ? "Hide task board" : "Show task board"}
+                  onClick={() => setRightPanelOpen(!rightPanelOpen)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 lg:flex hidden"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+                <span className="hidden rounded-full border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-2.5 py-1 text-[11px] text-[var(--muted-strong)] sm:inline">
+                  {group.kind === 'personal' ? 'Personal' : 'Team'} brain
+                </span>
+              </div>
             </div>
           </div>
 
@@ -373,7 +385,7 @@ export default function TaskManagerChat({
             onApprovalAction={onApprovalAction}
           />
 
-          {!needsSubscription && parsedPreview.length > 0 && (
+          {parsedPreview.length > 0 && (
             <div className="border-t border-white/6 px-3 py-2 sm:px-4">
               <div className="flex items-start gap-2 rounded-lg border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-2">
                 <Command className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" />
@@ -388,28 +400,6 @@ export default function TaskManagerChat({
               </div>
             </div>
           )}
-
-          {!needsSubscription && (
-            <SovereigntyLoopPanel
-              draft={draft}
-              group={group}
-              userId={userId}
-              signedIn={isSignedIn}
-              controls={sessionControls}
-              runProfile={runProfile}
-              onControlsChange={onSessionControlsChange}
-              onRunProfileChange={onRunProfileChange}
-            />
-          )}
-
-          {!needsSubscription && (
-            <SessionControls
-              value={sessionControls}
-              runProfile={runProfile}
-              onChange={onSessionControlsChange}
-              onRunProfileChange={onRunProfileChange}
-            />
-          )}
           <ChatComposer
             draft={draft}
             disabled={isStreaming}
@@ -423,7 +413,7 @@ export default function TaskManagerChat({
         )}
         right={(
 
-        <aside className={`${mobilePanel === 'chat' ? 'hidden' : 'flex'} h-full min-h-0 flex-col lg:flex`}>
+        <aside className={`${mobilePanel === 'chat' ? 'hidden' : 'flex'} h-full min-h-0 flex-col ${rightPanelOpen ? 'lg:flex' : 'lg:hidden'}`}>
           <div className="hidden border-b border-white/6 px-4 py-3 lg:block">
             {boardHeader}
           </div>
@@ -458,6 +448,70 @@ export default function TaskManagerChat({
         </aside>
         )}
       />
+      ) : (
+        <section className={`${mobilePanel === 'chat' ? 'flex' : 'hidden'} h-full min-h-0 flex-col lg:flex`}>
+          <div className="border-b border-white/6 px-4 py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <MessageSquareText className="h-4 w-4 text-[var(--muted)]" />
+                  <h1 className="truncate text-sm font-semibold text-white">Task Manager Chat</h1>
+                </div>
+                <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
+                  Coordinate assignments, handoffs, repo work, and live priorities for {group.name}.
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  title={rightPanelOpen ? "Hide task board" : "Show task board"}
+                  onClick={() => setRightPanelOpen(!rightPanelOpen)}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 lg:flex hidden"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+                <span className="hidden rounded-full border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-2.5 py-1 text-[11px] text-[var(--muted-strong)] sm:inline">
+                  {group.kind === 'personal' ? 'Personal' : 'Team'} brain
+                </span>
+              </div>
+            </div>
+          </div>
+
+          <ChatTimeline
+            messages={messages}
+            isLoading={isLoadingConversation}
+            showStarters={!activeConversationId && !isStreaming}
+            onSelectStarter={needsSubscription ? undefined : onDraftChange}
+            onApprovalAction={onApprovalAction}
+          />
+
+          {parsedPreview.length > 0 && (
+            <div className="border-t border-white/6 px-3 py-2 sm:px-4">
+              <div className="flex items-start gap-2 rounded-lg border border-[var(--accent)]/20 bg-[var(--accent)]/10 px-3 py-2">
+                <Command className="mt-0.5 h-4 w-4 shrink-0 text-[var(--accent)]" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-white">
+                    Cortex will update {parsedPreview.length} task {parsedPreview.length === 1 ? 'item' : 'items'}
+                  </p>
+                  <p className="mt-0.5 truncate text-xs text-[var(--muted-strong)]">
+                    {parsedPreview.map((action) => action.summary).join(' ')}
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <ChatComposer
+            draft={draft}
+            disabled={isStreaming}
+            locked={needsSubscription}
+            onDraftChange={onDraftChange}
+            onSend={handleSend}
+            onStop={onStop}
+            onSubscribe={onSubscribe}
+          />
+        </section>
+      )}
     </main>
   );
 }
