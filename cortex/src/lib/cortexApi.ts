@@ -748,11 +748,13 @@ export interface ConversationWithMessages {
 }
 
 export async function listConversations(_userId = 'local'): Promise<ConversationSummary[]> {
+  void _userId;
   const res = await authedFetch(apiUrl('/api/conversations'));
   return res.json();
 }
 
 export async function createConversation(_userId = 'local', title?: string): Promise<{ id: string }> {
+  void _userId;
   const res = await authedFetch(apiUrl('/api/conversations'), {
     method: 'POST',
     body: JSON.stringify({ title }),
@@ -761,15 +763,18 @@ export async function createConversation(_userId = 'local', title?: string): Pro
 }
 
 export async function getConversation(id: string, _userId = 'local'): Promise<ConversationWithMessages> {
+  void _userId;
   const res = await authedFetch(apiUrl(`/api/conversations/${id}`));
   return res.json();
 }
 
 export async function deleteConversation(id: string, _userId = 'local'): Promise<void> {
+  void _userId;
   await authedFetch(apiUrl(`/api/conversations/${id}`), { method: 'DELETE' });
 }
 
 export async function updateConversationTitle(id: string, title: string, _userId = 'local'): Promise<void> {
+  void _userId;
   await authedFetch(apiUrl(`/api/conversations/${id}`), {
     method: 'PATCH',
     body: JSON.stringify({ title }),

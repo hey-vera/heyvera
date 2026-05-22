@@ -1,16 +1,26 @@
-import { Suspense, lazy, useCallback, useEffect, useRef, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { PanelRight, Loader2, Menu } from 'lucide-react';
+import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import PaymentFailed from './components/billing/PaymentFailed';
 import TrialBanner from './components/billing/TrialBanner';
 import ChatComposer from './components/chat/ChatComposer';
 import ChatTimeline from './components/chat/ChatTimeline';
+import GroupSidebar from './components/groups/GroupSidebar';
 import SessionControls from './components/session/SessionControls';
-import Sidebar from './components/Sidebar';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { useSomaSession } from './lib/useSomaSession';
 import { useBilling } from './lib/useBilling';
 import { CortexApiError, getAdminStats, getUserRouting, setAuthTokenGetter, updateUserRouting } from './lib/cortexApi';
+import {
+  createTeamGroup,
+  DEFAULT_GROUPS,
+  readGroupConversationMap,
+  readGroups,
+  writeGroupConversationMap,
+  writeGroups,
+  type CortexGroup,
+} from './lib/groups';
 import type { ChatSessionControls, RunProfile } from './types';
 
 const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
@@ -78,7 +88,51 @@ const PricingCards = lazy(() => import('./components/billing/PricingCards'));
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
 const WorkSurface = lazy(() => import('./components/work-surface/WorkSurface'));
 
-export default function App() {
+function useGroupState() {
+  const [groups, setGroups] = useState<CortexGroup[]>(readGroups);
+  const [conversationByGroup, setConversationByGroup] = useState<Record<string, string | null>>(
+    readGroupConversationMap,
+  );
+
+  const addTeamGroup = useCallback((group: CortexGroup) => {
+    setGroups((current) => {
+      if (current.some((existingGroup) => existingGroup.id === group.id)) return current;
+      const nextGroups = [...current, group];
+      writeGroups(nextGroups);
+      return nextGroups;
+    });
+  }, []);
+
+  const setGroupConversation = useCallback((groupId: string, conversationId: string | null) => {
+    setConversationByGroup((current) => {
+      const next = { ...current, [groupId]: conversationId };
+      writeGroupConversationMap(next);
+      return next;
+    });
+  }, []);
+
+  return {
+    groups,
+    addTeamGroup,
+    conversationByGroup,
+    setGroupConversation,
+  };
+}
+
+function CortexShell() {
+  const navigate = useNavigate();
+  const { groupId } = useParams<{ groupId: string }>();
+  const {
+    groups,
+    addTeamGroup,
+    conversationByGroup,
+    setGroupConversation,
+  } = useGroupState();
+  const activeGroup = useMemo(
+    () => groups.find((group) => group.id === groupId) ?? DEFAULT_GROUPS[0],
+    [groupId, groups],
+  );
+  const activeGroupId = activeGroup.id;
   const { isLoaded, isSignedIn, userId, AuthScreen, getToken, clerkEnabled } = useAuthGate();
   // Auto-creates user's Soma identity + session-scoped delegation on sign-in
   useSomaSession(userId ?? 'anonymous', isSignedIn);
@@ -86,7 +140,7 @@ export default function App() {
   const [settingsInitialTab, setSettingsInitialTab] = useState<'providers' | 'spend' | 'billing'>('providers');
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [workSurfaceOpen, setWorkSurfaceOpen] = useState(false);
-  const [activeConversationId, setActiveConversationId] = useState<string | null>(null);
+  const activeConversationId = conversationByGroup[activeGroupId] ?? null;
   const [renamingTitle, setRenamingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [conversationListVersion, setConversationListVersion] = useState(0);
@@ -102,8 +156,8 @@ export default function App() {
   const billingEnabled = clerkEnabled && isSignedIn;
 
   const handleConversationCreated = useCallback((conversationId: string) => {
-    setActiveConversationId(conversationId);
-  }, []);
+    setGroupConversation(activeGroupId, conversationId);
+  }, [activeGroupId, setGroupConversation]);
 
   const handleConversationsChanged = useCallback(() => {
     setConversationListVersion((version) => version + 1);
@@ -112,6 +166,11 @@ export default function App() {
   useEffect(() => {
     if (getToken) setAuthTokenGetter(getToken);
   }, [getToken]);
+
+  useEffect(() => {
+    if (!groupId || groups.some((group) => group.id === groupId)) return;
+    navigate(`/groups/${DEFAULT_GROUPS[0].id}/tasks`, { replace: true });
+  }, [groupId, groups, navigate]);
 
   const billing = useBilling(billingEnabled);
 
@@ -195,14 +254,21 @@ export default function App() {
   const skipTitleBlurSaveRef = useRef(false);
 
   const handleNewChat = useCallback(() => {
-    setActiveConversationId(null);
+    setGroupConversation(activeGroupId, null);
     setSidebarOpen(false);
-  }, []);
+  }, [activeGroupId, setGroupConversation]);
 
   const handleSelectConversation = useCallback((id: string) => {
-    setActiveConversationId(id);
+    setGroupConversation(activeGroupId, id);
     setSidebarOpen(false);
-  }, []);
+  }, [activeGroupId, setGroupConversation]);
+
+  const handleCreateGroup = useCallback(() => {
+    const nextGroup = createTeamGroup(groups);
+    addTeamGroup(nextGroup);
+    navigate(`/groups/${nextGroup.id}/tasks`);
+    setSidebarOpen(false);
+  }, [addTeamGroup, groups, navigate]);
 
   const handleOpenSettings = useCallback((tab: 'providers' | 'spend' | 'billing' = 'providers') => {
     setSettingsInitialTab(tab);
@@ -376,11 +442,14 @@ export default function App() {
   return (
     <div className="flex h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
       <aside className="hidden h-full shrink-0 lg:block">
-        <Sidebar
+        <GroupSidebar
+          groups={groups}
+          activeGroupId={activeGroupId}
           userId={userId ?? 'local'}
           isSignedIn={Boolean(isSignedIn)}
           activeConversationId={activeConversationId}
           refreshKey={conversationListVersion}
+          onCreateGroup={handleCreateGroup}
           onNewChat={handleNewChat}
           onSelectConversation={handleSelectConversation}
           onConversationsChanged={() => {
@@ -402,11 +471,14 @@ export default function App() {
             onClick={() => setSidebarOpen(false)}
           />
           <div className="relative h-full w-[min(20rem,calc(100vw-3rem))] translate-x-0 border-r border-white/8 bg-[var(--bg)] shadow-2xl">
-            <Sidebar
+            <GroupSidebar
+              groups={groups}
+              activeGroupId={activeGroupId}
               userId={userId ?? 'local'}
               isSignedIn={Boolean(isSignedIn)}
               activeConversationId={activeConversationId}
               refreshKey={conversationListVersion}
+              onCreateGroup={handleCreateGroup}
               onNewChat={handleNewChat}
               onSelectConversation={handleSelectConversation}
               onConversationsChanged={() => {
@@ -469,7 +541,7 @@ export default function App() {
                 </button>
               )}
               <div className="hidden text-[11px] text-[var(--muted)] sm:block">
-                Workspace connected
+                {activeGroup.name} task manager
               </div>
             </div>
           </div>
@@ -593,5 +665,17 @@ export default function App() {
         </Suspense>
       )}
     </div>
+  );
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <Routes>
+        <Route path="/" element={<Navigate to={`/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+        <Route path="/groups/:groupId/tasks" element={<CortexShell />} />
+        <Route path="*" element={<Navigate to={`/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+      </Routes>
+    </BrowserRouter>
   );
 }
