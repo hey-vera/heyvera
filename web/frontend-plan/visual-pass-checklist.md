@@ -4,7 +4,7 @@
 
 - [x] **React Router** — real URL routing (`/home`, `/profile/:handle`, `/community/:slug`, `/post/:id`, `/settings/*`, `/notifications`)
 - [x] **Settings page** — full X-style settings layout (Account, Display, Notifications, Privacy, Accessibility sections with proper nested routes)
-- [ ] **Compose modal** — X-style pop-up compose with rich input, media attachment, community targeting
+- [x] **Compose modal** — X-style pop-up compose with rich input, media attachment, community targeting
 
 ## Core social features
 

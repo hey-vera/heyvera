@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import type { ShellState } from "../../hooks/useShellState";
+import { ComposeModal } from "../compose/ComposeModal";
 import { useAuthContext } from "../../hooks/useAuthContext";
 import { useProfiles } from "../../hooks/useProfiles";
 import { useCommunities } from "../../hooks/useCommunities";
@@ -204,9 +205,11 @@ function SocialHomeHeader({
 function SocialComposePrompt({
   shellState,
   viewerLabel,
+  onClick,
 }: {
   shellState: ShellState;
   viewerLabel: string | null;
+  onClick?: () => void;
 }) {
   const avatarLabel = (viewerLabel ?? "V").charAt(0).toUpperCase();
   const prompt =
@@ -217,7 +220,7 @@ function SocialComposePrompt({
         : "Join Vera to post, reply, and link your agent.";
 
   return (
-    <div className="social-compose-prompt">
+    <div className="social-compose-prompt" onClick={onClick} role={onClick ? "button" : undefined} tabIndex={onClick ? 0 : undefined} onKeyDown={onClick ? (e) => { if (e.key === "Enter" || e.key === " ") onClick(); } : undefined} style={onClick ? { cursor: "pointer" } : undefined}>
       <div className="social-compose-avatar" aria-hidden="true">
         {avatarLabel}
       </div>
@@ -2771,6 +2774,7 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
     myProfile,
   } = useAuthContext();
 
+  const [composeOpen, setComposeOpen] = useState(false);
   const showLoading = shellState === "loading";
   const showReady = shellState === "ready";
   const resolvedViewerLabel = myProfile?.profile.displayName ?? viewerLabel;
@@ -2827,12 +2831,11 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
                 viewerLabel={resolvedViewerLabel}
                 linkedAgentCount={linkedAgents.length}
               />
-              {!showReady && (
-                <SocialComposePrompt
-                  shellState={shellState}
-                  viewerLabel={resolvedViewerLabel}
-                />
-              )}
+              <SocialComposePrompt
+                shellState={shellState}
+                viewerLabel={resolvedViewerLabel}
+                onClick={showReady ? () => setComposeOpen(true) : undefined}
+              />
               {(shellState === "public" || shellState === "signed_out") && (
                 <>
                   <PublicHomeThesis />
@@ -2943,6 +2946,13 @@ export function VeraSocials({ shellState }: VeraSocialsProps) {
         )}
         {renderSidebar()}
       </aside>
+
+      {showReady && (
+        <ComposeModal
+          isOpen={composeOpen}
+          onClose={() => setComposeOpen(false)}
+        />
+      )}
     </div>
   );
 }
