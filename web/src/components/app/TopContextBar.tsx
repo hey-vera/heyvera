@@ -1,5 +1,6 @@
 import type { AppRegion } from "./BottomRegionNav";
 import type { ShellState } from "../../hooks/useShellState";
+import { useNavigate } from "react-router-dom";
 
 const regionMeta: Record<
   AppRegion,
@@ -57,6 +58,7 @@ export function TopContextBar({
   shellState,
   viewerLabel,
 }: TopContextBarProps) {
+  const navigate = useNavigate();
   const meta = regionMeta[activeRegion];
   const isSocial = activeRegion === "social";
 
@@ -67,6 +69,15 @@ export function TopContextBar({
         <span className="top-context-strip-status">
           {shellStateSummary(shellState, viewerLabel)}
         </span>
+        {shellState === "ready" ? (
+          <button
+            type="button"
+            className="top-context-bell"
+            onClick={() => navigate("/notifications")}
+          >
+            🔔
+          </button>
+        ) : null}
       </div>
     );
   }
@@ -83,6 +94,15 @@ export function TopContextBar({
           <span className="top-context-status-dot" aria-hidden="true" />
           <span>{shellStateSummary(shellState, viewerLabel)}</span>
         </div>
+        {shellState === "ready" ? (
+          <button
+            type="button"
+            className="top-context-bell"
+            onClick={() => navigate("/notifications")}
+          >
+            🔔
+          </button>
+        ) : null}
       </div>
     </header>
   );

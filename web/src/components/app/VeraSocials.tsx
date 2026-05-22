@@ -939,7 +939,7 @@ function ProfileConnectionPanel({
   );
 }
 
-function ProfilesTab({ shellState }: { shellState: ShellState }) {
+function ProfilesTab({ shellState: _shellState }: { shellState: ShellState }) {
   const { data: profiles, status, loading } = useProfiles(20);
   const [filter, setFilter] = useState("");
   const navigate = useNavigate();

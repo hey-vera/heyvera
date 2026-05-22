@@ -8,7 +8,7 @@
 
 ## Core social features
 
-- [ ] **Notifications** — bell icon in nav rail, notification feed (mentions, follows, replies, community activity)
+- [x] **Notifications** — bell icon in top bar, notification feed (mentions, follows, replies, community activity)
 - [ ] **Search** — global search bar (top bar or sidebar), search results page for profiles/posts/communities
 - [ ] **Threaded replies** — reply indentation in feed, conversation view with lines connecting replies
 - [ ] **Media support** — image/video in posts, lightbox viewer, media tab on profiles
