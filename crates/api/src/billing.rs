@@ -150,6 +150,35 @@ pub fn check_usage_gate(
     }
 }
 
+fn free_tier_usage_limits() -> UsageLimits {
+    UsageLimits {
+        daily_cost_limit: std::env::var("CORTEX_FREE_DAILY_COST_LIMIT")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(2.0),
+        daily_step_limit: std::env::var("CORTEX_FREE_DAILY_STEP_LIMIT")
+            .ok()
+            .and_then(|v| v.parse::<i64>().ok())
+            .unwrap_or(20),
+        monthly_cost_limit: std::env::var("CORTEX_FREE_MONTHLY_COST_LIMIT")
+            .ok()
+            .and_then(|v| v.parse::<f64>().ok())
+            .unwrap_or(20.0),
+    }
+}
+
+fn free_tier_chat_blocked(state: &AppState, db: &Database, user_id: &str) -> bool {
+    let limits = free_tier_usage_limits();
+    let gate = check_usage_gate(db, user_id, &limits, state.billing_enforced);
+    if !gate.allowed {
+        tracing::warn!(
+            "free tier billing gate blocked chat for user {user_id}: {:?}",
+            gate.violation
+        );
+    }
+    !gate.allowed
+}
+
 // ============================================================================
 // Subscription & Access Gate
 // ============================================================================
@@ -274,10 +303,28 @@ pub fn check_chat_access(state: &AppState, user_id: &str) -> Option<AccessState>
         Some(s) => match s.status.as_str() {
             "active" | "trialing" => None,
             "past_due" => Some(AccessState::PaymentFailed),
-            "cancelled" | "canceled" => Some(AccessState::Cancelled),
-            _ => None,
+            "cancelled" | "canceled" => {
+                if free_tier_chat_blocked(state, db, user_id) {
+                    Some(AccessState::NeedsCheckout)
+                } else {
+                    None
+                }
+            }
+            _ => {
+                if free_tier_chat_blocked(state, db, user_id) {
+                    Some(AccessState::NeedsCheckout)
+                } else {
+                    None
+                }
+            }
         },
-        None => Some(AccessState::NeedsCheckout),
+        None => {
+            if free_tier_chat_blocked(state, db, user_id) {
+                Some(AccessState::NeedsCheckout)
+            } else {
+                None
+            }
+        }
     }
 }
 

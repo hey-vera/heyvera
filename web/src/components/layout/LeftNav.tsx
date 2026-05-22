@@ -1,21 +1,35 @@
 
+import {
+  Bell,
+  Bookmark,
+  CircleEllipsis,
+  Home,
+  Mail,
+  Search,
+  Sparkles,
+  User,
+  Users,
+  Feather,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
+
 interface LeftNavProps {
   activeRoute: string;
   onNavigate: (route: string) => void;
   onCompose: () => void;
 }
 
-const navItems = [
-  { label: "Home", icon: "🏠", route: "/home" },
-  { label: "Explore", icon: "🔍", route: "/explore" },
-  { label: "Notifications", icon: "🔔", route: "/notifications" },
-  { label: "Messages", icon: "✉️", route: "/messages" },
-  { label: "Bookmarks", icon: "🔖", route: "/bookmarks" },
-  { label: "Communities", icon: "👥", route: "/communities" },
-  { label: "Premium", icon: "⭐", route: "/premium" },
-  { label: "Profile", icon: "👤", route: "/profile" },
-  { label: "More", icon: "•••", route: "" },
-] as const;
+const navItems: ReadonlyArray<{ label: string; icon: LucideIcon; route: string }> = [
+  { label: "Home", icon: Home, route: "/home" },
+  { label: "Explore", icon: Search, route: "/explore" },
+  { label: "Notifications", icon: Bell, route: "/notifications" },
+  { label: "Messages", icon: Mail, route: "/messages" },
+  { label: "Bookmarks", icon: Bookmark, route: "/bookmarks" },
+  { label: "Communities", icon: Users, route: "/communities" },
+  { label: "Premium", icon: Sparkles, route: "/premium" },
+  { label: "Profile", icon: User, route: "/profile" },
+  { label: "More", icon: CircleEllipsis, route: "" },
+];
 
 function HeyVeraLogo() {
   return (
@@ -56,6 +70,7 @@ export function LeftNav({ activeRoute, onNavigate, onCompose }: LeftNavProps) {
         <div className="flex flex-col w-full gap-0.5 mt-1">
           {navItems.map((item) => {
             const isActive = item.route !== "" && activeRoute === item.route;
+            const Icon = item.icon;
             return (
               <button
                 key={item.label}
@@ -70,10 +85,7 @@ export function LeftNav({ activeRoute, onNavigate, onCompose }: LeftNavProps) {
                   fontWeight: isActive ? 700 : 400,
                 }}
               >
-                {/* Icon */}
-                <span className="text-2xl w-6 flex-shrink-0 leading-none text-center" aria-hidden="true">
-                  {item.icon}
-                </span>
+                <Icon className="h-6 w-6 flex-shrink-0" strokeWidth={isActive ? 2.6 : 2} aria-hidden="true" />
 
                 {/* Label: hidden below xl breakpoint */}
                 <span className="hidden xl:block text-xl leading-tight">
@@ -124,7 +136,7 @@ export function LeftNav({ activeRoute, onNavigate, onCompose }: LeftNavProps) {
                 "var(--accent)")
             }
           >
-            +
+            <Feather className="h-6 w-6" strokeWidth={2.4} aria-hidden="true" />
           </button>
         </div>
 

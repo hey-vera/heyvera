@@ -1,4 +1,5 @@
 import React from "react";
+import { X } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { LeftNav } from "./LeftNav";
 import { RightRail } from "./RightRail";
@@ -70,10 +71,11 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
             <div className="flex items-center justify-between mb-4">
               <button
                 onClick={() => setComposeOpen(false)}
-                className="text-sm font-semibold"
+                className="rounded-full p-2 transition-colors hover:bg-white/10"
                 style={{ color: "var(--text-primary)" }}
+                aria-label="Close compose"
               >
-                ✕
+                <X className="h-5 w-5" aria-hidden="true" />
               </button>
               <button
                 className="px-4 py-1.5 rounded-full text-sm font-bold"

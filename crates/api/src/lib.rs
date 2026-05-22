@@ -6,6 +6,7 @@ pub mod clerk;
 mod conversations;
 pub mod db;
 pub mod github;
+mod integrations;
 pub mod mission_control;
 mod ratelimit;
 pub mod storage;
@@ -27,7 +28,7 @@ use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
 use axum::middleware;
-use axum::routing::{delete, get, patch, post};
+use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 
@@ -169,6 +170,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/user/routing", post(user::update_profile))
         .route("/api/user/github/status", get(user::github_status))
         .route("/api/user/repos/select", post(user::select_repos))
+        // Slack + Replit integrations
+        .route("/api/integrations/status", get(integrations::integration_status))
+        .route("/api/integrations/slack/oauth/start", post(integrations::slack_oauth_start))
+        .route("/api/integrations/slack/oauth/callback", get(integrations::slack_oauth_callback))
+        .route("/api/integrations/slack/channels", get(integrations::slack_channels))
+        .route("/api/integrations/slack/import-channels", post(integrations::import_slack_channels))
+        .route("/api/integrations/slack/events", post(integrations::slack_events))
+        .route("/api/integrations/slack/command", post(integrations::slack_command))
+        .route("/api/integrations/replit/workspaces", get(integrations::replit_workspaces))
+        .route("/api/integrations/replit/import", post(integrations::import_replit_workspace))
+        .route("/api/groups/{group_id}/tasks", get(integrations::get_group_tasks))
+        .route("/api/groups/{group_id}/tasks", put(integrations::update_group_tasks))
         // Billing & Subscription
         .route("/api/billing/status", get(billing::get_billing_status))
         .route("/api/billing/checkout", post(billing::create_checkout))

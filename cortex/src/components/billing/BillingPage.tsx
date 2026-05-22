@@ -14,13 +14,27 @@ export default function BillingPage({ billing }: BillingPageProps) {
   const [portalError, setPortalError] = useState<string | null>(null);
   const [copiedCode, setCopiedCode] = useState(false);
 
-  if (!billing) {
-    return <PricingCards compact />;
+  if (!billing || !billing.plan) {
+    return (
+      <div className="space-y-4">
+        <div className="rounded-xl border border-[var(--accent)]/20 bg-[var(--accent)]/10 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.08em] text-[var(--muted)]">Plan</p>
+              <h3 className="mt-1 text-base font-semibold text-white">Free tier</h3>
+              <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
+                Core Task Manager, groups, routing previews, and sovereignty controls are available with free-tier usage limits.
+              </p>
+            </div>
+            <ShieldCheck className="h-5 w-5 text-[var(--accent)]" />
+          </div>
+        </div>
+        <PricingCards compact />
+      </div>
+    );
   }
 
-  const planLabel = billing.plan
-    ? `Cortex Pro ${billing.plan.plan_type === 'annual' ? 'Annual' : 'Monthly'}`
-    : 'Cortex Pro';
+  const planLabel = `Cortex Pro ${billing.plan.plan_type === 'annual' ? 'Annual' : 'Monthly'}`;
   const payment = billing.payment_method
     ? `${billing.payment_method.brand.toUpperCase()} ending ${billing.payment_method.last4}`
     : 'Add in Stripe checkout';

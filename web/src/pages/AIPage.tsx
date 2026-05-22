@@ -1,30 +1,31 @@
+import { Sparkles } from 'lucide-react';
+
 export function AIPage() {
   return (
-    <div className="min-h-screen bg-black text-[#E7E9EA]">
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
       {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-[#2F3336] bg-black/80 backdrop-blur-md px-4 py-3">
-        <h1 className="text-[20px] font-bold text-[#E7E9EA]">AI Assistant</h1>
+      <div className="sticky top-0 z-10 border-b bg-black/80 px-4 py-3 backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
+        <h1 className="text-[20px] font-bold">AI Assistant</h1>
       </div>
 
       {/* Centered content */}
       <div className="flex flex-col items-center justify-center min-h-[calc(100vh-64px)] px-8 text-center">
         {/* Sparkle icon */}
-        <div className="mb-6 text-6xl select-none" aria-hidden="true">
-          ✨
-        </div>
+        <Sparkles className="mb-6 h-16 w-16" style={{ color: 'var(--accent)' }} aria-hidden="true" />
 
-        <h2 className="text-[28px] font-bold text-[#E7E9EA] leading-tight mb-3">
+        <h2 className="mb-3 text-[28px] font-bold leading-tight">
           AI Assistant
         </h2>
 
-        <p className="text-[15px] text-[#71767B] leading-relaxed max-w-sm mb-8">
+        <p className="mb-8 max-w-sm text-[15px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
           Coming soon — your personal AI powered by the Vera Network. Intelligent, private, and
           built on a protocol that outlives any company.
         </p>
 
         <button
           type="button"
-          className="text-[15px] text-[#00BA7C] transition-opacity hover:opacity-80 underline underline-offset-2"
+          className="text-[15px] underline underline-offset-2 transition-opacity hover:opacity-80"
+          style={{ color: 'var(--accent)' }}
         >
           Learn more about the Vera Network
         </button>

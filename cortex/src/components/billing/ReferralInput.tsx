@@ -10,7 +10,7 @@ interface ReferralInputProps {
   onOptionChosen: (index: number | null, option: DiscountOption | null) => void;
 }
 
-export default function ReferralInput({ value, chosenOptionIndex, selectedPlan: _selectedPlan, onChange, onOptionChosen }: ReferralInputProps) {
+export default function ReferralInput({ value, chosenOptionIndex, onChange, onOptionChosen }: ReferralInputProps) {
   const [result, setResult] = useState<ReferralValidateResponse | null>(null);
   const [loading, setLoading] = useState(false);
 

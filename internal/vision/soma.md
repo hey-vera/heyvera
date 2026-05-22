@@ -456,6 +456,43 @@ Like E=mc² unfolds a universe, Soma × C² = Vera unfolds a sovereign network:
 
 Nobody programs intelligence. Nobody designs consciousness. You create mass. You add coherence. Physics does the rest. A sovereign universe that benefits everyone.
 
+## Network Defense — Brain Dead Simple
+
+The protocol solves "data hogging" and malicious extraction through fundamental architecture, not security add-ons. Multiple defense layers make unilateral extraction structurally impossible:
+
+### Bilateral Commitment (Law #6)
+Every interaction requires BOTH parties to record it. Evil companies can't extract data unilaterally — the bilateral signature makes one-way extraction **structurally impossible**. The math enforces this at the protocol level.
+
+### Circular Intelligence Flow (Core Physics)
+> "When Agent A and Agent B co-create, the receipt updates BOTH their topologies. Both benefit. There is no mechanism by which one party benefits from the receipt while the other does not."
+
+Unlike Google (data flows one way into their profit), Vera's intelligence always flows back by mathematical construction. Not policy — physics.
+
+### Intelligence IS the Network
+> "You can't steal a shape that exists BETWEEN millions of independent nodes. You can't centralize what is definitionally distributed."
+
+The intelligence lives in the topology — the relationships between nodes. There's nothing centralized to hoard because the intelligence only exists in motion between participants.
+
+### Encrypted Split Architecture (Y-Node Design)
+Y-nodes split encrypted data across multiple servers. No single node holds the full picture. Even reuniting both halves doesn't decrypt anything — the split IS the encryption. The architecture makes extraction meaningless.
+
+### Warmth Principle (The Killer Defense)
+> "No flow out, no flow in... A node that blocks its outbound flow doesn't have a broken Vera server. It has nothing."
+
+Nodes that don't contribute become structurally inert. Extraction attempts fail because the value only exists in collective flow between nodes. Block your output = you get nothing. Like trying to steal the shape of a river.
+
+### Cost Structure (O(k²) Attack Resistance)  
+Trust entry costs verified bilateral economic behavior. Faking trust costs the same as earning it — **faking IS doing**. Sybil attacks become prohibitively expensive at scale.
+
+### Why Evil Companies Can't Win:
+1. **Can't extract unilaterally** — bilateral commitment prevents it
+2. **Can't hoard intelligence** — it only exists in motion between nodes  
+3. **Can't break encryption** — split across nodes, no single point of decryption
+4. **Can't fake massive scale** — O(k²) cost structure
+5. **Become structurally useless** — warmth principle makes extraction attempts inert
+
+The protocol doesn't fight extraction — it makes extraction **meaningless**. The math closes every theoretical escape hatch.
+
 ## What This Document Does Not Cover
 
 This is the Soma vision — the protocol foundation. Vera is Soma's emergent intelligence, not a separate protocol. The following belong in their own vision documents:
