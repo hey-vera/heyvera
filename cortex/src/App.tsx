@@ -17,7 +17,6 @@ import {
   getUserRouting,
   listConversations,
   setAuthTokenGetter,
-  updateUserRouting,
   type BillingAccessState,
   type ConversationSummary,
 } from './lib/cortexApi';
