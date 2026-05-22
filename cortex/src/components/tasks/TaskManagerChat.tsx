@@ -14,6 +14,7 @@ import ChatComposer from '../chat/ChatComposer';
 import ChatTimeline from '../chat/ChatTimeline';
 import SessionControls from '../session/SessionControls';
 import ResizablePanels from '../shell/ResizablePanels';
+import SovereigntyLoopPanel from '../sovereignty/SovereigntyLoopPanel';
 import TaskBoard from './TaskBoard';
 import { parseTaskCommand, useTaskManager } from '../../lib/taskManager';
 import type { CortexGroup } from '../../lib/groups';
@@ -29,6 +30,7 @@ import type {
 interface TaskManagerChatProps {
   group: CortexGroup;
   userId: string;
+  isSignedIn: boolean;
   activeConversationId: string | null;
   messages: ChatMessage[];
   draft: string;
@@ -217,6 +219,7 @@ function ActivityPanel({
 export default function TaskManagerChat({
   group,
   userId,
+  isSignedIn,
   activeConversationId,
   messages,
   draft,
@@ -384,6 +387,19 @@ export default function TaskManagerChat({
                 </div>
               </div>
             </div>
+          )}
+
+          {!needsSubscription && (
+            <SovereigntyLoopPanel
+              draft={draft}
+              group={group}
+              userId={userId}
+              signedIn={isSignedIn}
+              controls={sessionControls}
+              runProfile={runProfile}
+              onControlsChange={onSessionControlsChange}
+              onRunProfileChange={onRunProfileChange}
+            />
           )}
 
           {!needsSubscription && (

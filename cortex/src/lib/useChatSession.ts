@@ -1,5 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ApprovalState, ChatMessage, ChatProject, WorkEventItem } from '../types';
+import type {
+  ApprovalState,
+  ChatMessage,
+  ChatProject,
+  ChatSessionControls,
+  RunProfile,
+  WorkEventItem,
+} from '../types';
+import type { CortexGroup } from './groups';
+import { buildSovereigntyLoopState } from './sovereignty';
 import {
   addMessageToConversation,
   createConversation,
@@ -132,6 +141,10 @@ function applyStoredApprovals(
 interface UseChatSessionOptions {
   activeConversationId: string | null;
   userId: string;
+  isSignedIn: boolean;
+  group: CortexGroup;
+  sessionControls: ChatSessionControls;
+  runProfile: RunProfile;
   onConversationCreated: (conversationId: string) => void;
   onConversationsChanged: () => void;
 }
@@ -139,6 +152,10 @@ interface UseChatSessionOptions {
 export function useChatSession({
   activeConversationId,
   userId,
+  isSignedIn,
+  group,
+  sessionControls,
+  runProfile,
   onConversationCreated,
   onConversationsChanged,
 }: UseChatSessionOptions) {
@@ -324,6 +341,14 @@ export function useChatSession({
       content: text,
       createdAt: new Date().toISOString(),
     };
+    const sovereignty = buildSovereigntyLoopState({
+      prompt: text,
+      group,
+      controls: sessionControls,
+      runProfile,
+      userId,
+      signedIn: isSignedIn,
+    });
 
     const assistantId = createId('assistant');
     const assistantMsg: ChatMessage = {
@@ -335,6 +360,7 @@ export function useChatSession({
       providerLabel: 'Cortex',
       statusLabel: 'Routing...',
       isStreaming: true,
+      sovereignty,
     };
 
     setDraft('');
@@ -342,12 +368,33 @@ export function useChatSession({
     setMessages((cur) => [...cur, userMsg, assistantMsg]);
     setWorkEvents([
       {
+        id: createId('work-seal'),
+        taskId: assistantId,
+        title: 'Session sealed',
+        detail: `${sovereignty.seal.boundary}; ${sovereignty.seal.credentialMode.replaceAll('_', ' ')} credentials.`,
+        timestamp: new Date().toISOString(),
+        state: 'done',
+      },
+      {
+        id: createId('work-context'),
+        taskId: assistantId,
+        title: 'Context synthesized',
+        detail: [
+          sovereignty.context.gene.title,
+          ...sovereignty.context.liveRepo.signals.slice(0, 2),
+        ].join(' · '),
+        timestamp: new Date().toISOString(),
+        state: 'done',
+      },
+      {
         id: createId('work-routing'),
         taskId: assistantId,
-        title: 'Routing',
-        detail: 'Cortex is choosing a provider and execution path.',
+        title: 'Routing advised',
+        detail: `${sovereignty.routing.provider} / ${sovereignty.routing.model}; ${sovereignty.routing.rationale.join(', ')}.`,
         timestamp: new Date().toISOString(),
         state: 'active',
+        provider: sovereignty.routing.provider,
+        model: sovereignty.routing.model,
       },
     ]);
 
@@ -425,6 +472,11 @@ export function useChatSession({
         const controller = streamChat(
           text,
           [],
+          {
+            controls: sessionControls,
+            run_profile: runProfile,
+            sovereignty,
+          },
           (event) => {
             if (requestVersionRef.current !== streamVersion) return;
 
@@ -655,7 +707,17 @@ export function useChatSession({
         }
       }
     })();
-  }, [draft, isStreaming, onConversationCreated, onConversationsChanged, userId]);
+  }, [
+    draft,
+    group,
+    isSignedIn,
+    isStreaming,
+    onConversationCreated,
+    onConversationsChanged,
+    runProfile,
+    sessionControls,
+    userId,
+  ]);
 
   return {
     project: PROJECT,

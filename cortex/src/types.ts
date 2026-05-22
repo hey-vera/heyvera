@@ -135,6 +135,7 @@ export interface ChatMessage {
   statusLabel?: string;
   isStreaming?: boolean;
   approvalRequest?: ApprovalRequest;
+  sovereignty?: SovereigntyLoopState;
 }
 
 export type SessionSpeed = 'steady' | 'balanced' | 'rapid';
@@ -153,6 +154,47 @@ export interface ChatSessionControls {
 }
 
 export type RunProfile = 'auto' | 'balanced' | 'cost_saver' | 'quality_first';
+
+export interface ContextSynthesis {
+  gene: {
+    title: string;
+    invariants: string[];
+  };
+  liveRepo: {
+    branch: string;
+    signals: string[];
+  };
+  sessionMemory: string[];
+}
+
+export interface RoutingRecommendation {
+  provider: string;
+  model: string;
+  mode: 'advisory' | 'manual' | 'auto';
+  confidence: number;
+  rationale: string[];
+  tradeoffs: string[];
+  alternatives: Array<{
+    provider: string;
+    model: string;
+    reason: string;
+  }>;
+}
+
+export interface SessionSeal {
+  id: string;
+  boundary: string;
+  credentialMode: 'user_owned' | 'delegated' | 'not_connected';
+  receipts: string[];
+}
+
+export interface SovereigntyLoopState {
+  context: ContextSynthesis;
+  routing: RoutingRecommendation;
+  seal: SessionSeal;
+  controls: ChatSessionControls;
+  runProfile: RunProfile;
+}
 
 export type WorkEventState = 'active' | 'done' | 'waiting' | 'failed';
 

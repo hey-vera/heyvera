@@ -292,6 +292,10 @@ function CortexShell() {
   } = useChatSession({
     activeConversationId,
     userId: userId ?? 'local',
+    isSignedIn: Boolean(isSignedIn),
+    group: activeGroup,
+    sessionControls,
+    runProfile,
     onConversationCreated: handleConversationCreated,
     onConversationsChanged: handleConversationsChanged,
   });
@@ -652,6 +656,7 @@ function CortexShell() {
         <TaskManagerChat
           group={activeGroup}
           userId={userId ?? 'local'}
+          isSignedIn={Boolean(isSignedIn)}
           activeConversationId={activeConversationId}
           messages={messages}
           draft={draft}

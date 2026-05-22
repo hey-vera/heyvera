@@ -1,4 +1,4 @@
-import type { CortexState, TaskManagerState } from '../types';
+import type { ChatSessionControls, CortexState, RunProfile, SovereigntyLoopState, TaskManagerState } from '../types';
 
 const CONFIGURED_API_BASE = import.meta.env.VITE_CORTEX_API as string | undefined;
 const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : '');
@@ -108,6 +108,11 @@ export interface WorkerEvent {
 export function streamChat(
   message: string,
   filePaths: string[],
+  routingContext: {
+    controls: ChatSessionControls;
+    run_profile: RunProfile;
+    sovereignty: SovereigntyLoopState;
+  } | null,
   onEvent: (event: WorkerEvent) => void,
   onDone: () => void,
   onError: (err: Error) => void,
@@ -119,7 +124,11 @@ export function streamChat(
       const res = await authedFetch(apiUrl('/api/chat'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message, file_paths: filePaths }),
+        body: JSON.stringify({
+          message,
+          file_paths: filePaths,
+          routing_context: routingContext,
+        }),
         signal: controller.signal,
       });
 
