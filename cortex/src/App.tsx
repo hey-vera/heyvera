@@ -716,7 +716,7 @@ function CortexShell() {
           draft={draft}
           isStreaming={isStreaming}
           isLoadingConversation={isLoadingConversation}
-          needsSubscription={runtimeLocked}
+          needsSubscription={false}
           sessionControls={sessionControls}
           runProfile={runProfile}
           onDraftChange={setDraft}
