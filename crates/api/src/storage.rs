@@ -45,14 +45,15 @@ pub trait Storage: Send + Sync {
         id: &str,
         run_id: &str,
         kind: &str,
+        work_kind: &str,
         tier: &str,
         risk: &str,
         objective: &str,
         created_at: i64,
     );
 
-    /// Get (kind, tier, risk, objective) for a step.
-    fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String)>;
+    /// Get (kind, work_kind, tier, risk, objective) for a step.
+    fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String, String)>;
 
     /// Get `(step_id, status)` for every step in a run.
     fn get_all_step_statuses(&self, run_id: &str) -> Vec<(String, String)>;
@@ -191,15 +192,18 @@ impl Storage for Database {
         id: &str,
         run_id: &str,
         kind: &str,
+        work_kind: &str,
         tier: &str,
         risk: &str,
         objective: &str,
         created_at: i64,
     ) {
-        Database::create_step_with_id(self, id, run_id, kind, tier, risk, objective, created_at)
+        Database::create_step_with_id(
+            self, id, run_id, kind, work_kind, tier, risk, objective, created_at,
+        )
     }
 
-    fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String)> {
+    fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String, String)> {
         Database::get_step_details(self, step_id)
     }
 

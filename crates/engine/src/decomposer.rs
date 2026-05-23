@@ -1,5 +1,6 @@
 use cortex_core::evaluator::{classify_risk, parse_intent};
 use cortex_core::routing::{Intent, RiskLevel};
+use cortex_core::task::WorkKind;
 
 use crate::captain::{RunBuilder, StepKind};
 
@@ -35,7 +36,8 @@ pub fn decompose_goal(
         let tier = intent_ev.default_tier.to_string();
         let risk = risk_level_str(risk_ev.level);
 
-        let idx = builder.add_step(kind, &tier, &risk, &split.text);
+        let work_kind = intent_to_work_kind(intent_ev.intent);
+        let idx = builder.add_step_with_work_kind(kind, work_kind, &tier, &risk, &split.text);
         step_indices.push(idx);
 
         if i > 0 && split.ordering == SplitOrdering::Sequential {
@@ -266,6 +268,18 @@ fn intent_to_step_kind(intent: Intent) -> StepKind {
     }
 }
 
+fn intent_to_work_kind(intent: Intent) -> WorkKind {
+    match intent {
+        Intent::Explore | Intent::Think => WorkKind::Explore,
+        Intent::Fix => WorkKind::Modify,
+        Intent::Add => WorkKind::Add,
+        Intent::Refactor => WorkKind::Refactor,
+        Intent::Ship => WorkKind::Ship,
+        Intent::Test => WorkKind::Test,
+        Intent::Review => WorkKind::Review,
+    }
+}
+
 fn risk_level_str(level: RiskLevel) -> String {
     match level {
         RiskLevel::Low => "low",
@@ -422,6 +436,23 @@ mod tests {
 
         // All sequential via "then"
         assert_eq!(builder.edges().len(), 2);
+    }
+
+    #[test]
+    fn step_work_kinds_preserve_planner_intent() {
+        let builder = decompose_goal(
+            "u1",
+            "add login flow then refactor auth module then ship the pull request",
+            &[],
+            "auto",
+        )
+        .unwrap();
+
+        let work_kinds: Vec<_> = builder.steps().iter().map(|s| s.work_kind).collect();
+        assert_eq!(
+            work_kinds,
+            vec![WorkKind::Add, WorkKind::Refactor, WorkKind::Ship]
+        );
     }
 
     #[test]

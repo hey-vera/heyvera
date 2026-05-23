@@ -95,6 +95,23 @@ impl WorkKind {
             Self::Gate => "gate",
         }
     }
+
+    pub fn from_str(s: &str) -> Option<Self> {
+        match s {
+            "explore" => Some(Self::Explore),
+            "modify" => Some(Self::Modify),
+            "add" => Some(Self::Add),
+            "refactor" => Some(Self::Refactor),
+            "test" => Some(Self::Test),
+            "build" => Some(Self::Build),
+            "lint" => Some(Self::Lint),
+            "review" => Some(Self::Review),
+            "ship" => Some(Self::Ship),
+            "heal" => Some(Self::Heal),
+            "gate" => Some(Self::Gate),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

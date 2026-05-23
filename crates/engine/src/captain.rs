@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use cortex_core::task::WorkKind;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -237,6 +238,7 @@ pub struct StepRef {
     pub run_id: String,
     pub user_id: String,
     pub kind: StepKind,
+    pub work_kind: Option<WorkKind>,
     pub tier: String,
     pub risk: String,
     pub objective: String,
@@ -325,6 +327,7 @@ pub struct RunBuilder {
 pub struct StepDef {
     pub id: String,
     pub kind: StepKind,
+    pub work_kind: WorkKind,
     pub tier: String,
     pub risk: String,
     pub objective: String,
@@ -345,10 +348,28 @@ impl RunBuilder {
     }
 
     pub fn add_step(&mut self, kind: StepKind, tier: &str, risk: &str, objective: &str) -> usize {
+        self.add_step_with_work_kind(
+            kind,
+            default_work_kind_for_step(kind),
+            tier,
+            risk,
+            objective,
+        )
+    }
+
+    pub fn add_step_with_work_kind(
+        &mut self,
+        kind: StepKind,
+        work_kind: WorkKind,
+        tier: &str,
+        risk: &str,
+        objective: &str,
+    ) -> usize {
         let idx = self.steps.len();
         self.steps.push(StepDef {
             id: Uuid::new_v4().to_string(),
             kind,
+            work_kind,
             tier: tier.to_string(),
             risk: risk.to_string(),
             objective: objective.to_string(),
@@ -430,6 +451,19 @@ impl RunBuilder {
         }
 
         visited != n
+    }
+}
+
+fn default_work_kind_for_step(kind: StepKind) -> WorkKind {
+    match kind {
+        StepKind::Search | StepKind::Think => WorkKind::Explore,
+        StepKind::Execute => WorkKind::Modify,
+        StepKind::Test => WorkKind::Test,
+        StepKind::Build => WorkKind::Build,
+        StepKind::Lint => WorkKind::Lint,
+        StepKind::Heal => WorkKind::Heal,
+        StepKind::Review => WorkKind::Review,
+        StepKind::Gate => WorkKind::Gate,
     }
 }
 
@@ -589,6 +623,7 @@ mod tests {
                 run_id: "r1".into(),
                 user_id: "user-a".into(),
                 kind: StepKind::Execute,
+                work_kind: Some(WorkKind::Modify),
                 tier: "execute".into(),
                 risk: "low".into(),
                 objective: format!("task a-{i}"),
@@ -599,6 +634,7 @@ mod tests {
             run_id: "r2".into(),
             user_id: "user-b".into(),
             kind: StepKind::Execute,
+            work_kind: Some(WorkKind::Modify),
             tier: "execute".into(),
             risk: "low".into(),
             objective: "task b-0".into(),
@@ -629,6 +665,7 @@ mod tests {
                 run_id: "r1".into(),
                 user_id: "user-a".into(),
                 kind: StepKind::Execute,
+                work_kind: Some(WorkKind::Modify),
                 tier: "execute".into(),
                 risk: "low".into(),
                 objective: format!("task {i}"),

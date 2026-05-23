@@ -73,8 +73,9 @@ pub async fn stream_run(
                         "status": status,
                         "predecessors": predecessors,
                     });
-                    if let Some((kind, tier, risk, objective)) = details {
+                    if let Some((kind, work_kind, tier, risk, objective)) = details {
                         step["kind"] = serde_json::json!(kind);
+                        step["work_kind"] = serde_json::json!(work_kind);
                         step["tier"] = serde_json::json!(tier);
                         step["risk"] = serde_json::json!(risk);
                         step["objective"] = serde_json::json!(objective);

@@ -419,7 +419,8 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
     task.required_checks =
         infer_required_checks(step.kind, risk, &allowed_paths, &state.workspace_dir);
     let recipe = build_work_recipe(
-        step.kind,
+        step.work_kind
+            .unwrap_or_else(|| work_kind_for_step(step.kind, &step.objective)),
         &step.objective,
         risk,
         tier,
@@ -562,7 +563,7 @@ fn infer_required_checks(
 }
 
 fn build_work_recipe(
-    kind: StepKind,
+    work_kind: WorkKind,
     objective: &str,
     risk: RiskLevel,
     tier: Tier,
@@ -570,7 +571,6 @@ fn build_work_recipe(
     expected_base_commit: Option<&str>,
     required_checks: &[RequiredCheck],
 ) -> WorkRecipe {
-    let work_kind = work_kind_for_step(kind, objective);
     let mut constraints = vec![
         format!("risk={risk:?}"),
         format!("tier={tier:?}"),
@@ -1072,7 +1072,7 @@ fn build_step_context(db: &Database, run_id: &str, step_id: &str) -> StepContext
     let summaries: Vec<PredecessorSummary> = predecessors
         .into_iter()
         .filter_map(|pred_id| {
-            let (kind, _, _, _) = db.get_step_details(&pred_id)?;
+            let (kind, _, _, _, _) = db.get_step_details(&pred_id)?;
             let summary = db.get_step_output_summary(&pred_id).unwrap_or_default();
             let files = db
                 .get_step_files_changed(&pred_id)
@@ -1111,13 +1111,14 @@ async fn load_ready_steps_for_run(state: &AppState, sched: &mut SchedulerState, 
     let user_id = get_run_user(db, run_id);
 
     for step_id in ready_ids {
-        if let Some((kind, tier, risk, objective)) = db.get_step_details(&step_id) {
+        if let Some((kind, work_kind, tier, risk, objective)) = db.get_step_details(&step_id) {
             let step_kind = parse_step_kind(&kind);
             sched.enqueue_ready_step(StepRef {
                 step_id,
                 run_id: run_id.to_string(),
                 user_id: user_id.clone(),
                 kind: step_kind,
+                work_kind: parse_work_kind(&work_kind),
                 tier,
                 risk,
                 objective,
@@ -1134,7 +1135,7 @@ async fn try_heal(state: &AppState, _sched: &mut SchedulerState, run_id: &str, s
         None => return,
     };
 
-    let (kind_str, tier, risk, objective) = match db.get_step_details(step_id) {
+    let (kind_str, work_kind_str, tier, risk, objective) = match db.get_step_details(step_id) {
         Some(d) => d,
         None => return,
     };
@@ -1206,6 +1207,7 @@ async fn try_heal(state: &AppState, _sched: &mut SchedulerState, run_id: &str, s
         &plan.heal_step_id,
         run_id,
         "heal",
+        WorkKind::Heal.as_str(),
         &tier,
         &risk,
         &plan.heal_objective,
@@ -1222,6 +1224,7 @@ async fn try_heal(state: &AppState, _sched: &mut SchedulerState, run_id: &str, s
         &plan.retry_step_id,
         run_id,
         &kind_str,
+        &work_kind_str,
         &tier,
         &risk,
         &plan.retry_objective,
@@ -1334,13 +1337,14 @@ async fn reconcile_ready_steps(state: &AppState, sched: &mut SchedulerState) {
     // Single query fetches all ready steps across all active runs,
     // replacing the N+1 pattern of get_active_run_ids() + find_ready_steps() per run.
     let ready = db.find_all_ready_steps();
-    for (step_id, run_id, user_id, kind, tier, risk, objective) in ready {
+    for (step_id, run_id, user_id, kind, work_kind, tier, risk, objective) in ready {
         let step_kind = parse_step_kind(&kind);
         sched.enqueue_ready_step(StepRef {
             step_id,
             run_id,
             user_id,
             kind: step_kind,
+            work_kind: parse_work_kind(&work_kind),
             tier,
             risk,
             objective,
@@ -1471,6 +1475,10 @@ fn parse_step_kind(s: &str) -> StepKind {
     }
 }
 
+fn parse_work_kind(s: &str) -> Option<WorkKind> {
+    WorkKind::from_str(s)
+}
+
 fn kind_to_intent(kind: StepKind) -> Intent {
     match kind {
         StepKind::Search => Intent::Explore,
@@ -1498,13 +1506,14 @@ pub async fn create_run_from_goal(
     let now_ms = chrono::Utc::now().timestamp_millis();
 
     // Collect steps and edges for batch insertion in a single transaction
-    let steps: Vec<(String, String, String, String, String, i64)> = builder
+    let steps: Vec<(String, String, String, String, String, String, i64)> = builder
         .steps()
         .iter()
         .map(|step| {
             (
                 step.id.clone(),
                 step.kind.as_str().to_string(),
+                step.work_kind.as_str().to_string(),
                 step.tier.clone(),
                 step.risk.clone(),
                 step.objective.clone(),
@@ -1622,7 +1631,7 @@ mod tests {
         }];
 
         let recipe = build_work_recipe(
-            StepKind::Test,
+            WorkKind::Test,
             "run the API tests",
             RiskLevel::Medium,
             Tier::Execute,

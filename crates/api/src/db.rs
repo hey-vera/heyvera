@@ -143,7 +143,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 13;
+const SCHEMA_VERSION: i64 = 14;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -194,6 +194,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 13 {
         migrate_v13(conn);
+    }
+    if current < 14 {
+        migrate_v14(conn);
     }
 }
 
@@ -371,6 +374,7 @@ fn migrate_v2(conn: &Connection) {
             run_id TEXT NOT NULL REFERENCES runs(id),
             kind TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
+            work_kind TEXT NOT NULL DEFAULT 'modify',
             tier TEXT NOT NULL,
             risk TEXT NOT NULL,
             objective TEXT NOT NULL,
@@ -797,6 +801,18 @@ fn migrate_v13(conn: &Connection) {
     ).expect("migration v13 failed");
 
     tracing::info!("applied migration v13: persisted step work contracts");
+}
+
+fn migrate_v14(conn: &Connection) {
+    conn.execute(
+        "ALTER TABLE steps ADD COLUMN work_kind TEXT NOT NULL DEFAULT 'modify'",
+        [],
+    )
+    .ok();
+    conn.execute_batch("UPDATE schema_version SET version = 14;")
+        .expect("migration v14 failed");
+
+    tracing::info!("applied migration v14: steps.work_kind planner recipe intent");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1391,7 +1407,7 @@ impl Database {
         goal: &str,
         profile: &str,
         file_paths: &[String],
-        steps: &[(String, String, String, String, String, i64)], // (id, kind, tier, risk, objective, created_at)
+        steps: &[(String, String, String, String, String, String, i64)], // (id, kind, work_kind, tier, risk, objective, created_at)
         edges: &[(String, String, String)], // (step_id, depends_on_id, edge_type)
     ) -> String {
         let conn = self.conn.lock().unwrap();
@@ -1410,11 +1426,11 @@ impl Database {
             params![run_id, user_id, goal, profile, file_paths_json, now],
         ).expect("failed to create run in batch");
 
-        for (id, kind, tier, risk, objective, created_at) in steps {
+        for (id, kind, work_kind, tier, risk, objective, created_at) in steps {
             conn.execute(
-                "INSERT INTO steps (id, run_id, kind, status, tier, risk, objective, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?7)",
-                params![id, run_id, kind, tier, risk, objective, created_at],
+                "INSERT INTO steps (id, run_id, kind, work_kind, status, tier, risk, objective, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7, ?8, ?8)",
+                params![id, run_id, kind, work_kind, tier, risk, objective, created_at],
             ).expect("failed to create step in batch");
         }
 
@@ -1505,8 +1521,8 @@ impl Database {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
         conn.execute(
-            "INSERT INTO steps (id, run_id, kind, status, tier, risk, objective, created_at, updated_at)
-             VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?7)",
+            "INSERT INTO steps (id, run_id, kind, work_kind, status, tier, risk, objective, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'modify', 'pending', ?4, ?5, ?6, ?7, ?7)",
             params![id, run_id, kind, tier, risk, objective, now],
         ).expect("failed to create step");
         id
@@ -1545,13 +1561,13 @@ impl Database {
     }
 
     /// Find all ready steps across all active runs in a single query.
-    /// Returns (step_id, run_id, user_id, kind, tier, risk, objective) tuples.
+    /// Returns (step_id, run_id, user_id, kind, work_kind, tier, risk, objective) tuples.
     /// This replaces the N+1 pattern of get_active_run_ids() + find_ready_steps() per run.
-    pub fn find_all_ready_steps(&self) -> Vec<(String, String, String, String, String, String, String)> {
+    pub fn find_all_ready_steps(&self) -> Vec<(String, String, String, String, String, String, String, String)> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
-            "SELECT s.id, s.run_id, r.user_id, s.kind, s.tier, s.risk, s.objective
+            "SELECT s.id, s.run_id, r.user_id, s.kind, s.work_kind, s.tier, s.risk, s.objective
              FROM steps s
              JOIN runs r ON s.run_id = r.id
              WHERE r.status IN ('planning', 'running')
@@ -1577,6 +1593,7 @@ impl Database {
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
             ))
         })
         .unwrap()
@@ -1947,6 +1964,7 @@ impl Database {
         id: &str,
         run_id: &str,
         kind: &str,
+        work_kind: &str,
         tier: &str,
         risk: &str,
         objective: &str,
@@ -1954,9 +1972,9 @@ impl Database {
     ) {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO steps (id, run_id, kind, status, tier, risk, objective, created_at, updated_at)
-             VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?7)",
-            params![id, run_id, kind, tier, risk, objective, created_at],
+            "INSERT INTO steps (id, run_id, kind, work_kind, status, tier, risk, objective, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7, ?8, ?8)",
+            params![id, run_id, kind, work_kind, tier, risk, objective, created_at],
         ).expect("failed to create step");
     }
 
@@ -1979,16 +1997,17 @@ impl Database {
         ).ok()
     }
 
-    pub fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String)> {
+    pub fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String, String)> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT kind, tier, risk, objective FROM steps WHERE id = ?1",
+            "SELECT kind, work_kind, tier, risk, objective FROM steps WHERE id = ?1",
             params![step_id],
             |row| Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
             )),
         ).ok()
     }

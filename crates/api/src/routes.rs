@@ -261,8 +261,9 @@ pub async fn get_run(
                 "status": status,
                 "predecessors": predecessors,
             });
-            if let Some((kind, tier, risk, objective)) = details {
+            if let Some((kind, work_kind, tier, risk, objective)) = details {
                 step["kind"] = serde_json::json!(kind);
+                step["work_kind"] = serde_json::json!(work_kind);
                 step["tier"] = serde_json::json!(tier);
                 step["risk"] = serde_json::json!(risk);
                 step["objective"] = serde_json::json!(objective);
@@ -352,9 +353,9 @@ fn build_pr_body(
         let mut all_files: Vec<String> = Vec::new();
 
         for (i, (step_id, status)) in steps.iter().enumerate() {
-            let (kind, _tier, _risk, objective) = db
+            let (kind, _work_kind, _tier, _risk, objective) = db
                 .get_step_details(step_id)
-                .unwrap_or_else(|| ("unknown".into(), "".into(), "".into(), "".into()));
+                .unwrap_or_else(|| ("unknown".into(), "".into(), "".into(), "".into(), "".into()));
 
             let status_icon = match status.as_str() {
                 "completed" => "done",

@@ -846,7 +846,7 @@ fn verify_worker_completion(
     let persisted_contract = db.get_step_work_contract(step_id, lease_gen);
     let (risk, objective) = db
         .get_step_details(step_id)
-        .map(|(_, _, risk, objective)| (parse_verifier_risk(&risk), objective))
+        .map(|(_, _, _, risk, objective)| (parse_verifier_risk(&risk), objective))
         .unwrap_or((RiskLevel::Medium, String::new()));
 
     let git = output
@@ -1159,7 +1159,7 @@ fn record_step_usage(
         let now = chrono::Utc::now().timestamp_millis();
         let duration_ms = now - started_at;
 
-        let tier = if let Some((_, tier_str, _, _)) = db.get_step_details(step_id) {
+        let tier = if let Some((_, _, tier_str, _, _)) = db.get_step_details(step_id) {
             tier_str
         } else {
             "execute".to_string()
