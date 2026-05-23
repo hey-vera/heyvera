@@ -1536,7 +1536,7 @@ impl Database {
         rows > 0
     }
 
-    pub fn fail_step(&self, step_id: &str, lease_gen: i64, error: &str, failure_kind: Option<&str>) -> bool {
+    pub fn fail_step(&self, step_id: &str, lease_gen: i64, error: &str, _failure_kind: Option<&str>) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let rows = conn.execute(
