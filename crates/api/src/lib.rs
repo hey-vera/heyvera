@@ -3,11 +3,15 @@ mod auth;
 pub mod billing;
 mod chat;
 pub mod clerk;
+mod context_api;
+mod context_flow;
 mod conversations;
 pub mod db;
 pub mod github;
 mod integrations;
 pub mod mission_control;
+pub mod memory;
+mod orchestrator;
 mod ratelimit;
 pub mod storage;
 pub mod routes;
@@ -129,8 +133,18 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Chat intelligence
         .route("/api/chat/suggestions", get(chat::chat_suggestions))
         .route("/api/chat/options", post(chat::chat_options))
+        // Flow orchestration test endpoint
+        .route("/api/flow/test", post(orchestrator::test_flow))
         .route("/api/conversations", post(conversations::create_conversation))
         .route("/api/conversations/{id}/messages", post(conversations::add_message))
+        // Memory system (organizational intelligence)
+        .merge(memory::routes::memory_routes())
+        // Context-Flow debugging endpoints
+        .route("/api/context/runs/:run_id/artifacts", get(context_api::list_artifacts_for_run))
+        .route("/api/context/runs/:run_id/context", get(context_api::preview_context_for_run))
+        .route("/api/context/stats", get(context_api::get_context_stats))
+        .route("/api/context/health", get(context_api::get_context_health))
+        .route("/api/context/test", post(context_api::test_context_assembly))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             ratelimit::rate_limit_middleware,

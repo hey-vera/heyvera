@@ -164,6 +164,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 10 {
         migrate_v10(conn);
     }
+    if current < 11 {
+        migrate_v11(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -677,6 +680,34 @@ fn migrate_v10(conn: &Connection) {
     ).expect("migration v10 failed");
 
     tracing::info!("applied migration v10: Cortex groups, task state, Slack/Replit integration tables");
+}
+
+fn migrate_v11(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS context_flow_artifacts (
+            id TEXT PRIMARY KEY,
+            producer_step_id TEXT NOT NULL,
+            producer_run_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            content TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            files_changed TEXT, -- JSON array
+            confidence REAL NOT NULL,
+            tokens INTEGER NOT NULL,
+            created_at INTEGER NOT NULL, -- milliseconds since epoch
+            metadata TEXT -- JSON object
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_context_artifacts_run
+            ON context_flow_artifacts(producer_run_id, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_context_artifacts_step
+            ON context_flow_artifacts(producer_step_id);
+
+        UPDATE schema_version SET version = 11;"
+    ).expect("migration v11 failed");
+
+    tracing::info!("applied migration v11: context_flow_artifacts table for AI model context pipeline");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -3046,6 +3077,115 @@ impl Database {
                 redeemed_at: row.get(4)?,
             })
         }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    // --- Context Flow Artifacts ---
+
+    pub fn store_context_artifact(
+        &self,
+        id: &str,
+        producer_step_id: &str,
+        producer_run_id: &str,
+        kind: &str,
+        content: &str,
+        summary: &str,
+        files_changed: &[String],
+        confidence: f32,
+        tokens: u32,
+        created_at: i64,
+        metadata: &serde_json::Value,
+    ) {
+        let conn = self.conn.lock().unwrap();
+        let files_json = serde_json::to_string(files_changed).unwrap();
+        let metadata_json = serde_json::to_string(metadata).unwrap();
+
+        conn.execute(
+            "INSERT INTO context_flow_artifacts
+            (id, producer_step_id, producer_run_id, kind, content, summary, files_changed, confidence, tokens, created_at, metadata)
+            VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![id, producer_step_id, producer_run_id, kind, content, summary, files_json, confidence, tokens, created_at, metadata_json],
+        ).expect("failed to store context artifact");
+    }
+
+    pub fn get_context_artifacts_for_run(&self, run_id: &str) -> Vec<(String, String, String, String, String, Vec<String>, f32, u32, i64)> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, producer_step_id, kind, content, summary, files_changed, confidence, tokens, created_at
+            FROM context_flow_artifacts
+            WHERE producer_run_id = ?1
+            ORDER BY created_at ASC"
+        ).unwrap();
+
+        stmt.query_map([run_id], |row| {
+            let files_json: String = row.get(5)?;
+            let files_changed: Vec<String> = serde_json::from_str(&files_json).unwrap_or_default();
+            Ok((
+                row.get(0)?, // id
+                row.get(1)?, // producer_step_id
+                row.get(2)?, // kind
+                row.get(3)?, // content
+                row.get(4)?, // summary
+                files_changed,
+                row.get(6)?, // confidence
+                row.get(7)?, // tokens
+                row.get(8)?, // created_at
+            ))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn cleanup_context_artifacts_for_run(&self, run_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM context_flow_artifacts WHERE producer_run_id = ?1",
+            params![run_id],
+        ).expect("failed to cleanup context artifacts");
+    }
+
+    pub fn get_context_artifact_stats(&self) -> (usize, std::collections::HashMap<String, usize>, f32) {
+        let conn = self.conn.lock().unwrap();
+
+        // Total count
+        let total: usize = conn
+            .query_row("SELECT COUNT(*) FROM context_flow_artifacts", [], |row| {
+                Ok(row.get::<_, i64>(0)? as usize)
+            })
+            .unwrap_or(0);
+
+        // Count by kind
+        let mut stmt = conn.prepare(
+            "SELECT kind, COUNT(*) FROM context_flow_artifacts GROUP BY kind"
+        ).unwrap();
+        let kind_counts: std::collections::HashMap<String, usize> = stmt
+            .query_map([], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        // Average tokens
+        let avg_tokens: f32 = conn
+            .query_row("SELECT AVG(CAST(tokens AS REAL)) FROM context_flow_artifacts", [], |row| {
+                Ok(row.get::<_, f64>(0)? as f32)
+            })
+            .unwrap_or(0.0);
+
+        (total, kind_counts, avg_tokens)
+    }
+
+    pub fn get_recent_runs_with_artifacts(&self, limit: usize) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT DISTINCT producer_run_id FROM context_flow_artifacts
+             ORDER BY created_at DESC LIMIT ?1"
+        ).unwrap();
+
+        stmt.query_map([limit], |row| {
+            Ok(row.get::<_, String>(0)?)
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
 }
