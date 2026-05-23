@@ -1,10 +1,10 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::Json;
 use futures_core::Stream;
 
 use crate::clerk::ClerkUser;
@@ -77,16 +77,23 @@ pub async fn stream_run(
                         step["risk"] = serde_json::json!(risk);
                         step["objective"] = serde_json::json!(objective);
                     }
-                    if status == "succeeded" {
-                        if let Some(summary) = db.get_step_output_summary(sid) {
-                            step["output_summary"] = serde_json::json!(summary);
-                        }
+                    if let Some(summary) = db.get_step_output_summary(sid) {
+                        step["output_summary"] = serde_json::json!(summary);
                     }
-                    if status == "failed" {
-                        if let Some(err) = db.get_step_last_error(sid) {
-                            step["last_error"] = serde_json::json!(err);
-                        }
+                    if let Some(files) = db
+                        .get_step_files_changed(sid)
+                        .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
+                    {
+                        step["files_changed"] = serde_json::json!(files);
                     }
+                    if let Some(err) = db.get_step_last_error(sid) {
+                        step["last_error"] = serde_json::json!(err);
+                    }
+                    if let Some(verifier) = db.get_latest_verifier_report(sid) {
+                        step["verification_status"] = serde_json::json!(verifier.status);
+                        step["verifier_verdict"] = serde_json::json!(verifier.verdict);
+                        step["verifier_report_id"] = serde_json::json!(verifier.id);
+                        }
                     step
                 }).collect::<Vec<_>>(),
                 "tick": tick,

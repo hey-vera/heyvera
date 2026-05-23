@@ -248,7 +248,38 @@ pub async fn get_run(
         "id": id,
         "goal": goal,
         "steps": steps.iter().map(|(sid, status)| {
-            serde_json::json!({ "id": sid, "status": status })
+            let details = db.get_step_details(sid);
+            let output = db.get_step_output_summary(sid);
+            let files = db
+                .get_step_files_changed(sid)
+                .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok());
+            let error = db.get_step_last_error(sid);
+            let verifier = db.get_latest_verifier_report(sid);
+            let mut step = serde_json::json!({
+                "id": sid,
+                "status": status,
+            });
+            if let Some((kind, tier, risk, objective)) = details {
+                step["kind"] = serde_json::json!(kind);
+                step["tier"] = serde_json::json!(tier);
+                step["risk"] = serde_json::json!(risk);
+                step["objective"] = serde_json::json!(objective);
+            }
+            if let Some(output) = output {
+                step["output_summary"] = serde_json::json!(output);
+            }
+            if let Some(files) = files {
+                step["files_changed"] = serde_json::json!(files);
+            }
+            if let Some(error) = error {
+                step["last_error"] = serde_json::json!(error);
+            }
+            if let Some(verifier) = verifier {
+                step["verification_status"] = serde_json::json!(verifier.status);
+                step["verifier_verdict"] = serde_json::json!(verifier.verdict);
+                step["verifier_report_id"] = serde_json::json!(verifier.id);
+            }
+            step
         }).collect::<Vec<_>>(),
     })))
 }

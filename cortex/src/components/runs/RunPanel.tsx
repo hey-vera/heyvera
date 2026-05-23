@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ExternalLink, GitBranch, GitPullRequest, Loader2, Play, RefreshCcw } from 'lucide-react';
+import { AlertTriangle, ExternalLink, FileText, GitBranch, GitPullRequest, Loader2, Play, RefreshCcw } from 'lucide-react';
 import {
   CortexApiError,
   createRun,
@@ -43,6 +43,16 @@ function statusClass(status: string) {
 
 function stepLabel(step: RunStep, index: number) {
   return step.title || step.objective || step.goal || `Step ${index + 1}`;
+}
+
+function stepDetail(step: RunStep) {
+  if (step.last_error || step.error) return step.last_error || step.error;
+  if (step.output_summary) return step.output_summary;
+  if (step.verification_status) {
+    const verdict = step.verifier_verdict ? ` · ${step.verifier_verdict}` : '';
+    return `${step.verification_status}${verdict}`;
+  }
+  return null;
 }
 
 function getWorkerSignal(run: RunSummary | null) {
@@ -310,15 +320,37 @@ export default function RunPanel({
               run.steps.map((step, index) => (
                 <div
                   key={step.id}
-                  className="flex items-center justify-between gap-2 rounded-lg border border-white/8 bg-white/[0.02] px-2.5 py-2"
+                  className="rounded-lg border border-white/8 bg-white/[0.02] px-2.5 py-2"
                 >
-                  <span className="inline-flex min-w-0 items-center gap-2 text-xs text-[var(--muted-strong)]">
-                    <GitBranch className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
-                    <span className="truncate">{stepLabel(step, index)}</span>
-                  </span>
-                  <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${statusClass(step.status)}`}>
-                    {STATUS_LABELS[step.status] ?? step.status}
-                  </span>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="inline-flex min-w-0 items-center gap-2 text-xs text-[var(--muted-strong)]">
+                      {step.status === 'failed'
+                        ? <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-red-300" />
+                        : <GitBranch className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />}
+                      <span className="truncate">{stepLabel(step, index)}</span>
+                    </span>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${statusClass(step.status)}`}>
+                      {STATUS_LABELS[step.status] ?? step.status}
+                    </span>
+                  </div>
+                  {(stepDetail(step) || (step.files_changed?.length ?? 0) > 0 || step.verification_status) && (
+                    <div className="mt-1.5 space-y-1 pl-5 text-[10px] leading-4 text-[var(--muted)]">
+                      {step.verification_status && (
+                        <div className="truncate">
+                          Verify: {step.verification_status}{step.verifier_verdict ? ` · ${step.verifier_verdict}` : ''}
+                        </div>
+                      )}
+                      {stepDetail(step) && (
+                        <div className="max-h-8 overflow-hidden">{stepDetail(step)}</div>
+                      )}
+                      {(step.files_changed?.length ?? 0) > 0 && (
+                        <div className="inline-flex max-w-full items-center gap-1 text-[var(--muted-strong)]">
+                          <FileText className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{step.files_changed?.slice(0, 3).join(', ')}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))
             )}

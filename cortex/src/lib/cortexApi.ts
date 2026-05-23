@@ -713,8 +713,16 @@ export interface RunStep {
   goal?: string;
   title?: string;
   kind?: string;
+  tier?: string;
+  risk?: string;
   objective?: string;
   error?: string | null;
+  last_error?: string | null;
+  output_summary?: string | null;
+  files_changed?: string[] | null;
+  verification_status?: string | null;
+  verifier_verdict?: string | null;
+  verifier_report_id?: string | null;
   parent_id?: string | null;
 }
 
