@@ -28,5 +28,5 @@ jobs:
         if: ${{ env.ADD_TO_PROJECT_PAT != '' && (github.event_name == 'issues' || github.event_name == 'pull_request') }}
         uses: actions/add-to-project@244f685bbc3b7adfa8466e08b698b5577571133e # v1.0.2
         with:
-          project-url: https://github.com/orgs/claw-net/projects/1
+          project-url: https://github.com/orgs/hey-vera/projects/1
           github-token: ${{ env.ADD_TO_PROJECT_PAT }}

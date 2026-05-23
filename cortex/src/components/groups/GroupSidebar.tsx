@@ -68,7 +68,7 @@ export default function GroupSidebar({
           {groups.map((group) => (
             <NavLink
               key={group.id}
-              to={`/groups/${group.id}/tasks`}
+              to={`/app/groups/${group.id}/tasks`}
               className={({ isActive }) => {
                 const active = isActive || activeGroupId === group.id;
                 return `group flex min-w-0 items-center gap-2 rounded-xl px-2.5 py-2 text-left transition ${

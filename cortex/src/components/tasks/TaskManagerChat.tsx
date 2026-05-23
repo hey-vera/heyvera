@@ -22,6 +22,7 @@ import {
   processMemoryEnhancedChat,
   applyMemorySuggestion,
   createFromAutoCapture,
+  MEMORY_API_ENABLED,
   type MemoryEnhancedChatResponse,
   type LiveMemorySuggestion,
   type AutoCaptureOpportunity,
@@ -358,7 +359,7 @@ export default function TaskManagerChat({
 
   // Process message through memory system
   const processMemory = useCallback(async (message: string) => {
-    if (!message.trim() || isProcessingMemory) return;
+    if (!MEMORY_API_ENABLED || !message.trim() || isProcessingMemory) return;
 
     try {
       setIsProcessingMemory(true);

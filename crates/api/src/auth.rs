@@ -9,8 +9,28 @@ use tokio::process::Command;
 
 use cortex_core::provider::{ProviderId, ProviderStatus, Tier};
 
+use crate::clerk::ClerkUser;
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
+
+fn require_admin(state: &AppState, user: &ClerkUser) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    let provider_auth_enabled = std::env::var("CORTEX_PROVIDER_AUTH_ENABLED")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+    if !provider_auth_enabled {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse { error: "provider auth management is disabled".into() }),
+        ));
+    }
+    if crate::admin::is_admin(state, &user.user_id) {
+        return Ok(());
+    }
+    Err((
+        StatusCode::FORBIDDEN,
+        Json(ErrorResponse { error: "admin access required".into() }),
+    ))
+}
 
 #[derive(Serialize)]
 pub struct ProviderAuthInfo {
@@ -75,8 +95,10 @@ pub async fn auth_status() -> Json<Vec<ProviderAuthInfo>> {
 
 pub async fn auth_start(
     State(state): State<Arc<AppState>>,
+    user: ClerkUser,
     Json(req): Json<AuthStartRequest>,
 ) -> Result<Json<AuthStartResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&state, &user)?;
     let provider = req.provider.to_lowercase();
 
     match provider.as_str() {
@@ -93,8 +115,10 @@ pub async fn auth_start(
 
 pub async fn auth_submit(
     State(state): State<Arc<AppState>>,
+    user: ClerkUser,
     Json(req): Json<AuthSubmitRequest>,
 ) -> Result<Json<AuthSubmitResponse>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&state, &user)?;
     let provider = req.provider.to_lowercase();
 
     let mut pending = state.pending_auths.write().await;
@@ -160,7 +184,9 @@ pub async fn auth_submit(
 
 pub async fn auth_refresh(
     State(state): State<Arc<AppState>>,
-) -> Json<Vec<ProviderAuthInfo>> {
+    user: ClerkUser,
+) -> Result<Json<Vec<ProviderAuthInfo>>, (StatusCode, Json<ErrorResponse>)> {
+    require_admin(&state, &user)?;
     let mut providers = state.providers.write().await;
     providers.clear();
 
@@ -185,7 +211,7 @@ pub async fn auth_refresh(
     }
 
     drop(providers);
-    auth_status().await
+    Ok(auth_status().await)
 }
 
 async fn check_claude_auth() -> Option<ProviderAuthInfo> {

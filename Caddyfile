@@ -58,6 +58,16 @@ cortex.heyvera.org {
 	}
 }
 
+api.heyvera.org {
+	reverse_proxy localhost:3001
+
+	header {
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy strict-origin-when-cross-origin
+	}
+}
+
 api.claw-net.org {
 	reverse_proxy localhost:3402
 }

@@ -1,7 +1,8 @@
 import type { ChatSessionControls, CortexState, RunProfile, SovereigntyLoopState, TaskManagerState } from '../types';
 
 const CONFIGURED_API_BASE = import.meta.env.VITE_CORTEX_API as string | undefined;
-const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : '');
+const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.heyvera.org');
+export const MEMORY_API_ENABLED = import.meta.env.VITE_CORTEX_MEMORY_ENABLED === 'true';
 
 function apiUrl(path: string) {
   const base = BASE_URL.replace(/\/$/, '');
@@ -938,6 +939,10 @@ export interface MemorySuggestion {
 }
 
 export async function getMemoryStats(workspaceId = 'default'): Promise<MemoryStats> {
+  if (!MEMORY_API_ENABLED) {
+    void workspaceId;
+    return { total: 0, policies: 0, team_rules: 0, notes: 0, avg_effectiveness: 0 };
+  }
   return requestJson<MemoryStats>(`/api/memory/stats?workspace_id=${encodeURIComponent(workspaceId)}`);
 }
 
@@ -947,6 +952,13 @@ export async function listMemories(
   limit = 20,
   offset = 0,
 ): Promise<WorkspaceMemory[]> {
+  if (!MEMORY_API_ENABLED) {
+    void workspaceId;
+    void importanceFilter;
+    void limit;
+    void offset;
+    return [];
+  }
   const params = new URLSearchParams({
     workspace_id: workspaceId,
     limit: limit.toString(),
@@ -963,6 +975,12 @@ export async function searchMemories(
   workspaceId = 'default',
   limit = 10,
 ): Promise<MemoryMatch[]> {
+  if (!MEMORY_API_ENABLED) {
+    void query;
+    void workspaceId;
+    void limit;
+    return [];
+  }
   return requestJson<MemoryMatch[]>('/api/memory/memories/search', {
     method: 'POST',
     body: JSON.stringify({
@@ -980,6 +998,9 @@ export async function storeMemory(
   contextTrigger?: string,
   tags?: string[],
 ): Promise<WorkspaceMemory> {
+  if (!MEMORY_API_ENABLED) {
+    throw new CortexApiError(501, 'Cortex memory is not enabled.');
+  }
   return requestJson<WorkspaceMemory>('/api/memory/memories', {
     method: 'POST',
     body: JSON.stringify({
@@ -993,6 +1014,11 @@ export async function storeMemory(
 }
 
 export async function removeMemories(pattern: string, workspaceId = 'default'): Promise<{ count: number }> {
+  if (!MEMORY_API_ENABLED) {
+    void pattern;
+    void workspaceId;
+    return { count: 0 };
+  }
   return requestJson<{ count: number }>('/api/memory/remove', {
     method: 'DELETE',
     body: JSON.stringify({
@@ -1009,6 +1035,10 @@ export async function getMemorySuggestions(
     recentMessages?: string[];
   },
 ): Promise<MemorySuggestion[]> {
+  if (!MEMORY_API_ENABLED) {
+    void context;
+    return [];
+  }
   return requestJson<MemorySuggestion[]>('/api/memory/suggestions', {
     method: 'POST',
     body: JSON.stringify(context || {}),
@@ -1019,6 +1049,11 @@ export async function updateMemoryEffectiveness(
   memoryId: string,
   outcomeQuality: number,
 ): Promise<void> {
+  if (!MEMORY_API_ENABLED) {
+    void memoryId;
+    void outcomeQuality;
+    return;
+  }
   await authedFetch(apiUrl(`/api/memory/memories/${encodeURIComponent(memoryId)}/effectiveness`), {
     method: 'POST',
     body: JSON.stringify({ outcome_quality: outcomeQuality }),
@@ -1075,6 +1110,20 @@ export interface AutoCaptureOpportunity {
 export async function processMemoryEnhancedChat(
   request: MemoryEnhancedChatRequest
 ): Promise<MemoryEnhancedChatResponse> {
+  if (!MEMORY_API_ENABLED) {
+    void request;
+    return {
+      relevant_memories: [],
+      live_suggestions: [],
+      memory_stats: {
+        total_memories: 0,
+        avg_effectiveness: 0,
+        recent_activity: 0,
+        context_quality: 0,
+      },
+      enhanced_context: '',
+    };
+  }
   return requestJson<MemoryEnhancedChatResponse>('/api/memory/chat/process', {
     method: 'POST',
     body: JSON.stringify({
@@ -1103,6 +1152,10 @@ export async function processMemoryEnhancedChat(
 }
 
 export async function applyMemorySuggestion(suggestionId: string): Promise<void> {
+  if (!MEMORY_API_ENABLED) {
+    void suggestionId;
+    return;
+  }
   return requestJson<void>(`/api/memory/chat/suggestions/${encodeURIComponent(suggestionId)}/apply`, {
     method: 'POST',
   });
@@ -1112,6 +1165,9 @@ export async function createFromAutoCapture(
   opportunity: AutoCaptureOpportunity,
   workspaceId = 'default'
 ): Promise<WorkspaceMemory> {
+  if (!MEMORY_API_ENABLED) {
+    throw new CortexApiError(501, 'Cortex memory is not enabled.');
+  }
   return requestJson<WorkspaceMemory>('/api/memory/chat/auto-capture', {
     method: 'POST',
     body: JSON.stringify({

@@ -2,6 +2,7 @@ import { ArrowRight, ArrowUp, Square, Brain } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import MemorySuggestions from './MemorySuggestions';
+import { MEMORY_API_ENABLED } from '../../lib/cortexApi';
 
 interface ChatComposerProps {
   draft: string;
@@ -35,7 +36,8 @@ export default function ChatComposer({
   const [showMemorySuggestions, setShowMemorySuggestions] = useState(false);
 
   // Check if the current draft looks like a memory command
-  const isMemoryCommand = /\b(remember|recall|forget|store|save|what did|list memories)\b/.test(draft.toLowerCase());
+  const isMemoryCommand = MEMORY_API_ENABLED
+    && /\b(remember|recall|forget|store|save|what did|list memories)\b/.test(draft.toLowerCase());
 
   useEffect(() => {
     const textarea = textareaRef.current;
@@ -112,16 +114,17 @@ export default function ChatComposer({
 
   return (
     <form className="border-t border-white/6 p-3 sm:p-4 relative" onSubmit={handleSubmit}>
-      {/* Memory Suggestions */}
-      <MemorySuggestions
-        currentInput={draft}
-        context={{
-          files: currentFiles,
-          recentMessages,
-        }}
-        onSelect={handleMemorySuggestionSelect}
-        visible={showMemorySuggestions}
-      />
+      {MEMORY_API_ENABLED && (
+        <MemorySuggestions
+          currentInput={draft}
+          context={{
+            files: currentFiles,
+            recentMessages,
+          }}
+          onSelect={handleMemorySuggestionSelect}
+          visible={showMemorySuggestions}
+        />
+      )}
 
       <div className="rounded-[24px] border border-white/8 bg-[var(--composer)] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
         <textarea
@@ -136,7 +139,7 @@ export default function ChatComposer({
         />
         <div className="flex items-center justify-between px-1 pb-1">
           {/* Memory Indicator */}
-          {showMemoryIndicator && (
+          {showMemoryIndicator && MEMORY_API_ENABLED && (
             <div className="flex items-center gap-2">
               {isMemoryCommand ? (
                 <div className="flex items-center gap-1 text-xs text-[var(--accent)]">

@@ -9,6 +9,7 @@ import {
   processMemoryEnhancedChat,
   applyMemorySuggestion,
   createFromAutoCapture,
+  MEMORY_API_ENABLED,
   type MemoryEnhancedChatResponse,
   type LiveMemorySuggestion,
   type AutoCaptureOpportunity,
@@ -186,7 +187,7 @@ export default function ProjectChat({
 
   // Process message through memory system
   const processMemory = useCallback(async (message: string) => {
-    if (!message.trim() || isProcessingMemory) return;
+    if (!MEMORY_API_ENABLED || !message.trim() || isProcessingMemory) return;
 
     try {
       setIsProcessingMemory(true);
@@ -279,9 +280,8 @@ export default function ProjectChat({
 
           <div className="flex items-center gap-2">
             {/* Memory Status Compact */}
-            <MemoryStatus workspaceId={group.id} compact />
+            {MEMORY_API_ENABLED && <MemoryStatus workspaceId={`project_${group.id}`} compact />}
 
-            {/* Memory Intelligence Toggle */}
             {memoryData && (
               <button
                 type="button"
@@ -295,15 +295,16 @@ export default function ProjectChat({
               </button>
             )}
 
-            {/* Memory Management Button */}
-            <button
-              onClick={() => setShowMemoryManagement(true)}
-              className="flex items-center gap-1 px-2 py-1 text-xs bg-white/5 border border-white/10 rounded-md hover:bg-white/10 transition-colors"
-              title="Manage memories"
-            >
-              <Brain className="h-3 w-3" />
-              <Settings className="h-3 w-3" />
-            </button>
+            {MEMORY_API_ENABLED && (
+              <button
+                onClick={() => setShowMemoryManagement(true)}
+                className="flex items-center gap-1 px-2 py-1 text-xs bg-white/5 border border-white/10 rounded-md hover:bg-white/10 transition-colors"
+                title="Manage memories"
+              >
+                <Brain className="h-3 w-3" />
+                <Settings className="h-3 w-3" />
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -330,7 +331,7 @@ export default function ProjectChat({
       )}
 
       {/* Context-aware memory prompts */}
-      {shouldShowContextPrompts && (
+      {MEMORY_API_ENABLED && shouldShowContextPrompts && (
         <div className="px-4 pb-2">
           <ContextMemoryPrompts
             context={{
@@ -359,9 +360,9 @@ export default function ProjectChat({
       />
 
       {/* Memory Management Modal */}
-      {showMemoryManagement && (
+      {MEMORY_API_ENABLED && showMemoryManagement && (
         <MemoryManagement
-          workspaceId={group.id}
+          workspaceId={`project_${group.id}`}
           onClose={() => setShowMemoryManagement(false)}
         />
       )}

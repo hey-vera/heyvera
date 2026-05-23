@@ -100,6 +100,11 @@ function isFreeTierAccessState(accessState: BillingAccessState | undefined) {
   return Boolean(accessState && FREE_TIER_ACCESS_STATES.has(accessState));
 }
 
+function LegacyGroupRedirect() {
+  const { groupId } = useParams();
+  return <Navigate to={`/app/groups/${groupId ?? DEFAULT_GROUPS[0].id}/tasks`} replace />;
+}
+
 function FreeTierBanner({
   accessState,
   onOpenBilling,
@@ -724,30 +729,32 @@ function CortexShell() {
             draft={draft}
             isStreaming={isStreaming}
             isLoadingConversation={isLoadingConversation}
-            needsSubscription={false}
+            needsSubscription={runtimeLocked}
             onDraftChange={setDraft}
             onSend={sendMessage}
             onStop={isStreaming ? stopStreaming : undefined}
-            onSubscribe={() => setCheckoutOpen(true)}
+            onSubscribe={() => handleOpenSettings('billing')}
             onApprovalAction={updateApproval}
           />
 
-          <TaskManagerSidebar
-            group={activeGroup}
-            userId={userId ?? 'local'}
-            activeConversationId={activeConversationId}
-            messages={messages}
-            draft={draft}
-            isStreaming={isStreaming}
-            isLoadingConversation={isLoadingConversation}
-            needsSubscription={false}
-            onDraftChange={setDraft}
-            onSend={sendMessage}
-            onStop={isStreaming ? stopStreaming : undefined}
-            onSubscribe={() => setCheckoutOpen(true)}
-            onApprovalAction={updateApproval}
-            onTaskStateChange={setTaskState}
-          />
+          <div className="hidden lg:flex">
+            <TaskManagerSidebar
+              group={activeGroup}
+              userId={userId ?? 'local'}
+              activeConversationId={activeConversationId}
+              messages={messages}
+              draft={draft}
+              isStreaming={isStreaming}
+              isLoadingConversation={isLoadingConversation}
+              needsSubscription={runtimeLocked}
+              onDraftChange={setDraft}
+              onSend={sendMessage}
+              onStop={isStreaming ? stopStreaming : undefined}
+              onSubscribe={() => handleOpenSettings('billing')}
+              onApprovalAction={updateApproval}
+              onTaskStateChange={setTaskState}
+            />
+          </div>
         </div>
       </div>
 
@@ -831,7 +838,7 @@ export default function App() {
         <Route path="/app" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
         <Route path="/app/groups/:groupId/tasks" element={<CortexShell />} />
         {/* Legacy redirects */}
-        <Route path="/groups/:groupId/tasks" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+        <Route path="/groups/:groupId/tasks" element={<LegacyGroupRedirect />} />
         <Route path="*" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
       </Routes>
     </BrowserRouter>
