@@ -59,6 +59,27 @@ pub struct ActiveRunSummary {
     pub steps_failed: usize,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VerifierReport {
+    pub id: String,
+    pub step_id: String,
+    pub run_id: String,
+    pub lease_gen: i64,
+    pub worker_id: Option<String>,
+    pub verifier: String,
+    pub status: String,
+    pub verdict: String,
+    pub evidence_json: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl VerifierReport {
+    pub fn is_verified_success(&self) -> bool {
+        self.status == "verified" && self.verdict == "pass"
+    }
+}
+
 // --- Billing types ---
 
 pub struct SubscriptionRecord {
@@ -121,7 +142,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 12;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -166,6 +187,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 11 {
         migrate_v11(conn);
+    }
+    if current < 12 {
+        migrate_v12(conn);
     }
 }
 
@@ -708,6 +732,47 @@ fn migrate_v11(conn: &Connection) {
     ).expect("migration v11 failed");
 
     tracing::info!("applied migration v11: context_flow_artifacts table for AI model context pipeline");
+}
+
+fn migrate_v12(conn: &Connection) {
+    conn.execute(
+        "ALTER TABLE steps ADD COLUMN verification_status TEXT NOT NULL DEFAULT 'unverified'",
+        [],
+    ).ok();
+    conn.execute(
+        "ALTER TABLE steps ADD COLUMN verifier_report_id TEXT",
+        [],
+    ).ok();
+    conn.execute(
+        "ALTER TABLE steps ADD COLUMN verified_at INTEGER",
+        [],
+    ).ok();
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS verifier_reports (
+            id TEXT PRIMARY KEY,
+            step_id TEXT NOT NULL REFERENCES steps(id),
+            run_id TEXT NOT NULL REFERENCES runs(id),
+            lease_gen INTEGER NOT NULL,
+            worker_id TEXT,
+            verifier TEXT NOT NULL,
+            status TEXT NOT NULL,
+            verdict TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_verifier_reports_step
+            ON verifier_reports(step_id, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_verifier_reports_run
+            ON verifier_reports(run_id, created_at DESC);
+
+        UPDATE schema_version SET version = 12;"
+    ).expect("migration v12 failed");
+
+    tracing::info!("applied migration v12: verifier reports and step verification status");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -2020,6 +2085,89 @@ impl Database {
             params![step_id],
             |row| row.get::<_, Option<String>>(0),
         ).ok().flatten()
+    }
+
+    pub fn record_verifier_report(
+        &self,
+        step_id: &str,
+        run_id: &str,
+        lease_gen: i64,
+        worker_id: Option<&str>,
+        verifier: &str,
+        status: &str,
+        verdict: &str,
+        evidence_json: &str,
+    ) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().timestamp_millis();
+        conn.execute(
+            "INSERT INTO verifier_reports (
+                id, step_id, run_id, lease_gen, worker_id, verifier, status, verdict,
+                evidence_json, created_at, updated_at
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
+            params![
+                id,
+                step_id,
+                run_id,
+                lease_gen,
+                worker_id,
+                verifier,
+                status,
+                verdict,
+                evidence_json,
+                now
+            ],
+        ).ok()?;
+
+        let step_verification_status = match (status, verdict) {
+            ("verified", "pass") => "verified_pass",
+            ("verified", "fail") => "verified_fail",
+            ("verified", "blocked") => "verified_blocked",
+            ("needs_evidence", _) => "needs_evidence",
+            ("error", _) => "verification_error",
+            _ => "unverified",
+        };
+        let verified_at = if status == "verified" { Some(now) } else { None };
+
+        conn.execute(
+            "UPDATE steps
+             SET verification_status = ?1,
+                 verifier_report_id = ?2,
+                 verified_at = ?3,
+                 updated_at = ?4
+             WHERE id = ?5",
+            params![step_verification_status, id, verified_at, now, step_id],
+        ).ok();
+
+        Some(id)
+    }
+
+    pub fn get_latest_verifier_report(&self, step_id: &str) -> Option<VerifierReport> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, step_id, run_id, lease_gen, worker_id, verifier, status, verdict,
+                    evidence_json, created_at, updated_at
+             FROM verifier_reports
+             WHERE step_id = ?1
+             ORDER BY created_at DESC
+             LIMIT 1",
+            params![step_id],
+            |row| Ok(VerifierReport {
+                id: row.get(0)?,
+                step_id: row.get(1)?,
+                run_id: row.get(2)?,
+                lease_gen: row.get(3)?,
+                worker_id: row.get(4)?,
+                verifier: row.get(5)?,
+                status: row.get(6)?,
+                verdict: row.get(7)?,
+                evidence_json: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            }),
+        ).ok()
     }
 
     pub fn get_run_profile(&self, run_id: &str) -> Option<String> {

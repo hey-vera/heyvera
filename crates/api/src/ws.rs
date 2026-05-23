@@ -11,8 +11,13 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use cortex_core::failure::WorkerFailureKind;
-use cortex_core::protocol::{BrainMessage, WorkerMessage, PROTOCOL_VERSION};
+use cortex_core::protocol::{BrainMessage, StepOutput, WorkerMessage, PROTOCOL_VERSION};
+use cortex_core::routing::RiskLevel;
 use cortex_engine::captain::SchedulerEvent;
+use cortex_engine::verifier::{
+    verify_step, CommandEvidence as VerifierCommandEvidence, StructuredStepEvidence,
+    VerifierInput, VerifierVerdict, VerifierWorkContract,
+};
 
 use crate::clerk;
 use crate::mission_control::MissionControlEvent;
@@ -354,6 +359,7 @@ async fn handle_worker_msg(
         WorkerMessage::StepCompleted {
             message_id,
             step_id,
+            attempt_id,
             lease_gen,
             exit_code,
             output,
@@ -385,58 +391,146 @@ async fn handle_worker_msg(
             } else {
                 output.summary.clone()
             };
+            let mut completion_accepted = false;
+            let mut completion_error = "step failed before verification".to_string();
             if let Some(db) = &state.db {
-                let step_updated = db.complete_step(
+                // Record usage for pressure tracking
+                record_step_usage(
+                    db,
                     &step_id,
                     lease_gen,
-                    Some(&truncated_summary),
-                    files_json.as_deref(),
-                    base_commit.as_deref(),
-                    head_commit.as_deref(),
+                    authed_user_id.as_deref(),
+                    output.tokens_in,
+                    output.tokens_out,
                 );
-                if !step_updated {
-                    tracing::warn!(
-                        "complete_step returned false for step {step_id} lease_gen={lease_gen} — \
-                         likely stale lease_gen (step may have been re-leased or already completed)"
-                    );
-                }
-                db.complete_attempt(&step_id, lease_gen);
 
-                // Record usage for pressure tracking
-                record_step_usage(db, &step_id, lease_gen, authed_user_id.as_deref(), output.tokens_in, output.tokens_out);
+                let resolved_run_id = resolve_run_id(step_run_cache, state, &step_id);
+                let mut verified_success = exit_code == 0;
+                let mut verifier_failure = String::new();
 
-                if let Some(run_id) = resolve_run_id(step_run_cache, state, &step_id) {
-                    // If this step produced a branch, record it on the run
-                    if let Some(ref branch_name) = branch {
-                        db.record_run_branch(&run_id, branch_name);
+                if let Some(run_id) = resolved_run_id.as_deref() {
+                    let (verifier_status, verifier_verdict, evidence_json, report_passed) =
+                        verify_worker_completion(
+                            db,
+                            run_id,
+                            &step_id,
+                            &attempt_id,
+                            lease_gen,
+                            worker_id,
+                            exit_code,
+                            &output,
+                            base_commit.as_deref(),
+                            head_commit.as_deref(),
+                            branch.as_deref(),
+                            &truncated_summary,
+                            &message_id,
+                        );
+
+                    verified_success = report_passed;
+                    if !report_passed {
+                        verifier_failure = format!(
+                            "verifier rejected worker completion: status={verifier_status}, verdict={verifier_verdict}"
+                        );
                     }
 
-                    state
-                        .emit_scheduler_event(SchedulerEvent::StepCompleted {
-                            run_id: run_id.clone(),
-                            step_id: step_id.clone(),
-                            cost_estimate: output.cost_estimate,
-                        })
-                        .await;
+                    db.record_verifier_report(
+                        &step_id,
+                        run_id,
+                        lease_gen,
+                        Some(worker_id),
+                        "engine_verifier",
+                        &verifier_status,
+                        &verifier_verdict,
+                        &evidence_json,
+                    );
+                } else {
+                    verifier_failure = "verifier could not resolve run for completed step".to_string();
+                    verified_success = false;
+                }
 
-                    // Emit MC event
-                    if let Some(user_id) = authed_user_id.as_deref() {
+                if verified_success {
+                    let step_updated = db.complete_step(
+                        &step_id,
+                        lease_gen,
+                        Some(&truncated_summary),
+                        files_json.as_deref(),
+                        base_commit.as_deref(),
+                        head_commit.as_deref(),
+                    );
+                    if !step_updated {
+                        tracing::warn!(
+                            "complete_step returned false for step {step_id} lease_gen={lease_gen} — \
+                             likely stale lease_gen (step may have been re-leased or already completed)"
+                        );
+                    }
+                    db.complete_attempt(&step_id, lease_gen);
+                } else {
+                    if verifier_failure.is_empty() {
+                        verifier_failure = "verifier rejected worker completion".to_string();
+                    }
+                    completion_error = verifier_failure.clone();
+                    db.fail_step(&step_id, lease_gen, &verifier_failure, Some("VerifierRejected"));
+                    db.fail_attempt(&step_id, lease_gen, Some("VerifierRejected"), Some(&verifier_failure));
+                }
+                completion_accepted = verified_success;
+
+                if let Some(run_id) = resolved_run_id {
+                    // If this step produced a branch, record it on the run
+                    if verified_success {
+                        if let Some(ref branch_name) = branch {
+                            db.record_run_branch(&run_id, branch_name);
+                        }
+                    }
+
+                    if verified_success {
                         state
-                            .emit_mc_event(
-                                user_id,
-                                MissionControlEvent::StepCompleted {
-                                    run_id: run_id.clone(),
-                                    step_id: step_id.clone(),
-                                    exit_code,
-                                    files_changed: output.files_changed.clone(),
-                                    cost_estimate: output.cost_estimate,
-                                },
-                            )
+                            .emit_scheduler_event(SchedulerEvent::StepCompleted {
+                                run_id: run_id.clone(),
+                                step_id: step_id.clone(),
+                                cost_estimate: output.cost_estimate,
+                            })
+                            .await;
+                    } else {
+                        state
+                            .emit_scheduler_event(SchedulerEvent::StepFailed {
+                                run_id: run_id.clone(),
+                                step_id: step_id.clone(),
+                            })
                             .await;
                     }
 
+                    // Emit MC event
+                    if let Some(user_id) = authed_user_id.as_deref() {
+                        if verified_success {
+                            state
+                                .emit_mc_event(
+                                    user_id,
+                                    MissionControlEvent::StepCompleted {
+                                        run_id: run_id.clone(),
+                                        step_id: step_id.clone(),
+                                        exit_code,
+                                        files_changed: output.files_changed.clone(),
+                                        cost_estimate: output.cost_estimate,
+                                    },
+                                )
+                                .await;
+                        } else {
+                            state
+                                .emit_mc_event(
+                                    user_id,
+                                    MissionControlEvent::StepFailed {
+                                        run_id: run_id.clone(),
+                                        step_id: step_id.clone(),
+                                        error: verifier_failure.clone(),
+                                        failure_kind: "VerifierRejected".to_string(),
+                                    },
+                                )
+                                .await;
+                        }
+                    }
+
                     // Add artifact to Context-Flow Pipeline for future steps
-                    let artifact_kind = if exit_code == 0 {
+                    let artifact_kind = if verified_success {
                         // Determine artifact type based on output content
                         if !output.files_changed.is_empty() {
                             ArtifactKind::Code
@@ -451,7 +545,7 @@ async fn handle_worker_msg(
                         ArtifactKind::Error
                     };
 
-                    let confidence = if exit_code == 0 { 0.8 } else { 0.1 };
+                    let confidence = if verified_success { 0.8 } else { 0.1 };
 
                     let artifact = ContextBus::create_artifact(
                         &step_id,
@@ -470,22 +564,33 @@ async fn handle_worker_msg(
 
                 // Vera observes the completed step
                 if let Some(user_id) = authed_user_id.as_deref() {
-                    let duration_ms = if let Some((_, _, started_at)) = db.get_attempt_provider_model(&step_id, lease_gen) {
-                        let now = chrono::Utc::now().timestamp_millis();
-                        (now - started_at).max(0) as u64
+                    if verified_success {
+                        let duration_ms = if let Some((_, _, started_at)) = db.get_attempt_provider_model(&step_id, lease_gen) {
+                            let now = chrono::Utc::now().timestamp_millis();
+                            (now - started_at).max(0) as u64
+                        } else {
+                            0
+                        };
+                        state.vera_tracker.record_step_completed(user_id, duration_ms, exit_code, None);
                     } else {
-                        0
-                    };
-                    state.vera_tracker.record_step_completed(user_id, duration_ms, exit_code, None);
+                        state.vera_tracker.record_step_failed(user_id, "VerifierRejected", None);
+                    }
                 }
             }
 
             // Forward to SSE channel (chat endpoint)
             if let Some(tx) = state.get_step_sender(&step_id).await {
-                let _ = tx.send(StepEvent::Completed {
-                    step_id: step_id.clone(),
-                    exit_code,
-                }).await;
+                if completion_accepted {
+                    let _ = tx.send(StepEvent::Completed {
+                        step_id: step_id.clone(),
+                        exit_code,
+                    }).await;
+                } else {
+                    let _ = tx.send(StepEvent::Failed {
+                        step_id: step_id.clone(),
+                        error: completion_error,
+                    }).await;
+                }
             }
             state.remove_step_sender(&step_id).await;
         }
@@ -618,6 +723,134 @@ async fn handle_worker_msg(
         }
 
         WorkerMessage::Pong => {}
+    }
+}
+
+fn verify_worker_completion(
+    db: &crate::db::Database,
+    run_id: &str,
+    step_id: &str,
+    attempt_id: &str,
+    lease_gen: i64,
+    worker_id: &str,
+    exit_code: i32,
+    output: &StepOutput,
+    base_commit: Option<&str>,
+    head_commit: Option<&str>,
+    branch: Option<&str>,
+    truncated_summary: &str,
+    message_id: &str,
+) -> (String, String, String, bool) {
+    let (risk, objective) = db
+        .get_step_details(step_id)
+        .map(|(_, _, risk, objective)| (parse_verifier_risk(&risk), objective))
+        .unwrap_or((RiskLevel::Medium, String::new()));
+
+    let commands = output
+        .evidence
+        .as_ref()
+        .map(|packet| {
+            vec![VerifierCommandEvidence {
+                command: "worker_step".to_string(),
+                exit_code: Some(packet.command.exit_code),
+                summary: packet
+                    .command
+                    .log_summary
+                    .clone()
+                    .or_else(|| packet.command.stderr_excerpt.clone()),
+            }]
+        })
+        .unwrap_or_else(|| {
+            vec![VerifierCommandEvidence {
+                command: "worker_step".to_string(),
+                exit_code: Some(exit_code),
+                summary: Some(truncated_summary.to_string()),
+            }]
+        });
+
+    let git = output.evidence.as_ref().and_then(|packet| packet.git.as_ref());
+    let evidence = StructuredStepEvidence {
+        step_id: Some(step_id.to_string()),
+        attempt_id: Some(attempt_id.to_string()),
+        summary: output.summary.clone(),
+        exit_code: Some(exit_code),
+        files_changed: output.files_changed.clone(),
+        base_commit: git
+            .and_then(|evidence| evidence.base_commit.clone())
+            .or_else(|| base_commit.map(str::to_string)),
+        head_commit: git
+            .and_then(|evidence| evidence.head_commit.clone())
+            .or_else(|| head_commit.map(str::to_string)),
+        commands,
+        checks: Vec::new(),
+        signals: Vec::new(),
+    };
+
+    let input = VerifierInput {
+        contract: VerifierWorkContract {
+            task_id: None,
+            objective,
+            risk,
+            acceptance_criteria: Vec::new(),
+            allowed_paths: db.get_run_file_paths(run_id),
+            expected_base_commit: None,
+        },
+        evidence,
+    };
+
+    let report = verify_step(input.clone());
+    let status = verifier_status(report.verdict).to_string();
+    let verdict = verifier_verdict(report.verdict).to_string();
+    let passed = report.verdict.is_success();
+    let evidence_json = serde_json::json!({
+        "source": "engine_verifier",
+        "message_id": message_id,
+        "step_id": step_id,
+        "run_id": run_id,
+        "lease_gen": lease_gen,
+        "worker_id": worker_id,
+        "worker_completed": {
+            "exit_code": exit_code,
+            "summary": truncated_summary,
+            "files_changed": output.files_changed.clone(),
+            "base_commit": base_commit,
+            "head_commit": head_commit,
+            "branch": branch,
+            "cost_estimate": output.cost_estimate,
+            "structured": output.structured.clone(),
+        },
+        "verifier_input": input,
+        "verifier_report": report,
+    })
+    .to_string();
+
+    (status, verdict, evidence_json, passed)
+}
+
+fn parse_verifier_risk(risk: &str) -> RiskLevel {
+    match risk.to_ascii_lowercase().as_str() {
+        "low" => RiskLevel::Low,
+        "high" => RiskLevel::High,
+        "critical" => RiskLevel::Critical,
+        _ => RiskLevel::Medium,
+    }
+}
+
+fn verifier_status(verdict: VerifierVerdict) -> &'static str {
+    match verdict {
+        VerifierVerdict::Success | VerifierVerdict::Failed | VerifierVerdict::Blocked => {
+            "verified"
+        }
+        VerifierVerdict::NeedsEvidence => "needs_evidence",
+    }
+}
+
+fn verifier_verdict(verdict: VerifierVerdict) -> &'static str {
+    match verdict {
+        VerifierVerdict::Success => "pass",
+        VerifierVerdict::NeedsEvidence => "needs_evidence",
+        VerifierVerdict::Failed => "fail",
+        VerifierVerdict::Blocked => "blocked",
     }
 }
 

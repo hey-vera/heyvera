@@ -104,7 +104,26 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             if let Some(db) = &state.db {
                 let user_id = get_run_user(db, run_id);
                 sched.mark_step_done(&user_id);
-                update_bandit_from_outcome(state, db, step_id, true, *cost_estimate).await;
+                match db.get_latest_verifier_report(step_id) {
+                    Some(report) if report.is_verified_success() => {
+                        update_bandit_from_outcome(state, db, step_id, true, *cost_estimate).await;
+                    }
+                    Some(report) => {
+                        tracing::info!(
+                            step_id = %step_id,
+                            report_id = %report.id,
+                            status = %report.status,
+                            verdict = %report.verdict,
+                            "skipping positive bandit reward for unverified step completion"
+                        );
+                    }
+                    None => {
+                        tracing::info!(
+                            step_id = %step_id,
+                            "skipping positive bandit reward for step completion without verifier report"
+                        );
+                    }
+                }
             }
             load_ready_steps_for_run(state, sched, run_id).await;
             check_run_done(state, run_id).await;

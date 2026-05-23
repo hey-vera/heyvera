@@ -5,6 +5,8 @@
 //! are included here.  The full `Database` struct retains all ~100 methods;
 //! consumers that need SQLite-specific helpers can still use `Database` directly.
 
+use crate::db::VerifierReport;
+
 /// Core storage operations required by the Cortex scheduler and API routes.
 ///
 /// Implementors must be `Send + Sync` so the trait object can live inside
@@ -82,6 +84,22 @@ pub trait Storage: Send + Sync {
 
     /// Check that `worker_id` currently holds the lease on `step_id`.
     fn verify_step_worker(&self, step_id: &str, worker_id: &str) -> bool;
+
+    /// Persist verifier output or a placeholder report for a worker completion.
+    fn record_verifier_report(
+        &self,
+        step_id: &str,
+        run_id: &str,
+        lease_gen: i64,
+        worker_id: Option<&str>,
+        verifier: &str,
+        status: &str,
+        verdict: &str,
+        evidence_json: &str,
+    ) -> Option<String>;
+
+    /// Return the latest verifier report for a step, if any.
+    fn get_latest_verifier_report(&self, step_id: &str) -> Option<VerifierReport>;
 
     // ── Usage ──────────────────────────────────────────────────────────
 
@@ -195,6 +213,34 @@ impl Storage for Database {
 
     fn verify_step_worker(&self, step_id: &str, worker_id: &str) -> bool {
         Database::verify_step_worker(self, step_id, worker_id)
+    }
+
+    fn record_verifier_report(
+        &self,
+        step_id: &str,
+        run_id: &str,
+        lease_gen: i64,
+        worker_id: Option<&str>,
+        verifier: &str,
+        status: &str,
+        verdict: &str,
+        evidence_json: &str,
+    ) -> Option<String> {
+        Database::record_verifier_report(
+            self,
+            step_id,
+            run_id,
+            lease_gen,
+            worker_id,
+            verifier,
+            status,
+            verdict,
+            evidence_json,
+        )
+    }
+
+    fn get_latest_verifier_report(&self, step_id: &str) -> Option<VerifierReport> {
+        Database::get_latest_verifier_report(self, step_id)
     }
 
     fn record_usage(
