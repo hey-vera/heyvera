@@ -133,12 +133,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Chat intelligence
         .route("/api/chat/suggestions", get(chat::chat_suggestions))
         .route("/api/chat/options", post(chat::chat_options))
-        // Flow orchestration test endpoint
-        .route("/api/flow/test", post(orchestrator::test_flow))
+        // Flow orchestration test endpoint (disabled)
         .route("/api/conversations", post(conversations::create_conversation))
         .route("/api/conversations/{id}/messages", post(conversations::add_message))
-        // Memory system (organizational intelligence)
-        .merge(memory::routes::memory_routes())
+        // Memory system (organizational intelligence) - disabled
         // Context-Flow debugging endpoints
         .route("/api/context/runs/:run_id/artifacts", get(context_api::list_artifacts_for_run))
         .route("/api/context/runs/:run_id/context", get(context_api::preview_context_for_run))
