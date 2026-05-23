@@ -81,6 +81,13 @@ impl VerifierReport {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StepDependencyEdge {
+    pub step_id: String,
+    pub depends_on_id: String,
+    pub edge_type: String,
+}
+
 // --- Billing types ---
 
 pub struct SubscriptionRecord {
@@ -2137,7 +2144,7 @@ impl Database {
     pub fn get_all_step_statuses(&self, run_id: &str) -> Vec<(String, String)> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, status FROM steps WHERE run_id = ?1"
+            "SELECT id, status FROM steps WHERE run_id = ?1 ORDER BY created_at ASC, id ASC"
         ).unwrap();
         stmt.query_map(params![run_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -2211,12 +2218,30 @@ impl Database {
     pub fn get_step_predecessors(&self, step_id: &str) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT depends_on_id FROM step_dependencies WHERE step_id = ?1"
+            "SELECT depends_on_id FROM step_dependencies WHERE step_id = ?1 ORDER BY depends_on_id ASC"
         ).unwrap();
         stmt.query_map(params![step_id], |row| row.get::<_, String>(0))
             .unwrap()
             .filter_map(|r| r.ok())
             .collect()
+    }
+
+    pub fn get_run_step_dependency_edges(&self, run_id: &str) -> Vec<StepDependencyEdge> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT sd.step_id, sd.depends_on_id, sd.edge_type
+             FROM step_dependencies sd
+             JOIN steps s ON s.id = sd.step_id
+             WHERE s.run_id = ?1
+             ORDER BY sd.step_id ASC, sd.depends_on_id ASC"
+        ).unwrap();
+        stmt.query_map(params![run_id], |row| {
+            Ok(StepDependencyEdge {
+                step_id: row.get::<_, String>(0)?,
+                depends_on_id: row.get::<_, String>(1)?,
+                edge_type: row.get::<_, String>(2)?,
+            })
+        }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
     pub fn get_step_output_summary(&self, step_id: &str) -> Option<String> {

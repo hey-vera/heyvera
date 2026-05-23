@@ -9,6 +9,7 @@ use futures_core::Stream;
 
 use crate::clerk::ClerkUser;
 use crate::routes::ErrorResponse;
+use crate::run_payload::{build_run_graph_payload, build_run_step_payloads};
 use crate::state::AppState;
 
 pub async fn stream_run(
@@ -57,7 +58,8 @@ pub async fn stream_run(
                 None => break,
             };
 
-            let steps = db.get_all_step_statuses(&run_id_clone);
+            let steps = build_run_step_payloads(db, &run_id_clone);
+            let graph = build_run_graph_payload(db, &run_id_clone, &steps);
             let goal = db.get_run_goal(&run_id_clone).unwrap_or_default();
             let heal_count = db.get_run_heal_count(&run_id_clone);
 
@@ -65,54 +67,8 @@ pub async fn stream_run(
                 "run_id": run_id_clone,
                 "goal": goal,
                 "heal_attempts": heal_count,
-                "steps": steps.iter().map(|(sid, status)| {
-                    let details = db.get_step_details(sid);
-                    let predecessors = db.get_step_predecessors(sid);
-                    let mut step = serde_json::json!({
-                        "id": sid,
-                        "status": status,
-                        "predecessors": predecessors,
-                    });
-                    if let Some((kind, work_kind, tier, risk, objective)) = details {
-                        step["kind"] = serde_json::json!(kind);
-                        step["work_kind"] = serde_json::json!(work_kind);
-                        step["tier"] = serde_json::json!(tier);
-                        step["risk"] = serde_json::json!(risk);
-                        step["objective"] = serde_json::json!(objective);
-                    }
-                    if let Some(summary) = db.get_step_output_summary(sid) {
-                        step["output_summary"] = serde_json::json!(summary);
-                    }
-                    if let Some(files) = db
-                        .get_step_files_changed(sid)
-                        .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok())
-                    {
-                        step["files_changed"] = serde_json::json!(files);
-                    }
-                    if let Some(err) = db.get_step_last_error(sid) {
-                        step["last_error"] = serde_json::json!(err);
-                    }
-                    if let Some(verifier) = db.get_latest_verifier_report(sid) {
-                        step["verification_status"] = serde_json::json!(verifier.status);
-                        step["verifier_verdict"] = serde_json::json!(verifier.verdict);
-                        step["verifier_report_id"] = serde_json::json!(verifier.id);
-                    }
-                    if let Some(recipe_seed) = db
-                        .get_step_recipe_seed_json(sid)
-                        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
-                    {
-                        step["recipe_seed"] = recipe_seed;
-                    }
-                    if let Some(work_contract) = db.get_latest_step_work_contract(sid) {
-                        if let Some(work_recipe) = work_contract.work_recipe {
-                            step["work_recipe"] =
-                                serde_json::to_value(work_recipe).unwrap_or(serde_json::Value::Null);
-                        }
-                        step["acceptance_criteria"] = serde_json::json!(work_contract.acceptance_criteria);
-                        step["required_checks"] = serde_json::json!(work_contract.required_checks);
-                    }
-                    step
-                }).collect::<Vec<_>>(),
+                "steps": steps,
+                "graph": graph,
                 "tick": tick,
             });
 

@@ -739,6 +739,28 @@ export interface RunStep {
   parent_id?: string | null;
 }
 
+export interface RunGraphNode {
+  id: string;
+  label: string;
+  status?: string | null;
+  kind?: string | null;
+  work_kind?: string | null;
+  tier?: string | null;
+  risk?: string | null;
+  verification_status?: string | null;
+}
+
+export interface RunGraphEdge {
+  from: string;
+  to: string;
+  edge_type: 'success_required' | 'completion_required' | string;
+}
+
+export interface RunGraph {
+  nodes: RunGraphNode[];
+  edges: RunGraphEdge[];
+}
+
 export interface RunSummary {
   id: string;
   goal: string;
@@ -746,6 +768,7 @@ export interface RunSummary {
   profile?: string;
   created_at?: string;
   steps: RunStep[];
+  graph?: RunGraph;
 }
 
 export interface RunListItem {
@@ -765,6 +788,7 @@ export interface RunStreamEvent {
   type: 'run_update' | 'run_complete';
   run_id: string;
   steps?: RunStep[];
+  graph?: RunGraph;
   status?: string;
 }
 

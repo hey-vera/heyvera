@@ -161,7 +161,11 @@ export default function RunPanel({
         setRun((currentRun) => {
           if (!currentRun || currentRun.id !== event.run_id) return currentRun;
           if (event.type === 'run_update' && event.steps) {
-            return { ...currentRun, steps: mergeSteps(currentRun.steps, event.steps) };
+            return {
+              ...currentRun,
+              steps: mergeSteps(currentRun.steps, event.steps),
+              graph: event.graph ?? currentRun.graph,
+            };
           }
           if (event.type === 'run_complete') {
             return { ...currentRun, status: event.status ?? currentRun.status };

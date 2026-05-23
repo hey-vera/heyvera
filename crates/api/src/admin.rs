@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::clerk::ClerkUser;
 use crate::db::{CodeRedemption, PromoCode};
 use crate::routes::ErrorResponse;
+use crate::run_payload::{build_run_graph_payload, build_run_step_payloads};
 use crate::state::AppState;
 
 fn admin_set() -> HashSet<String> {
@@ -253,57 +254,8 @@ pub async fn get_run_detail(
 
     let profile = db.get_run_profile(&id).unwrap_or_else(|| "auto".into());
     let heal_count = db.get_run_heal_count(&id);
-    let steps = db.get_all_step_statuses(&id);
-
-    let step_details: Vec<serde_json::Value> = steps
-        .iter()
-        .map(|(sid, status)| {
-            let details = db.get_step_details(sid);
-            let predecessors = db.get_step_predecessors(sid);
-            let output = db.get_step_output_summary(sid);
-            let files = db.get_step_files_changed(sid);
-            let error = db.get_step_last_error(sid);
-            let recipe_seed = db
-                .get_step_recipe_seed_json(sid)
-                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok());
-            let work_contract = db.get_latest_step_work_contract(sid);
-
-            let mut step = serde_json::json!({
-                "id": sid,
-                "status": status,
-                "predecessors": predecessors,
-            });
-
-            if let Some((kind, work_kind, tier, risk, objective)) = details {
-                step["kind"] = serde_json::json!(kind);
-                step["work_kind"] = serde_json::json!(work_kind);
-                step["tier"] = serde_json::json!(tier);
-                step["risk"] = serde_json::json!(risk);
-                step["objective"] = serde_json::json!(objective);
-            }
-            if let Some(o) = output {
-                step["output_summary"] = serde_json::json!(o);
-            }
-            if let Some(f) = files {
-                step["files_changed"] = serde_json::json!(f);
-            }
-            if let Some(e) = error {
-                step["last_error"] = serde_json::json!(e);
-            }
-            if let Some(recipe_seed) = recipe_seed {
-                step["recipe_seed"] = recipe_seed;
-            }
-            if let Some(work_contract) = work_contract {
-                if let Some(work_recipe) = work_contract.work_recipe {
-                    step["work_recipe"] =
-                        serde_json::to_value(work_recipe).unwrap_or(serde_json::Value::Null);
-                }
-                step["acceptance_criteria"] = serde_json::json!(work_contract.acceptance_criteria);
-                step["required_checks"] = serde_json::json!(work_contract.required_checks);
-            }
-            step
-        })
-        .collect();
+    let step_details = build_run_step_payloads(db, &id);
+    let graph = build_run_graph_payload(db, &id, &step_details);
 
     Ok(Json(serde_json::json!({
         "id": id,
@@ -311,6 +263,7 @@ pub async fn get_run_detail(
         "profile": profile,
         "heal_attempts": heal_count,
         "steps": step_details,
+        "graph": graph,
     })))
 }
 
