@@ -3,7 +3,9 @@ use std::process::Stdio;
 
 use cortex_core::error::CortexError;
 use cortex_core::failure::{WorkerFailureKind, WorkerFailureReport};
-use cortex_core::protocol::StepOutput;
+use cortex_core::protocol::{
+    CommandEvidence, GitEvidence, StepOutput, WorkerEvidencePacket,
+};
 use cortex_core::provider::ProviderId;
 use cortex_core::routing::RoutingDecision;
 use cortex_core::task::TaskContract;
@@ -218,7 +220,7 @@ impl Executor {
             .await
             .map_err(|e| CortexError::WorkerExecution(e.to_string()))?;
 
-        let (collected_output, files_changed, usage) = reader_handle
+        let (collected_output, parsed_files_changed, usage) = reader_handle
             .await
             .unwrap_or_else(|_| (Vec::new(), Vec::new(), None));
         let stderr_text = stderr_handle.await.unwrap_or_default();
@@ -293,6 +295,16 @@ impl Executor {
                 }
             }
 
+            let git_evidence = effective_dir.and_then(|dir| {
+                worktree::collect_git_evidence(
+                    dir,
+                    base_commit.as_deref(),
+                    worktree_guard.as_ref().map(|guard| guard.branch_name()),
+                )
+            });
+            let files_changed =
+                completion_files_changed(git_evidence.as_ref(), parsed_files_changed.clone());
+
             let (tokens_in, tokens_out) = match usage {
                 Some((i, o)) => (Some(i), Some(o)),
                 None => (None, None),
@@ -317,9 +329,23 @@ impl Executor {
                 head_commit,
                 branch: branch_name,
                 output: StepOutput {
-                    summary,
+                    summary: summary.clone(),
                     files_found: Vec::new(),
                     files_changed,
+                    evidence: Some(WorkerEvidencePacket {
+                        git: git_evidence,
+                        command: CommandEvidence {
+                            exit_code: code,
+                            stdout_excerpt: excerpt_from_lines(&collected_output, 4_000),
+                            stderr_excerpt: excerpt_from_text(&stderr_text, 2_000),
+                            log_summary: if summary.is_empty() {
+                                None
+                            } else {
+                                Some(summary)
+                            },
+                        },
+                        parsed_files_changed,
+                    }),
                     tokens_in,
                     tokens_out,
                     cost_estimate,
@@ -625,6 +651,31 @@ fn get_git_head(working_dir: Option<&std::path::Path>) -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
+fn completion_files_changed(
+    git_evidence: Option<&GitEvidence>,
+    parsed_files_changed: Vec<String>,
+) -> Vec<String> {
+    match git_evidence {
+        Some(evidence) => evidence.changed_files.clone(),
+        None => parsed_files_changed,
+    }
+}
+
+fn excerpt_from_lines(lines: &[String], max_chars: usize) -> Option<String> {
+    excerpt_from_text(&lines.join("\n"), max_chars)
+}
+
+fn excerpt_from_text(text: &str, max_chars: usize) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.chars().count() <= max_chars {
+        return Some(trimmed.to_string());
+    }
+    Some(trimmed.chars().take(max_chars).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -742,5 +793,26 @@ mod tests {
         let mut files = HashSet::new();
         extract_gemini_files("anything", &mut files);
         assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_completion_files_changed_prefers_git_evidence() {
+        let evidence = GitEvidence {
+            changed_files: vec!["src/git.rs".to_string()],
+            ..Default::default()
+        };
+        let parsed = vec!["src/stdout.rs".to_string()];
+
+        assert_eq!(
+            completion_files_changed(Some(&evidence), parsed),
+            vec!["src/git.rs"]
+        );
+    }
+
+    #[test]
+    fn test_completion_files_changed_uses_parsed_fallback_without_git() {
+        let parsed = vec!["src/stdout.rs".to_string()];
+
+        assert_eq!(completion_files_changed(None, parsed.clone()), parsed);
     }
 }

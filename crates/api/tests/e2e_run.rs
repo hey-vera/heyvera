@@ -348,6 +348,7 @@ async fn test_run_lifecycle() {
             summary: "Fixed the login bug by correcting the token validation".to_string(),
             files_found: vec![],
             files_changed: vec!["src/auth.rs".to_string()],
+            evidence: None,
             tokens_in: Some(1000),
             tokens_out: Some(500),
             cost_estimate: Some(0.01),

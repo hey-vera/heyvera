@@ -120,6 +120,8 @@ pub struct StepOutput {
     pub summary: String,
     pub files_found: Vec<String>,
     pub files_changed: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub evidence: Option<WorkerEvidencePacket>,
     #[serde(default)]
     pub tokens_in: Option<i64>,
     #[serde(default)]
@@ -135,12 +137,52 @@ impl Default for StepOutput {
             summary: String::new(),
             files_found: Vec::new(),
             files_changed: Vec::new(),
+            evidence: None,
             tokens_in: None,
             tokens_out: None,
             cost_estimate: None,
             structured: serde_json::Value::Null,
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct WorkerEvidencePacket {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<GitEvidence>,
+    #[serde(default)]
+    pub command: CommandEvidence,
+    #[serde(default)]
+    pub parsed_files_changed: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GitEvidence {
+    #[serde(default)]
+    pub changed_files: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diff_excerpt: Option<String>,
+    #[serde(default)]
+    pub diff_truncated: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub status_porcelain: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub base_commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub head_commit: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub branch: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct CommandEvidence {
+    pub exit_code: i32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdout_excerpt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stderr_excerpt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub log_summary: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
