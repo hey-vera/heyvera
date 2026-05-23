@@ -42,34 +42,43 @@ fi
 # ── git (bulletproof) ───────────────────────────
 echo "[git] Nuclear reset to $BRANCH..."
 
-# Fetch latest remote state
-git fetch "$GIT_REMOTE" "$BRANCH" 2>/dev/null || {
-    echo "[git] Initial fetch failed, cleaning and retrying..."
-    git gc --prune=now 2>/dev/null || true
-    git fetch "$GIT_REMOTE" "$BRANCH"
-}
-
-# Abort any in-progress operations
+# Abort any in-progress operations first
 git rebase --abort 2>/dev/null || true
 git merge --abort 2>/dev/null || true
 git cherry-pick --abort 2>/dev/null || true
 
-# Force checkout branch (create if needed)
-git checkout "$BRANCH" 2>/dev/null || {
-    echo "[git] Creating new branch $BRANCH..."
-    git checkout -b "$BRANCH" "$GIT_REMOTE/$BRANCH" 2>/dev/null || {
-        # If that fails, force create from remote
-        git branch -D "$BRANCH" 2>/dev/null || true
-        git checkout -b "$BRANCH" "$GIT_REMOTE/$BRANCH"
+# Get the exact latest SHA from remote (with retry for auto-merge delays)
+echo "[git] Fetching absolute latest from remote..."
+for attempt in {1..5}; do
+    git fetch "$GIT_REMOTE" "$BRANCH" 2>/dev/null || {
+        echo "[git] Fetch attempt $attempt failed, retrying..."
+        sleep 2
+        continue
     }
+
+    # Get the exact remote SHA
+    REMOTE_SHA=$(git rev-parse "$GIT_REMOTE/$BRANCH" 2>/dev/null)
+    if [ -n "$REMOTE_SHA" ]; then
+        echo "[git] Remote SHA: $REMOTE_SHA"
+        break
+    fi
+    echo "[git] Could not get remote SHA, attempt $attempt/5..."
+    sleep 3
+done
+
+# Force checkout to exact remote SHA (bypasses all branch tracking issues)
+echo "[git] Force reset to exact remote state..."
+git checkout -B "$BRANCH" "$REMOTE_SHA" 2>/dev/null || {
+    # Ultimate fallback: detached HEAD to exact SHA
+    git checkout "$REMOTE_SHA"
+    git checkout -B "$BRANCH"
 }
 
-# Nuclear reset: force exact remote state
-git reset --hard "$GIT_REMOTE/$BRANCH"
-git clean -fd  # Remove untracked files
+# Clean everything
+git clean -fd
 git submodule update --init --recursive 2>/dev/null || true
 
-# Ensure tracking is set up correctly
+# Ensure tracking (but don't fail if this doesn't work)
 git branch --set-upstream-to="$GIT_REMOTE/$BRANCH" "$BRANCH" 2>/dev/null || true
 
 COMMIT=$(git rev-parse --short HEAD)
