@@ -101,6 +101,14 @@ function blockedByLine(step: RunStep, run: RunSummary) {
   return labels.join(', ');
 }
 
+function latestAttemptLine(step: RunStep) {
+  if (!step.latest_attempt) return null;
+  const provider = [step.latest_attempt.provider, step.latest_attempt.model].filter(Boolean).join('/');
+  const status = step.latest_attempt.status ?? 'unknown';
+  const attempt = step.latest_attempt.attempt_number ? `#${step.latest_attempt.attempt_number}` : 'latest';
+  return [attempt, provider || null, status].filter(Boolean).join(' · ');
+}
+
 function getWorkerSignal(run: RunSummary | null) {
   if (!run) return { label: 'Worker status unknown', className: 'border-white/8 bg-white/4 text-[var(--muted)]' };
   const statuses = run.steps.map((step) => step.status);
@@ -457,15 +465,25 @@ export default function RunPanel({
                       Checks: {selectedStep.required_checks?.length ?? selectedStep.work_recipe?.required_checks?.length ?? 0}
                     </div>
                   </div>
-                  {(blockedByLine(selectedStep, run) || stepRecipeLine(selectedStep) || selectedStep.verification_status || selectedStep.last_error || selectedStep.output_summary) && (
+                  {(blockedByLine(selectedStep, run) || latestAttemptLine(selectedStep) || stepRecipeLine(selectedStep) || selectedStep.verification_status || selectedStep.last_error || selectedStep.output_summary) && (
                     <div className="mt-2 space-y-1 text-[10px] leading-4 text-[var(--muted)]">
                       {blockedByLine(selectedStep, run) && (
                         <div className="truncate text-amber-200">
                           Blocked by: {blockedByLine(selectedStep, run)}
                         </div>
                       )}
+                      {latestAttemptLine(selectedStep) && (
+                        <div className="truncate">
+                          Attempt: {latestAttemptLine(selectedStep)}
+                        </div>
+                      )}
                       {stepRecipeLine(selectedStep) && (
                         <div className="truncate text-[var(--muted-strong)]">Recipe: {stepRecipeLine(selectedStep)}</div>
+                      )}
+                      {selectedStep.latest_attempt?.failure_kind && (
+                        <div className="truncate text-red-200">
+                          Failure: {selectedStep.latest_attempt.failure_kind}{selectedStep.latest_attempt.error_summary ? ` · ${selectedStep.latest_attempt.error_summary}` : ''}
+                        </div>
                       )}
                       {selectedStep.verification_status && (
                         <div className="truncate">

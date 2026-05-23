@@ -99,6 +99,20 @@ fn build_step_payload(snapshot: RunStepSnapshot, blocked_by: Vec<Value>) -> Valu
         "health": health,
         "blocked_by": blocked_by,
     });
+    if let Some(attempt) = snapshot.latest_attempt {
+        step["latest_attempt"] = json!({
+            "attempt_number": attempt.attempt_number,
+            "worker_id": attempt.worker_id,
+            "lease_gen": attempt.lease_gen,
+            "status": attempt.status,
+            "provider": attempt.provider,
+            "model": attempt.model,
+            "started_at": attempt.started_at,
+            "finished_at": attempt.finished_at,
+            "failure_kind": attempt.failure_kind,
+            "error_summary": attempt.error_summary,
+        });
+    }
 
     step["kind"] = json!(snapshot.kind);
     step["work_kind"] = json!(snapshot.work_kind);
@@ -276,6 +290,15 @@ mod tests {
             &[],
         );
         let lease_gen = db.lease_step("step_a", "worker_1", 99_999).unwrap();
+        db.record_attempt(
+            "step_a",
+            &run_id,
+            1,
+            "worker_1",
+            lease_gen,
+            Some("claude"),
+            Some("opus"),
+        );
         assert!(db.complete_step(
             "step_a",
             lease_gen,
@@ -284,6 +307,7 @@ mod tests {
             None,
             None,
         ));
+        db.complete_attempt("step_a", lease_gen);
 
         let steps = build_run_step_payloads(&db, &run_id);
 
@@ -293,6 +317,9 @@ mod tests {
         assert_eq!(steps[0]["assigned_worker"], "worker_1");
         assert_eq!(steps[0]["lease_stale"], false);
         assert_eq!(steps[0]["health"], "terminal");
+        assert_eq!(steps[0]["latest_attempt"]["attempt_number"], 1);
+        assert_eq!(steps[0]["latest_attempt"]["worker_id"], "worker_1");
+        assert_eq!(steps[0]["latest_attempt"]["status"], "succeeded");
     }
 
     #[test]

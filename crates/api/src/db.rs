@@ -109,6 +109,20 @@ pub struct RunStepSnapshot {
     pub predecessors: Vec<String>,
     pub verifier_report: Option<VerifierReport>,
     pub work_contract: Option<TaskContract>,
+    pub latest_attempt: Option<RunStepAttemptSnapshot>,
+}
+
+pub struct RunStepAttemptSnapshot {
+    pub attempt_number: i64,
+    pub worker_id: Option<String>,
+    pub lease_gen: i64,
+    pub status: String,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub started_at: i64,
+    pub finished_at: Option<i64>,
+    pub failure_kind: Option<String>,
+    pub error_summary: Option<String>,
 }
 
 // --- Billing types ---
@@ -2274,6 +2288,38 @@ impl Database {
             }
         }
 
+        let mut attempt_by_step: HashMap<String, RunStepAttemptSnapshot> = HashMap::new();
+        let mut attempt_stmt = conn.prepare(
+            "SELECT step_id, attempt_number, worker_id, lease_gen, status, provider, model,
+                    started_at, finished_at, failure_kind, error_summary
+             FROM step_attempts
+             WHERE run_id = ?1
+             ORDER BY step_id ASC, attempt_number DESC"
+        ).unwrap();
+        for attempt in attempt_stmt
+            .query_map(params![run_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    RunStepAttemptSnapshot {
+                        attempt_number: row.get(1)?,
+                        worker_id: row.get(2)?,
+                        lease_gen: row.get(3)?,
+                        status: row.get(4)?,
+                        provider: row.get(5)?,
+                        model: row.get(6)?,
+                        started_at: row.get(7)?,
+                        finished_at: row.get(8)?,
+                        failure_kind: row.get(9)?,
+                        error_summary: row.get(10)?,
+                    },
+                ))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+        {
+            attempt_by_step.entry(attempt.0).or_insert(attempt.1);
+        }
+
         let mut stmt = conn.prepare(
             "SELECT id, status, kind, work_kind, tier, risk, objective, attempt_count, max_attempts,
                     lease_gen, lease_deadline, assigned_worker, recipe_seed_json, output_summary,
@@ -2288,6 +2334,7 @@ impl Database {
                 predecessors: predecessors_by_step.remove(&id).unwrap_or_default(),
                 verifier_report: verifier_by_step.remove(&id),
                 work_contract: contract_by_step.remove(&id),
+                latest_attempt: attempt_by_step.remove(&id),
                 id,
                 status: row.get(1)?,
                 kind: row.get(2)?,

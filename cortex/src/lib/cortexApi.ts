@@ -725,6 +725,18 @@ export interface RunStep {
   lease_stale?: boolean;
   health?: string;
   blocked_by?: Array<{ id?: string; status?: string; edge_type?: string }>;
+  latest_attempt?: {
+    attempt_number?: number;
+    worker_id?: string | null;
+    lease_gen?: number;
+    status?: string;
+    provider?: string | null;
+    model?: string | null;
+    started_at?: number;
+    finished_at?: number | null;
+    failure_kind?: string | null;
+    error_summary?: string | null;
+  };
   error?: string | null;
   last_error?: string | null;
   output_summary?: string | null;
