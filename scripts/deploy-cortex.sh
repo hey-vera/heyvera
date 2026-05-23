@@ -13,7 +13,7 @@ MAX_WAIT=45
 cd "$REPO_DIR"
 
 GIT_REMOTE=$(git remote | head -1)
-BRANCH="${1:-$(git rev-parse --abbrev-ref HEAD)}"
+BRANCH="${1:-main}"
 
 REMOTE_URL=$(git remote get-url "$GIT_REMOTE" 2>/dev/null || true)
 if [[ "$REMOTE_URL" == https://github.com/* ]]; then
