@@ -243,6 +243,16 @@ pub async fn get_routing_profile(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
 ) -> Json<serde_json::Value> {
+    // If using local auth (no real user), return empty profile to prevent frontend crashes
+    if user.user_id == "local" && state.clerk_secret_key.is_none() {
+        return Json(serde_json::json!({
+            "user_id": "local",
+            "profile": "auto",
+            "auto_mode": "normal",
+            "pressure": []
+        }));
+    }
+
     let (profile, auto_mode) = state
         .db
         .as_ref()

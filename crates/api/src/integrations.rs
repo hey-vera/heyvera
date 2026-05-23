@@ -312,6 +312,11 @@ pub async fn get_group_tasks(
     user: ClerkUser,
     Path(group_id): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
+    // If using local auth (no real user), return empty task state to prevent frontend crashes
+    if user.user_id == "local" && state.clerk_secret_key.is_none() {
+        return Ok(Json(empty_task_state(&group_id)));
+    }
+
     let db = db_ref(&state)?;
     Ok(Json(db.get_group_task_state(&user.user_id, &group_id).unwrap_or_else(|| empty_task_state(&group_id))))
 }
