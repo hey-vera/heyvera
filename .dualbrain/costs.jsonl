@@ -1,0 +1,10 @@
+{"timestamp":"2026-05-22T23:30:44.378Z","action":"think","model":"haiku","tokensEstimated":10905,"costEstimated":0.10905,"tier":"execute","wasCacheHit":false,"tokensSaved":0}
+{"timestamp":"2026-05-22T23:32:31.590Z","action":"think","model":"haiku","tokensEstimated":2255,"costEstimated":0.02255,"tier":"execute","wasCacheHit":false,"tokensSaved":0}
+{"timestamp":"2026-05-22T23:43:20.567Z","action":"go","model":"sonnet","tokensEstimated":386,"costEstimated":0.00386,"tier":"execute","wasCacheHit":false,"tokensSaved":0}
+{"timestamp":"2026-05-22T23:44:13.247Z","action":"go","model":"sonnet","tokensEstimated":233,"costEstimated":0.00233,"tier":"execute","wasCacheHit":false,"tokensSaved":0}
+{"timestamp":"2026-05-22T23:45:17.159Z","action":"go","model":"haiku","tokensEstimated":1067,"costEstimated":0.010669999999999999,"tier":"execute","wasCacheHit":false,"tokensSaved":0}
+{"timestamp":"2026-05-22T23:46:20.907Z","action":"think","model":"haiku","tokensEstimated":1022,"costEstimated":0.01022,"tier":"execute","wasCacheHit":false,"tokensSaved":0}
+{"timestamp":"2026-05-22T23:47:37.387Z","action":"think","model":"haiku","tokensEstimated":952,"costEstimated":0.009519999999999999,"tier":"execute","wasCacheHit":false,"tokensSaved":0}
+{"timestamp":"2026-05-22T23:52:44.613Z","action":"think","model":"haiku","tokensEstimated":2102,"costEstimated":0.02102,"tier":"think","wasCacheHit":false,"tokensSaved":0}
+{"timestamp":"2026-05-23T00:04:20.002Z","action":"go","model":"haiku","tokensEstimated":1123,"costEstimated":0.01123,"tier":"think","wasCacheHit":false,"tokensSaved":0}
+{"timestamp":"2026-05-23T00:06:36.597Z","action":"go","model":"sonnet","tokensEstimated":1730,"costEstimated":0.0173,"tier":"execute","wasCacheHit":false,"tokensSaved":0}
