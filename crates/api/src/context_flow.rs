@@ -248,7 +248,7 @@ impl ContextBus {
                     artifact.confidence,
                     artifact.tokens,
                     artifact.created_at.timestamp_millis(),
-                    &artifact.metadata,
+                    &serde_json::to_value(&artifact.metadata).unwrap_or(serde_json::json!({})),
                 )
             }) {
                 Ok(()) => {
