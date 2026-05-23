@@ -13,10 +13,10 @@ use uuid::Uuid;
 use cortex_core::failure::WorkerFailureKind;
 use cortex_core::protocol::{BrainMessage, StepOutput, WorkerMessage, PROTOCOL_VERSION};
 use cortex_core::routing::RiskLevel;
+use cortex_core::task::TaskContract;
 use cortex_engine::captain::SchedulerEvent;
 use cortex_engine::verifier::{
-    verify_step, CommandEvidence as VerifierCommandEvidence, StructuredStepEvidence,
-    VerifierInput, VerifierVerdict, VerifierWorkContract,
+    verify_step, StructuredStepEvidence, VerifierInput, VerifierVerdict, VerifierWorkContract,
 };
 
 use crate::clerk;
@@ -741,32 +741,11 @@ fn verify_worker_completion(
     truncated_summary: &str,
     message_id: &str,
 ) -> (String, String, String, bool) {
+    let persisted_contract = db.get_step_work_contract(step_id, lease_gen);
     let (risk, objective) = db
         .get_step_details(step_id)
         .map(|(_, _, risk, objective)| (parse_verifier_risk(&risk), objective))
         .unwrap_or((RiskLevel::Medium, String::new()));
-
-    let commands = output
-        .evidence
-        .as_ref()
-        .map(|packet| {
-            vec![VerifierCommandEvidence {
-                command: "worker_step".to_string(),
-                exit_code: Some(packet.command.exit_code),
-                summary: packet
-                    .command
-                    .log_summary
-                    .clone()
-                    .or_else(|| packet.command.stderr_excerpt.clone()),
-            }]
-        })
-        .unwrap_or_else(|| {
-            vec![VerifierCommandEvidence {
-                command: "worker_step".to_string(),
-                exit_code: Some(exit_code),
-                summary: Some(truncated_summary.to_string()),
-            }]
-        });
 
     let git = output.evidence.as_ref().and_then(|packet| packet.git.as_ref());
     let evidence = StructuredStepEvidence {
@@ -781,20 +760,32 @@ fn verify_worker_completion(
         head_commit: git
             .and_then(|evidence| evidence.head_commit.clone())
             .or_else(|| head_commit.map(str::to_string)),
-        commands,
+        commands: Vec::new(),
         checks: Vec::new(),
         signals: Vec::new(),
     };
 
+    let fallback_allowed_paths = db.get_run_file_paths(run_id);
+    let fallback_base_commit = base_commit.map(str::to_string);
+    let contract = persisted_contract
+        .as_ref()
+        .map(|task| {
+            VerifierWorkContract::from_task_contract(
+                task,
+                fallback_allowed_paths.clone(),
+                fallback_base_commit.clone(),
+            )
+        })
+        .unwrap_or_else(|| {
+            VerifierWorkContract::from_task_contract(
+                &fallback_task_contract(objective, risk),
+                fallback_allowed_paths,
+                fallback_base_commit,
+            )
+        });
+
     let input = VerifierInput {
-        contract: VerifierWorkContract {
-            task_id: None,
-            objective,
-            risk,
-            acceptance_criteria: Vec::new(),
-            allowed_paths: db.get_run_file_paths(run_id),
-            expected_base_commit: None,
-        },
+        contract,
         evidence,
     };
 
@@ -825,6 +816,10 @@ fn verify_worker_completion(
     .to_string();
 
     (status, verdict, evidence_json, passed)
+}
+
+fn fallback_task_contract(objective: String, risk: RiskLevel) -> TaskContract {
+    TaskContract::new(objective, cortex_core::provider::Tier::Execute, risk)
 }
 
 fn parse_verifier_risk(risk: &str) -> RiskLevel {

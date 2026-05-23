@@ -2,6 +2,7 @@ use std::path::Path;
 use std::sync::Mutex;
 
 use chrono::{Datelike, Utc};
+use cortex_core::task::TaskContract;
 use cortex_core::usage::{DailyUsage, ProviderUsage, UsageSummary, estimate_cost_by_provider};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -142,7 +143,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 12;
+const SCHEMA_VERSION: i64 = 13;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -190,6 +191,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 12 {
         migrate_v12(conn);
+    }
+    if current < 13 {
+        migrate_v13(conn);
     }
 }
 
@@ -773,6 +777,26 @@ fn migrate_v12(conn: &Connection) {
     ).expect("migration v12 failed");
 
     tracing::info!("applied migration v12: verifier reports and step verification status");
+}
+
+fn migrate_v13(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS step_work_contracts (
+            step_id TEXT NOT NULL REFERENCES steps(id),
+            lease_gen INTEGER NOT NULL,
+            run_id TEXT NOT NULL REFERENCES runs(id),
+            contract_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (step_id, lease_gen)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_step_work_contracts_run
+            ON step_work_contracts(run_id, created_at DESC);
+
+        UPDATE schema_version SET version = 13;"
+    ).expect("migration v13 failed");
+
+    tracing::info!("applied migration v13: persisted step work contracts");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -2168,6 +2192,76 @@ impl Database {
                 updated_at: row.get(10)?,
             }),
         ).ok()
+    }
+
+    pub fn record_step_work_contract(
+        &self,
+        step_id: &str,
+        run_id: &str,
+        lease_gen: i64,
+        contract: &TaskContract,
+    ) -> bool {
+        let contract_json = match serde_json::to_string(contract) {
+            Ok(json) => json,
+            Err(err) => {
+                tracing::error!(
+                    step_id = %step_id,
+                    lease_gen,
+                    error = %err,
+                    "failed to serialize step work contract"
+                );
+                return false;
+            }
+        };
+
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "INSERT INTO step_work_contracts (step_id, lease_gen, run_id, contract_json, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(step_id, lease_gen) DO UPDATE SET
+                run_id = excluded.run_id,
+                contract_json = excluded.contract_json,
+                created_at = excluded.created_at",
+            params![step_id, lease_gen, run_id, contract_json, now],
+        ).unwrap_or_else(|err| {
+            tracing::error!(
+                step_id = %step_id,
+                run_id = %run_id,
+                lease_gen,
+                error = %err,
+                "failed to persist step work contract"
+            );
+            0
+        });
+
+        rows > 0
+    }
+
+    pub fn get_step_work_contract(
+        &self,
+        step_id: &str,
+        lease_gen: i64,
+    ) -> Option<TaskContract> {
+        let conn = self.conn.lock().unwrap();
+        let contract_json: String = conn.query_row(
+            "SELECT contract_json FROM step_work_contracts
+             WHERE step_id = ?1 AND lease_gen = ?2",
+            params![step_id, lease_gen],
+            |row| row.get(0),
+        ).ok()?;
+
+        serde_json::from_str(&contract_json)
+            .map_err(|err| {
+                tracing::error!(
+                    step_id = %step_id,
+                    lease_gen,
+                    error = %err,
+                    "failed to deserialize step work contract"
+                );
+                err
+            })
+            .ok()
     }
 
     pub fn get_run_profile(&self, run_id: &str) -> Option<String> {

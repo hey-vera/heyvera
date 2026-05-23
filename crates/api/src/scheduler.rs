@@ -379,9 +379,6 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
     // Record score evidence per evaluator
     record_evidence(db, &decision_id, &evidence);
 
-    // Build task contract
-    let task = cortex_core::task::TaskContract::new(step.objective.clone(), tier, risk);
-
     // Build step context from predecessors
     let context = build_step_context(db, &step.run_id, &step.step_id);
 
@@ -389,6 +386,19 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
     // from predecessor steps, and pass file_paths from the run's goal
     let base_commit = db.get_run_latest_commit(&step.run_id);
     let allowed_paths = db.get_run_file_paths(&step.run_id);
+
+    // Build and persist the dispatch-time work contract before handing work to a worker.
+    let task = cortex_core::task::TaskContract::new(step.objective.clone(), tier, risk)
+        .with_dispatch_contract(allowed_paths.clone(), base_commit.clone());
+    if !db.record_step_work_contract(&step.step_id, &step.run_id, lease_gen, &task) {
+        tracing::error!(
+            "failed to persist work contract for step {} lease {}; unleasing before dispatch",
+            step.step_id,
+            lease_gen
+        );
+        db.unlease_step(&step.step_id, lease_gen);
+        return false;
+    }
 
     // Capture values before decision is moved into msg
     let mc_provider = decision.provider.to_string();

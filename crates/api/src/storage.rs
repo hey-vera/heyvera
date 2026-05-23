@@ -6,6 +6,7 @@
 //! consumers that need SQLite-specific helpers can still use `Database` directly.
 
 use crate::db::VerifierReport;
+use cortex_core::task::TaskContract;
 
 /// Core storage operations required by the Cortex scheduler and API routes.
 ///
@@ -100,6 +101,18 @@ pub trait Storage: Send + Sync {
 
     /// Return the latest verifier report for a step, if any.
     fn get_latest_verifier_report(&self, step_id: &str) -> Option<VerifierReport>;
+
+    /// Persist the immutable work contract dispatched for a step lease.
+    fn record_step_work_contract(
+        &self,
+        step_id: &str,
+        run_id: &str,
+        lease_gen: i64,
+        contract: &TaskContract,
+    ) -> bool;
+
+    /// Return the work contract for a specific step lease, if one was recorded.
+    fn get_step_work_contract(&self, step_id: &str, lease_gen: i64) -> Option<TaskContract>;
 
     // ── Usage ──────────────────────────────────────────────────────────
 
@@ -241,6 +254,20 @@ impl Storage for Database {
 
     fn get_latest_verifier_report(&self, step_id: &str) -> Option<VerifierReport> {
         Database::get_latest_verifier_report(self, step_id)
+    }
+
+    fn record_step_work_contract(
+        &self,
+        step_id: &str,
+        run_id: &str,
+        lease_gen: i64,
+        contract: &TaskContract,
+    ) -> bool {
+        Database::record_step_work_contract(self, step_id, run_id, lease_gen, contract)
+    }
+
+    fn get_step_work_contract(&self, step_id: &str, lease_gen: i64) -> Option<TaskContract> {
+        Database::get_step_work_contract(self, step_id, lease_gen)
     }
 
     fn record_usage(

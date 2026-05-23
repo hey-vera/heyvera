@@ -3,10 +3,14 @@ use cortex_core::protocol::StepOutput;
 use cortex_core::routing::RiskLevel;
 use cortex_core::task::TaskContract;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::BTreeSet;
 use uuid::Uuid;
 
 use crate::evidence_floor::{check_floor, FloorVerdict};
 use crate::risk::classify_risk;
+
+const REQUIRED_CHECK_PREFIX: &str = "required_check:";
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct VerifierWorkContract {
@@ -24,11 +28,31 @@ impl VerifierWorkContract {
         allowed_paths: Vec<String>,
         expected_base_commit: Option<String>,
     ) -> Self {
+        let task_value = serde_json::to_value(task).unwrap_or(Value::Null);
+        let allowed_paths = if task.allowed_paths.is_empty() {
+            string_array_field(&task_value, "allowed_paths").unwrap_or(allowed_paths)
+        } else {
+            task.allowed_paths.clone()
+        };
+        let expected_base_commit = task
+            .expected_base_commit
+            .clone()
+            .or_else(|| optional_string_field(&task_value, "expected_base_commit").flatten())
+            .or(expected_base_commit);
+        let mut acceptance_criteria = task.acceptance_criteria.clone();
+        acceptance_criteria.extend(task.required_checks.iter().filter_map(|check| {
+            check
+                .required
+                .then(|| required_check_name_from_parts(&check.name, &check.command))
+                .flatten()
+                .map(encode_required_check_criterion)
+        }));
+
         Self {
             task_id: Some(task.id),
             objective: task.objective.clone(),
             risk: task.risk,
-            acceptance_criteria: task.acceptance_criteria.clone(),
+            acceptance_criteria,
             allowed_paths,
             expected_base_commit,
         }
@@ -134,6 +158,8 @@ pub struct VerifierReport {
     pub allowed_path_violations: Vec<AllowedPathViolation>,
     pub command_summary: CommandSummary,
     pub check_summary: CheckSummary,
+    #[serde(default)]
+    pub required_check_summary: RequiredCheckSummary,
     pub acceptance_coverage: AcceptanceCoverage,
     pub stale_base_notes: Vec<StaleBaseNote>,
     pub next_action: VerifierNextAction,
@@ -184,6 +210,17 @@ pub struct CheckFailure {
     pub summary: Option<String>,
 }
 
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+pub struct RequiredCheckSummary {
+    pub total: usize,
+    pub satisfied: usize,
+    pub expected: Vec<CheckEvidence>,
+    pub missing: Vec<CheckEvidence>,
+    pub failed: Vec<CheckEvidence>,
+    pub skipped: Vec<CheckEvidence>,
+    pub unknown: Vec<CheckEvidence>,
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct AcceptanceCoverage {
     pub evaluated: bool,
@@ -217,8 +254,10 @@ pub fn verify_contract_evidence(
         find_allowed_path_violations(&contract.allowed_paths, &evidence.files_changed);
     let command_summary = summarize_commands(&evidence.commands);
     let check_summary = summarize_checks(&evidence.checks);
-    let acceptance_coverage =
-        placeholder_acceptance_coverage(&contract.acceptance_criteria);
+    let required_check_expectations = required_check_expectations(contract);
+    let required_check_summary =
+        summarize_required_checks(&required_check_expectations, &evidence.checks);
+    let acceptance_coverage = placeholder_acceptance_coverage(&contract.acceptance_criteria);
     let stale_base_notes = stale_base_notes(contract, evidence);
 
     let (verdict, next_action) = decide_verdict(
@@ -226,6 +265,7 @@ pub fn verify_contract_evidence(
         &allowed_path_violations,
         &command_summary,
         &check_summary,
+        &required_check_summary,
         &evidence_floor,
         &stale_base_notes,
     );
@@ -238,6 +278,7 @@ pub fn verify_contract_evidence(
         allowed_path_violations,
         command_summary,
         check_summary,
+        required_check_summary,
         acceptance_coverage,
         stale_base_notes,
         next_action,
@@ -340,11 +381,49 @@ pub fn summarize_checks(checks: &[CheckEvidence]) -> CheckSummary {
     summary
 }
 
+pub fn summarize_required_checks(
+    expectations: &[CheckEvidence],
+    checks: &[CheckEvidence],
+) -> RequiredCheckSummary {
+    let mut summary = RequiredCheckSummary {
+        total: expectations.len(),
+        expected: expectations.to_vec(),
+        ..RequiredCheckSummary::default()
+    };
+
+    for expectation in expectations {
+        match required_check_match(expectation, checks) {
+            Some(check) if check.status == CheckStatus::Passed => {
+                summary.satisfied += 1;
+            }
+            Some(check) if check.status == CheckStatus::Failed => {
+                summary.failed.push(check);
+            }
+            Some(check) if check.status == CheckStatus::Skipped => {
+                summary.skipped.push(check);
+            }
+            Some(check) => {
+                summary.unknown.push(check);
+            }
+            None => {
+                summary.missing.push(CheckEvidence {
+                    name: expectation.name.clone(),
+                    status: CheckStatus::Unknown,
+                    summary: Some("required check was not reported".into()),
+                });
+            }
+        }
+    }
+
+    summary
+}
+
 fn decide_verdict(
     exit_code: Option<i32>,
     allowed_path_violations: &[AllowedPathViolation],
     command_summary: &CommandSummary,
     check_summary: &CheckSummary,
+    required_check_summary: &RequiredCheckSummary,
     evidence_floor: &VerifierFloorSummary,
     stale_base_notes: &[StaleBaseNote],
 ) -> (VerifierVerdict, VerifierNextAction) {
@@ -359,12 +438,33 @@ fn decide_verdict(
     if exit_code.is_some_and(|code| code != 0)
         || command_summary.failed > 0
         || check_summary.failed > 0
+        || !required_check_summary.failed.is_empty()
     {
         return (VerifierVerdict::Failed, VerifierNextAction::FixAndRetry);
     }
 
+    if !required_check_summary.missing.is_empty()
+        || !required_check_summary.skipped.is_empty()
+        || !required_check_summary.unknown.is_empty()
+    {
+        return (
+            VerifierVerdict::NeedsEvidence,
+            VerifierNextAction::AddEvidence,
+        );
+    }
+
+    if exit_code.is_none() {
+        return (
+            VerifierVerdict::NeedsEvidence,
+            VerifierNextAction::AddEvidence,
+        );
+    }
+
     if !evidence_floor.satisfied {
-        return (VerifierVerdict::NeedsEvidence, VerifierNextAction::AddEvidence);
+        return (
+            VerifierVerdict::NeedsEvidence,
+            VerifierNextAction::AddEvidence,
+        );
     }
 
     (VerifierVerdict::Success, VerifierNextAction::Accept)
@@ -392,17 +492,6 @@ fn summarize_floor(verdict: FloorVerdict) -> VerifierFloorSummary {
 
 fn signals_from_evidence(evidence: &StructuredStepEvidence) -> Vec<EvidenceSignal> {
     let mut signals = Vec::new();
-
-    if evidence.exit_code == Some(0) {
-        signals.push(EvidenceSignal::new(
-            SignalTier::HardObjective,
-            EvidenceSource::RuntimeBehavior,
-            None,
-            None,
-            1.0,
-            "step process exited successfully",
-        ));
-    }
 
     for command in &evidence.commands {
         if command.exit_code == Some(0) {
@@ -459,20 +548,121 @@ fn stale_base_notes(
         (Some(expected), None) => vec![StaleBaseNote {
             expected_base_commit: Some(expected.clone()),
             observed_base_commit: None,
-            note: "work contract expected a base commit but step evidence did not report one".into(),
+            note: "work contract expected a base commit but step evidence did not report one"
+                .into(),
         }],
         _ => Vec::new(),
     }
 }
 
 fn placeholder_acceptance_coverage(criteria: &[String]) -> AcceptanceCoverage {
+    let free_text_criteria: Vec<String> = criteria
+        .iter()
+        .filter(|criterion| parse_required_check_criterion(criterion).is_none())
+        .cloned()
+        .collect();
+
     AcceptanceCoverage {
         evaluated: false,
-        total: criteria.len(),
+        total: free_text_criteria.len(),
         covered: 0,
-        uncovered: criteria.to_vec(),
-        note: "acceptance coverage is reserved for a later semantic matcher".into(),
+        uncovered: free_text_criteria,
+        note: "free-text acceptance criteria are not machine-verified; required checks are reported separately".into(),
     }
+}
+
+fn required_check_expectations(contract: &VerifierWorkContract) -> Vec<CheckEvidence> {
+    let mut seen = BTreeSet::new();
+    contract
+        .acceptance_criteria
+        .iter()
+        .filter_map(|criterion| parse_required_check_criterion(criterion))
+        .filter(|name| seen.insert(normalize_check_name(name)))
+        .map(|name| CheckEvidence {
+            name,
+            status: CheckStatus::Unknown,
+            summary: Some("required by work contract".into()),
+        })
+        .collect()
+}
+
+fn required_check_match(
+    expectation: &CheckEvidence,
+    checks: &[CheckEvidence],
+) -> Option<CheckEvidence> {
+    let expected_name = normalize_check_name(&expectation.name);
+    let matches: Vec<&CheckEvidence> = checks
+        .iter()
+        .filter(|check| normalize_check_name(&check.name) == expected_name)
+        .collect();
+
+    matches
+        .iter()
+        .find(|check| check.status == CheckStatus::Failed)
+        .or_else(|| {
+            matches
+                .iter()
+                .find(|check| check.status == CheckStatus::Passed)
+        })
+        .or_else(|| {
+            matches
+                .iter()
+                .find(|check| check.status == CheckStatus::Skipped)
+        })
+        .or_else(|| {
+            matches
+                .iter()
+                .find(|check| check.status == CheckStatus::Unknown)
+        })
+        .map(|check| (*check).clone())
+}
+
+fn encode_required_check_criterion(name: String) -> String {
+    format!("{REQUIRED_CHECK_PREFIX}{name}")
+}
+
+fn parse_required_check_criterion(criterion: &str) -> Option<String> {
+    criterion
+        .trim()
+        .strip_prefix(REQUIRED_CHECK_PREFIX)
+        .map(str::trim)
+        .filter(|name| !name.is_empty())
+        .map(str::to_string)
+}
+
+fn normalize_check_name(name: &str) -> String {
+    name.trim().to_ascii_lowercase()
+}
+
+fn string_array_field(value: &Value, field: &str) -> Option<Vec<String>> {
+    let array = value.get(field)?.as_array()?;
+    Some(
+        array
+            .iter()
+            .filter_map(|item| item.as_str().map(str::to_string))
+            .collect(),
+    )
+}
+
+fn optional_string_field(value: &Value, field: &str) -> Option<Option<String>> {
+    match value.get(field)? {
+        Value::Null => Some(None),
+        Value::String(value) => Some(Some(value.clone())),
+        _ => None,
+    }
+}
+
+fn clean_required_check_name(name: &str) -> Option<String> {
+    let name = name.trim();
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_string())
+    }
+}
+
+fn required_check_name_from_parts(name: &str, command: &str) -> Option<String> {
+    clean_required_check_name(name).or_else(|| clean_required_check_name(command))
 }
 
 fn path_matches_allowed(path: &str, allowed: &str) -> bool {
@@ -512,6 +702,8 @@ fn normalize_repo_path(path: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use cortex_core::provider::Tier;
+    use cortex_core::task::{RequiredCheck, TaskContract};
 
     fn contract() -> VerifierWorkContract {
         VerifierWorkContract {
@@ -541,6 +733,50 @@ mod tests {
             checks: Vec::new(),
             signals: Vec::new(),
         }
+    }
+
+    fn required_check(name: &str) -> String {
+        encode_required_check_criterion(name.to_string())
+    }
+
+    #[test]
+    fn task_contract_fields_feed_verifier_contract() {
+        let mut task = TaskContract::new(
+            "change engine verifier".into(),
+            Tier::Execute,
+            RiskLevel::Medium,
+        )
+        .with_dispatch_contract(vec!["crates/engine/src".into()], Some("base-a".into()));
+        task.acceptance_criteria.push("free-text acceptance".into());
+        task.required_checks.push(RequiredCheck {
+            name: "cargo test -p cortex-engine verifier".into(),
+            command: "cargo test -p cortex-engine verifier".into(),
+            required: true,
+        });
+        task.required_checks.push(RequiredCheck {
+            name: "optional lint".into(),
+            command: "cargo clippy -p cortex-engine".into(),
+            required: false,
+        });
+
+        let contract = VerifierWorkContract::from_task_contract(
+            &task,
+            vec!["fallback/path".into()],
+            Some("fallback-base".into()),
+        );
+
+        assert_eq!(
+            contract.allowed_paths,
+            vec!["crates/engine/src".to_string()]
+        );
+        assert_eq!(contract.expected_base_commit, Some("base-a".into()));
+        assert!(contract
+            .acceptance_criteria
+            .contains(&"free-text acceptance".to_string()));
+
+        let required = required_check_expectations(&contract);
+        assert_eq!(required.len(), 1);
+        assert_eq!(required[0].name, "cargo test -p cortex-engine verifier");
     }
 
     #[test]
@@ -574,5 +810,101 @@ mod tests {
         assert!(!report.verdict.is_success());
         assert_eq!(report.next_action, VerifierNextAction::FixAndRetry);
         assert_eq!(report.command_summary.failed, 1);
+    }
+
+    #[test]
+    fn stale_base_blocks_report() {
+        let mut contract = contract();
+        contract.expected_base_commit = Some("base-a".into());
+        let mut evidence = evidence();
+        evidence.base_commit = Some("base-b".into());
+
+        let report = verify_contract_evidence(&contract, &evidence);
+
+        assert_eq!(report.verdict, VerifierVerdict::Blocked);
+        assert_eq!(report.next_action, VerifierNextAction::RebaseAndRetry);
+        assert_eq!(report.stale_base_notes.len(), 1);
+        assert_eq!(
+            report.stale_base_notes[0].note,
+            "step ran against a different base commit than the work contract expected"
+        );
+    }
+
+    #[test]
+    fn missing_required_check_needs_evidence() {
+        let mut contract = contract();
+        contract
+            .acceptance_criteria
+            .push(required_check("cargo test -p cortex-engine verifier"));
+        let mut evidence = evidence();
+        evidence.checks = Vec::new();
+
+        let report = verify_contract_evidence(&contract, &evidence);
+
+        assert_eq!(report.verdict, VerifierVerdict::NeedsEvidence);
+        assert_eq!(report.next_action, VerifierNextAction::AddEvidence);
+        assert_eq!(report.required_check_summary.total, 1);
+        assert_eq!(report.required_check_summary.missing.len(), 1);
+        assert_eq!(
+            report.required_check_summary.missing[0].name,
+            "cargo test -p cortex-engine verifier"
+        );
+        assert_eq!(report.acceptance_coverage.total, 1);
+        assert_eq!(
+            report.acceptance_coverage.uncovered,
+            vec!["tests pass".to_string()]
+        );
+    }
+
+    #[test]
+    fn failed_required_check_fails_report() {
+        let mut contract = contract();
+        contract
+            .acceptance_criteria
+            .push(required_check("cargo test -p cortex-engine verifier"));
+        let mut evidence = evidence();
+        evidence.checks = vec![CheckEvidence {
+            name: "cargo test -p cortex-engine verifier".into(),
+            status: CheckStatus::Failed,
+            summary: Some("unit failure".into()),
+        }];
+
+        let report = verify_contract_evidence(&contract, &evidence);
+
+        assert_eq!(report.verdict, VerifierVerdict::Failed);
+        assert_eq!(report.next_action, VerifierNextAction::FixAndRetry);
+        assert_eq!(report.required_check_summary.failed.len(), 1);
+    }
+
+    #[test]
+    fn high_risk_needs_hard_objective_beyond_worker_exit() {
+        let mut contract = contract();
+        contract.risk = RiskLevel::High;
+        let mut evidence = evidence();
+        evidence.commands = Vec::new();
+        evidence.checks = Vec::new();
+        evidence.signals = Vec::new();
+
+        let report = verify_contract_evidence(&contract, &evidence);
+
+        assert_eq!(report.verdict, VerifierVerdict::NeedsEvidence);
+        assert!(report
+            .evidence_floor
+            .missing
+            .contains(&"Objective verification required".to_string()));
+    }
+
+    #[test]
+    fn critical_risk_needs_independent_verify() {
+        let mut contract = contract();
+        contract.risk = RiskLevel::Critical;
+
+        let report = verify_contract_evidence(&contract, &evidence());
+
+        assert_eq!(report.verdict, VerifierVerdict::NeedsEvidence);
+        assert!(report
+            .evidence_floor
+            .missing
+            .contains(&"Independent review required for critical code".to_string()));
     }
 }

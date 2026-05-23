@@ -14,6 +14,36 @@ pub struct TaskContract {
     pub allowed_operations: Vec<Operation>,
     pub acceptance_criteria: Vec<String>,
     pub created_at: DateTime<Utc>,
+    #[serde(default)]
+    pub project_id: Option<String>,
+    #[serde(default)]
+    pub project_name: Option<String>,
+    #[serde(default)]
+    pub repo_path: Option<String>,
+    #[serde(default)]
+    pub allowed_paths: Vec<String>,
+    #[serde(default)]
+    pub forbidden_paths: Vec<String>,
+    #[serde(default)]
+    pub expected_base_commit: Option<String>,
+    #[serde(default)]
+    pub autonomy: Option<String>,
+    #[serde(default)]
+    pub approval: Option<String>,
+    #[serde(default)]
+    pub budget_limit: Option<f64>,
+    #[serde(default)]
+    pub rollback_notes: Option<String>,
+    #[serde(default)]
+    pub required_checks: Vec<RequiredCheck>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RequiredCheck {
+    pub name: String,
+    pub command: String,
+    #[serde(default = "default_required_check")]
+    pub required: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -69,7 +99,37 @@ impl TaskContract {
             allowed_operations: default_operations_for_tier(tier),
             acceptance_criteria: Vec::new(),
             created_at: Utc::now(),
+            project_id: None,
+            project_name: None,
+            repo_path: None,
+            allowed_paths: Vec::new(),
+            forbidden_paths: Vec::new(),
+            expected_base_commit: None,
+            autonomy: None,
+            approval: None,
+            budget_limit: None,
+            rollback_notes: None,
+            required_checks: Vec::new(),
         }
+    }
+
+    pub fn with_allowed_paths(mut self, allowed_paths: Vec<String>) -> Self {
+        self.allowed_paths = allowed_paths;
+        self
+    }
+
+    pub fn with_expected_base_commit(mut self, expected_base_commit: Option<String>) -> Self {
+        self.expected_base_commit = expected_base_commit;
+        self
+    }
+
+    pub fn with_dispatch_contract(
+        self,
+        allowed_paths: Vec<String>,
+        expected_base_commit: Option<String>,
+    ) -> Self {
+        self.with_allowed_paths(allowed_paths)
+            .with_expected_base_commit(expected_base_commit)
     }
 }
 
@@ -84,4 +144,8 @@ fn default_operations_for_tier(tier: Tier) -> Vec<Operation> {
         ],
         Tier::Think => vec![Operation::Read],
     }
+}
+
+fn default_required_check() -> bool {
+    true
 }
