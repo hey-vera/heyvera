@@ -40,6 +40,10 @@ pub async fn list_conversations(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // If using local auth (no real user), return empty array to prevent frontend crashes
+    if user.user_id == "local" && state.clerk_secret_key.is_none() {
+        return Ok(Json(serde_json::json!([])));
+    }
     let db = db_ref(&state)?;
     let conversations = db.list_conversations(&user.user_id);
     serde_json::to_value(conversations)

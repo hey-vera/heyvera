@@ -130,6 +130,15 @@ pub async fn system_stats(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    // If using local auth (no real user), return empty stats to prevent frontend crashes
+    if user.user_id == "local" && state.clerk_secret_key.is_none() {
+        return Ok(Json(serde_json::json!({
+            "total_runs": 0,
+            "total_steps": 0,
+            "workers_connected_live": 0
+        })));
+    }
+
     resolve_admin(&state, &user).await?;
     let stats = state
         .db

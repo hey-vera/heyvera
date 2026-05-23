@@ -95,8 +95,12 @@ pub async fn route_task(
 
 pub async fn get_providers(
     State(state): State<Arc<AppState>>,
-    _user: ClerkUser,
+    user: ClerkUser,
 ) -> Json<Vec<cortex_core::provider::ProviderStatus>> {
+    // If using local auth (no real user), return empty to prevent frontend crashes
+    if user.user_id == "local" && state.clerk_secret_key.is_none() {
+        return Json(Vec::new());
+    }
     let providers = state.providers.read().await;
     Json(providers.clone())
 }
