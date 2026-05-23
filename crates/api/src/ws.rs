@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -11,21 +11,24 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use cortex_core::failure::WorkerFailureKind;
-use cortex_core::protocol::{BrainMessage, WorkerMessage, PROTOCOL_VERSION};
+use cortex_core::protocol::{BrainMessage, PROTOCOL_VERSION, StepOutput, WorkerMessage};
+use cortex_core::routing::RiskLevel;
+use cortex_core::task::TaskContract;
 use cortex_engine::captain::SchedulerEvent;
+use cortex_engine::verifier::{
+    CheckEvidence as VerifierCheckEvidence, CheckStatus, StructuredStepEvidence, VerifierInput,
+    VerifierVerdict, VerifierWorkContract, verify_step,
+};
 
 use crate::clerk;
+use crate::context_flow::{ArtifactKind, ContextBus};
 use crate::mission_control::MissionControlEvent;
 use crate::state::{AppState, StepEvent};
-use crate::context_flow::{ContextBus, ArtifactKind};
 
 const GRACE_PERIOD_MS: i64 = 60_000;
 const REGISTER_TIMEOUT_SECS: u64 = 10;
 
-pub async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
-) -> Response {
+pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
     if state.is_shutting_down.load(Ordering::SeqCst) {
         return (StatusCode::SERVICE_UNAVAILABLE, "server is shutting down").into_response();
     }
@@ -62,25 +65,23 @@ async fn handle_worker_connection(mut socket: WebSocket, state: Arc<AppState>) {
     )
     .await
     {
-        Ok(Some(Ok(Message::Text(text)))) => {
-            match serde_json::from_str::<WorkerMessage>(&text) {
-                Ok(msg @ WorkerMessage::Register { .. }) => Some(msg),
-                Ok(_) => {
-                    tracing::warn!(
-                        "worker {worker_id}: first message was not Register, closing connection"
-                    );
-                    let _ = socket.send(Message::Close(None)).await;
-                    return;
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "worker {worker_id}: invalid first message: {e}, closing connection"
-                    );
-                    let _ = socket.send(Message::Close(None)).await;
-                    return;
-                }
+        Ok(Some(Ok(Message::Text(text)))) => match serde_json::from_str::<WorkerMessage>(&text) {
+            Ok(msg @ WorkerMessage::Register { .. }) => Some(msg),
+            Ok(_) => {
+                tracing::warn!(
+                    "worker {worker_id}: first message was not Register, closing connection"
+                );
+                let _ = socket.send(Message::Close(None)).await;
+                return;
             }
-        }
+            Err(e) => {
+                tracing::warn!(
+                    "worker {worker_id}: invalid first message: {e}, closing connection"
+                );
+                let _ = socket.send(Message::Close(None)).await;
+                return;
+            }
+        },
         Ok(Some(Ok(Message::Close(_)))) | Ok(None) => {
             tracing::info!("worker {worker_id}: disconnected before registration");
             return;
@@ -265,7 +266,8 @@ async fn handle_worker_msg(
             state.clear_disabled_providers(worker_id).await;
 
             // Capture provider strings before moving provider_ids
-            let provider_strings: Vec<String> = provider_ids.iter().map(|p| p.to_string()).collect();
+            let provider_strings: Vec<String> =
+                provider_ids.iter().map(|p| p.to_string()).collect();
 
             state
                 .register_worker(
@@ -297,11 +299,27 @@ async fn handle_worker_msg(
         WorkerMessage::StepStarted {
             message_id,
             step_id,
+            lease_gen,
             provider,
             model,
             ..
         } => {
             tracing::info!("step {step_id} started: {provider}/{model} (msg={message_id})");
+            if let Some(db) = &state.db {
+                if !db.verify_step_worker(&step_id, worker_id) {
+                    tracing::warn!(
+                        "SECURITY: worker {worker_id} attempted StepStarted for step {step_id} \
+                         which is not assigned to it — dropping message (msg={message_id})"
+                    );
+                    return;
+                }
+                if !db.start_step(&step_id, lease_gen) {
+                    tracing::warn!(
+                        "start_step returned false for step {step_id} lease_gen={lease_gen} — \
+                         step may already be terminal or stale"
+                    );
+                }
+            }
 
             // Emit MC event
             if let Some(user_id) = authed_user_id.as_deref() {
@@ -327,10 +345,12 @@ async fn handle_worker_msg(
 
             // Forward to SSE channel (chat endpoint)
             if let Some(tx) = state.get_step_sender(&step_id).await {
-                let _ = tx.send(StepEvent::Output {
-                    step_id: step_id.clone(),
-                    line: line.clone(),
-                }).await;
+                let _ = tx
+                    .send(StepEvent::Output {
+                        step_id: step_id.clone(),
+                        line: line.clone(),
+                    })
+                    .await;
             }
 
             // Emit MC event (throttled by the MC connection handler)
@@ -354,6 +374,7 @@ async fn handle_worker_msg(
         WorkerMessage::StepCompleted {
             message_id,
             step_id,
+            attempt_id,
             lease_gen,
             exit_code,
             output,
@@ -385,107 +406,257 @@ async fn handle_worker_msg(
             } else {
                 output.summary.clone()
             };
+            let mut completion_accepted = false;
+            let mut completion_error = "step failed before verification".to_string();
+            let mut step_transitioned = false;
             if let Some(db) = &state.db {
-                let step_updated = db.complete_step(
+                // Record usage for pressure tracking
+                record_step_usage(
+                    db,
                     &step_id,
                     lease_gen,
-                    Some(&truncated_summary),
-                    files_json.as_deref(),
-                    base_commit.as_deref(),
-                    head_commit.as_deref(),
+                    authed_user_id.as_deref(),
+                    output.tokens_in,
+                    output.tokens_out,
                 );
-                if !step_updated {
-                    tracing::warn!(
-                        "complete_step returned false for step {step_id} lease_gen={lease_gen} — \
-                         likely stale lease_gen (step may have been re-leased or already completed)"
+
+                let resolved_run_id = resolve_run_id(step_run_cache, state, &step_id);
+                let mut verified_success = exit_code == 0;
+                let mut verifier_failure = String::new();
+
+                if let Some(run_id) = resolved_run_id.as_deref() {
+                    let (
+                        verifier_status,
+                        verifier_verdict,
+                        verifier_diagnostic,
+                        evidence_json,
+                        report_passed,
+                    ) = verify_worker_completion(
+                        db,
+                        run_id,
+                        &step_id,
+                        &attempt_id,
+                        lease_gen,
+                        worker_id,
+                        exit_code,
+                        &output,
+                        base_commit.as_deref(),
+                        head_commit.as_deref(),
+                        branch.as_deref(),
+                        &truncated_summary,
+                        &message_id,
                     );
-                }
-                db.complete_attempt(&step_id, lease_gen);
 
-                // Record usage for pressure tracking
-                record_step_usage(db, &step_id, lease_gen, authed_user_id.as_deref(), output.tokens_in, output.tokens_out);
-
-                if let Some(run_id) = resolve_run_id(step_run_cache, state, &step_id) {
-                    // If this step produced a branch, record it on the run
-                    if let Some(ref branch_name) = branch {
-                        db.record_run_branch(&run_id, branch_name);
+                    verified_success = report_passed;
+                    if !report_passed {
+                        verifier_failure = verifier_diagnostic;
                     }
 
-                    state
-                        .emit_scheduler_event(SchedulerEvent::StepCompleted {
-                            run_id: run_id.clone(),
-                            step_id: step_id.clone(),
-                            cost_estimate: output.cost_estimate,
-                        })
-                        .await;
+                    db.record_verifier_report(
+                        &step_id,
+                        run_id,
+                        lease_gen,
+                        Some(worker_id),
+                        "engine_verifier",
+                        &verifier_status,
+                        &verifier_verdict,
+                        &evidence_json,
+                    );
+                } else {
+                    verifier_failure =
+                        "verifier could not resolve run for completed step".to_string();
+                    verified_success = false;
+                }
 
-                    // Emit MC event
-                    if let Some(user_id) = authed_user_id.as_deref() {
-                        state
-                            .emit_mc_event(
-                                user_id,
-                                MissionControlEvent::StepCompleted {
+                if verified_success {
+                    step_transitioned = db.complete_step(
+                        &step_id,
+                        lease_gen,
+                        Some(&truncated_summary),
+                        files_json.as_deref(),
+                        base_commit.as_deref(),
+                        head_commit.as_deref(),
+                    );
+                    if !step_transitioned {
+                        tracing::warn!(
+                            "complete_step returned false for step {step_id} lease_gen={lease_gen} — \
+                             likely stale lease_gen (step may have been re-leased or already completed)"
+                        );
+                        completion_error =
+                            "stale worker completion ignored: step is no longer leased to this attempt"
+                                .to_string();
+                    } else {
+                        db.complete_attempt(&step_id, lease_gen);
+                    }
+                } else {
+                    if verifier_failure.is_empty() {
+                        verifier_failure = "verifier rejected worker completion".to_string();
+                    }
+                    completion_error = verifier_failure.clone();
+                    db.record_failed_step_output(
+                        &step_id,
+                        lease_gen,
+                        Some(&truncated_summary),
+                        files_json.as_deref(),
+                        base_commit.as_deref(),
+                        head_commit.as_deref(),
+                    );
+                    step_transitioned = db.fail_step(
+                        &step_id,
+                        lease_gen,
+                        &verifier_failure,
+                        Some("VerifierRejected"),
+                    );
+                    if step_transitioned {
+                        db.fail_attempt(
+                            &step_id,
+                            lease_gen,
+                            Some("VerifierRejected"),
+                            Some(&verifier_failure),
+                        );
+                    } else {
+                        tracing::warn!(
+                            "fail_step returned false for verifier-rejected step {step_id} lease_gen={lease_gen} — \
+                             likely stale lease_gen (step may have been re-leased or already completed)"
+                        );
+                        completion_error =
+                            "stale verifier rejection ignored: step is no longer leased to this attempt"
+                                .to_string();
+                    }
+                }
+                completion_accepted = verified_success && step_transitioned;
+
+                if step_transitioned {
+                    if let Some(run_id) = resolved_run_id {
+                        if verified_success {
+                            if let Some(ref branch_name) = branch {
+                                db.record_run_branch(&run_id, branch_name);
+                            }
+                        }
+
+                        if verified_success {
+                            state
+                                .emit_scheduler_event(SchedulerEvent::StepCompleted {
                                     run_id: run_id.clone(),
                                     step_id: step_id.clone(),
-                                    exit_code,
-                                    files_changed: output.files_changed.clone(),
                                     cost_estimate: output.cost_estimate,
-                                },
-                            )
+                                })
+                                .await;
+                        } else {
+                            state
+                                .emit_scheduler_event(SchedulerEvent::StepFailed {
+                                    run_id: run_id.clone(),
+                                    step_id: step_id.clone(),
+                                })
+                                .await;
+                        }
+
+                        if let Some(user_id) = authed_user_id.as_deref() {
+                            if verified_success {
+                                state
+                                    .emit_mc_event(
+                                        user_id,
+                                        MissionControlEvent::StepCompleted {
+                                            run_id: run_id.clone(),
+                                            step_id: step_id.clone(),
+                                            exit_code,
+                                            files_changed: output.files_changed.clone(),
+                                            cost_estimate: output.cost_estimate,
+                                        },
+                                    )
+                                    .await;
+                            } else {
+                                state
+                                    .emit_mc_event(
+                                        user_id,
+                                        MissionControlEvent::StepFailed {
+                                            run_id: run_id.clone(),
+                                            step_id: step_id.clone(),
+                                            error: verifier_failure.clone(),
+                                            failure_kind: "VerifierRejected".to_string(),
+                                        },
+                                    )
+                                    .await;
+                            }
+                        }
+
+                        let artifact_kind = if verified_success {
+                            if !output.files_changed.is_empty() {
+                                ArtifactKind::Code
+                            } else if output.summary.to_lowercase().contains("analy") {
+                                ArtifactKind::Analysis
+                            } else if output.summary.to_lowercase().contains("plan") {
+                                ArtifactKind::Plan
+                            } else {
+                                ArtifactKind::Answer
+                            }
+                        } else {
+                            ArtifactKind::Error
+                        };
+
+                        let confidence = if verified_success { 0.8 } else { 0.1 };
+                        let artifact = ContextBus::create_artifact(
+                            &step_id,
+                            &run_id,
+                            artifact_kind,
+                            &output.summary,
+                            &truncated_summary,
+                            output.files_changed.clone(),
+                            confidence,
+                        );
+
+                        state
+                            .context_bus
+                            .add_artifact(state.db.as_ref(), artifact)
                             .await;
+
+                        tracing::debug!("artifact added to context-flow pipeline for run {run_id}");
                     }
 
-                    // Add artifact to Context-Flow Pipeline for future steps
-                    let artifact_kind = if exit_code == 0 {
-                        // Determine artifact type based on output content
-                        if !output.files_changed.is_empty() {
-                            ArtifactKind::Code
-                        } else if output.summary.to_lowercase().contains("analy") {
-                            ArtifactKind::Analysis
-                        } else if output.summary.to_lowercase().contains("plan") {
-                            ArtifactKind::Plan
+                    if let Some(user_id) = authed_user_id.as_deref() {
+                        if verified_success {
+                            let duration_ms = if let Some((_, _, started_at)) =
+                                db.get_attempt_provider_model(&step_id, lease_gen)
+                            {
+                                let now = chrono::Utc::now().timestamp_millis();
+                                (now - started_at).max(0) as u64
+                            } else {
+                                0
+                            };
+                            state.vera_tracker.record_step_completed(
+                                user_id,
+                                duration_ms,
+                                exit_code,
+                                None,
+                            );
                         } else {
-                            ArtifactKind::Answer
+                            state.vera_tracker.record_step_failed(
+                                user_id,
+                                "VerifierRejected",
+                                None,
+                            );
                         }
-                    } else {
-                        ArtifactKind::Error
-                    };
-
-                    let confidence = if exit_code == 0 { 0.8 } else { 0.1 };
-
-                    let artifact = ContextBus::create_artifact(
-                        &step_id,
-                        &run_id,
-                        artifact_kind,
-                        &output.summary,
-                        &truncated_summary,
-                        output.files_changed.clone(),
-                        confidence,
-                    );
-
-                    state.context_bus.add_artifact(state.db.as_ref(), artifact).await;
-
-                    tracing::debug!("artifact added to context-flow pipeline for run {run_id}");
-                }
-
-                // Vera observes the completed step
-                if let Some(user_id) = authed_user_id.as_deref() {
-                    let duration_ms = if let Some((_, _, started_at)) = db.get_attempt_provider_model(&step_id, lease_gen) {
-                        let now = chrono::Utc::now().timestamp_millis();
-                        (now - started_at).max(0) as u64
-                    } else {
-                        0
-                    };
-                    state.vera_tracker.record_step_completed(user_id, duration_ms, exit_code, None);
+                    }
                 }
             }
 
             // Forward to SSE channel (chat endpoint)
             if let Some(tx) = state.get_step_sender(&step_id).await {
-                let _ = tx.send(StepEvent::Completed {
-                    step_id: step_id.clone(),
-                    exit_code,
-                }).await;
+                if completion_accepted {
+                    let _ = tx
+                        .send(StepEvent::Completed {
+                            step_id: step_id.clone(),
+                            exit_code,
+                        })
+                        .await;
+                } else {
+                    let _ = tx
+                        .send(StepEvent::Failed {
+                            step_id: step_id.clone(),
+                            error: completion_error,
+                        })
+                        .await;
+                }
             }
             state.remove_step_sender(&step_id).await;
         }
@@ -508,13 +679,11 @@ async fn handle_worker_msg(
                 }
             }
 
-            tracing::warn!(
-                "step {step_id} failed: {:?} msg={message_id}",
-                failure.kind
-            );
+            tracing::warn!("step {step_id} failed: {:?} msg={message_id}", failure.kind);
 
             let error_msg = failure.stderr_excerpt.as_deref().unwrap_or("unknown error");
             let kind_str = format!("{:?}", failure.kind);
+            let is_cancelled = matches!(failure.kind, WorkerFailureKind::Cancelled);
 
             // Classify the failure to detect auth expiry
             let is_auth_expired = matches!(
@@ -523,11 +692,38 @@ async fn handle_worker_msg(
             );
 
             if let Some(db) = &state.db {
-                db.fail_step(&step_id, lease_gen, error_msg, Some(&kind_str));
+                let step_transitioned = if is_cancelled {
+                    db.cancel_step(&step_id, lease_gen, error_msg)
+                } else {
+                    db.fail_step(&step_id, lease_gen, error_msg, Some(&kind_str))
+                };
+                if !step_transitioned {
+                    tracing::warn!(
+                        "terminal failure transition returned false for step {step_id} lease_gen={lease_gen} — \
+                         likely stale lease_gen (step may have been re-leased or already completed)"
+                    );
+                    if let Some(tx) = state.get_step_sender(&step_id).await {
+                        let _ = tx
+                            .send(StepEvent::Failed {
+                                step_id: step_id.clone(),
+                                error: "stale worker failure ignored: step is no longer leased to this attempt".to_string(),
+                            })
+                            .await;
+                    }
+                    state.remove_step_sender(&step_id).await;
+                    return;
+                }
                 db.fail_attempt(&step_id, lease_gen, Some(&kind_str), Some(error_msg));
 
                 // Record usage even on failure (still consumed tokens/time)
-                record_step_usage(db, &step_id, lease_gen, authed_user_id.as_deref(), None, None);
+                record_step_usage(
+                    db,
+                    &step_id,
+                    lease_gen,
+                    authed_user_id.as_deref(),
+                    None,
+                    None,
+                );
 
                 if let Some(run_id) = resolve_run_id(step_run_cache, state, &step_id) {
                     state
@@ -555,22 +751,31 @@ async fn handle_worker_msg(
 
                 // Vera observes the failed step
                 if let Some(user_id) = authed_user_id.as_deref() {
-                    state.vera_tracker.record_step_failed(user_id, &kind_str, None);
+                    state
+                        .vera_tracker
+                        .record_step_failed(user_id, &kind_str, None);
                 }
 
                 // Forward to SSE channel (chat endpoint)
                 if let Some(tx) = state.get_step_sender(&step_id).await {
-                    let _ = tx.send(StepEvent::Failed {
-                        step_id: step_id.clone(),
-                        error: error_msg.to_string(),
-                    }).await;
+                    let _ = tx
+                        .send(StepEvent::Failed {
+                            step_id: step_id.clone(),
+                            error: error_msg.to_string(),
+                        })
+                        .await;
                 }
                 state.remove_step_sender(&step_id).await;
 
                 // Emit ProviderAuthExpired so scheduler disables the provider on this worker
                 if is_auth_expired {
-                    let provider_name = failure.tool.clone().unwrap_or_else(|| "unknown".to_string());
-                    let user_id = authed_user_id.clone().unwrap_or_else(|| "local".to_string());
+                    let provider_name = failure
+                        .tool
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let user_id = authed_user_id
+                        .clone()
+                        .unwrap_or_else(|| "local".to_string());
                     tracing::warn!(
                         "provider auth expired: provider={provider_name}, worker={worker_id}, user={user_id}"
                     );
@@ -604,7 +809,9 @@ async fn handle_worker_msg(
                 if renewed {
                     tracing::debug!("lease renewed for step {step_id} gen={lease_gen}");
                 } else {
-                    tracing::warn!("lease renewal failed for step {step_id} gen={lease_gen} — stale or not leased");
+                    tracing::warn!(
+                        "lease renewal failed for step {step_id} gen={lease_gen} — stale or not leased"
+                    );
                 }
             }
         }
@@ -618,6 +825,304 @@ async fn handle_worker_msg(
         }
 
         WorkerMessage::Pong => {}
+    }
+}
+
+fn verify_worker_completion(
+    db: &crate::db::Database,
+    run_id: &str,
+    step_id: &str,
+    attempt_id: &str,
+    lease_gen: i64,
+    worker_id: &str,
+    exit_code: i32,
+    output: &StepOutput,
+    base_commit: Option<&str>,
+    head_commit: Option<&str>,
+    branch: Option<&str>,
+    truncated_summary: &str,
+    message_id: &str,
+) -> (String, String, String, String, bool) {
+    let persisted_contract = db.get_step_work_contract(step_id, lease_gen);
+    let (risk, objective) = db
+        .get_step_details(step_id)
+        .map(|(_, _, _, risk, objective)| (parse_verifier_risk(&risk), objective))
+        .unwrap_or((RiskLevel::Medium, String::new()));
+
+    let git = output
+        .evidence
+        .as_ref()
+        .and_then(|packet| packet.git.as_ref());
+    let checks = output
+        .evidence
+        .as_ref()
+        .map(|packet| {
+            packet
+                .checks
+                .iter()
+                .map(|check| VerifierCheckEvidence {
+                    name: check.name.clone(),
+                    status: check_status(check.exit_code, check.timed_out),
+                    summary: check_summary(check),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+    let evidence = StructuredStepEvidence {
+        step_id: Some(step_id.to_string()),
+        attempt_id: Some(attempt_id.to_string()),
+        summary: output.summary.clone(),
+        exit_code: Some(exit_code),
+        files_changed: output.files_changed.clone(),
+        base_commit: git
+            .and_then(|evidence| evidence.base_commit.clone())
+            .or_else(|| base_commit.map(str::to_string)),
+        head_commit: git
+            .and_then(|evidence| evidence.head_commit.clone())
+            .or_else(|| head_commit.map(str::to_string)),
+        commands: Vec::new(),
+        checks,
+        signals: Vec::new(),
+    };
+
+    let fallback_allowed_paths = db.get_run_file_paths(run_id);
+    let fallback_base_commit = base_commit.map(str::to_string);
+    let contract = persisted_contract
+        .as_ref()
+        .map(|task| {
+            VerifierWorkContract::from_task_contract(
+                task,
+                fallback_allowed_paths.clone(),
+                fallback_base_commit.clone(),
+            )
+        })
+        .unwrap_or_else(|| {
+            VerifierWorkContract::from_task_contract(
+                &fallback_task_contract(objective, risk),
+                fallback_allowed_paths,
+                fallback_base_commit,
+            )
+        });
+
+    let input = VerifierInput { contract, evidence };
+
+    let report = verify_step(input.clone());
+    let status = verifier_status(report.verdict).to_string();
+    let verdict = verifier_verdict(report.verdict).to_string();
+    let passed = report.verdict.is_success();
+    let diagnostic = verifier_diagnostic(&status, &verdict, &report);
+    let evidence_json = serde_json::json!({
+        "source": "engine_verifier",
+        "message_id": message_id,
+        "step_id": step_id,
+        "run_id": run_id,
+        "lease_gen": lease_gen,
+        "worker_id": worker_id,
+        "worker_completed": {
+            "exit_code": exit_code,
+            "summary": truncated_summary,
+            "files_changed": output.files_changed.clone(),
+            "base_commit": base_commit,
+            "head_commit": head_commit,
+            "branch": branch,
+            "cost_estimate": output.cost_estimate,
+            "structured": output.structured.clone(),
+        },
+        "verifier_input": input,
+        "verifier_report": report,
+    })
+    .to_string();
+
+    (status, verdict, diagnostic, evidence_json, passed)
+}
+
+fn fallback_task_contract(objective: String, risk: RiskLevel) -> TaskContract {
+    TaskContract::new(objective, cortex_core::provider::Tier::Execute, risk)
+}
+
+fn check_status(exit_code: Option<i32>, timed_out: bool) -> CheckStatus {
+    if timed_out {
+        CheckStatus::Failed
+    } else {
+        match exit_code {
+            Some(0) => CheckStatus::Passed,
+            Some(_) => CheckStatus::Failed,
+            None => CheckStatus::Unknown,
+        }
+    }
+}
+
+fn check_summary(check: &cortex_core::protocol::CheckEvidence) -> Option<String> {
+    let mut parts = Vec::new();
+    if check.timed_out {
+        parts.push("timed out".to_string());
+    }
+    if let Some(code) = check.exit_code {
+        parts.push(format!("exit code {code}"));
+    }
+    if let Some(stderr) = check
+        .stderr_excerpt
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        parts.push(stderr.clone());
+    } else if let Some(stdout) = check
+        .stdout_excerpt
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        parts.push(stdout.clone());
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(": "))
+    }
+}
+
+fn verifier_diagnostic(
+    status: &str,
+    verdict: &str,
+    report: &cortex_engine::verifier::VerifierReport,
+) -> String {
+    let mut parts = vec![format!(
+        "verifier rejected worker completion: status={status}, verdict={verdict}, next_action={:?}",
+        report.next_action
+    )];
+
+    if !report.evidence_floor.satisfied && !report.evidence_floor.missing.is_empty() {
+        parts.push(format!(
+            "missing evidence: {}",
+            report.evidence_floor.missing.join(", ")
+        ));
+    }
+
+    if !report.allowed_path_violations.is_empty() {
+        let violations = report
+            .allowed_path_violations
+            .iter()
+            .take(5)
+            .map(|violation| format!("{} ({})", violation.path, violation.reason))
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("path violations: {violations}"));
+    }
+
+    if !report.stale_base_notes.is_empty() {
+        let notes = report
+            .stale_base_notes
+            .iter()
+            .take(3)
+            .map(|note| note.note.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("base mismatch: {notes}"));
+    }
+
+    if !report.required_check_summary.missing.is_empty() {
+        let missing = report
+            .required_check_summary
+            .missing
+            .iter()
+            .take(5)
+            .map(|check| check.name.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("missing required checks: {missing}"));
+    }
+
+    if !report.required_check_summary.failed.is_empty() {
+        let failed = report
+            .required_check_summary
+            .failed
+            .iter()
+            .take(5)
+            .map(|check| {
+                check
+                    .summary
+                    .as_ref()
+                    .filter(|summary| !summary.trim().is_empty())
+                    .map(|summary| format!("{} ({summary})", check.name))
+                    .unwrap_or_else(|| check.name.clone())
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("failed required checks: {failed}"));
+    }
+
+    if !report.check_summary.failures.is_empty() {
+        let failed = report
+            .check_summary
+            .failures
+            .iter()
+            .take(5)
+            .map(|failure| {
+                failure
+                    .summary
+                    .as_ref()
+                    .filter(|summary| !summary.trim().is_empty())
+                    .map(|summary| format!("{} ({summary})", failure.name))
+                    .unwrap_or_else(|| failure.name.clone())
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("check failures: {failed}"));
+    }
+
+    if report.command_summary.failed > 0 {
+        let failed = report
+            .command_summary
+            .failures
+            .iter()
+            .take(5)
+            .map(|failure| {
+                failure
+                    .summary
+                    .as_ref()
+                    .filter(|summary| !summary.trim().is_empty())
+                    .map(|summary| format!("{} ({summary})", failure.command))
+                    .unwrap_or_else(|| failure.command.clone())
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("command failures: {failed}"));
+    }
+
+    truncate_diagnostic(&parts.join("; "), 2_000)
+}
+
+fn truncate_diagnostic(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+
+    let mut truncated = value.chars().take(max_chars).collect::<String>();
+    truncated.push_str("...");
+    truncated
+}
+
+fn parse_verifier_risk(risk: &str) -> RiskLevel {
+    match risk.to_ascii_lowercase().as_str() {
+        "low" => RiskLevel::Low,
+        "high" => RiskLevel::High,
+        "critical" => RiskLevel::Critical,
+        _ => RiskLevel::Medium,
+    }
+}
+
+fn verifier_status(verdict: VerifierVerdict) -> &'static str {
+    match verdict {
+        VerifierVerdict::Success | VerifierVerdict::Failed | VerifierVerdict::Blocked => "verified",
+        VerifierVerdict::NeedsEvidence => "needs_evidence",
+    }
+}
+
+fn verifier_verdict(verdict: VerifierVerdict) -> &'static str {
+    match verdict {
+        VerifierVerdict::Success => "pass",
+        VerifierVerdict::NeedsEvidence => "needs_evidence",
+        VerifierVerdict::Failed => "fail",
+        VerifierVerdict::Blocked => "blocked",
     }
 }
 
@@ -654,7 +1159,7 @@ fn record_step_usage(
         let now = chrono::Utc::now().timestamp_millis();
         let duration_ms = now - started_at;
 
-        let tier = if let Some((_, tier_str, _, _)) = db.get_step_details(step_id) {
+        let tier = if let Some((_, _, tier_str, _, _)) = db.get_step_details(step_id) {
             tier_str
         } else {
             "execute".to_string()
@@ -705,7 +1210,8 @@ async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, St
             if delegation.issuer_did != heart.did() {
                 return Err(format!(
                     "delegation issuer {} is not Cortex heart {}",
-                    delegation.issuer_did, heart.did()
+                    delegation.issuer_did,
+                    heart.did()
                 ));
             }
         }
@@ -729,7 +1235,10 @@ async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, St
             );
         }
 
-        tracing::info!("worker authenticated via soma delegation: {}", delegation.subject_did);
+        tracing::info!(
+            "worker authenticated via soma delegation: {}",
+            delegation.subject_did
+        );
         return Ok(delegation.subject_did);
     }
 
@@ -750,5 +1259,99 @@ async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, St
                 clerk::get_or_refresh_jwks_pub(&state.jwks_cache, clerk_secret, true).await?;
             clerk::verify_token_pub(token, &keys)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cortex_engine::verifier::{
+        AcceptanceCoverage, AllowedPathViolation, CheckEvidence as EngineCheckEvidence,
+        CheckFailure, CheckStatus as EngineCheckStatus, CheckSummary, CommandSummary,
+        RequiredCheckSummary, VerifierFloorSummary, VerifierNextAction,
+        VerifierReport as EngineVerifierReport,
+    };
+
+    fn rejected_report() -> EngineVerifierReport {
+        EngineVerifierReport {
+            verdict: VerifierVerdict::Failed,
+            risk: RiskLevel::High,
+            evidence_signals: Vec::new(),
+            evidence_floor: VerifierFloorSummary {
+                satisfied: false,
+                signals_met: Vec::new(),
+                missing: vec!["independent verification".into()],
+            },
+            allowed_path_violations: Vec::new(),
+            command_summary: CommandSummary {
+                total: 0,
+                succeeded: 0,
+                failed: 0,
+                unknown: 0,
+                failures: Vec::new(),
+            },
+            check_summary: CheckSummary {
+                total: 0,
+                passed: 0,
+                failed: 0,
+                skipped: 0,
+                unknown: 0,
+                failures: Vec::new(),
+            },
+            required_check_summary: RequiredCheckSummary::default(),
+            acceptance_coverage: AcceptanceCoverage {
+                evaluated: false,
+                total: 0,
+                covered: 0,
+                uncovered: Vec::new(),
+                note: "not evaluated".into(),
+            },
+            stale_base_notes: Vec::new(),
+            next_action: VerifierNextAction::AddEvidence,
+        }
+    }
+
+    #[test]
+    fn verifier_diagnostic_includes_missing_evidence_and_next_action() {
+        let report = rejected_report();
+
+        let diagnostic = verifier_diagnostic("needs_evidence", "needs_evidence", &report);
+
+        assert!(diagnostic.contains("next_action=AddEvidence"));
+        assert!(diagnostic.contains("missing evidence: independent verification"));
+    }
+
+    #[test]
+    fn verifier_diagnostic_includes_path_and_required_check_failures() {
+        let mut report = rejected_report();
+        report.allowed_path_violations.push(AllowedPathViolation {
+            path: "docs/readme.md".into(),
+            reason: "changed path is outside the allowed path contract".into(),
+        });
+        report
+            .required_check_summary
+            .failed
+            .push(EngineCheckEvidence {
+                name: "npm:build".into(),
+                status: EngineCheckStatus::Failed,
+                summary: Some("exit code 1".into()),
+            });
+        report.check_summary.failures.push(CheckFailure {
+            name: "npm:build".into(),
+            summary: Some("exit code 1".into()),
+        });
+
+        let diagnostic = verifier_diagnostic("verified", "fail", &report);
+
+        assert!(diagnostic.contains("path violations: docs/readme.md"));
+        assert!(diagnostic.contains("failed required checks: npm:build (exit code 1)"));
+        assert!(diagnostic.contains("check failures: npm:build (exit code 1)"));
+    }
+
+    #[test]
+    fn truncate_diagnostic_caps_long_messages() {
+        let diagnostic = truncate_diagnostic("abcdef", 3);
+
+        assert_eq!(diagnostic, "abc...");
     }
 }

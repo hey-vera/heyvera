@@ -41,7 +41,6 @@ interface CommandPaletteProps {
   onSelectGroup: (groupId: string) => void;
   onSelectConversation: (conversationId: string) => void;
   onOpenSettings: () => void;
-  onOpenWorkSurface: () => void;
   onPopOutTaskManager: () => void;
 }
 
@@ -102,7 +101,6 @@ export default function CommandPalette({
   onSelectGroup,
   onSelectConversation,
   onOpenSettings,
-  onOpenWorkSurface,
   onPopOutTaskManager,
 }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
@@ -145,15 +143,6 @@ export default function CommandPalette({
         keywords: ['conversation', 'compose'],
         shortcut: formatShortcut(['mod', 'n']),
         perform: onNewChat,
-      },
-      {
-        id: 'action:work-surface',
-        kind: 'action',
-        title: 'Open mapping view',
-        subtitle: 'Show orchestration events and run context',
-        keywords: ['mapping', 'work', 'surface', 'orchestration'],
-        shortcut: formatShortcut(['mod', 'j']),
-        perform: onOpenWorkSurface,
       },
       {
         id: 'action:popout-task-manager',
@@ -230,7 +219,6 @@ export default function CommandPalette({
     onCreateTask,
     onNewChat,
     onOpenSettings,
-    onOpenWorkSurface,
     onPopOutTaskManager,
     onSelectConversation,
     onSelectGroup,

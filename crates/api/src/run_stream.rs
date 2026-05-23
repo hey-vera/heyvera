@@ -1,14 +1,15 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
-use axum::Json;
 use futures_core::Stream;
 
 use crate::clerk::ClerkUser;
 use crate::routes::ErrorResponse;
+use crate::run_payload::{build_run_graph_payload, build_run_step_payloads};
 use crate::state::AppState;
 
 pub async fn stream_run(
@@ -57,7 +58,8 @@ pub async fn stream_run(
                 None => break,
             };
 
-            let steps = db.get_all_step_statuses(&run_id_clone);
+            let steps = build_run_step_payloads(db, &run_id_clone);
+            let graph = build_run_graph_payload(db, &run_id_clone, &steps);
             let goal = db.get_run_goal(&run_id_clone).unwrap_or_default();
             let heal_count = db.get_run_heal_count(&run_id_clone);
 
@@ -65,30 +67,8 @@ pub async fn stream_run(
                 "run_id": run_id_clone,
                 "goal": goal,
                 "heal_attempts": heal_count,
-                "steps": steps.iter().map(|(sid, status)| {
-                    let details = db.get_step_details(sid);
-                    let mut step = serde_json::json!({
-                        "id": sid,
-                        "status": status,
-                    });
-                    if let Some((kind, tier, risk, objective)) = details {
-                        step["kind"] = serde_json::json!(kind);
-                        step["tier"] = serde_json::json!(tier);
-                        step["risk"] = serde_json::json!(risk);
-                        step["objective"] = serde_json::json!(objective);
-                    }
-                    if status == "succeeded" {
-                        if let Some(summary) = db.get_step_output_summary(sid) {
-                            step["output_summary"] = serde_json::json!(summary);
-                        }
-                    }
-                    if status == "failed" {
-                        if let Some(err) = db.get_step_last_error(sid) {
-                            step["last_error"] = serde_json::json!(err);
-                        }
-                    }
-                    step
-                }).collect::<Vec<_>>(),
+                "steps": steps,
+                "graph": graph,
                 "tick": tick,
             });
 
@@ -102,12 +82,22 @@ pub async fn stream_run(
 
             // Check if run is terminal
             let all_terminal = steps.iter().all(|(_, s)| {
-                matches!(s.as_str(), "succeeded" | "failed" | "cancelled" | "skipped")
+                matches!(
+                    s.as_str(),
+                    "succeeded" | "failed" | "recovered" | "cancelled" | "skipped"
+                )
             });
 
             if all_terminal && !steps.is_empty() {
-                let any_failed = steps.iter().any(|(_, s)| s == "failed");
-                let final_status = if any_failed { "failed" } else { "succeeded" };
+                let any_failed = steps.iter().any(|(_, s)| s == "failed" || s == "skipped");
+                let any_cancelled = steps.iter().any(|(_, s)| s == "cancelled");
+                let final_status = if any_failed {
+                    "failed"
+                } else if any_cancelled {
+                    "cancelled"
+                } else {
+                    "succeeded"
+                };
                 yield Ok(Event::default().event("run_complete").data(
                     serde_json::json!({
                         "run_id": run_id_clone,

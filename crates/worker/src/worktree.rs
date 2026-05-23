@@ -1,7 +1,11 @@
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use cortex_core::error::CortexError;
+use cortex_core::protocol::GitEvidence;
+
+const DIFF_EXCERPT_BYTES: usize = 32 * 1024;
 
 /// A guard that owns an isolated git worktree for a single step execution.
 ///
@@ -292,6 +296,133 @@ pub fn create_worktree(
     })
 }
 
+/// Collect git-derived evidence for a completed worker step.
+///
+/// Returns `None` when `working_dir` is not inside a git worktree. Changed
+/// files are derived from git diff/status, never from provider stdout.
+pub fn collect_git_evidence(
+    working_dir: &Path,
+    base_commit: Option<&str>,
+    branch_override: Option<&str>,
+) -> Option<GitEvidence> {
+    if git_stdout(working_dir, &["rev-parse", "--is-inside-work-tree"])?.trim() != "true" {
+        return None;
+    }
+
+    let head_commit = git_stdout(working_dir, &["rev-parse", "HEAD"]);
+    let branch = branch_override
+        .filter(|b| !b.trim().is_empty())
+        .map(|b| b.to_string())
+        .or_else(|| {
+            git_stdout(working_dir, &["branch", "--show-current"])
+                .filter(|b| !b.trim().is_empty())
+        });
+    let status_porcelain = git_stdout(working_dir, &["status", "--porcelain"])
+        .filter(|s| !s.trim().is_empty());
+
+    let mut changed_files = BTreeSet::new();
+    if let Some(base) = base_commit.filter(|b| !b.trim().is_empty()) {
+        collect_name_only(working_dir, &["diff", "--name-only", base], &mut changed_files);
+    } else {
+        collect_name_only(
+            working_dir,
+            &["diff", "--name-only", "HEAD"],
+            &mut changed_files,
+        );
+    }
+    if let Some(status) = &status_porcelain {
+        for path in parse_status_porcelain_paths(status) {
+            changed_files.insert(path);
+        }
+    }
+
+    let (diff_excerpt, diff_truncated) =
+        collect_diff_excerpt(working_dir, base_commit.filter(|b| !b.trim().is_empty()));
+
+    Some(GitEvidence {
+        changed_files: changed_files.into_iter().collect(),
+        diff_excerpt,
+        diff_truncated,
+        status_porcelain,
+        base_commit: base_commit.map(|b| b.to_string()),
+        head_commit,
+        branch,
+    })
+}
+
+fn collect_name_only(working_dir: &Path, args: &[&str], changed_files: &mut BTreeSet<String>) {
+    if let Some(output) = git_stdout(working_dir, args) {
+        for path in output.lines().map(str::trim).filter(|p| !p.is_empty()) {
+            changed_files.insert(path.to_string());
+        }
+    }
+}
+
+fn collect_diff_excerpt(
+    working_dir: &Path,
+    base_commit: Option<&str>,
+) -> (Option<String>, bool) {
+    let output = if let Some(base) = base_commit {
+        git_output(working_dir, &["diff", "--binary", base])
+    } else {
+        git_output(working_dir, &["diff", "--binary", "HEAD"])
+    };
+
+    let Some(output) = output.filter(|o| o.status.success() && !o.stdout.is_empty()) else {
+        return (None, false);
+    };
+
+    let truncated = output.stdout.len() > DIFF_EXCERPT_BYTES;
+    let bytes = if truncated {
+        &output.stdout[..DIFF_EXCERPT_BYTES]
+    } else {
+        &output.stdout
+    };
+    let mut excerpt = String::from_utf8_lossy(bytes).to_string();
+    while !excerpt.is_char_boundary(excerpt.len()) {
+        excerpt.pop();
+    }
+    (Some(excerpt), truncated)
+}
+
+fn git_stdout(working_dir: &Path, args: &[&str]) -> Option<String> {
+    let output = git_output(working_dir, args)?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(
+        String::from_utf8_lossy(&output.stdout)
+            .trim_end()
+            .to_string(),
+    )
+}
+
+fn git_output(working_dir: &Path, args: &[&str]) -> Option<std::process::Output> {
+    Command::new("git")
+        .current_dir(working_dir)
+        .args(args)
+        .output()
+        .ok()
+}
+
+fn parse_status_porcelain_paths(status: &str) -> Vec<String> {
+    status
+        .lines()
+        .filter_map(|line| {
+            let path = line.get(3..)?.trim();
+            if path.is_empty() {
+                return None;
+            }
+            Some(
+                path.split_once(" -> ")
+                    .map(|(_, new_path)| new_path)
+                    .unwrap_or(path)
+                    .to_string(),
+            )
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -300,5 +431,22 @@ mod tests {
     fn branch_name_format() {
         let name = format!("cortex/step/{}", "abc-123");
         assert_eq!(name, "cortex/step/abc-123");
+    }
+
+    #[test]
+    fn parses_porcelain_paths() {
+        let paths = parse_status_porcelain_paths(
+            " M crates/core/src/protocol.rs\n\
+             ?? crates/worker/src/worktree.rs\n\
+             R  old.rs -> new.rs\n",
+        );
+        assert_eq!(
+            paths,
+            vec![
+                "crates/core/src/protocol.rs",
+                "crates/worker/src/worktree.rs",
+                "new.rs"
+            ]
+        );
     }
 }

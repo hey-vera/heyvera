@@ -15,6 +15,7 @@ use cortex_engine::router::Router;
 
 use crate::clerk::ClerkUser;
 use crate::github;
+use crate::run_payload::{build_run_graph_payload, build_run_step_payloads};
 use crate::scheduler;
 use crate::state::AppState;
 
@@ -242,14 +243,14 @@ pub async fn get_run(
         ));
     }
 
-    let steps = db.get_all_step_statuses(&id);
+    let steps = build_run_step_payloads(db, &id);
+    let graph = build_run_graph_payload(db, &id, &steps);
 
     Ok(Json(serde_json::json!({
         "id": id,
         "goal": goal,
-        "steps": steps.iter().map(|(sid, status)| {
-            serde_json::json!({ "id": sid, "status": status })
-        }).collect::<Vec<_>>(),
+        "steps": steps,
+        "graph": graph,
     })))
 }
 
@@ -319,9 +320,9 @@ fn build_pr_body(
         let mut all_files: Vec<String> = Vec::new();
 
         for (i, (step_id, status)) in steps.iter().enumerate() {
-            let (kind, _tier, _risk, objective) = db
+            let (kind, _work_kind, _tier, _risk, objective) = db
                 .get_step_details(step_id)
-                .unwrap_or_else(|| ("unknown".into(), "".into(), "".into(), "".into()));
+                .unwrap_or_else(|| ("unknown".into(), "".into(), "".into(), "".into(), "".into()));
 
             let status_icon = match status.as_str() {
                 "completed" => "done",

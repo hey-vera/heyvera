@@ -4,6 +4,7 @@ import type {
   ChatMessage,
   ChatProject,
   ChatSessionControls,
+  ConversationFlow,
   RunProfile,
   WorkEventItem,
 } from '../types';
@@ -17,6 +18,7 @@ import {
   updateConversationTitle,
   type ConversationMessage,
 } from './cortexApi';
+import { createImplementationMessage } from './projectImplementation';
 
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -68,6 +70,48 @@ function truncateTitle(text: string) {
   const normalized = text.trim().replace(/\s+/g, ' ');
   if (normalized.length <= 60) return normalized;
   return `${normalized.slice(0, 57).trimEnd()}...`;
+}
+
+function parseFlowResponse(content: string): ConversationFlow | null {
+  try {
+    // Look for flow options in the content
+    const optionsMatch = content.match(/\*\*Available options:\*\*\n```json\n(.*?)\n```/s);
+    if (!optionsMatch) return null;
+
+    const optionsJson = optionsMatch[1];
+    const options = JSON.parse(optionsJson);
+
+    // Look for handoff information
+    const handoffMatch = content.match(/\*\*Handoff to ([^*]+)\*\*\nContext: (.+)/s);
+    let handoff;
+    if (handoffMatch) {
+      try {
+        handoff = {
+          target: handoffMatch[1].trim(),
+          context: JSON.parse(handoffMatch[2]),
+        };
+      } catch {
+        handoff = {
+          target: handoffMatch[1].trim(),
+          context: handoffMatch[2],
+        };
+      }
+    }
+
+    return {
+      flowType: 'setup', // Default flow type, could be extracted from content if needed
+      options: Array.isArray(options) ? options : [],
+      flowState: {
+        currentStep: 'active',
+        progress: 0.5, // Default progress, could be extracted if available
+        completed: false,
+      },
+      flowComplete: Boolean(handoff),
+      handoff,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function approvalStorageKey(userId: string, conversationId: string) {
@@ -523,6 +567,10 @@ export function useChatSession({
                 assistantContent = assistantContent
                   ? `${assistantContent}\n\n${event.line ?? ''}`
                   : (event.line ?? '');
+
+                // Detect and parse flow responses
+                const flowResponse = parseFlowResponse(assistantContent);
+
                 if (event.line) {
                   setWorkEvents((currentEvents) => [
                     {
@@ -541,7 +589,11 @@ export function useChatSession({
                 setMessages((cur) =>
                   cur.map((m) =>
                     m.id === assistantId
-                      ? { ...m, content: assistantContent }
+                      ? {
+                          ...m,
+                          content: assistantContent,
+                          conversationFlow: flowResponse ?? undefined
+                        }
                       : m,
                   ),
                 );
@@ -567,13 +619,52 @@ export function useChatSession({
                       : workEvent,
                   ),
                 ].slice(0, 24));
+
+                const flowResponse = parseFlowResponse(assistantContent);
+
                 finalizeAssistant({
                   provider: assistantProvider,
                   model: assistantModel,
                   providerLabel: formatProviderLabel(assistantProvider),
                   statusLabel: 'Done',
                   isStreaming: false,
+                  conversationFlow: flowResponse ?? undefined,
                 });
+
+                // Handle handoffs - if flow completed with handoff, generate implementation message
+                if (flowResponse?.handoff) {
+                  const implementationMessage = createImplementationMessage(flowResponse.handoff);
+                  if (implementationMessage) {
+                    setTimeout(() => {
+                      // Add implementation message as new assistant response
+                      const implId = createId('assistant');
+                      const implMsg: ChatMessage = {
+                        id: implId,
+                        role: 'assistant',
+                        content: implementationMessage,
+                        createdAt: new Date().toISOString(),
+                        provider: 'cortex',
+                        providerLabel: 'Cortex · Project Builder',
+                        statusLabel: 'Ready to build',
+                      };
+
+                      setMessages((cur) => [...cur, implMsg]);
+
+                      // Persist the implementation message
+                      if (conversationId) {
+                        void addMessageToConversation(
+                          conversationId,
+                          'assistant',
+                          implementationMessage,
+                          'cortex',
+                          'project_builder'
+                        ).catch(() => {
+                          // keep local message even if persistence fails
+                        });
+                      }
+                    }, 1000); // Small delay for smooth UX
+                  }
+                }
                 break;
               }
 

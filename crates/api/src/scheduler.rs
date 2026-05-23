@@ -1,20 +1,22 @@
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
 use cortex_core::evaluator::{
-    AutoMode, BudgetEvidence, CandidateScore, DecisionEvidence, DefaultPolicy,
-    IntentEvidence, PressureState, Profile, ProviderFitEvidence, RiskEvidence,
-    WINDOW_SECS, token_budget,
+    AutoMode, BudgetEvidence, CandidateScore, DecisionEvidence, DefaultPolicy, IntentEvidence,
+    PressureState, Profile, ProviderFitEvidence, RiskEvidence, WINDOW_SECS, token_budget,
 };
-use cortex_core::protocol::{
-    BrainMessage, PredecessorSummary, StepContext,
-};
+use cortex_core::protocol::{BrainMessage, PredecessorSummary, StepContext};
 use cortex_core::provider::{ProviderId, Tier};
 use cortex_core::routing::{Intent, RiskLevel, RoutingDecision};
+use cortex_core::task::{
+    AcceptanceCriterion, AcceptanceVerification, RequiredCheck, WorkKind, WorkRecipe,
+    WorkRecipeSeed,
+};
 use cortex_engine::captain::{
-    check_run_completion, plan_heal, EdgeType, RunStatus, SchedulerEvent, SchedulerState,
-    StepKind, StepRef, StepStatus,
+    EdgeType, RunStatus, SchedulerEvent, SchedulerState, StepKind, StepRef, StepStatus,
+    check_run_completion, plan_heal,
 };
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -93,7 +95,11 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             load_ready_steps_for_run(state, sched, run_id).await;
         }
 
-        SchedulerEvent::StepCompleted { run_id, step_id, cost_estimate } => {
+        SchedulerEvent::StepCompleted {
+            run_id,
+            step_id,
+            cost_estimate,
+        } => {
             tracing::info!("scheduler: step completed {step_id} in run {run_id}");
             if let Some(heart) = &state.soma_heart {
                 heart.record_heartbeat(
@@ -104,7 +110,26 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             if let Some(db) = &state.db {
                 let user_id = get_run_user(db, run_id);
                 sched.mark_step_done(&user_id);
-                update_bandit_from_outcome(state, db, step_id, true, *cost_estimate).await;
+                match db.get_latest_verifier_report(step_id) {
+                    Some(report) if report.is_verified_success() => {
+                        update_bandit_from_outcome(state, db, step_id, true, *cost_estimate).await;
+                    }
+                    Some(report) => {
+                        tracing::info!(
+                            step_id = %step_id,
+                            report_id = %report.id,
+                            status = %report.status,
+                            verdict = %report.verdict,
+                            "skipping positive bandit reward for unverified step completion"
+                        );
+                    }
+                    None => {
+                        tracing::info!(
+                            step_id = %step_id,
+                            "skipping positive bandit reward for step completion without verifier report"
+                        );
+                    }
+                }
             }
             load_ready_steps_for_run(state, sched, run_id).await;
             check_run_done(state, run_id).await;
@@ -130,9 +155,18 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
                     .map(|e| e.contains("CliNotAuthenticated") || e.contains("CliAuthExpired"))
                     .unwrap_or(false);
 
-                if is_auth_failure {
+                let status = db
+                    .get_all_step_statuses(run_id)
+                    .into_iter()
+                    .find_map(|(id, status)| (id == *step_id).then_some(status));
+                let is_cancelled = status.as_deref() == Some("cancelled");
+                let is_no_provider = last_error.as_deref() == Some("no available provider");
+
+                if is_cancelled {
+                    tracing::info!("skipping heal for step {step_id} — step was cancelled");
+                } else if is_auth_failure || is_no_provider {
                     tracing::warn!(
-                        "skipping heal for step {step_id} — auth failure, cascading"
+                        "skipping heal for step {step_id} — non-healable dispatch failure, cascading"
                     );
                     let skipped = db.cascade_failure(step_id);
                     if !skipped.is_empty() {
@@ -157,7 +191,11 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             tracing::info!("scheduler: worker disconnected {worker_id}");
         }
 
-        SchedulerEvent::ProviderAuthExpired { worker_id, provider, user_id } => {
+        SchedulerEvent::ProviderAuthExpired {
+            worker_id,
+            provider,
+            user_id,
+        } => {
             tracing::warn!(
                 "scheduler: provider {provider} auth expired for worker {worker_id} — \
                  user {user_id} needs to re-authenticate"
@@ -210,7 +248,12 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
     };
 
     // --- Billing gate check ---
-    let gate = crate::billing::check_usage_gate(db, &step.user_id, &state.usage_limits, state.billing_enforced);
+    let gate = crate::billing::check_usage_gate(
+        db,
+        &step.user_id,
+        &state.usage_limits,
+        state.billing_enforced,
+    );
     if !gate.allowed {
         tracing::warn!(
             "billing gate blocked step {} for user {} — {:?} (step stays pending, will retry next tick)",
@@ -226,14 +269,7 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
     let risk = parse_risk(&step.risk);
 
     let ucb_guard = state.ucb_scorer.read().await;
-    let (decision, evidence) = route_step(
-        db,
-        &step.user_id,
-        step,
-        tier,
-        risk,
-        Some(&*ucb_guard),
-    );
+    let (decision, evidence) = route_step(db, &step.user_id, step, tier, risk, Some(&*ucb_guard));
     drop(ucb_guard);
 
     // --- Evidence floor check ---
@@ -242,7 +278,7 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
     // dispatch time (evidence accumulates after execution), so we log a warning
     // for high-risk steps to ensure observability.
     {
-        use cortex_engine::evidence_floor::{check_floor, FloorVerdict};
+        use cortex_engine::evidence_floor::{FloorVerdict, check_floor};
         let verdict = check_floor(risk, &[]);
         match verdict {
             FloorVerdict::Blocked { missing, .. } => {
@@ -262,16 +298,15 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
     // Determine if this step can proceed autonomously or needs user approval.
     {
         let confidence = decision.score / 100.0; // normalize evaluator score to 0-1
-        let is_first = state.cortex_store.as_ref()
+        let is_first = state
+            .cortex_store
+            .as_ref()
             .and_then(|s| s.lock().ok())
             .and_then(|s| s.event_count().ok())
             .map(|c| c == 0)
             .unwrap_or(false);
-        let autonomy = cortex_core::autonomy::decide_autonomy(
-            confidence.clamp(0.0, 1.0),
-            risk,
-            is_first,
-        );
+        let autonomy =
+            cortex_core::autonomy::decide_autonomy(confidence.clamp(0.0, 1.0), risk, is_first);
         if autonomy.requires_user_input() && risk >= RiskLevel::Critical {
             tracing::warn!(
                 "autonomy gate: step {} requires explicit approval ({:?} risk, confidence={:.2})",
@@ -293,20 +328,31 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
                 "risk": format!("{:?}", risk),
                 "tier": format!("{:?}", tier),
                 "score": decision.score,
-            }).to_string(),
+            })
+            .to_string(),
         );
     }
 
     // Don't dispatch if no provider is actually available
-    if decision.rationale.iter().any(|r| {
-        matches!(r, cortex_core::routing::RationaleCode::ProviderUnavailable)
-    }) {
+    if decision
+        .rationale
+        .iter()
+        .any(|r| matches!(r, cortex_core::routing::RationaleCode::ProviderUnavailable))
+    {
         tracing::warn!(
             "no available provider for step {} — all candidates vetoed",
             step.step_id
         );
-        db.fail_step(&step.step_id, 0, "no available provider", Some("NoProvider"));
-        return false; // Will trigger heal via StepFailed event
+        if db.fail_unleased_step(&step.step_id, "no available provider", Some("NoProvider")) {
+            state
+                .emit_scheduler_event(SchedulerEvent::StepFailed {
+                    run_id: step.run_id.clone(),
+                    step_id: step.step_id.clone(),
+                })
+                .await;
+            return true;
+        }
+        return false;
     }
 
     let attempt_id = Uuid::new_v4().to_string();
@@ -360,9 +406,6 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
     // Record score evidence per evaluator
     record_evidence(db, &decision_id, &evidence);
 
-    // Build task contract
-    let task = cortex_core::task::TaskContract::new(step.objective.clone(), tier, risk);
-
     // Build step context from predecessors
     let context = build_step_context(db, &step.run_id, &step.step_id);
 
@@ -370,13 +413,46 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
     // from predecessor steps, and pass file_paths from the run's goal
     let base_commit = db.get_run_latest_commit(&step.run_id);
     let allowed_paths = db.get_run_file_paths(&step.run_id);
+    let planner_seed = db
+        .get_step_recipe_seed_json(&step.step_id)
+        .and_then(|raw| serde_json::from_str::<WorkRecipeSeed>(&raw).ok());
+
+    // Build and persist the dispatch-time work contract before handing work to a worker.
+    let mut task = cortex_core::task::TaskContract::new(step.objective.clone(), tier, risk)
+        .with_dispatch_contract(allowed_paths.clone(), base_commit.clone());
+    task.required_checks =
+        infer_required_checks(step.kind, risk, &allowed_paths, &state.workspace_dir);
+    let recipe = build_work_recipe(
+        step.work_kind
+            .unwrap_or_else(|| work_kind_for_step(step.kind, &step.objective)),
+        &step.objective,
+        risk,
+        tier,
+        &allowed_paths,
+        base_commit.as_deref(),
+        &task.required_checks,
+        planner_seed.as_ref(),
+    );
+    task.acceptance_criteria = recipe
+        .acceptance
+        .iter()
+        .map(|criterion| criterion.text.clone())
+        .collect();
+    task = task.with_work_recipe(recipe);
+    if !db.record_step_work_contract(&step.step_id, &step.run_id, lease_gen, &task) {
+        tracing::error!(
+            "failed to persist work contract for step {} lease {}; unleasing before dispatch",
+            step.step_id,
+            lease_gen
+        );
+        db.unlease_step(&step.step_id, lease_gen);
+        return false;
+    }
 
     // Capture values before decision is moved into msg
     let mc_provider = decision.provider.to_string();
     let mc_model = decision.model_id.clone();
-    let mc_pressure = evidence
-        .budget
-        .pressure_for(decision.provider, tier);
+    let mc_pressure = evidence.budget.pressure_for(decision.provider, tier);
 
     // Issue a step-scoped sub-delegation from Cortex's heart to the worker
     let step_delegation = issue_step_delegation(state, &step.step_id, deadline, &worker_id);
@@ -433,11 +509,219 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
             true
         }
         Err(_) => {
-            tracing::error!("worker channel closed for user {} — unleasing step {}", step.user_id, step.step_id);
+            tracing::error!(
+                "worker channel closed for user {} — unleasing step {}",
+                step.user_id,
+                step.step_id
+            );
             db.unlease_step(&step.step_id, lease_gen);
             false
         }
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CheckIntent {
+    Test,
+    Build,
+    Lint,
+}
+
+fn infer_required_checks(
+    kind: StepKind,
+    risk: RiskLevel,
+    allowed_paths: &[String],
+    workspace_dir: &Path,
+) -> Vec<RequiredCheck> {
+    let intent = match kind {
+        StepKind::Test => CheckIntent::Test,
+        StepKind::Build => CheckIntent::Build,
+        StepKind::Lint => CheckIntent::Lint,
+        _ if risk >= RiskLevel::High => CheckIntent::Build,
+        _ => return Vec::new(),
+    };
+
+    let prefer_cargo = allowed_paths
+        .iter()
+        .any(|path| path.ends_with(".rs") || path == "Cargo.toml" || path.starts_with("crates/"));
+    let prefer_npm = allowed_paths.iter().any(|path| {
+        path.ends_with(".ts")
+            || path.ends_with(".tsx")
+            || path.ends_with(".js")
+            || path.ends_with(".jsx")
+            || path == "package.json"
+            || path.starts_with("cortex/")
+            || path.starts_with("dashboard/")
+            || path.starts_with("site/")
+    });
+
+    let npm = || npm_required_check(workspace_dir, intent);
+    let cargo = || cargo_required_check(workspace_dir, intent);
+
+    let selected = if prefer_cargo && !prefer_npm {
+        cargo().or_else(npm)
+    } else {
+        npm().or_else(cargo)
+    };
+
+    selected.into_iter().collect()
+}
+
+fn build_work_recipe(
+    work_kind: WorkKind,
+    objective: &str,
+    risk: RiskLevel,
+    tier: Tier,
+    allowed_paths: &[String],
+    expected_base_commit: Option<&str>,
+    required_checks: &[RequiredCheck],
+    planner_seed: Option<&WorkRecipeSeed>,
+) -> WorkRecipe {
+    let mut constraints = vec![
+        format!("risk={risk:?}"),
+        format!("tier={tier:?}"),
+        "Do not change files outside the allowed path set unless explicitly required by the task"
+            .to_string(),
+    ];
+    if let Some(base) = expected_base_commit {
+        constraints.push(format!("expected_base_commit={base}"));
+    }
+    if let Some(seed) = planner_seed {
+        constraints.extend(seed.constraints.iter().cloned());
+    }
+
+    let acceptance = if !required_checks.is_empty() {
+        required_checks
+            .iter()
+            .map(|check| AcceptanceCriterion {
+                id: format!("required-check-{}", check.name),
+                text: format!("Required check `{}` passes", check.name),
+                verification: AcceptanceVerification::RequiredCheck {
+                    check_name: check.name.clone(),
+                },
+            })
+            .collect()
+    } else if let Some(seed) = planner_seed.filter(|seed| !seed.acceptance.is_empty()) {
+        seed.acceptance.clone()
+    } else {
+        vec![AcceptanceCriterion {
+            id: "manual-objective-satisfied".to_string(),
+            text: format!(
+                "{} work satisfies the objective without violating the dispatch constraints",
+                work_kind.as_str()
+            ),
+            verification: AcceptanceVerification::Manual,
+        }]
+    };
+    let target_paths = planner_seed
+        .filter(|seed| !seed.target_paths.is_empty())
+        .map(|seed| seed.target_paths.clone())
+        .unwrap_or_else(|| allowed_paths.to_vec());
+
+    WorkRecipe {
+        version: 1,
+        kind: work_kind,
+        objective: objective.to_string(),
+        target_paths,
+        required_checks: required_checks.to_vec(),
+        acceptance,
+        constraints,
+    }
+}
+
+fn work_kind_for_step(kind: StepKind, objective: &str) -> WorkKind {
+    match kind {
+        StepKind::Search | StepKind::Think => WorkKind::Explore,
+        StepKind::Test => WorkKind::Test,
+        StepKind::Build => WorkKind::Build,
+        StepKind::Lint => WorkKind::Lint,
+        StepKind::Review => WorkKind::Review,
+        StepKind::Heal => WorkKind::Heal,
+        StepKind::Gate => WorkKind::Gate,
+        StepKind::Execute => infer_execute_work_kind(objective),
+    }
+}
+
+fn infer_execute_work_kind(objective: &str) -> WorkKind {
+    let lower = objective.to_ascii_lowercase();
+    if lower.contains("ship")
+        || lower.contains("deploy")
+        || lower.contains("release")
+        || lower.contains("pull request")
+        || lower.contains(" pr")
+    {
+        WorkKind::Ship
+    } else if lower.contains("refactor")
+        || lower.contains("restructure")
+        || lower.contains("rework")
+    {
+        WorkKind::Refactor
+    } else if lower.contains("add ")
+        || lower.contains("create ")
+        || lower.contains("implement ")
+        || lower.contains("new ")
+    {
+        WorkKind::Add
+    } else {
+        WorkKind::Modify
+    }
+}
+
+fn npm_required_check(workspace_dir: &Path, intent: CheckIntent) -> Option<RequiredCheck> {
+    let package_json = workspace_dir.join("package.json");
+    let raw = std::fs::read_to_string(package_json).ok()?;
+    let package: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let scripts = package.get("scripts")?.as_object()?;
+
+    let script = match intent {
+        CheckIntent::Test => first_real_script(scripts, &["test:unit", "test"])?,
+        CheckIntent::Build => first_real_script(scripts, &["build", "typecheck"])?,
+        CheckIntent::Lint => first_real_script(scripts, &["lint", "typecheck"])?,
+    };
+
+    Some(RequiredCheck {
+        name: format!("npm:{script}"),
+        command: format!("npm run {script}"),
+        required: true,
+    })
+}
+
+fn first_real_script(
+    scripts: &serde_json::Map<String, serde_json::Value>,
+    names: &[&str],
+) -> Option<String> {
+    names.iter().find_map(|name| {
+        let value = scripts.get(*name)?.as_str()?;
+        if is_placeholder_script(value) {
+            None
+        } else {
+            Some((*name).to_string())
+        }
+    })
+}
+
+fn is_placeholder_script(script: &str) -> bool {
+    let lower = script.to_ascii_lowercase();
+    lower.contains("no test specified")
+        || lower.contains("echo") && lower.contains("error") && lower.contains("exit 1")
+}
+
+fn cargo_required_check(workspace_dir: &Path, intent: CheckIntent) -> Option<RequiredCheck> {
+    if !workspace_dir.join("Cargo.toml").is_file() {
+        return None;
+    }
+
+    let (name, command) = match intent {
+        CheckIntent::Test => ("cargo:test", "cargo test --workspace"),
+        CheckIntent::Build => ("cargo:check", "cargo check --workspace"),
+        CheckIntent::Lint => ("cargo:clippy", "cargo clippy --workspace --all-targets"),
+    };
+
+    Some(RequiredCheck {
+        name: name.to_string(),
+        command: command.to_string(),
+        required: true,
+    })
 }
 
 // --- Evaluator integration ---
@@ -534,7 +818,11 @@ fn route_step(
             use cortex_engine::bandit::{ArmKey, TaskFamily};
             let intent = kind_to_intent(step.kind);
             let task_family = TaskFamily::from_intent(&intent);
-            let arm_key = ArmKey { task_family, risk_level: risk, provider };
+            let arm_key = ArmKey {
+                task_family,
+                risk_level: risk,
+                provider,
+            };
             if let Some(arm_stats) = scorer.arms.get(&arm_key) {
                 let bandit_rate = arm_stats.mean_reward();
                 let bandit_count = arm_stats.trials as u64;
@@ -542,7 +830,9 @@ fn route_step(
                 match (success_rate, sample_count) {
                     (Some(db_rate), db_count) if db_count > 0 => {
                         let total = db_count + bandit_count;
-                        let blended = (db_rate * db_count as f64 + bandit_rate * bandit_count as f64) / total as f64;
+                        let blended = (db_rate * db_count as f64
+                            + bandit_rate * bandit_count as f64)
+                            / total as f64;
                         (Some(blended), total)
                     }
                     _ => (Some(bandit_rate), bandit_count),
@@ -592,7 +882,13 @@ fn route_step(
     (decision, evidence)
 }
 
-async fn update_bandit_from_outcome(state: &AppState, db: &Database, step_id: &str, success: bool, cost_estimate: Option<f64>) {
+async fn update_bandit_from_outcome(
+    state: &AppState,
+    db: &Database,
+    step_id: &str,
+    success: bool,
+    cost_estimate: Option<f64>,
+) {
     use cortex_engine::bandit::{ArmKey, TaskFamily};
 
     let step_info = db.get_step_info(step_id);
@@ -636,22 +932,27 @@ async fn update_bandit_from_outcome(state: &AppState, db: &Database, step_id: &s
     }
 
     let trials = scorer.arms.get(&arm_key).map(|s| s.trials).unwrap_or(0);
-    let mean_reward = scorer.arms.get(&arm_key).map(|s| s.mean_reward()).unwrap_or(0.0);
+    let mean_reward = scorer
+        .arms
+        .get(&arm_key)
+        .map(|s| s.mean_reward())
+        .unwrap_or(0.0);
 
     tracing::debug!(
         "bandit update: {:?}/{:?}/{:?} reward={:.2} contamination={:.2} trials={}",
-        task_family, risk, provider, reward, contamination, trials,
+        task_family,
+        risk,
+        provider,
+        reward,
+        contamination,
+        trials,
     );
 
     // Record Soma spend receipt with real cost (falls back to 1.0 credit if no estimate)
     if success {
         if let Some(heart) = &state.soma_heart {
             let cost = cost_estimate.unwrap_or(1.0);
-            if let Err(e) = heart.record_spend(
-                step_id,
-                cost,
-                &format!("route:{:?}", intent),
-            ) {
+            if let Err(e) = heart.record_spend(step_id, cost, &format!("route:{:?}", intent)) {
                 tracing::warn!("soma spend receipt failed: {e}");
             }
         }
@@ -659,20 +960,23 @@ async fn update_bandit_from_outcome(state: &AppState, db: &Database, step_id: &s
 
     // Emit MC event for real-time routing intelligence visibility
     if let Some(db) = &state.db {
-        let user_id = db.get_step_run_id(step_id)
+        let user_id = db
+            .get_step_run_id(step_id)
             .and_then(|run_id| db.get_run_user_id(&run_id));
         if let Some(user_id) = user_id {
-            state.emit_mc_event(
-                &user_id,
-                MissionControlEvent::BanditUpdate {
-                    provider: provider.to_string(),
-                    task_family: format!("{:?}", task_family),
-                    risk: format!("{:?}", risk),
-                    trials,
-                    mean_reward,
-                    success,
-                },
-            ).await;
+            state
+                .emit_mc_event(
+                    &user_id,
+                    MissionControlEvent::BanditUpdate {
+                        provider: provider.to_string(),
+                        task_family: format!("{:?}", task_family),
+                        risk: format!("{:?}", risk),
+                        trials,
+                        mean_reward,
+                        success,
+                    },
+                )
+                .await;
         }
     }
 }
@@ -682,7 +986,13 @@ fn record_evidence(db: &Database, decision_id: &str, evidence: &DecisionEvidence
 
     // Intent evidence
     if let Ok(json) = serde_json::to_string(&evidence.intent) {
-        db.record_score_evidence(decision_id, "intent", &json, Some(evidence.intent.confidence), now);
+        db.record_score_evidence(
+            decision_id,
+            "intent",
+            &json,
+            Some(evidence.intent.confidence),
+            now,
+        );
     }
 
     // Risk evidence
@@ -703,19 +1013,18 @@ fn record_evidence(db: &Database, decision_id: &str, evidence: &DecisionEvidence
 
     // Provider fit evidence (candidate count)
     if let Ok(json) = serde_json::to_string(&evidence.provider_fit) {
-        db.record_score_evidence(
-            decision_id,
-            "provider_fit",
-            &json,
-            None,
-            now,
-        );
+        db.record_score_evidence(decision_id, "provider_fit", &json, None, now);
     }
 }
 
 // --- Sub-delegation for worker steps ---
 
-fn issue_step_delegation(state: &AppState, step_id: &str, lease_deadline_ms: i64, worker_id: &str) -> Option<serde_json::Value> {
+fn issue_step_delegation(
+    state: &AppState,
+    step_id: &str,
+    lease_deadline_ms: i64,
+    worker_id: &str,
+) -> Option<serde_json::Value> {
     let heart = state.soma_heart.as_ref()?;
 
     let caveats = vec![
@@ -778,7 +1087,7 @@ fn build_step_context(db: &Database, run_id: &str, step_id: &str) -> StepContext
     let summaries: Vec<PredecessorSummary> = predecessors
         .into_iter()
         .filter_map(|pred_id| {
-            let (kind, _, _, _) = db.get_step_details(&pred_id)?;
+            let (kind, _, _, _, _) = db.get_step_details(&pred_id)?;
             let summary = db.get_step_output_summary(&pred_id).unwrap_or_default();
             let files = db
                 .get_step_files_changed(&pred_id)
@@ -817,13 +1126,14 @@ async fn load_ready_steps_for_run(state: &AppState, sched: &mut SchedulerState, 
     let user_id = get_run_user(db, run_id);
 
     for step_id in ready_ids {
-        if let Some((kind, tier, risk, objective)) = db.get_step_details(&step_id) {
+        if let Some((kind, work_kind, tier, risk, objective)) = db.get_step_details(&step_id) {
             let step_kind = parse_step_kind(&kind);
             sched.enqueue_ready_step(StepRef {
                 step_id,
                 run_id: run_id.to_string(),
                 user_id: user_id.clone(),
                 kind: step_kind,
+                work_kind: parse_work_kind(&work_kind),
                 tier,
                 risk,
                 objective,
@@ -840,7 +1150,7 @@ async fn try_heal(state: &AppState, _sched: &mut SchedulerState, run_id: &str, s
         None => return,
     };
 
-    let (kind_str, tier, risk, objective) = match db.get_step_details(step_id) {
+    let (kind_str, work_kind_str, tier, risk, objective) = match db.get_step_details(step_id) {
         Some(d) => d,
         None => return,
     };
@@ -896,11 +1206,9 @@ async fn try_heal(state: &AppState, _sched: &mut SchedulerState, run_id: &str, s
     let capped_delay = raw_delay.min(max_delay_ms);
 
     // Hash-based jitter: use step_id bytes to get a deterministic ±25% offset
-    let hash_val: u64 = step_id
-        .bytes()
-        .fold(0xcbf29ce484222325_u64, |h, b| {
-            h.wrapping_mul(0x100000001b3).wrapping_add(b as u64)
-        });
+    let hash_val: u64 = step_id.bytes().fold(0xcbf29ce484222325_u64, |h, b| {
+        h.wrapping_mul(0x100000001b3).wrapping_add(b as u64)
+    });
     let jitter_range = capped_delay / 4; // 25%
     let jitter = if jitter_range > 0 {
         (hash_val % (jitter_range as u64 * 2)) as i64 - jitter_range
@@ -914,6 +1222,7 @@ async fn try_heal(state: &AppState, _sched: &mut SchedulerState, run_id: &str, s
         &plan.heal_step_id,
         run_id,
         "heal",
+        WorkKind::Heal.as_str(),
         &tier,
         &risk,
         &plan.heal_objective,
@@ -930,6 +1239,7 @@ async fn try_heal(state: &AppState, _sched: &mut SchedulerState, run_id: &str, s
         &plan.retry_step_id,
         run_id,
         &kind_str,
+        &work_kind_str,
         &tier,
         &risk,
         &plan.retry_objective,
@@ -940,6 +1250,12 @@ async fn try_heal(state: &AppState, _sched: &mut SchedulerState, run_id: &str, s
         &plan.heal_step_id,
         EdgeType::SuccessRequired.as_str(),
     );
+
+    if !db.mark_step_recovered(step_id) {
+        tracing::warn!(
+            "inserted heal chain for step {step_id}, but failed to mark original step recovered"
+        );
+    }
 
     db.increment_heal_count(run_id);
 
@@ -966,18 +1282,16 @@ async fn check_run_done(state: &AppState, run_id: &str) {
         .collect();
 
     if let Some(final_status) = check_run_completion(&parsed) {
-        let status_str = match final_status {
-            RunStatus::Succeeded => "succeeded",
-            RunStatus::Failed => "failed",
-            _ => return,
-        };
+        let status_str = final_status.as_str();
 
         // Guard against double completion: check if run is already terminal
         if let Some(run_info) = db.list_user_runs_by_id(run_id) {
             if let Some(current_status) = run_info.get("status").and_then(|s| s.as_str()) {
                 if let Some(rs) = RunStatus::from_str(current_status) {
                     if rs.is_terminal() {
-                        tracing::debug!("run {run_id} already in terminal state '{current_status}', skipping update");
+                        tracing::debug!(
+                            "run {run_id} already in terminal state '{current_status}', skipping update"
+                        );
                         return;
                     }
                 }
@@ -1038,13 +1352,14 @@ async fn reconcile_ready_steps(state: &AppState, sched: &mut SchedulerState) {
     // Single query fetches all ready steps across all active runs,
     // replacing the N+1 pattern of get_active_run_ids() + find_ready_steps() per run.
     let ready = db.find_all_ready_steps();
-    for (step_id, run_id, user_id, kind, tier, risk, objective) in ready {
+    for (step_id, run_id, user_id, kind, work_kind, tier, risk, objective) in ready {
         let step_kind = parse_step_kind(&kind);
         sched.enqueue_ready_step(StepRef {
             step_id,
             run_id,
             user_id,
             kind: step_kind,
+            work_kind: parse_work_kind(&work_kind),
             tier,
             risk,
             objective,
@@ -1088,9 +1403,7 @@ async fn expire_grace_periods(state: &AppState, sched: &mut SchedulerState) {
     for (worker_id, step_id) in &expired {
         db.orphan_step(step_id);
         orphaned_steps.push(step_id.clone());
-        tracing::warn!(
-            "grace period expired for worker {worker_id} — orphaning step {step_id}"
-        );
+        tracing::warn!("grace period expired for worker {worker_id} — orphaning step {step_id}");
     }
 
     // Re-enqueue orphaned steps from active runs
@@ -1177,6 +1490,10 @@ fn parse_step_kind(s: &str) -> StepKind {
     }
 }
 
+fn parse_work_kind(s: &str) -> Option<WorkKind> {
+    WorkKind::from_str(s)
+}
+
 fn kind_to_intent(kind: StepKind) -> Intent {
     match kind {
         StepKind::Search => Intent::Explore,
@@ -1204,13 +1521,26 @@ pub async fn create_run_from_goal(
     let now_ms = chrono::Utc::now().timestamp_millis();
 
     // Collect steps and edges for batch insertion in a single transaction
-    let steps: Vec<(String, String, String, String, String, i64)> = builder
+    let steps: Vec<(
+        String,
+        String,
+        String,
+        Option<String>,
+        String,
+        String,
+        String,
+        i64,
+    )> = builder
         .steps()
         .iter()
         .map(|step| {
             (
                 step.id.clone(),
                 step.kind.as_str().to_string(),
+                step.work_kind.as_str().to_string(),
+                step.recipe_seed
+                    .as_ref()
+                    .and_then(|seed| serde_json::to_string(seed).ok()),
                 step.tier.clone(),
                 step.risk.clone(),
                 step.objective.clone(),
@@ -1225,7 +1555,11 @@ pub async fn create_run_from_goal(
         .map(|&(from_idx, to_idx, edge_type)| {
             let from_id = builder.step_id(from_idx);
             let to_id = builder.step_id(to_idx);
-            (to_id.to_string(), from_id.to_string(), edge_type.as_str().to_string())
+            (
+                to_id.to_string(),
+                from_id.to_string(),
+                edge_type.as_str().to_string(),
+            )
         })
         .collect();
 
@@ -1245,4 +1579,174 @@ pub async fn create_run_from_goal(
     );
 
     Ok(run_id)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_package_json(dir: &Path, scripts: &str) {
+        std::fs::write(
+            dir.join("package.json"),
+            format!(r#"{{"scripts":{{{scripts}}}}}"#),
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn test_step_uses_existing_npm_test_script() {
+        let dir = tempfile::tempdir().unwrap();
+        write_package_json(
+            dir.path(),
+            r#""test:unit":"vitest run","test":"npm run test:unit""#,
+        );
+
+        let checks = infer_required_checks(
+            StepKind::Test,
+            RiskLevel::Medium,
+            &["src/index.ts".to_string()],
+            dir.path(),
+        );
+
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].name, "npm:test:unit");
+        assert_eq!(checks[0].command, "npm run test:unit");
+        assert!(checks[0].required);
+    }
+
+    #[test]
+    fn build_step_prefers_cargo_for_rust_paths() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("Cargo.toml"), "[workspace]\n").unwrap();
+        write_package_json(dir.path(), r#""build":"tsc""#);
+
+        let checks = infer_required_checks(
+            StepKind::Build,
+            RiskLevel::Medium,
+            &["crates/api/src/main.rs".to_string()],
+            dir.path(),
+        );
+
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].name, "cargo:check");
+        assert_eq!(checks[0].command, "cargo check --workspace");
+    }
+
+    #[test]
+    fn high_risk_execute_gets_build_check_when_discoverable() {
+        let dir = tempfile::tempdir().unwrap();
+        write_package_json(dir.path(), r#""build":"tsc""#);
+
+        let checks = infer_required_checks(
+            StepKind::Execute,
+            RiskLevel::High,
+            &["src/index.ts".to_string()],
+            dir.path(),
+        );
+
+        assert_eq!(checks.len(), 1);
+        assert_eq!(checks[0].name, "npm:build");
+        assert_eq!(checks[0].command, "npm run build");
+    }
+
+    #[test]
+    fn recipe_for_test_step_mirrors_required_checks() {
+        let checks = vec![RequiredCheck {
+            name: "cargo:test".to_string(),
+            command: "cargo test -p cortex-api".to_string(),
+            required: true,
+        }];
+
+        let recipe = build_work_recipe(
+            WorkKind::Test,
+            "run the API tests",
+            RiskLevel::Medium,
+            Tier::Execute,
+            &["crates/api/src/lib.rs".to_string()],
+            Some("abc123"),
+            &checks,
+            None,
+        );
+
+        assert_eq!(recipe.kind, WorkKind::Test);
+        assert_eq!(recipe.required_checks.len(), 1);
+        assert_eq!(recipe.acceptance.len(), 1);
+        assert_eq!(
+            recipe.acceptance[0].text,
+            "Required check `cargo:test` passes"
+        );
+        assert!(
+            recipe
+                .constraints
+                .iter()
+                .any(|c| c == "expected_base_commit=abc123")
+        );
+    }
+
+    #[test]
+    fn recipe_uses_planner_seed_without_required_checks() {
+        let seed = WorkRecipeSeed {
+            target_paths: vec!["crates/engine/src/decomposer.rs".to_string()],
+            acceptance: vec![AcceptanceCriterion {
+                id: "planner-objective-satisfied".to_string(),
+                text: "Planner objective is satisfied".to_string(),
+                verification: AcceptanceVerification::Manual,
+            }],
+            constraints: vec!["planner_risk=medium".to_string()],
+        };
+
+        let recipe = build_work_recipe(
+            WorkKind::Refactor,
+            "refactor decomposition",
+            RiskLevel::Medium,
+            Tier::Execute,
+            &[],
+            None,
+            &[],
+            Some(&seed),
+        );
+
+        assert_eq!(recipe.kind, WorkKind::Refactor);
+        assert_eq!(recipe.target_paths, vec!["crates/engine/src/decomposer.rs"]);
+        assert_eq!(recipe.acceptance[0].text, "Planner objective is satisfied");
+        assert!(
+            recipe
+                .constraints
+                .iter()
+                .any(|c| c == "planner_risk=medium")
+        );
+    }
+
+    #[test]
+    fn low_risk_execute_does_not_add_checks() {
+        let dir = tempfile::tempdir().unwrap();
+        write_package_json(dir.path(), r#""build":"tsc""#);
+
+        let checks = infer_required_checks(
+            StepKind::Execute,
+            RiskLevel::Low,
+            &["src/index.ts".to_string()],
+            dir.path(),
+        );
+
+        assert!(checks.is_empty());
+    }
+
+    #[test]
+    fn placeholder_npm_test_is_ignored() {
+        let dir = tempfile::tempdir().unwrap();
+        write_package_json(
+            dir.path(),
+            r#""test":"echo \"Error: no test specified\" && exit 1""#,
+        );
+
+        let checks = infer_required_checks(
+            StepKind::Test,
+            RiskLevel::Medium,
+            &["src/index.ts".to_string()],
+            dir.path(),
+        );
+
+        assert!(checks.is_empty());
+    }
 }

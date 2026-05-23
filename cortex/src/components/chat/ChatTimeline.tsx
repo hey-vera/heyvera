@@ -6,8 +6,11 @@ interface ChatTimelineProps {
   messages: ChatMessageType[];
   isLoading?: boolean;
   showStarters?: boolean;
+  starterPrompts?: string[];
   onSelectStarter?: (prompt: string) => void;
   onApprovalAction: (messageId: string, nextState: ApprovalState) => void;
+  onSelectFlowOption?: (optionId: string, optionLabel: string) => void;
+  flowOptionsDisabled?: boolean;
 }
 
 const STARTER_PROMPTS = [
@@ -45,8 +48,11 @@ export default function ChatTimeline({
   messages,
   isLoading = false,
   showStarters = false,
+  starterPrompts = STARTER_PROMPTS,
   onSelectStarter,
   onApprovalAction,
+  onSelectFlowOption,
+  flowOptionsDisabled = false,
 }: ChatTimelineProps) {
   const endRef = useRef<HTMLDivElement | null>(null);
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_MESSAGES);
@@ -88,11 +94,13 @@ export default function ChatTimeline({
               key={message.id}
               message={message}
               onApprovalAction={onApprovalAction}
+              onSelectFlowOption={onSelectFlowOption}
+              flowOptionsDisabled={flowOptionsDisabled}
             />
           ))}
           {showStarters && messages.length === 1 && messages[0]?.id === 'm-init' && (
             <div className="grid gap-2 pl-11 sm:grid-cols-2">
-              {STARTER_PROMPTS.map((prompt) => (
+              {starterPrompts.map((prompt) => (
                 <button
                   key={prompt}
                   type="button"

@@ -64,7 +64,7 @@ chmod +x "$BIN_DIR/cortex-server"
 # Build frontend
 log_info "Building frontend..."
 cd cortex
-npm ci --only=production
+npm ci
 npm run build
 
 # Copy frontend build
@@ -114,6 +114,7 @@ CORTEX_PORT=3001
 CORTEX_WORKSPACE=$WORKSPACE_DIR
 CORTEX_LEDGER_PATH=$DATA_DIR/ledger.jsonl
 CORTEX_ALLOWED_ORIGINS=https://cortex.heyvera.org
+VITE_CORTEX_API=https://api.heyvera.org
 RUST_LOG=info
 
 # Database

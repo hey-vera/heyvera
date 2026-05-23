@@ -17,6 +17,12 @@ pub struct ClerkUser {
     pub user_id: String,
 }
 
+fn local_auth_allowed() -> bool {
+    std::env::var("CORTEX_AUTH_DISABLED")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 struct ClerkClaims {
@@ -190,7 +196,7 @@ where
         let clerk_secret = match &app_state.clerk_secret_key {
             Some(key) => key.clone(),
             None => {
-                // No Clerk secret configured - always use local auth
+                // No Clerk secret configured: local/dev mode.
                 return Ok(ClerkUser {
                     user_id: "local".to_string(),
                 });
@@ -200,10 +206,15 @@ where
         let token = match raw_auth.as_deref().and_then(|v| v.strip_prefix("Bearer ")) {
             Some(t) => t.to_string(),
             None => {
-                // No Bearer token - fall back to local auth to prevent frontend crashes
-                return Ok(ClerkUser {
-                    user_id: "local".to_string(),
-                });
+                if local_auth_allowed() {
+                    return Ok(ClerkUser {
+                        user_id: "local".to_string(),
+                    });
+                }
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    Json(ErrorResponse { error: "bearer token required".into() }),
+                ));
             }
         };
 
@@ -226,23 +237,21 @@ where
                 let keys = match get_or_refresh_jwks(&app_state.jwks_cache, &clerk_secret, true).await {
                     Ok(keys) => keys,
                     Err(_) => {
-                        // JWKS fetch failed - fall back to local auth to prevent crashes
-                        return Ok(ClerkUser {
-                            user_id: "local".to_string(),
-                        });
+                        return Err((
+                            StatusCode::SERVICE_UNAVAILABLE,
+                            Json(ErrorResponse { error: "clerk jwks unavailable".into() }),
+                        ));
                     }
                 };
 
-                Ok(verify_token(&token, &keys)
+                verify_token(&token, &keys)
                     .map(|claims| ClerkUser {
                         user_id: claims.sub,
                     })
-                    .unwrap_or_else(|_e| {
-                        // JWT verification failed - fall back to local auth to prevent crashes
-                        ClerkUser {
-                            user_id: "local".to_string(),
-                        }
-                    }))
+                    .map_err(|_| (
+                        StatusCode::UNAUTHORIZED,
+                        Json(ErrorResponse { error: "invalid bearer token".into() }),
+                    ))
             }
         }
     }

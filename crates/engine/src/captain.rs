@@ -1,5 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
+use cortex_core::task::{WorkKind, WorkRecipeSeed};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -54,6 +55,7 @@ pub enum StepStatus {
     Running,
     Succeeded,
     Failed,
+    Recovered,
     Cancelled,
     Orphaned,
     Skipped,
@@ -63,7 +65,7 @@ impl StepStatus {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            Self::Succeeded | Self::Failed | Self::Cancelled | Self::Skipped
+            Self::Succeeded | Self::Failed | Self::Recovered | Self::Cancelled | Self::Skipped
         )
     }
 
@@ -75,6 +77,7 @@ impl StepStatus {
             Self::Running => "running",
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
+            Self::Recovered => "recovered",
             Self::Cancelled => "cancelled",
             Self::Orphaned => "orphaned",
             Self::Skipped => "skipped",
@@ -89,6 +92,7 @@ impl StepStatus {
             "running" => Some(Self::Running),
             "succeeded" => Some(Self::Succeeded),
             "failed" => Some(Self::Failed),
+            "recovered" => Some(Self::Recovered),
             "cancelled" => Some(Self::Cancelled),
             "orphaned" => Some(Self::Orphaned),
             "skipped" => Some(Self::Skipped),
@@ -138,7 +142,7 @@ impl StepKind {
     }
 
     pub fn is_healable(&self) -> bool {
-        matches!(self, Self::Test | Self::Build | Self::Lint)
+        matches!(self, Self::Execute | Self::Test | Self::Build | Self::Lint)
     }
 }
 
@@ -177,11 +181,24 @@ impl EdgeType {
 
 #[derive(Debug, Clone)]
 pub enum SchedulerEvent {
-    RunCreated { run_id: String },
-    StepCompleted { run_id: String, step_id: String, cost_estimate: Option<f64> },
-    StepFailed { run_id: String, step_id: String },
-    WorkerConnected { worker_id: String },
-    WorkerDisconnected { worker_id: String },
+    RunCreated {
+        run_id: String,
+    },
+    StepCompleted {
+        run_id: String,
+        step_id: String,
+        cost_estimate: Option<f64>,
+    },
+    StepFailed {
+        run_id: String,
+        step_id: String,
+    },
+    WorkerConnected {
+        worker_id: String,
+    },
+    WorkerDisconnected {
+        worker_id: String,
+    },
     ProviderAuthExpired {
         worker_id: String,
         provider: String,
@@ -221,6 +238,7 @@ pub struct StepRef {
     pub run_id: String,
     pub user_id: String,
     pub kind: StepKind,
+    pub work_kind: Option<WorkKind>,
     pub tier: String,
     pub risk: String,
     pub objective: String,
@@ -309,9 +327,11 @@ pub struct RunBuilder {
 pub struct StepDef {
     pub id: String,
     pub kind: StepKind,
+    pub work_kind: WorkKind,
     pub tier: String,
     pub risk: String,
     pub objective: String,
+    pub recipe_seed: Option<WorkRecipeSeed>,
     pub required_provider: Option<String>,
     pub max_attempts: u32,
 }
@@ -329,17 +349,42 @@ impl RunBuilder {
     }
 
     pub fn add_step(&mut self, kind: StepKind, tier: &str, risk: &str, objective: &str) -> usize {
+        self.add_step_with_work_kind(
+            kind,
+            default_work_kind_for_step(kind),
+            tier,
+            risk,
+            objective,
+        )
+    }
+
+    pub fn add_step_with_work_kind(
+        &mut self,
+        kind: StepKind,
+        work_kind: WorkKind,
+        tier: &str,
+        risk: &str,
+        objective: &str,
+    ) -> usize {
         let idx = self.steps.len();
         self.steps.push(StepDef {
             id: Uuid::new_v4().to_string(),
             kind,
+            work_kind,
             tier: tier.to_string(),
             risk: risk.to_string(),
             objective: objective.to_string(),
+            recipe_seed: None,
             required_provider: None,
             max_attempts: 3,
         });
         idx
+    }
+
+    pub fn set_step_recipe_seed(&mut self, idx: usize, recipe_seed: WorkRecipeSeed) {
+        if let Some(step) = self.steps.get_mut(idx) {
+            step.recipe_seed = Some(recipe_seed);
+        }
     }
 
     pub fn add_edge(&mut self, from: usize, to: usize, edge_type: EdgeType) {
@@ -369,7 +414,9 @@ impl RunBuilder {
 
         for &(from, to, _) in &self.edges {
             if from >= self.steps.len() || to >= self.steps.len() {
-                return Err(format!("edge references invalid step index: {from} -> {to}"));
+                return Err(format!(
+                    "edge references invalid step index: {from} -> {to}"
+                ));
             }
             if from == to {
                 return Err(format!("self-referencing edge at step {from}"));
@@ -412,6 +459,19 @@ impl RunBuilder {
         }
 
         visited != n
+    }
+}
+
+fn default_work_kind_for_step(kind: StepKind) -> WorkKind {
+    match kind {
+        StepKind::Search | StepKind::Think => WorkKind::Explore,
+        StepKind::Execute => WorkKind::Modify,
+        StepKind::Test => WorkKind::Test,
+        StepKind::Build => WorkKind::Build,
+        StepKind::Lint => WorkKind::Lint,
+        StepKind::Heal => WorkKind::Heal,
+        StepKind::Review => WorkKind::Review,
+        StepKind::Gate => WorkKind::Gate,
     }
 }
 
@@ -470,9 +530,14 @@ pub fn check_run_completion(step_statuses: &[(String, StepStatus)]) -> Option<Ru
     let any_failed = step_statuses
         .iter()
         .any(|(_, s)| *s == StepStatus::Failed || *s == StepStatus::Skipped);
+    let any_cancelled = step_statuses
+        .iter()
+        .any(|(_, s)| *s == StepStatus::Cancelled);
 
     if any_failed {
         Some(RunStatus::Failed)
+    } else if any_cancelled {
+        Some(RunStatus::Cancelled)
     } else {
         Some(RunStatus::Succeeded)
     }
@@ -566,6 +631,7 @@ mod tests {
                 run_id: "r1".into(),
                 user_id: "user-a".into(),
                 kind: StepKind::Execute,
+                work_kind: Some(WorkKind::Modify),
                 tier: "execute".into(),
                 risk: "low".into(),
                 objective: format!("task a-{i}"),
@@ -576,6 +642,7 @@ mod tests {
             run_id: "r2".into(),
             user_id: "user-b".into(),
             kind: StepKind::Execute,
+            work_kind: Some(WorkKind::Modify),
             tier: "execute".into(),
             risk: "low".into(),
             objective: "task b-0".into(),
@@ -594,7 +661,11 @@ mod tests {
         let mut state = SchedulerState::new();
 
         // Set max_concurrent to 1 for user-a
-        state.user_queues.entry("user-a".into()).or_default().max_concurrent = 1;
+        state
+            .user_queues
+            .entry("user-a".into())
+            .or_default()
+            .max_concurrent = 1;
 
         for i in 0..3 {
             state.enqueue_ready_step(StepRef {
@@ -602,6 +673,7 @@ mod tests {
                 run_id: "r1".into(),
                 user_id: "user-a".into(),
                 kind: StepKind::Execute,
+                work_kind: Some(WorkKind::Modify),
                 tier: "execute".into(),
                 risk: "low".into(),
                 objective: format!("task {i}"),
@@ -636,6 +708,24 @@ mod tests {
             ("s2".into(), StepStatus::Failed),
         ];
         assert_eq!(check_run_completion(&steps), Some(RunStatus::Failed));
+    }
+
+    #[test]
+    fn check_run_recovered_is_terminal_but_not_failed() {
+        let steps = vec![
+            ("s1".into(), StepStatus::Recovered),
+            ("s2".into(), StepStatus::Succeeded),
+        ];
+        assert_eq!(check_run_completion(&steps), Some(RunStatus::Succeeded));
+    }
+
+    #[test]
+    fn check_run_any_cancelled() {
+        let steps = vec![
+            ("s1".into(), StepStatus::Succeeded),
+            ("s2".into(), StepStatus::Cancelled),
+        ];
+        assert_eq!(check_run_completion(&steps), Some(RunStatus::Cancelled));
     }
 
     #[test]
@@ -674,10 +764,10 @@ mod tests {
 
     #[test]
     fn step_kind_healable() {
+        assert!(StepKind::Execute.is_healable());
         assert!(StepKind::Test.is_healable());
         assert!(StepKind::Build.is_healable());
         assert!(StepKind::Lint.is_healable());
-        assert!(!StepKind::Execute.is_healable());
         assert!(!StepKind::Think.is_healable());
         assert!(!StepKind::Heal.is_healable());
     }

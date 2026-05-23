@@ -3,7 +3,9 @@ use std::process::Stdio;
 
 use cortex_core::error::CortexError;
 use cortex_core::failure::{WorkerFailureKind, WorkerFailureReport};
-use cortex_core::protocol::StepOutput;
+use cortex_core::protocol::{
+    CheckEvidence, CommandEvidence, GitEvidence, StepOutput, WorkerEvidencePacket,
+};
 use cortex_core::provider::ProviderId;
 use cortex_core::routing::RoutingDecision;
 use cortex_core::task::TaskContract;
@@ -13,6 +15,8 @@ use tokio::sync::mpsc;
 
 use crate::stream::WorkerEvent;
 use crate::worktree;
+
+const REQUIRED_CHECK_TIMEOUT_SECS: u64 = 120;
 
 pub struct StepExecution {
     pub step_id: String,
@@ -66,11 +70,12 @@ impl Executor {
             None
         };
         let effective_dir_ref = effective_dir.as_deref();
+        let task_prompt = build_task_prompt(task);
 
         let mut command = Command::new(&cmd);
         command
             .args(&args)
-            .arg(&task.objective)
+            .arg(&task_prompt)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -81,8 +86,15 @@ impl Executor {
         let base_commit = get_git_head(effective_dir_ref);
 
         let result = Self::run_child(
-            command, &cmd, step, &tx, decision, effective_dir_ref, base_commit,
-            task, &mut worktree_guard,
+            command,
+            &cmd,
+            step,
+            &tx,
+            decision,
+            effective_dir_ref,
+            base_commit,
+            task,
+            &mut worktree_guard,
         )
         .await;
 
@@ -218,7 +230,7 @@ impl Executor {
             .await
             .map_err(|e| CortexError::WorkerExecution(e.to_string()))?;
 
-        let (collected_output, files_changed, usage) = reader_handle
+        let (collected_output, parsed_files_changed, usage) = reader_handle
             .await
             .unwrap_or_else(|_| (Vec::new(), Vec::new(), None));
         let stderr_text = stderr_handle.await.unwrap_or_default();
@@ -241,6 +253,12 @@ impl Executor {
                 last_lines.join("\n")
             };
 
+            let check_evidence = if let Some(dir) = effective_dir {
+                run_required_checks(task, dir).await
+            } else {
+                Vec::new()
+            };
+
             // Auto-commit any uncommitted changes left by the CLI tool.
             // Only for execute-tier tasks (not search/think) that actually
             // produced file changes.
@@ -248,27 +266,54 @@ impl Executor {
             if let Some(guard) = worktree_guard.as_ref() {
                 let is_execute_tier = task.tier == cortex_core::provider::Tier::Execute;
                 if is_execute_tier && guard.has_uncommitted_changes() {
-                    let commit_msg = format!("cortex: {}", task.objective);
-                    match guard.commit_changes(&commit_msg) {
-                        Ok(Some(hash)) => {
-                            tracing::info!(
-                                step_id = %step.step_id,
-                                commit = %hash,
-                                "auto-committed uncommitted changes"
-                            );
-                        }
-                        Ok(None) => {
-                            tracing::debug!(
-                                step_id = %step.step_id,
-                                "no staged changes after git add"
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                step_id = %step.step_id,
-                                error = %e,
-                                "auto-commit failed, changes may be lost"
-                            );
+                    let precommit_git_evidence = effective_dir.and_then(|dir| {
+                        worktree::collect_git_evidence(
+                            dir,
+                            base_commit.as_deref(),
+                            Some(guard.branch_name()),
+                        )
+                    });
+                    let changed_files = precommit_git_evidence
+                        .as_ref()
+                        .map(|evidence| evidence.changed_files.as_slice())
+                        .unwrap_or(&[]);
+                    let policy_violation = changed_files_have_policy_violation(
+                        changed_files,
+                        &task.allowed_paths,
+                        &task.forbidden_paths,
+                    );
+                    let checks_passed = required_checks_allow_commit(&check_evidence);
+
+                    if policy_violation || !checks_passed {
+                        tracing::warn!(
+                            step_id = %step.step_id,
+                            policy_violation,
+                            checks_passed,
+                            "skipping auto-commit for work that cannot satisfy the dispatch contract"
+                        );
+                    } else {
+                        let commit_msg = format!("cortex: {}", task.objective);
+                        match guard.commit_changes(&commit_msg) {
+                            Ok(Some(hash)) => {
+                                tracing::info!(
+                                    step_id = %step.step_id,
+                                    commit = %hash,
+                                    "auto-committed uncommitted changes"
+                                );
+                            }
+                            Ok(None) => {
+                                tracing::debug!(
+                                    step_id = %step.step_id,
+                                    "no staged changes after git add"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    step_id = %step.step_id,
+                                    error = %e,
+                                    "auto-commit failed, changes may be lost"
+                                );
+                            }
                         }
                     }
                 }
@@ -292,6 +337,16 @@ impl Executor {
                     );
                 }
             }
+
+            let git_evidence = effective_dir.and_then(|dir| {
+                worktree::collect_git_evidence(
+                    dir,
+                    base_commit.as_deref(),
+                    worktree_guard.as_ref().map(|guard| guard.branch_name()),
+                )
+            });
+            let files_changed =
+                completion_files_changed(git_evidence.as_ref(), parsed_files_changed.clone());
 
             let (tokens_in, tokens_out) = match usage {
                 Some((i, o)) => (Some(i), Some(o)),
@@ -317,9 +372,24 @@ impl Executor {
                 head_commit,
                 branch: branch_name,
                 output: StepOutput {
-                    summary,
+                    summary: summary.clone(),
                     files_found: Vec::new(),
                     files_changed,
+                    evidence: Some(WorkerEvidencePacket {
+                        git: git_evidence,
+                        command: CommandEvidence {
+                            exit_code: code,
+                            stdout_excerpt: excerpt_from_lines(&collected_output, 4_000),
+                            stderr_excerpt: excerpt_from_text(&stderr_text, 2_000),
+                            log_summary: if summary.is_empty() {
+                                None
+                            } else {
+                                Some(summary)
+                            },
+                        },
+                        checks: check_evidence,
+                        parsed_files_changed,
+                    }),
                     tokens_in,
                     tokens_out,
                     cost_estimate,
@@ -374,7 +444,11 @@ fn extract_claude_text(line: &str) -> Option<String> {
             let content_val = v.get("message")?.get("content")?;
             // Handle content as a plain string
             if let Some(s) = content_val.as_str() {
-                return if s.is_empty() { None } else { Some(s.to_string()) };
+                return if s.is_empty() {
+                    None
+                } else {
+                    Some(s.to_string())
+                };
             }
             // Handle content as an array of blocks
             let content = content_val.as_array()?;
@@ -444,6 +518,72 @@ fn build_command(decision: &RoutingDecision) -> Result<(String, Vec<String>), Co
     }
 }
 
+fn build_task_prompt(task: &TaskContract) -> String {
+    let mut lines = vec![
+        "Cortex dispatch contract".to_string(),
+        format!("Objective: {}", task.objective),
+    ];
+
+    if let Some(recipe) = &task.work_recipe {
+        lines.push(format!("Work kind: {}", recipe.kind.as_str()));
+        push_list(&mut lines, "Target paths", &recipe.target_paths);
+    }
+
+    push_list(&mut lines, "Allowed paths", &task.allowed_paths);
+    push_list(&mut lines, "Forbidden paths", &task.forbidden_paths);
+
+    if let Some(base) = &task.expected_base_commit {
+        lines.push(format!("Expected base commit: {base}"));
+    }
+
+    if !task.required_checks.is_empty() {
+        lines.push("Required checks:".to_string());
+        for check in &task.required_checks {
+            let requirement = if check.required {
+                "required"
+            } else {
+                "optional"
+            };
+            lines.push(format!(
+                "- {} ({requirement}): {}",
+                check.name, check.command
+            ));
+        }
+    }
+
+    let acceptance_texts: Vec<String> = task
+        .work_recipe
+        .as_ref()
+        .map(|recipe| {
+            recipe
+                .acceptance
+                .iter()
+                .map(|criterion| criterion.text.clone())
+                .collect()
+        })
+        .unwrap_or_else(|| task.acceptance_criteria.clone());
+    push_list(&mut lines, "Acceptance criteria", &acceptance_texts);
+
+    if let Some(recipe) = &task.work_recipe {
+        push_list(&mut lines, "Constraints", &recipe.constraints);
+    }
+
+    lines.push(
+        "Follow the contract exactly. Report changed files and verification results.".to_string(),
+    );
+    lines.join("\n")
+}
+
+fn push_list(lines: &mut Vec<String>, label: &str, values: &[String]) {
+    if values.is_empty() {
+        return;
+    }
+    lines.push(format!("{label}:"));
+    for value in values {
+        lines.push(format!("- {value}"));
+    }
+}
+
 pub fn check_cli_available(provider: ProviderId) -> bool {
     let cmd = provider.cli_name();
     std::process::Command::new("which")
@@ -497,7 +637,10 @@ fn extract_codex_usage(line: &str) -> Option<(i64, i64)> {
         .and_then(|t| t.as_i64())?;
     let output = v
         .get("usage")
-        .and_then(|u| u.get("output_tokens").or_else(|| u.get("completion_tokens")))
+        .and_then(|u| {
+            u.get("output_tokens")
+                .or_else(|| u.get("completion_tokens"))
+        })
         .and_then(|t| t.as_i64())?;
     Some((input, output))
 }
@@ -625,6 +768,191 @@ fn get_git_head(working_dir: Option<&std::path::Path>) -> Option<String> {
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
 }
 
+fn completion_files_changed(
+    git_evidence: Option<&GitEvidence>,
+    parsed_files_changed: Vec<String>,
+) -> Vec<String> {
+    match git_evidence {
+        Some(evidence) => evidence.changed_files.clone(),
+        None => parsed_files_changed,
+    }
+}
+
+fn required_checks_allow_commit(checks: &[CheckEvidence]) -> bool {
+    checks
+        .iter()
+        .filter(|check| check.required)
+        .all(|check| !check.timed_out && check.exit_code == Some(0))
+}
+
+fn changed_files_have_policy_violation(
+    changed_files: &[String],
+    allowed_paths: &[String],
+    forbidden_paths: &[String],
+) -> bool {
+    changed_files.iter().any(|path| {
+        let Ok(normalized) = normalize_repo_path(path) else {
+            return true;
+        };
+
+        let forbidden = forbidden_paths.iter().any(|forbidden| {
+            normalize_repo_path(forbidden)
+                .map(|forbidden| path_matches_contract_path(&normalized, &forbidden))
+                .unwrap_or(false)
+        });
+        if forbidden {
+            return true;
+        }
+
+        if allowed_paths.is_empty() || allowed_paths.iter().any(|path| path.trim() == "*") {
+            return false;
+        }
+
+        !allowed_paths.iter().any(|allowed| {
+            normalize_repo_path(allowed)
+                .map(|allowed| path_matches_contract_path(&normalized, &allowed))
+                .unwrap_or(false)
+        })
+    })
+}
+
+fn path_matches_contract_path(path: &str, contract_path: &str) -> bool {
+    if contract_path.is_empty() {
+        return false;
+    }
+
+    path == contract_path || path.starts_with(&format!("{}/", contract_path.trim_end_matches('/')))
+}
+
+fn normalize_repo_path(path: &str) -> Result<String, ()> {
+    let path = path.trim().replace('\\', "/");
+    if path.is_empty() {
+        return Err(());
+    }
+
+    let mut parts = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    return Err(());
+                }
+            }
+            part => parts.push(part),
+        }
+    }
+
+    if parts.is_empty() {
+        Err(())
+    } else {
+        Ok(parts.join("/"))
+    }
+}
+
+async fn run_required_checks(
+    task: &TaskContract,
+    working_dir: &std::path::Path,
+) -> Vec<CheckEvidence> {
+    let mut results = Vec::new();
+
+    for check in &task.required_checks {
+        if check.command.trim().is_empty() {
+            results.push(CheckEvidence {
+                name: check.name.clone(),
+                command: check.command.clone(),
+                required: check.required,
+                exit_code: None,
+                stdout_excerpt: None,
+                stderr_excerpt: Some("required check command is empty".to_string()),
+                timed_out: false,
+                duration_ms: 0,
+            });
+            continue;
+        }
+
+        let started = std::time::Instant::now();
+        let mut command = Command::new("sh");
+        command
+            .arg("-lc")
+            .arg(&check.command)
+            .current_dir(working_dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(REQUIRED_CHECK_TIMEOUT_SECS),
+            command.output(),
+        )
+        .await;
+
+        let duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+        match output {
+            Ok(Ok(output)) => {
+                results.push(CheckEvidence {
+                    name: check.name.clone(),
+                    command: check.command.clone(),
+                    required: check.required,
+                    exit_code: output.status.code(),
+                    stdout_excerpt: excerpt_from_text(
+                        &String::from_utf8_lossy(&output.stdout),
+                        4_000,
+                    ),
+                    stderr_excerpt: excerpt_from_text(
+                        &String::from_utf8_lossy(&output.stderr),
+                        4_000,
+                    ),
+                    timed_out: false,
+                    duration_ms,
+                });
+            }
+            Ok(Err(err)) => {
+                results.push(CheckEvidence {
+                    name: check.name.clone(),
+                    command: check.command.clone(),
+                    required: check.required,
+                    exit_code: None,
+                    stdout_excerpt: None,
+                    stderr_excerpt: Some(format!("failed to run required check: {err}")),
+                    timed_out: false,
+                    duration_ms,
+                });
+            }
+            Err(_) => {
+                results.push(CheckEvidence {
+                    name: check.name.clone(),
+                    command: check.command.clone(),
+                    required: check.required,
+                    exit_code: None,
+                    stdout_excerpt: None,
+                    stderr_excerpt: Some(format!(
+                        "required check timed out after {REQUIRED_CHECK_TIMEOUT_SECS}s"
+                    )),
+                    timed_out: true,
+                    duration_ms,
+                });
+            }
+        }
+    }
+
+    results
+}
+
+fn excerpt_from_lines(lines: &[String], max_chars: usize) -> Option<String> {
+    excerpt_from_text(&lines.join("\n"), max_chars)
+}
+
+fn excerpt_from_text(text: &str, max_chars: usize) -> Option<String> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if trimmed.chars().count() <= max_chars {
+        return Some(trimmed.to_string());
+    }
+    Some(trimmed.chars().take(max_chars).collect())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -638,6 +966,64 @@ mod tests {
         // Missing text field
         let line2 = r#"{"type":"content_block_delta","delta":{"type":"input_json_delta"}}"#;
         assert_eq!(extract_claude_text(line2), None);
+    }
+
+    #[test]
+    fn task_prompt_includes_work_recipe_contract() {
+        let mut task = TaskContract::new(
+            "update lifecycle handling".to_string(),
+            cortex_core::provider::Tier::Execute,
+            cortex_core::routing::RiskLevel::Medium,
+        )
+        .with_dispatch_contract(
+            vec!["crates/api/src/ws.rs".to_string()],
+            Some("abc123".to_string()),
+        );
+        task.required_checks = vec![cortex_core::task::RequiredCheck {
+            name: "cargo:check".to_string(),
+            command: "cargo check -p cortex-api".to_string(),
+            required: true,
+        }];
+        task.work_recipe = Some(cortex_core::task::WorkRecipe {
+            version: 1,
+            kind: cortex_core::task::WorkKind::Modify,
+            objective: task.objective.clone(),
+            target_paths: task.allowed_paths.clone(),
+            required_checks: task.required_checks.clone(),
+            acceptance: vec![cortex_core::task::AcceptanceCriterion {
+                id: "required-check-cargo:check".to_string(),
+                text: "Required check `cargo:check` passes".to_string(),
+                verification: cortex_core::task::AcceptanceVerification::RequiredCheck {
+                    check_name: "cargo:check".to_string(),
+                },
+            }],
+            constraints: vec!["risk=Medium".to_string()],
+        });
+
+        let prompt = build_task_prompt(&task);
+
+        assert!(prompt.contains("Objective: update lifecycle handling"));
+        assert!(prompt.contains("Work kind: modify"));
+        assert!(prompt.contains("- crates/api/src/ws.rs"));
+        assert!(prompt.contains("Expected base commit: abc123"));
+        assert!(prompt.contains("- cargo:check (required): cargo check -p cortex-api"));
+        assert!(prompt.contains("Required check `cargo:check` passes"));
+    }
+
+    #[test]
+    fn task_prompt_falls_back_without_work_recipe() {
+        let mut task = TaskContract::new(
+            "inspect the repo".to_string(),
+            cortex_core::provider::Tier::Search,
+            cortex_core::routing::RiskLevel::Low,
+        );
+        task.acceptance_criteria = vec!["Summarize the relevant files".to_string()];
+
+        let prompt = build_task_prompt(&task);
+
+        assert!(prompt.contains("Objective: inspect the repo"));
+        assert!(prompt.contains("Summarize the relevant files"));
+        assert!(!prompt.contains("Work kind:"));
     }
 
     #[test]
@@ -742,5 +1128,89 @@ mod tests {
         let mut files = HashSet::new();
         extract_gemini_files("anything", &mut files);
         assert!(files.is_empty());
+    }
+
+    #[test]
+    fn test_completion_files_changed_prefers_git_evidence() {
+        let evidence = GitEvidence {
+            changed_files: vec!["src/git.rs".to_string()],
+            ..Default::default()
+        };
+        let parsed = vec!["src/stdout.rs".to_string()];
+
+        assert_eq!(
+            completion_files_changed(Some(&evidence), parsed),
+            vec!["src/git.rs"]
+        );
+    }
+
+    #[test]
+    fn test_completion_files_changed_uses_parsed_fallback_without_git() {
+        let parsed = vec!["src/stdout.rs".to_string()];
+
+        assert_eq!(completion_files_changed(None, parsed.clone()), parsed);
+    }
+
+    #[test]
+    fn required_checks_block_commit_when_required_check_fails() {
+        let checks = vec![CheckEvidence {
+            name: "build".into(),
+            command: "npm run build".into(),
+            required: true,
+            exit_code: Some(1),
+            stdout_excerpt: None,
+            stderr_excerpt: Some("failed".into()),
+            timed_out: false,
+            duration_ms: 10,
+        }];
+
+        assert!(!required_checks_allow_commit(&checks));
+    }
+
+    #[test]
+    fn optional_failed_checks_do_not_block_commit() {
+        let checks = vec![CheckEvidence {
+            name: "optional".into(),
+            command: "npm run lint".into(),
+            required: false,
+            exit_code: Some(1),
+            stdout_excerpt: None,
+            stderr_excerpt: Some("failed".into()),
+            timed_out: false,
+            duration_ms: 10,
+        }];
+
+        assert!(required_checks_allow_commit(&checks));
+    }
+
+    #[test]
+    fn changed_files_outside_allowed_paths_block_commit() {
+        let changed = vec!["src/main.rs".to_string(), "docs/readme.md".to_string()];
+        let allowed = vec!["src".to_string()];
+
+        assert!(changed_files_have_policy_violation(&changed, &allowed, &[]));
+    }
+
+    #[test]
+    fn forbidden_paths_block_commit_even_when_allowed() {
+        let changed = vec!["src/secrets.env".to_string()];
+        let allowed = vec!["src".to_string()];
+        let forbidden = vec!["src/secrets.env".to_string()];
+
+        assert!(changed_files_have_policy_violation(
+            &changed, &allowed, &forbidden
+        ));
+    }
+
+    #[test]
+    fn allowed_paths_permit_nested_changes() {
+        let changed = vec!["src/api/routes.rs".to_string()];
+        let allowed = vec!["src".to_string()];
+
+        assert!(!changed_files_have_policy_violation(
+            &changed,
+            &allowed,
+            &[]
+        ));
     }
 }

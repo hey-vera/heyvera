@@ -5,6 +5,9 @@
 //! are included here.  The full `Database` struct retains all ~100 methods;
 //! consumers that need SQLite-specific helpers can still use `Database` directly.
 
+use crate::db::VerifierReport;
+use cortex_core::task::TaskContract;
+
 /// Core storage operations required by the Cortex scheduler and API routes.
 ///
 /// Implementors must be `Send + Sync` so the trait object can live inside
@@ -42,14 +45,15 @@ pub trait Storage: Send + Sync {
         id: &str,
         run_id: &str,
         kind: &str,
+        work_kind: &str,
         tier: &str,
         risk: &str,
         objective: &str,
         created_at: i64,
     );
 
-    /// Get (kind, tier, risk, objective) for a step.
-    fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String)>;
+    /// Get (kind, work_kind, tier, risk, objective) for a step.
+    fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String, String)>;
 
     /// Get `(step_id, status)` for every step in a run.
     fn get_all_step_statuses(&self, run_id: &str) -> Vec<(String, String)>;
@@ -80,8 +84,50 @@ pub trait Storage: Send + Sync {
     /// Mark a leased/running step as failed.  Returns `true` if a row was updated.
     fn fail_step(&self, step_id: &str, lease_gen: i64, error: &str, kind: Option<&str>) -> bool;
 
+    /// Preserve rejected completion evidence on a failed step for heal context and UI inspection.
+    fn record_failed_step_output(
+        &self,
+        step_id: &str,
+        lease_gen: i64,
+        summary: Option<&str>,
+        files: Option<&str>,
+        base: Option<&str>,
+        head: Option<&str>,
+    ) -> bool;
+
     /// Check that `worker_id` currently holds the lease on `step_id`.
     fn verify_step_worker(&self, step_id: &str, worker_id: &str) -> bool;
+
+    /// Persist verifier output or a placeholder report for a worker completion.
+    fn record_verifier_report(
+        &self,
+        step_id: &str,
+        run_id: &str,
+        lease_gen: i64,
+        worker_id: Option<&str>,
+        verifier: &str,
+        status: &str,
+        verdict: &str,
+        evidence_json: &str,
+    ) -> Option<String>;
+
+    /// Return the latest verifier report for a step, if any.
+    fn get_latest_verifier_report(&self, step_id: &str) -> Option<VerifierReport>;
+
+    /// Persist the immutable work contract dispatched for a step lease.
+    fn record_step_work_contract(
+        &self,
+        step_id: &str,
+        run_id: &str,
+        lease_gen: i64,
+        contract: &TaskContract,
+    ) -> bool;
+
+    /// Return the work contract for a specific step lease, if one was recorded.
+    fn get_step_work_contract(&self, step_id: &str, lease_gen: i64) -> Option<TaskContract>;
+
+    /// Return the latest work contract for a step, if one was recorded.
+    fn get_latest_step_work_contract(&self, step_id: &str) -> Option<TaskContract>;
 
     // ── Usage ──────────────────────────────────────────────────────────
 
@@ -149,15 +195,18 @@ impl Storage for Database {
         id: &str,
         run_id: &str,
         kind: &str,
+        work_kind: &str,
         tier: &str,
         risk: &str,
         objective: &str,
         created_at: i64,
     ) {
-        Database::create_step_with_id(self, id, run_id, kind, tier, risk, objective, created_at)
+        Database::create_step_with_id(
+            self, id, run_id, kind, work_kind, tier, risk, objective, created_at,
+        )
     }
 
-    fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String)> {
+    fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String, String)> {
         Database::get_step_details(self, step_id)
     }
 
@@ -193,8 +242,66 @@ impl Storage for Database {
         Database::fail_step(self, step_id, lease_gen, error, kind)
     }
 
+    fn record_failed_step_output(
+        &self,
+        step_id: &str,
+        lease_gen: i64,
+        summary: Option<&str>,
+        files: Option<&str>,
+        base: Option<&str>,
+        head: Option<&str>,
+    ) -> bool {
+        Database::record_failed_step_output(self, step_id, lease_gen, summary, files, base, head)
+    }
+
     fn verify_step_worker(&self, step_id: &str, worker_id: &str) -> bool {
         Database::verify_step_worker(self, step_id, worker_id)
+    }
+
+    fn record_verifier_report(
+        &self,
+        step_id: &str,
+        run_id: &str,
+        lease_gen: i64,
+        worker_id: Option<&str>,
+        verifier: &str,
+        status: &str,
+        verdict: &str,
+        evidence_json: &str,
+    ) -> Option<String> {
+        Database::record_verifier_report(
+            self,
+            step_id,
+            run_id,
+            lease_gen,
+            worker_id,
+            verifier,
+            status,
+            verdict,
+            evidence_json,
+        )
+    }
+
+    fn get_latest_verifier_report(&self, step_id: &str) -> Option<VerifierReport> {
+        Database::get_latest_verifier_report(self, step_id)
+    }
+
+    fn record_step_work_contract(
+        &self,
+        step_id: &str,
+        run_id: &str,
+        lease_gen: i64,
+        contract: &TaskContract,
+    ) -> bool {
+        Database::record_step_work_contract(self, step_id, run_id, lease_gen, contract)
+    }
+
+    fn get_step_work_contract(&self, step_id: &str, lease_gen: i64) -> Option<TaskContract> {
+        Database::get_step_work_contract(self, step_id, lease_gen)
+    }
+
+    fn get_latest_step_work_contract(&self, step_id: &str) -> Option<TaskContract> {
+        Database::get_latest_step_work_contract(self, step_id)
     }
 
     fn record_usage(

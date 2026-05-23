@@ -61,7 +61,7 @@ export function openDetachedPanel(panel: CortexWindowState['panel'], group: Cort
   const left = saved?.left ?? Math.max(0, availLeft + window.screen.availWidth - width - 24);
   const top = saved?.top ?? Math.max(0, availTop + 32);
   const url = new URL(window.location.href);
-  url.pathname = `/groups/${group.id}/tasks`;
+  url.pathname = `/app/groups/${group.id}/tasks`;
   url.searchParams.set('detached', panel);
   url.searchParams.set('windowId', id);
 

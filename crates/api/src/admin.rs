@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::clerk::ClerkUser;
 use crate::db::{CodeRedemption, PromoCode};
 use crate::routes::ErrorResponse;
+use crate::run_payload::{build_run_graph_payload, build_run_step_payloads};
 use crate::state::AppState;
 
 fn admin_set() -> HashSet<String> {
@@ -253,41 +254,8 @@ pub async fn get_run_detail(
 
     let profile = db.get_run_profile(&id).unwrap_or_else(|| "auto".into());
     let heal_count = db.get_run_heal_count(&id);
-    let steps = db.get_all_step_statuses(&id);
-
-    let step_details: Vec<serde_json::Value> = steps
-        .iter()
-        .map(|(sid, status)| {
-            let details = db.get_step_details(sid);
-            let predecessors = db.get_step_predecessors(sid);
-            let output = db.get_step_output_summary(sid);
-            let files = db.get_step_files_changed(sid);
-            let error = db.get_step_last_error(sid);
-
-            let mut step = serde_json::json!({
-                "id": sid,
-                "status": status,
-                "predecessors": predecessors,
-            });
-
-            if let Some((kind, tier, risk, objective)) = details {
-                step["kind"] = serde_json::json!(kind);
-                step["tier"] = serde_json::json!(tier);
-                step["risk"] = serde_json::json!(risk);
-                step["objective"] = serde_json::json!(objective);
-            }
-            if let Some(o) = output {
-                step["output_summary"] = serde_json::json!(o);
-            }
-            if let Some(f) = files {
-                step["files_changed"] = serde_json::json!(f);
-            }
-            if let Some(e) = error {
-                step["last_error"] = serde_json::json!(e);
-            }
-            step
-        })
-        .collect();
+    let step_details = build_run_step_payloads(db, &id);
+    let graph = build_run_graph_payload(db, &id, &step_details);
 
     Ok(Json(serde_json::json!({
         "id": id,
@@ -295,6 +263,7 @@ pub async fn get_run_detail(
         "profile": profile,
         "heal_attempts": heal_count,
         "steps": step_details,
+        "graph": graph,
     })))
 }
 

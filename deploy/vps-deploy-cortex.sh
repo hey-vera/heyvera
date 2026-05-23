@@ -44,7 +44,7 @@ cargo build --release --bin cortex-server
 # Build frontend
 log_step "📦 Building frontend..."
 cd cortex
-npm ci --only=production
+npm ci
 npm run build
 cd ..
 

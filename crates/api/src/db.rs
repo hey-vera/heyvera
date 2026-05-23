@@ -1,7 +1,9 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 
 use chrono::{Datelike, Utc};
+use cortex_core::task::TaskContract;
 use cortex_core::usage::{DailyUsage, ProviderUsage, UsageSummary, estimate_cost_by_provider};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
@@ -57,6 +59,70 @@ pub struct ActiveRunSummary {
     pub step_count: usize,
     pub steps_completed: usize,
     pub steps_failed: usize,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct VerifierReport {
+    pub id: String,
+    pub step_id: String,
+    pub run_id: String,
+    pub lease_gen: i64,
+    pub worker_id: Option<String>,
+    pub verifier: String,
+    pub status: String,
+    pub verdict: String,
+    pub evidence_json: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+impl VerifierReport {
+    pub fn is_verified_success(&self) -> bool {
+        self.status == "verified" && self.verdict == "pass"
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct StepDependencyEdge {
+    pub step_id: String,
+    pub depends_on_id: String,
+    pub edge_type: String,
+}
+
+pub struct RunStepSnapshot {
+    pub id: String,
+    pub status: String,
+    pub kind: String,
+    pub work_kind: String,
+    pub tier: String,
+    pub risk: String,
+    pub objective: String,
+    pub attempt_count: i64,
+    pub max_attempts: i64,
+    pub lease_gen: i64,
+    pub lease_deadline: Option<i64>,
+    pub assigned_worker: Option<String>,
+    pub recipe_seed_json: Option<String>,
+    pub output_summary: Option<String>,
+    pub files_changed: Option<String>,
+    pub last_error: Option<String>,
+    pub predecessors: Vec<String>,
+    pub verifier_report: Option<VerifierReport>,
+    pub work_contract: Option<TaskContract>,
+    pub latest_attempt: Option<RunStepAttemptSnapshot>,
+}
+
+pub struct RunStepAttemptSnapshot {
+    pub attempt_number: i64,
+    pub worker_id: Option<String>,
+    pub lease_gen: i64,
+    pub status: String,
+    pub provider: Option<String>,
+    pub model: Option<String>,
+    pub started_at: i64,
+    pub finished_at: Option<i64>,
+    pub failure_kind: Option<String>,
+    pub error_summary: Option<String>,
 }
 
 // --- Billing types ---
@@ -121,7 +187,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 10;
+const SCHEMA_VERSION: i64 = 17;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -166,6 +232,24 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 11 {
         migrate_v11(conn);
+    }
+    if current < 12 {
+        migrate_v12(conn);
+    }
+    if current < 13 {
+        migrate_v13(conn);
+    }
+    if current < 14 {
+        migrate_v14(conn);
+    }
+    if current < 15 {
+        migrate_v15(conn);
+    }
+    if current < 16 {
+        migrate_v16(conn);
+    }
+    if current < 17 {
+        migrate_v17(conn);
     }
 }
 
@@ -343,6 +427,8 @@ fn migrate_v2(conn: &Connection) {
             run_id TEXT NOT NULL REFERENCES runs(id),
             kind TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
+            work_kind TEXT NOT NULL DEFAULT 'modify',
+            recipe_seed_json TEXT,
             tier TEXT NOT NULL,
             risk TEXT NOT NULL,
             objective TEXT NOT NULL,
@@ -708,6 +794,116 @@ fn migrate_v11(conn: &Connection) {
     ).expect("migration v11 failed");
 
     tracing::info!("applied migration v11: context_flow_artifacts table for AI model context pipeline");
+}
+
+fn migrate_v12(conn: &Connection) {
+    conn.execute(
+        "ALTER TABLE steps ADD COLUMN verification_status TEXT NOT NULL DEFAULT 'unverified'",
+        [],
+    ).ok();
+    conn.execute(
+        "ALTER TABLE steps ADD COLUMN verifier_report_id TEXT",
+        [],
+    ).ok();
+    conn.execute(
+        "ALTER TABLE steps ADD COLUMN verified_at INTEGER",
+        [],
+    ).ok();
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS verifier_reports (
+            id TEXT PRIMARY KEY,
+            step_id TEXT NOT NULL REFERENCES steps(id),
+            run_id TEXT NOT NULL REFERENCES runs(id),
+            lease_gen INTEGER NOT NULL,
+            worker_id TEXT,
+            verifier TEXT NOT NULL,
+            status TEXT NOT NULL,
+            verdict TEXT NOT NULL,
+            evidence_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_verifier_reports_step
+            ON verifier_reports(step_id, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_verifier_reports_run
+            ON verifier_reports(run_id, created_at DESC);
+
+        UPDATE schema_version SET version = 12;"
+    ).expect("migration v12 failed");
+
+    tracing::info!("applied migration v12: verifier reports and step verification status");
+}
+
+fn migrate_v13(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS step_work_contracts (
+            step_id TEXT NOT NULL REFERENCES steps(id),
+            lease_gen INTEGER NOT NULL,
+            run_id TEXT NOT NULL REFERENCES runs(id),
+            contract_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (step_id, lease_gen)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_step_work_contracts_run
+            ON step_work_contracts(run_id, created_at DESC);
+
+        UPDATE schema_version SET version = 13;"
+    ).expect("migration v13 failed");
+
+    tracing::info!("applied migration v13: persisted step work contracts");
+}
+
+fn migrate_v14(conn: &Connection) {
+    conn.execute(
+        "ALTER TABLE steps ADD COLUMN work_kind TEXT NOT NULL DEFAULT 'modify'",
+        [],
+    )
+    .ok();
+    conn.execute_batch("UPDATE schema_version SET version = 14;")
+        .expect("migration v14 failed");
+
+    tracing::info!("applied migration v14: steps.work_kind planner recipe intent");
+}
+
+fn migrate_v15(conn: &Connection) {
+    conn.execute("ALTER TABLE steps ADD COLUMN recipe_seed_json TEXT", [])
+        .ok();
+    conn.execute_batch("UPDATE schema_version SET version = 15;")
+        .expect("migration v15 failed");
+
+    tracing::info!("applied migration v15: steps.recipe_seed_json planner recipe seeds");
+}
+
+fn migrate_v16(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_steps_run_created
+            ON steps(run_id, created_at ASC, id ASC);
+
+        CREATE INDEX IF NOT EXISTS idx_verifier_reports_run_step_latest
+            ON verifier_reports(run_id, step_id, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_step_work_contracts_run_step_latest
+            ON step_work_contracts(run_id, step_id, lease_gen DESC, created_at DESC);
+
+        UPDATE schema_version SET version = 16;"
+    ).expect("migration v16 failed");
+
+    tracing::info!("applied migration v16: run payload snapshot indexes");
+}
+
+fn migrate_v17(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_step_attempts_run_step_latest
+            ON step_attempts(run_id, step_id, attempt_number DESC);
+
+        UPDATE schema_version SET version = 17;"
+    ).expect("migration v17 failed");
+
+    tracing::info!("applied migration v17: latest attempt snapshot index");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1302,7 +1498,7 @@ impl Database {
         goal: &str,
         profile: &str,
         file_paths: &[String],
-        steps: &[(String, String, String, String, String, i64)], // (id, kind, tier, risk, objective, created_at)
+        steps: &[(String, String, String, Option<String>, String, String, String, i64)], // (id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at)
         edges: &[(String, String, String)], // (step_id, depends_on_id, edge_type)
     ) -> String {
         let conn = self.conn.lock().unwrap();
@@ -1321,11 +1517,11 @@ impl Database {
             params![run_id, user_id, goal, profile, file_paths_json, now],
         ).expect("failed to create run in batch");
 
-        for (id, kind, tier, risk, objective, created_at) in steps {
+        for (id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at) in steps {
             conn.execute(
-                "INSERT INTO steps (id, run_id, kind, status, tier, risk, objective, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?7)",
-                params![id, run_id, kind, tier, risk, objective, created_at],
+                "INSERT INTO steps (id, run_id, kind, work_kind, recipe_seed_json, status, tier, risk, objective, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, ?8, ?9, ?9)",
+                params![id, run_id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at],
             ).expect("failed to create step in batch");
         }
 
@@ -1416,8 +1612,8 @@ impl Database {
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
         conn.execute(
-            "INSERT INTO steps (id, run_id, kind, status, tier, risk, objective, created_at, updated_at)
-             VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?7)",
+            "INSERT INTO steps (id, run_id, kind, work_kind, status, tier, risk, objective, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'modify', 'pending', ?4, ?5, ?6, ?7, ?7)",
             params![id, run_id, kind, tier, risk, objective, now],
         ).expect("failed to create step");
         id
@@ -1444,7 +1640,7 @@ impl Database {
                  WHERE sd.step_id = s.id
                  AND (
                      (sd.edge_type = 'success_required' AND dep.status != 'succeeded')
-                     OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed'))
+                     OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped'))
                  )
              )"
         ).unwrap();
@@ -1456,13 +1652,13 @@ impl Database {
     }
 
     /// Find all ready steps across all active runs in a single query.
-    /// Returns (step_id, run_id, user_id, kind, tier, risk, objective) tuples.
+    /// Returns (step_id, run_id, user_id, kind, work_kind, tier, risk, objective) tuples.
     /// This replaces the N+1 pattern of get_active_run_ids() + find_ready_steps() per run.
-    pub fn find_all_ready_steps(&self) -> Vec<(String, String, String, String, String, String, String)> {
+    pub fn find_all_ready_steps(&self) -> Vec<(String, String, String, String, String, String, String, String)> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
-            "SELECT s.id, s.run_id, r.user_id, s.kind, s.tier, s.risk, s.objective
+            "SELECT s.id, s.run_id, r.user_id, s.kind, s.work_kind, s.tier, s.risk, s.objective
              FROM steps s
              JOIN runs r ON s.run_id = r.id
              WHERE r.status IN ('planning', 'running')
@@ -1474,7 +1670,7 @@ impl Database {
                  WHERE sd.step_id = s.id
                  AND (
                      (sd.edge_type = 'success_required' AND dep.status != 'succeeded')
-                     OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed'))
+                     OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped'))
                  )
              )"
         ).unwrap();
@@ -1488,6 +1684,7 @@ impl Database {
                 row.get::<_, String>(4)?,
                 row.get::<_, String>(5)?,
                 row.get::<_, String>(6)?,
+                row.get::<_, String>(7)?,
             ))
         })
         .unwrap()
@@ -1516,6 +1713,17 @@ impl Database {
         ).ok()
     }
 
+    pub fn start_step(&self, step_id: &str, lease_gen: i64) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "UPDATE steps SET status = 'running', updated_at = ?1, version = version + 1
+             WHERE id = ?2 AND lease_gen = ?3 AND status IN ('leased', 'running')",
+            params![now, step_id, lease_gen],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
     pub fn complete_step(
         &self,
         step_id: &str,
@@ -1530,7 +1738,7 @@ impl Database {
         let rows = conn.execute(
             "UPDATE steps SET status = 'succeeded', output_summary = ?1, files_changed = ?2,
                  base_commit = ?3, head_commit = ?4, updated_at = ?5, version = version + 1
-             WHERE id = ?6 AND lease_gen = ?7 AND status IN ('leased', 'running', 'orphaned')",
+             WHERE id = ?6 AND lease_gen = ?7 AND status IN ('leased', 'running')",
             params![output_summary, files_changed, base_commit, head_commit, now, step_id, lease_gen],
         ).unwrap_or(0);
         rows > 0
@@ -1547,12 +1755,86 @@ impl Database {
         rows > 0
     }
 
+    pub fn fail_unleased_step(&self, step_id: &str, error: &str, _failure_kind: Option<&str>) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "UPDATE steps SET status = 'failed', last_error = ?1, updated_at = ?2, version = version + 1
+             WHERE id = ?3 AND status IN ('pending', 'ready', 'orphaned')",
+            params![error, now, step_id],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
+    pub fn cancel_step(&self, step_id: &str, lease_gen: i64, reason: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "UPDATE steps SET status = 'cancelled', last_error = ?1, assigned_worker = NULL,
+                 lease_deadline = NULL, updated_at = ?2, version = version + 1
+             WHERE id = ?3 AND lease_gen = ?4 AND status IN ('leased', 'running')",
+            params![reason, now, step_id, lease_gen],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
+    pub fn cancel_assigned_step(&self, step_id: &str, reason: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "UPDATE steps SET status = 'cancelled', last_error = ?1, assigned_worker = NULL,
+                 lease_deadline = NULL, updated_at = ?2, version = version + 1
+             WHERE id = ?3 AND status IN ('leased', 'running')",
+            params![reason, now, step_id],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
+    pub fn mark_step_recovered(&self, step_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "UPDATE steps SET status = 'recovered', updated_at = ?1, version = version + 1
+             WHERE id = ?2 AND status = 'failed'",
+            params![now, step_id],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
+    pub fn record_failed_step_output(
+        &self,
+        step_id: &str,
+        lease_gen: i64,
+        output_summary: Option<&str>,
+        files_changed: Option<&str>,
+        base_commit: Option<&str>,
+        head_commit: Option<&str>,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "UPDATE steps
+             SET output_summary = ?1,
+                 files_changed = ?2,
+                 base_commit = ?3,
+                 head_commit = ?4,
+                 updated_at = ?5,
+                 version = version + 1
+             WHERE id = ?6
+               AND lease_gen = ?7
+               AND status IN ('leased', 'running', 'failed')",
+            params![output_summary, files_changed, base_commit, head_commit, now, step_id, lease_gen],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
     pub fn expire_stale_leases(&self) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
-            "UPDATE steps SET status = 'orphaned', updated_at = ?1, version = version + 1
-             WHERE status = 'leased' AND lease_deadline < ?1
+            "UPDATE steps SET status = 'orphaned', assigned_worker = NULL, lease_deadline = NULL,
+                 updated_at = ?1, version = version + 1
+             WHERE status IN ('leased', 'running') AND lease_deadline < ?1
              RETURNING id"
         ).unwrap();
 
@@ -1773,6 +2055,7 @@ impl Database {
         id: &str,
         run_id: &str,
         kind: &str,
+        work_kind: &str,
         tier: &str,
         risk: &str,
         objective: &str,
@@ -1780,9 +2063,9 @@ impl Database {
     ) {
         let conn = self.conn.lock().unwrap();
         conn.execute(
-            "INSERT INTO steps (id, run_id, kind, status, tier, risk, objective, created_at, updated_at)
-             VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?7)",
-            params![id, run_id, kind, tier, risk, objective, created_at],
+            "INSERT INTO steps (id, run_id, kind, work_kind, status, tier, risk, objective, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7, ?8, ?8)",
+            params![id, run_id, kind, work_kind, tier, risk, objective, created_at],
         ).expect("failed to create step");
     }
 
@@ -1805,18 +2088,28 @@ impl Database {
         ).ok()
     }
 
-    pub fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String)> {
+    pub fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String, String)> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT kind, tier, risk, objective FROM steps WHERE id = ?1",
+            "SELECT kind, work_kind, tier, risk, objective FROM steps WHERE id = ?1",
             params![step_id],
             |row| Ok((
                 row.get::<_, String>(0)?,
                 row.get::<_, String>(1)?,
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,
             )),
         ).ok()
+    }
+
+    pub fn get_step_recipe_seed_json(&self, step_id: &str) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT recipe_seed_json FROM steps WHERE id = ?1",
+            params![step_id],
+            |row| row.get::<_, Option<String>>(0),
+        ).ok().flatten()
     }
 
     pub fn get_run_user_id(&self, run_id: &str) -> Option<String> {
@@ -1922,10 +2215,157 @@ impl Database {
     pub fn get_all_step_statuses(&self, run_id: &str) -> Vec<(String, String)> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, status FROM steps WHERE run_id = ?1"
+            "SELECT id, status FROM steps WHERE run_id = ?1 ORDER BY created_at ASC, id ASC"
         ).unwrap();
         stmt.query_map(params![run_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn get_run_step_snapshots(&self, run_id: &str) -> Vec<RunStepSnapshot> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut predecessors_by_step: HashMap<String, Vec<String>> = HashMap::new();
+        let mut predecessor_stmt = conn.prepare(
+            "SELECT sd.step_id, sd.depends_on_id
+             FROM step_dependencies sd
+             JOIN steps s ON s.id = sd.step_id
+             WHERE s.run_id = ?1
+             ORDER BY sd.step_id ASC, sd.depends_on_id ASC"
+        ).unwrap();
+        for row in predecessor_stmt
+            .query_map(params![run_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+        {
+            predecessors_by_step.entry(row.0).or_default().push(row.1);
+        }
+
+        let mut verifier_by_step: HashMap<String, VerifierReport> = HashMap::new();
+        let mut verifier_stmt = conn.prepare(
+            "SELECT id, step_id, run_id, lease_gen, worker_id, verifier, status, verdict,
+                    evidence_json, created_at, updated_at
+             FROM verifier_reports
+             WHERE run_id = ?1
+             ORDER BY step_id ASC, created_at DESC"
+        ).unwrap();
+        for report in verifier_stmt
+            .query_map(params![run_id], |row| Ok(VerifierReport {
+                id: row.get(0)?,
+                step_id: row.get(1)?,
+                run_id: row.get(2)?,
+                lease_gen: row.get(3)?,
+                worker_id: row.get(4)?,
+                verifier: row.get(5)?,
+                status: row.get(6)?,
+                verdict: row.get(7)?,
+                evidence_json: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            }))
+            .unwrap()
+            .filter_map(|r| r.ok())
+        {
+            verifier_by_step.entry(report.step_id.clone()).or_insert(report);
+        }
+
+        let mut contract_by_step: HashMap<String, TaskContract> = HashMap::new();
+        let mut contract_stmt = conn.prepare(
+            "SELECT step_id, contract_json
+             FROM step_work_contracts
+             WHERE run_id = ?1
+             ORDER BY step_id ASC, lease_gen DESC, created_at DESC"
+        ).unwrap();
+        for (step_id, contract_json) in contract_stmt
+            .query_map(params![run_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+        {
+            if contract_by_step.contains_key(&step_id) {
+                continue;
+            }
+            match serde_json::from_str::<TaskContract>(&contract_json) {
+                Ok(contract) => {
+                    contract_by_step.insert(step_id, contract);
+                }
+                Err(err) => {
+                    tracing::error!(
+                        step_id = %step_id,
+                        error = %err,
+                        "failed to deserialize latest step work contract"
+                    );
+                }
+            }
+        }
+
+        let mut attempt_by_step: HashMap<String, RunStepAttemptSnapshot> = HashMap::new();
+        let mut attempt_stmt = conn.prepare(
+            "SELECT step_id, attempt_number, worker_id, lease_gen, status, provider, model,
+                    started_at, finished_at, failure_kind, error_summary
+             FROM step_attempts
+             WHERE run_id = ?1
+             ORDER BY step_id ASC, attempt_number DESC"
+        ).unwrap();
+        for attempt in attempt_stmt
+            .query_map(params![run_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    RunStepAttemptSnapshot {
+                        attempt_number: row.get(1)?,
+                        worker_id: row.get(2)?,
+                        lease_gen: row.get(3)?,
+                        status: row.get(4)?,
+                        provider: row.get(5)?,
+                        model: row.get(6)?,
+                        started_at: row.get(7)?,
+                        finished_at: row.get(8)?,
+                        failure_kind: row.get(9)?,
+                        error_summary: row.get(10)?,
+                    },
+                ))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+        {
+            attempt_by_step.entry(attempt.0).or_insert(attempt.1);
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT id, status, kind, work_kind, tier, risk, objective, attempt_count, max_attempts,
+                    lease_gen, lease_deadline, assigned_worker, recipe_seed_json, output_summary,
+                    files_changed, last_error
+             FROM steps
+             WHERE run_id = ?1
+             ORDER BY created_at ASC, id ASC"
+        ).unwrap();
+        stmt.query_map(params![run_id], |row| {
+            let id = row.get::<_, String>(0)?;
+            Ok(RunStepSnapshot {
+                predecessors: predecessors_by_step.remove(&id).unwrap_or_default(),
+                verifier_report: verifier_by_step.remove(&id),
+                work_contract: contract_by_step.remove(&id),
+                latest_attempt: attempt_by_step.remove(&id),
+                id,
+                status: row.get(1)?,
+                kind: row.get(2)?,
+                work_kind: row.get(3)?,
+                tier: row.get(4)?,
+                risk: row.get(5)?,
+                objective: row.get(6)?,
+                attempt_count: row.get(7)?,
+                max_attempts: row.get(8)?,
+                lease_gen: row.get(9)?,
+                lease_deadline: row.get(10)?,
+                assigned_worker: row.get(11)?,
+                recipe_seed_json: row.get(12)?,
+                output_summary: row.get(13)?,
+                files_changed: row.get(14)?,
+                last_error: row.get(15)?,
+            })
         }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
@@ -1996,12 +2436,30 @@ impl Database {
     pub fn get_step_predecessors(&self, step_id: &str) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT depends_on_id FROM step_dependencies WHERE step_id = ?1"
+            "SELECT depends_on_id FROM step_dependencies WHERE step_id = ?1 ORDER BY depends_on_id ASC"
         ).unwrap();
         stmt.query_map(params![step_id], |row| row.get::<_, String>(0))
             .unwrap()
             .filter_map(|r| r.ok())
             .collect()
+    }
+
+    pub fn get_run_step_dependency_edges(&self, run_id: &str) -> Vec<StepDependencyEdge> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT sd.step_id, sd.depends_on_id, sd.edge_type
+             FROM step_dependencies sd
+             JOIN steps s ON s.id = sd.step_id
+             WHERE s.run_id = ?1
+             ORDER BY sd.step_id ASC, sd.depends_on_id ASC"
+        ).unwrap();
+        stmt.query_map(params![run_id], |row| {
+            Ok(StepDependencyEdge {
+                step_id: row.get::<_, String>(0)?,
+                depends_on_id: row.get::<_, String>(1)?,
+                edge_type: row.get::<_, String>(2)?,
+            })
+        }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
     pub fn get_step_output_summary(&self, step_id: &str) -> Option<String> {
@@ -2020,6 +2478,182 @@ impl Database {
             params![step_id],
             |row| row.get::<_, Option<String>>(0),
         ).ok().flatten()
+    }
+
+    pub fn record_verifier_report(
+        &self,
+        step_id: &str,
+        run_id: &str,
+        lease_gen: i64,
+        worker_id: Option<&str>,
+        verifier: &str,
+        status: &str,
+        verdict: &str,
+        evidence_json: &str,
+    ) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().timestamp_millis();
+        conn.execute(
+            "INSERT INTO verifier_reports (
+                id, step_id, run_id, lease_gen, worker_id, verifier, status, verdict,
+                evidence_json, created_at, updated_at
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
+            params![
+                id,
+                step_id,
+                run_id,
+                lease_gen,
+                worker_id,
+                verifier,
+                status,
+                verdict,
+                evidence_json,
+                now
+            ],
+        ).ok()?;
+
+        let step_verification_status = match (status, verdict) {
+            ("verified", "pass") => "verified_pass",
+            ("verified", "fail") => "verified_fail",
+            ("verified", "blocked") => "verified_blocked",
+            ("needs_evidence", _) => "needs_evidence",
+            ("error", _) => "verification_error",
+            _ => "unverified",
+        };
+        let verified_at = if status == "verified" { Some(now) } else { None };
+
+        conn.execute(
+            "UPDATE steps
+             SET verification_status = ?1,
+                 verifier_report_id = ?2,
+                 verified_at = ?3,
+                 updated_at = ?4
+             WHERE id = ?5",
+            params![step_verification_status, id, verified_at, now, step_id],
+        ).ok();
+
+        Some(id)
+    }
+
+    pub fn get_latest_verifier_report(&self, step_id: &str) -> Option<VerifierReport> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, step_id, run_id, lease_gen, worker_id, verifier, status, verdict,
+                    evidence_json, created_at, updated_at
+             FROM verifier_reports
+             WHERE step_id = ?1
+             ORDER BY created_at DESC
+             LIMIT 1",
+            params![step_id],
+            |row| Ok(VerifierReport {
+                id: row.get(0)?,
+                step_id: row.get(1)?,
+                run_id: row.get(2)?,
+                lease_gen: row.get(3)?,
+                worker_id: row.get(4)?,
+                verifier: row.get(5)?,
+                status: row.get(6)?,
+                verdict: row.get(7)?,
+                evidence_json: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            }),
+        ).ok()
+    }
+
+    pub fn record_step_work_contract(
+        &self,
+        step_id: &str,
+        run_id: &str,
+        lease_gen: i64,
+        contract: &TaskContract,
+    ) -> bool {
+        let contract_json = match serde_json::to_string(contract) {
+            Ok(json) => json,
+            Err(err) => {
+                tracing::error!(
+                    step_id = %step_id,
+                    lease_gen,
+                    error = %err,
+                    "failed to serialize step work contract"
+                );
+                return false;
+            }
+        };
+
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "INSERT INTO step_work_contracts (step_id, lease_gen, run_id, contract_json, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(step_id, lease_gen) DO UPDATE SET
+                run_id = excluded.run_id,
+                contract_json = excluded.contract_json,
+                created_at = excluded.created_at",
+            params![step_id, lease_gen, run_id, contract_json, now],
+        ).unwrap_or_else(|err| {
+            tracing::error!(
+                step_id = %step_id,
+                run_id = %run_id,
+                lease_gen,
+                error = %err,
+                "failed to persist step work contract"
+            );
+            0
+        });
+
+        rows > 0
+    }
+
+    pub fn get_step_work_contract(
+        &self,
+        step_id: &str,
+        lease_gen: i64,
+    ) -> Option<TaskContract> {
+        let conn = self.conn.lock().unwrap();
+        let contract_json: String = conn.query_row(
+            "SELECT contract_json FROM step_work_contracts
+             WHERE step_id = ?1 AND lease_gen = ?2",
+            params![step_id, lease_gen],
+            |row| row.get(0),
+        ).ok()?;
+
+        serde_json::from_str(&contract_json)
+            .map_err(|err| {
+                tracing::error!(
+                    step_id = %step_id,
+                    lease_gen,
+                    error = %err,
+                    "failed to deserialize step work contract"
+                );
+                err
+            })
+            .ok()
+    }
+
+    pub fn get_latest_step_work_contract(&self, step_id: &str) -> Option<TaskContract> {
+        let conn = self.conn.lock().unwrap();
+        let contract_json: String = conn.query_row(
+            "SELECT contract_json FROM step_work_contracts
+             WHERE step_id = ?1
+             ORDER BY lease_gen DESC, created_at DESC
+             LIMIT 1",
+            params![step_id],
+            |row| row.get(0),
+        ).ok()?;
+
+        serde_json::from_str(&contract_json)
+            .map_err(|err| {
+                tracing::error!(
+                    step_id = %step_id,
+                    error = %err,
+                    "failed to deserialize latest step work contract"
+                );
+                err
+            })
+            .ok()
     }
 
     pub fn get_run_profile(&self, run_id: &str) -> Option<String> {
@@ -2298,8 +2932,11 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM steps WHERE id = ?1 AND assigned_worker = ?2",
-                params![step_id, worker_id],
+                "SELECT COUNT(*) FROM steps
+                 WHERE id = ?1 AND assigned_worker = ?2
+                 AND status IN ('leased', 'running')
+                 AND lease_deadline IS NOT NULL AND lease_deadline >= ?3",
+                params![step_id, worker_id, Utc::now().timestamp_millis()],
                 |row| row.get(0),
             )
             .unwrap_or(0);
@@ -2311,7 +2948,7 @@ impl Database {
         let now = Utc::now().timestamp_millis();
         let rows = conn.execute(
             "UPDATE steps SET lease_deadline = ?1, updated_at = ?2
-             WHERE id = ?3 AND lease_gen = ?4 AND status = 'leased'",
+             WHERE id = ?3 AND lease_gen = ?4 AND status IN ('leased', 'running')",
             params![new_deadline, now, step_id, lease_gen],
         ).unwrap_or(0);
         rows > 0
@@ -2369,7 +3006,7 @@ impl Database {
                 "SELECT sd.step_id FROM step_dependencies sd
                  JOIN steps s ON s.id = sd.step_id
                  WHERE sd.depends_on_id = ?1 AND sd.edge_type = 'success_required'
-                 AND s.status NOT IN ('succeeded', 'failed', 'cancelled', 'skipped')"
+                 AND s.status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped')"
             ).unwrap();
 
             let dependents: Vec<String> = stmt
@@ -2386,7 +3023,7 @@ impl Database {
 
                 conn.execute(
                     "UPDATE steps SET status = 'skipped', updated_at = ?1, version = version + 1
-                     WHERE id = ?2 AND status NOT IN ('succeeded', 'failed', 'cancelled', 'skipped')",
+                     WHERE id = ?2 AND status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped')",
                     params![now, dep_id],
                 ).ok();
 

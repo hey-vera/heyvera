@@ -2,6 +2,7 @@ import type { ChatSessionControls, CortexState, RunProfile, SovereigntyLoopState
 
 const CONFIGURED_API_BASE = import.meta.env.VITE_CORTEX_API as string | undefined;
 const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.heyvera.org');
+export const MEMORY_API_ENABLED = import.meta.env.VITE_CORTEX_MEMORY_ENABLED === 'true';
 
 function apiUrl(path: string) {
   const base = BASE_URL.replace(/\/$/, '');
@@ -712,9 +713,72 @@ export interface RunStep {
   goal?: string;
   title?: string;
   kind?: string;
+  work_kind?: string;
+  tier?: string;
+  risk?: string;
   objective?: string;
+  attempt_count?: number;
+  max_attempts?: number;
+  lease_gen?: number;
+  lease_deadline?: number | null;
+  assigned_worker?: string | null;
+  lease_stale?: boolean;
+  health?: string;
+  blocked_by?: Array<{ id?: string; status?: string; edge_type?: string }>;
+  latest_attempt?: {
+    attempt_number?: number;
+    worker_id?: string | null;
+    lease_gen?: number;
+    status?: string;
+    provider?: string | null;
+    model?: string | null;
+    started_at?: number;
+    finished_at?: number | null;
+    failure_kind?: string | null;
+    error_summary?: string | null;
+  };
   error?: string | null;
+  last_error?: string | null;
+  output_summary?: string | null;
+  files_changed?: string[] | null;
+  verification_status?: string | null;
+  verifier_verdict?: string | null;
+  verifier_report_id?: string | null;
+  recipe_seed?: unknown;
+  work_recipe?: {
+    version?: number;
+    kind?: string;
+    target_paths?: string[];
+    acceptance?: Array<{ id?: string; text?: string; verification?: unknown }>;
+    constraints?: string[];
+    required_checks?: Array<{ name?: string; command?: string; required?: boolean }>;
+  } | null;
+  acceptance_criteria?: string[];
+  required_checks?: Array<{ name?: string; command?: string; required?: boolean }>;
+  predecessors?: string[];
   parent_id?: string | null;
+}
+
+export interface RunGraphNode {
+  id: string;
+  label: string;
+  status?: string | null;
+  kind?: string | null;
+  work_kind?: string | null;
+  tier?: string | null;
+  risk?: string | null;
+  verification_status?: string | null;
+}
+
+export interface RunGraphEdge {
+  from: string;
+  to: string;
+  edge_type: 'success_required' | 'completion_required' | string;
+}
+
+export interface RunGraph {
+  nodes: RunGraphNode[];
+  edges: RunGraphEdge[];
 }
 
 export interface RunSummary {
@@ -724,6 +788,7 @@ export interface RunSummary {
   profile?: string;
   created_at?: string;
   steps: RunStep[];
+  graph?: RunGraph;
 }
 
 export interface RunListItem {
@@ -743,6 +808,7 @@ export interface RunStreamEvent {
   type: 'run_update' | 'run_complete';
   run_id: string;
   steps?: RunStep[];
+  graph?: RunGraph;
   status?: string;
 }
 
@@ -900,4 +966,278 @@ export async function addMessageToConversation(
     body: JSON.stringify({ role, content, provider, model }),
   });
   return res.json();
+}
+
+// Memory API
+
+export interface MemoryStats {
+  total: number;
+  policies: number;
+  team_rules: number;
+  notes: number;
+  avg_effectiveness: number;
+}
+
+export interface WorkspaceMemory {
+  id: string;
+  workspace_id: string;
+  content: string;
+  importance: 'Remember' | 'TeamRule' | 'Policy';
+  created_by: string;
+  created_at: string;
+  expires_at: string | null;
+  effectiveness_score: number;
+  tags: string[];
+}
+
+export interface MemoryMatch {
+  memory: WorkspaceMemory;
+  relevance_score: number;
+  match_reason: string;
+}
+
+export interface MemorySuggestion {
+  text: string;
+  category: 'remember' | 'recall' | 'forget' | 'list';
+  command: string;
+  description?: string;
+}
+
+export async function getMemoryStats(workspaceId = 'default'): Promise<MemoryStats> {
+  if (!MEMORY_API_ENABLED) {
+    void workspaceId;
+    return { total: 0, policies: 0, team_rules: 0, notes: 0, avg_effectiveness: 0 };
+  }
+  return requestJson<MemoryStats>(`/api/memory/stats?workspace_id=${encodeURIComponent(workspaceId)}`);
+}
+
+export async function listMemories(
+  workspaceId = 'default',
+  importanceFilter?: string,
+  limit = 20,
+  offset = 0,
+): Promise<WorkspaceMemory[]> {
+  if (!MEMORY_API_ENABLED) {
+    void workspaceId;
+    void importanceFilter;
+    void limit;
+    void offset;
+    return [];
+  }
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+    limit: limit.toString(),
+    offset: offset.toString(),
+  });
+  if (importanceFilter) {
+    params.set('importance', importanceFilter);
+  }
+  return requestJson<WorkspaceMemory[]>(`/api/memory/memories?${params}`);
+}
+
+export async function searchMemories(
+  query: string,
+  workspaceId = 'default',
+  limit = 10,
+): Promise<MemoryMatch[]> {
+  if (!MEMORY_API_ENABLED) {
+    void query;
+    void workspaceId;
+    void limit;
+    return [];
+  }
+  return requestJson<MemoryMatch[]>('/api/memory/memories/search', {
+    method: 'POST',
+    body: JSON.stringify({
+      query,
+      workspace_id: workspaceId,
+      limit,
+    }),
+  });
+}
+
+export async function storeMemory(
+  content: string,
+  importance: 'Remember' | 'TeamRule' | 'Policy' = 'Remember',
+  workspaceId = 'default',
+  contextTrigger?: string,
+  tags?: string[],
+): Promise<WorkspaceMemory> {
+  if (!MEMORY_API_ENABLED) {
+    throw new CortexApiError(501, 'Cortex memory is not enabled.');
+  }
+  return requestJson<WorkspaceMemory>('/api/memory/memories', {
+    method: 'POST',
+    body: JSON.stringify({
+      content,
+      importance,
+      workspace_id: workspaceId,
+      context_trigger: contextTrigger,
+      tags,
+    }),
+  });
+}
+
+export async function removeMemories(pattern: string, workspaceId = 'default'): Promise<{ count: number }> {
+  if (!MEMORY_API_ENABLED) {
+    void pattern;
+    void workspaceId;
+    return { count: 0 };
+  }
+  return requestJson<{ count: number }>('/api/memory/remove', {
+    method: 'DELETE',
+    body: JSON.stringify({
+      pattern,
+      workspace_id: workspaceId,
+    }),
+  });
+}
+
+export async function getMemorySuggestions(
+  context?: {
+    files?: string[];
+    message?: string;
+    recentMessages?: string[];
+  },
+): Promise<MemorySuggestion[]> {
+  if (!MEMORY_API_ENABLED) {
+    void context;
+    return [];
+  }
+  return requestJson<MemorySuggestion[]>('/api/memory/suggestions', {
+    method: 'POST',
+    body: JSON.stringify(context || {}),
+  });
+}
+
+export async function updateMemoryEffectiveness(
+  memoryId: string,
+  outcomeQuality: number,
+): Promise<void> {
+  if (!MEMORY_API_ENABLED) {
+    void memoryId;
+    void outcomeQuality;
+    return;
+  }
+  await authedFetch(apiUrl(`/api/memory/memories/${encodeURIComponent(memoryId)}/effectiveness`), {
+    method: 'POST',
+    body: JSON.stringify({ outcome_quality: outcomeQuality }),
+  });
+}
+
+// New memory-enhanced chat functions
+export interface MemoryEnhancedChatRequest {
+  message: string;
+  files?: string[];
+  workspaceId?: string;
+  conversationId?: string;
+  teamMembers?: string[];
+  projectPhase?: string;
+  activeTopics?: string[];
+}
+
+export interface MemoryEnhancedChatResponse {
+  relevant_memories: MemoryMatch[];
+  live_suggestions: LiveMemorySuggestion[];
+  auto_capture?: AutoCaptureOpportunity;
+  memory_stats: {
+    total_memories: number;
+    avg_effectiveness: number;
+    recent_activity: number;
+    context_quality: number;
+  };
+  enhanced_context: string;
+}
+
+export interface LiveMemorySuggestion {
+  suggestion_id: string;
+  suggestion_type: 'ProactiveMemory' | 'ContextualRetrieval' | 'KnowledgeGap' | 'ConflictWarning';
+  relevance_score: number;
+  confidence: number;
+  suggestion: {
+    suggested_content: string;
+    prediction_type: string;
+  };
+  trigger_reason: string;
+  suggested_action: string;
+}
+
+export interface AutoCaptureOpportunity {
+  opportunity_id: string;
+  content: string;
+  suggested_importance: 'Remember' | 'TeamRule' | 'Policy';
+  confidence: number;
+  rationale: string;
+  suggested_tags: string[];
+  requires_approval: boolean;
+}
+
+export async function processMemoryEnhancedChat(
+  request: MemoryEnhancedChatRequest
+): Promise<MemoryEnhancedChatResponse> {
+  if (!MEMORY_API_ENABLED) {
+    void request;
+    return {
+      relevant_memories: [],
+      live_suggestions: [],
+      memory_stats: {
+        total_memories: 0,
+        avg_effectiveness: 0,
+        recent_activity: 0,
+        context_quality: 0,
+      },
+      enhanced_context: '',
+    };
+  }
+  return requestJson<MemoryEnhancedChatResponse>('/api/memory/chat/process', {
+    method: 'POST',
+    body: JSON.stringify({
+      message: {
+        content: request.message,
+        sender: 'user', // Would get from auth
+        metadata: {},
+      },
+      context: {
+        conversation_id: request.conversationId || 'default',
+        messages: [{
+          content: request.message,
+          sender: 'user',
+          metadata: {},
+        }],
+        current_files: request.files || [],
+        active_topics: request.activeTopics || [],
+        workspace_id: request.workspaceId || 'default',
+        team_members: request.teamMembers || [],
+        project_phase: request.projectPhase || 'development',
+        priority_areas: [],
+        knowledge_gaps: [],
+      },
+    }),
+  });
+}
+
+export async function applyMemorySuggestion(suggestionId: string): Promise<void> {
+  if (!MEMORY_API_ENABLED) {
+    void suggestionId;
+    return;
+  }
+  return requestJson<void>(`/api/memory/chat/suggestions/${encodeURIComponent(suggestionId)}/apply`, {
+    method: 'POST',
+  });
+}
+
+export async function createFromAutoCapture(
+  opportunity: AutoCaptureOpportunity,
+  workspaceId = 'default'
+): Promise<WorkspaceMemory> {
+  if (!MEMORY_API_ENABLED) {
+    throw new CortexApiError(501, 'Cortex memory is not enabled.');
+  }
+  return requestJson<WorkspaceMemory>('/api/memory/chat/auto-capture', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...opportunity,
+      workspace_id: workspaceId,
+    }),
+  });
 }

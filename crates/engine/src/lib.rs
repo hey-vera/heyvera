@@ -11,3 +11,4 @@ pub mod evidence_floor;
 pub mod templates;
 pub mod pipeline;
 pub mod store;
+pub mod verifier;

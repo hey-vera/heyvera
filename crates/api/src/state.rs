@@ -549,7 +549,7 @@ impl AppState {
             let remaining_steps: Vec<String> = self.step_senders.read().await.keys().cloned().collect();
             for step_id in &remaining_steps {
                 tracing::info!("marking in-flight step {step_id} as cancelled in DB");
-                db.fail_step(step_id, 0, "server shutdown", Some("shutdown"));
+                db.cancel_assigned_step(step_id, "server shutdown");
             }
         }
 
@@ -567,4 +567,3 @@ impl AppState {
         );
     }
 }
-
