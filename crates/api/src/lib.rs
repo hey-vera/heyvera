@@ -10,8 +10,8 @@ pub mod db;
 pub mod github;
 mod integrations;
 pub mod mission_control;
-pub mod memory;
-mod orchestrator;
+// pub mod memory; // removed for Context-Flow Pipeline deployment
+// mod orchestrator; // removed for Context-Flow Pipeline deployment
 mod ratelimit;
 pub mod storage;
 pub mod routes;
