@@ -47,6 +47,16 @@ const STATUS_CLASSES: Record<string, string> = {
   skipped: 'border-zinc-300/20 bg-zinc-300/10 text-zinc-200',
 };
 
+const HEALTH_LABELS: Record<string, string> = {
+  attempts_exhausted: 'Attempts exhausted',
+  in_progress: 'In progress',
+  lease_stale: 'Lease stale',
+  ready: 'Ready',
+  terminal: 'Terminal',
+  verification_rejected: 'Verification rejected',
+  waiting_on_dependency: 'Waiting on dependency',
+};
+
 function statusClass(status: string) {
   return STATUS_CLASSES[status] ?? 'border-white/8 bg-white/4 text-[var(--muted)]';
 }
@@ -74,6 +84,11 @@ function stepRecipeLine(step: RunStep) {
   if (paths.length > 0) parts.push(paths.slice(0, 2).join(', '));
   if (checks.length > 0) parts.push(`${checks.length} check${checks.length === 1 ? '' : 's'}`);
   return parts.join(' · ');
+}
+
+function stepHealthLabel(step: RunStep) {
+  if (!step.health) return null;
+  return HEALTH_LABELS[step.health] ?? step.health.replaceAll('_', ' ');
 }
 
 function getWorkerSignal(run: RunSummary | null) {
@@ -118,6 +133,7 @@ export default function RunPanel({
   const [pullRequest, setPullRequest] = useState<{ pr_url: string; branch: string } | null>(null);
   const [providerReady, setProviderReady] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
   const streamRef = useRef<AbortController | null>(null);
   const workerSignal = useMemo(() => getWorkerSignal(run), [run]);
   const operationMap = useMemo(() => {
@@ -133,6 +149,10 @@ export default function RunPanel({
 
     return { nodes, edges, nodeById, incomingByNode };
   }, [run?.graph]);
+  const selectedStep = useMemo(() => {
+    if (!run?.steps.length) return null;
+    return run.steps.find((step) => step.id === selectedStepId) ?? run.steps[0] ?? null;
+  }, [run?.steps, selectedStepId]);
 
   const refreshRuns = useCallback(async () => {
     setIsLoadingRuns(true);
@@ -243,6 +263,7 @@ export default function RunPanel({
       setRunId(created.run_id);
       setExpectedSteps(created.steps);
       setRun({ id: created.run_id, goal: nextGoal, steps: [] });
+      setSelectedStepId(null);
       setPullRequest(null);
       setGoal('');
       void refreshRuns();
@@ -266,6 +287,7 @@ export default function RunPanel({
 
   async function selectRun(nextRunId: string) {
     setRunId(nextRunId);
+    setSelectedStepId(null);
     setPullRequest(null);
     await refreshRun(nextRunId);
   }
@@ -368,9 +390,15 @@ export default function RunPanel({
                     .map((edge) => operationMap.nodeById.get(edge.from)?.label)
                     .filter(Boolean);
                   return (
-                    <div
+                    <button
                       key={node.id}
-                      className="min-w-0 rounded-md border border-white/8 bg-black/10 px-2 py-1.5"
+                      type="button"
+                      onClick={() => setSelectedStepId(node.id)}
+                      className={`w-full min-w-0 rounded-md border px-2 py-1.5 text-left transition hover:bg-white/6 active:scale-[0.99] ${
+                        selectedStep?.id === node.id
+                          ? 'border-[var(--accent)]/30 bg-[var(--accent)]/10'
+                          : 'border-white/8 bg-black/10'
+                      }`}
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="inline-flex min-w-0 items-center gap-2">
@@ -386,10 +414,58 @@ export default function RunPanel({
                           ? `After: ${dependencyLabels.join(', ')}`
                           : 'Starts immediately'}
                       </div>
-                    </div>
+                    </button>
                   );
                 })}
               </div>
+              {selectedStep && (
+                <div className="mt-2 rounded-md border border-white/8 bg-black/15 p-2">
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-[11px] font-medium text-white">
+                        {stepLabel(selectedStep, run.steps.findIndex((step) => step.id === selectedStep.id))}
+                      </p>
+                      <p className="mt-0.5 truncate text-[10px] text-[var(--muted)]">
+                        {stepHealthLabel(selectedStep) ?? STATUS_LABELS[selectedStep.status] ?? selectedStep.status}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] ${statusClass(selectedStep.status)}`}>
+                      {STATUS_LABELS[selectedStep.status] ?? selectedStep.status}
+                    </span>
+                  </div>
+                  <div className="mt-2 grid grid-cols-2 gap-1.5 text-[10px] text-[var(--muted)]">
+                    <div className="min-w-0 truncate">
+                      Worker: {selectedStep.assigned_worker ?? 'unassigned'}
+                    </div>
+                    <div className="min-w-0 truncate">
+                      Attempts: {selectedStep.attempt_count ?? 0}/{selectedStep.max_attempts ?? 0}
+                    </div>
+                    <div className="min-w-0 truncate">
+                      Lease: {selectedStep.lease_stale ? 'stale' : selectedStep.lease_gen ? `gen ${selectedStep.lease_gen}` : 'none'}
+                    </div>
+                    <div className="min-w-0 truncate">
+                      Checks: {selectedStep.required_checks?.length ?? selectedStep.work_recipe?.required_checks?.length ?? 0}
+                    </div>
+                  </div>
+                  {(stepRecipeLine(selectedStep) || selectedStep.verification_status || selectedStep.last_error || selectedStep.output_summary) && (
+                    <div className="mt-2 space-y-1 text-[10px] leading-4 text-[var(--muted)]">
+                      {stepRecipeLine(selectedStep) && (
+                        <div className="truncate text-[var(--muted-strong)]">Recipe: {stepRecipeLine(selectedStep)}</div>
+                      )}
+                      {selectedStep.verification_status && (
+                        <div className="truncate">
+                          Verify: {selectedStep.verification_status}{selectedStep.verifier_verdict ? ` · ${selectedStep.verifier_verdict}` : ''}
+                        </div>
+                      )}
+                      {(selectedStep.last_error || selectedStep.output_summary) && (
+                        <div className="max-h-12 overflow-hidden">
+                          {selectedStep.last_error || selectedStep.output_summary}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

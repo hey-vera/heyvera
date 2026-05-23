@@ -97,6 +97,11 @@ pub struct RunStepSnapshot {
     pub tier: String,
     pub risk: String,
     pub objective: String,
+    pub attempt_count: i64,
+    pub max_attempts: i64,
+    pub lease_gen: i64,
+    pub lease_deadline: Option<i64>,
+    pub assigned_worker: Option<String>,
     pub recipe_seed_json: Option<String>,
     pub output_summary: Option<String>,
     pub files_changed: Option<String>,
@@ -2270,8 +2275,9 @@ impl Database {
         }
 
         let mut stmt = conn.prepare(
-            "SELECT id, status, kind, work_kind, tier, risk, objective, recipe_seed_json,
-                    output_summary, files_changed, last_error
+            "SELECT id, status, kind, work_kind, tier, risk, objective, attempt_count, max_attempts,
+                    lease_gen, lease_deadline, assigned_worker, recipe_seed_json, output_summary,
+                    files_changed, last_error
              FROM steps
              WHERE run_id = ?1
              ORDER BY created_at ASC, id ASC"
@@ -2289,10 +2295,15 @@ impl Database {
                 tier: row.get(4)?,
                 risk: row.get(5)?,
                 objective: row.get(6)?,
-                recipe_seed_json: row.get(7)?,
-                output_summary: row.get(8)?,
-                files_changed: row.get(9)?,
-                last_error: row.get(10)?,
+                attempt_count: row.get(7)?,
+                max_attempts: row.get(8)?,
+                lease_gen: row.get(9)?,
+                lease_deadline: row.get(10)?,
+                assigned_worker: row.get(11)?,
+                recipe_seed_json: row.get(12)?,
+                output_summary: row.get(13)?,
+                files_changed: row.get(14)?,
+                last_error: row.get(15)?,
             })
         }).unwrap().filter_map(|r| r.ok()).collect()
     }

@@ -717,6 +717,13 @@ export interface RunStep {
   tier?: string;
   risk?: string;
   objective?: string;
+  attempt_count?: number;
+  max_attempts?: number;
+  lease_gen?: number;
+  lease_deadline?: number | null;
+  assigned_worker?: string | null;
+  lease_stale?: boolean;
+  health?: string;
   error?: string | null;
   last_error?: string | null;
   output_summary?: string | null;

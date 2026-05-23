@@ -2,6 +2,8 @@ use serde_json::{json, Value};
 
 use crate::db::{Database, RunStepSnapshot};
 
+const TERMINAL_STATUSES: &[&str] = &["succeeded", "failed", "recovered", "cancelled", "skipped"];
+
 pub fn build_run_step_payloads(db: &Database, run_id: &str) -> Vec<Value> {
     db.get_run_step_snapshots(run_id)
         .into_iter()
@@ -52,6 +54,15 @@ pub fn build_run_graph_payload(db: &Database, run_id: &str, steps: &[Value]) -> 
 }
 
 fn build_step_payload(snapshot: RunStepSnapshot) -> Value {
+    let status = snapshot.status.clone();
+    let lease_stale = snapshot
+        .lease_deadline
+        .map(|deadline| {
+            matches!(status.as_str(), "leased" | "running")
+                && deadline < chrono::Utc::now().timestamp_millis()
+        })
+        .unwrap_or(false);
+    let health = step_health(&snapshot, lease_stale);
     let files = snapshot
         .files_changed
         .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok());
@@ -61,8 +72,15 @@ fn build_step_payload(snapshot: RunStepSnapshot) -> Value {
 
     let mut step = json!({
         "id": snapshot.id,
-        "status": snapshot.status,
+        "status": status,
         "predecessors": snapshot.predecessors,
+        "attempt_count": snapshot.attempt_count,
+        "max_attempts": snapshot.max_attempts,
+        "lease_gen": snapshot.lease_gen,
+        "lease_deadline": snapshot.lease_deadline,
+        "assigned_worker": snapshot.assigned_worker,
+        "lease_stale": lease_stale,
+        "health": health,
     });
 
     step["kind"] = json!(snapshot.kind);
@@ -97,6 +115,34 @@ fn build_step_payload(snapshot: RunStepSnapshot) -> Value {
     }
 
     step
+}
+
+fn step_health(snapshot: &RunStepSnapshot, lease_stale: bool) -> &'static str {
+    if lease_stale {
+        return "lease_stale";
+    }
+    if snapshot
+        .verifier_report
+        .as_ref()
+        .is_some_and(|verifier| verifier.status == "needs_evidence" || verifier.verdict == "fail")
+    {
+        return "verification_rejected";
+    }
+    if matches!(snapshot.status.as_str(), "leased" | "running") {
+        return "in_progress";
+    }
+    if snapshot.status == "pending" && !snapshot.predecessors.is_empty() {
+        return "waiting_on_dependency";
+    }
+    if snapshot.attempt_count >= snapshot.max_attempts
+        && !TERMINAL_STATUSES.contains(&snapshot.status.as_str())
+    {
+        return "attempts_exhausted";
+    }
+    if TERMINAL_STATUSES.contains(&snapshot.status.as_str()) {
+        return "terminal";
+    }
+    "ready"
 }
 
 #[cfg(test)]
@@ -190,5 +236,10 @@ mod tests {
         let steps = build_run_step_payloads(&db, &run_id);
 
         assert_eq!(steps[0]["files_changed"][0], "src/main.rs");
+        assert_eq!(steps[0]["attempt_count"], 1);
+        assert_eq!(steps[0]["lease_gen"], lease_gen);
+        assert_eq!(steps[0]["assigned_worker"], "worker_1");
+        assert_eq!(steps[0]["lease_stale"], false);
+        assert_eq!(steps[0]["health"], "terminal");
     }
 }
