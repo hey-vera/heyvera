@@ -1533,7 +1533,7 @@ impl Database {
                  WHERE sd.step_id = s.id
                  AND (
                      (sd.edge_type = 'success_required' AND dep.status != 'succeeded')
-                     OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed', 'recovered'))
+                     OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped'))
                  )
              )"
         ).unwrap();
@@ -1563,7 +1563,7 @@ impl Database {
                  WHERE sd.step_id = s.id
                  AND (
                      (sd.edge_type = 'success_required' AND dep.status != 'succeeded')
-                     OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed', 'recovered'))
+                     OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped'))
                  )
              )"
         ).unwrap();
@@ -1605,6 +1605,17 @@ impl Database {
         ).ok()
     }
 
+    pub fn start_step(&self, step_id: &str, lease_gen: i64) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "UPDATE steps SET status = 'running', updated_at = ?1, version = version + 1
+             WHERE id = ?2 AND lease_gen = ?3 AND status IN ('leased', 'running')",
+            params![now, step_id, lease_gen],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
     pub fn complete_step(
         &self,
         step_id: &str,
@@ -1632,6 +1643,41 @@ impl Database {
             "UPDATE steps SET status = 'failed', last_error = ?1, updated_at = ?2, version = version + 1
              WHERE id = ?3 AND lease_gen = ?4 AND status IN ('leased', 'running')",
             params![error, now, step_id, lease_gen],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
+    pub fn fail_unleased_step(&self, step_id: &str, error: &str, _failure_kind: Option<&str>) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "UPDATE steps SET status = 'failed', last_error = ?1, updated_at = ?2, version = version + 1
+             WHERE id = ?3 AND status IN ('pending', 'ready', 'orphaned')",
+            params![error, now, step_id],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
+    pub fn cancel_step(&self, step_id: &str, lease_gen: i64, reason: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "UPDATE steps SET status = 'cancelled', last_error = ?1, assigned_worker = NULL,
+                 lease_deadline = NULL, updated_at = ?2, version = version + 1
+             WHERE id = ?3 AND lease_gen = ?4 AND status IN ('leased', 'running')",
+            params![reason, now, step_id, lease_gen],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
+    pub fn cancel_assigned_step(&self, step_id: &str, reason: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "UPDATE steps SET status = 'cancelled', last_error = ?1, assigned_worker = NULL,
+                 lease_deadline = NULL, updated_at = ?2, version = version + 1
+             WHERE id = ?3 AND status IN ('leased', 'running')",
+            params![reason, now, step_id],
         ).unwrap_or(0);
         rows > 0
     }
@@ -1680,7 +1726,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "UPDATE steps SET status = 'orphaned', assigned_worker = NULL, lease_deadline = NULL,
                  updated_at = ?1, version = version + 1
-             WHERE status = 'leased' AND lease_deadline < ?1
+             WHERE status IN ('leased', 'running') AND lease_deadline < ?1
              RETURNING id"
         ).unwrap();
 
@@ -2595,7 +2641,7 @@ impl Database {
         let now = Utc::now().timestamp_millis();
         let rows = conn.execute(
             "UPDATE steps SET lease_deadline = ?1, updated_at = ?2
-             WHERE id = ?3 AND lease_gen = ?4 AND status = 'leased'",
+             WHERE id = ?3 AND lease_gen = ?4 AND status IN ('leased', 'running')",
             params![new_deadline, now, step_id, lease_gen],
         ).unwrap_or(0);
         rows > 0

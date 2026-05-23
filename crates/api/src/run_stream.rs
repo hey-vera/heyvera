@@ -119,7 +119,14 @@ pub async fn stream_run(
 
             if all_terminal && !steps.is_empty() {
                 let any_failed = steps.iter().any(|(_, s)| s == "failed" || s == "skipped");
-                let final_status = if any_failed { "failed" } else { "succeeded" };
+                let any_cancelled = steps.iter().any(|(_, s)| s == "cancelled");
+                let final_status = if any_failed {
+                    "failed"
+                } else if any_cancelled {
+                    "cancelled"
+                } else {
+                    "succeeded"
+                };
                 yield Ok(Event::default().event("run_complete").data(
                     serde_json::json!({
                         "run_id": run_id_clone,

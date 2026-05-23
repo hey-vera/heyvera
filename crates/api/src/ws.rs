@@ -299,11 +299,27 @@ async fn handle_worker_msg(
         WorkerMessage::StepStarted {
             message_id,
             step_id,
+            lease_gen,
             provider,
             model,
             ..
         } => {
             tracing::info!("step {step_id} started: {provider}/{model} (msg={message_id})");
+            if let Some(db) = &state.db {
+                if !db.verify_step_worker(&step_id, worker_id) {
+                    tracing::warn!(
+                        "SECURITY: worker {worker_id} attempted StepStarted for step {step_id} \
+                         which is not assigned to it — dropping message (msg={message_id})"
+                    );
+                    return;
+                }
+                if !db.start_step(&step_id, lease_gen) {
+                    tracing::warn!(
+                        "start_step returned false for step {step_id} lease_gen={lease_gen} — \
+                         step may already be terminal or stale"
+                    );
+                }
+            }
 
             // Emit MC event
             if let Some(user_id) = authed_user_id.as_deref() {
@@ -667,6 +683,7 @@ async fn handle_worker_msg(
 
             let error_msg = failure.stderr_excerpt.as_deref().unwrap_or("unknown error");
             let kind_str = format!("{:?}", failure.kind);
+            let is_cancelled = matches!(failure.kind, WorkerFailureKind::Cancelled);
 
             // Classify the failure to detect auth expiry
             let is_auth_expired = matches!(
@@ -675,11 +692,14 @@ async fn handle_worker_msg(
             );
 
             if let Some(db) = &state.db {
-                let step_transitioned =
-                    db.fail_step(&step_id, lease_gen, error_msg, Some(&kind_str));
+                let step_transitioned = if is_cancelled {
+                    db.cancel_step(&step_id, lease_gen, error_msg)
+                } else {
+                    db.fail_step(&step_id, lease_gen, error_msg, Some(&kind_str))
+                };
                 if !step_transitioned {
                     tracing::warn!(
-                        "fail_step returned false for worker-failed step {step_id} lease_gen={lease_gen} — \
+                        "terminal failure transition returned false for step {step_id} lease_gen={lease_gen} — \
                          likely stale lease_gen (step may have been re-leased or already completed)"
                     );
                     if let Some(tx) = state.get_step_sender(&step_id).await {

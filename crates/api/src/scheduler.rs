@@ -152,8 +152,19 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
                     .map(|e| e.contains("CliNotAuthenticated") || e.contains("CliAuthExpired"))
                     .unwrap_or(false);
 
-                if is_auth_failure {
-                    tracing::warn!("skipping heal for step {step_id} — auth failure, cascading");
+                let status = db
+                    .get_all_step_statuses(run_id)
+                    .into_iter()
+                    .find_map(|(id, status)| (id == *step_id).then_some(status));
+                let is_cancelled = status.as_deref() == Some("cancelled");
+                let is_no_provider = last_error.as_deref() == Some("no available provider");
+
+                if is_cancelled {
+                    tracing::info!("skipping heal for step {step_id} — step was cancelled");
+                } else if is_auth_failure || is_no_provider {
+                    tracing::warn!(
+                        "skipping heal for step {step_id} — non-healable dispatch failure, cascading"
+                    );
                     let skipped = db.cascade_failure(step_id);
                     if !skipped.is_empty() {
                         tracing::info!(
@@ -329,13 +340,16 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
             "no available provider for step {} — all candidates vetoed",
             step.step_id
         );
-        db.fail_step(
-            &step.step_id,
-            0,
-            "no available provider",
-            Some("NoProvider"),
-        );
-        return false; // Will trigger heal via StepFailed event
+        if db.fail_unleased_step(&step.step_id, "no available provider", Some("NoProvider")) {
+            state
+                .emit_scheduler_event(SchedulerEvent::StepFailed {
+                    run_id: step.run_id.clone(),
+                    step_id: step.step_id.clone(),
+                })
+                .await;
+            return true;
+        }
+        return false;
     }
 
     let attempt_id = Uuid::new_v4().to_string();
@@ -1142,11 +1156,7 @@ async fn check_run_done(state: &AppState, run_id: &str) {
         .collect();
 
     if let Some(final_status) = check_run_completion(&parsed) {
-        let status_str = match final_status {
-            RunStatus::Succeeded => "succeeded",
-            RunStatus::Failed => "failed",
-            _ => return,
-        };
+        let status_str = final_status.as_str();
 
         // Guard against double completion: check if run is already terminal
         if let Some(run_info) = db.list_user_runs_by_id(run_id) {

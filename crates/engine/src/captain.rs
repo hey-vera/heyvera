@@ -488,9 +488,14 @@ pub fn check_run_completion(step_statuses: &[(String, StepStatus)]) -> Option<Ru
     let any_failed = step_statuses
         .iter()
         .any(|(_, s)| *s == StepStatus::Failed || *s == StepStatus::Skipped);
+    let any_cancelled = step_statuses
+        .iter()
+        .any(|(_, s)| *s == StepStatus::Cancelled);
 
     if any_failed {
         Some(RunStatus::Failed)
+    } else if any_cancelled {
+        Some(RunStatus::Cancelled)
     } else {
         Some(RunStatus::Succeeded)
     }
@@ -667,6 +672,15 @@ mod tests {
             ("s2".into(), StepStatus::Succeeded),
         ];
         assert_eq!(check_run_completion(&steps), Some(RunStatus::Succeeded));
+    }
+
+    #[test]
+    fn check_run_any_cancelled() {
+        let steps = vec![
+            ("s1".into(), StepStatus::Succeeded),
+            ("s2".into(), StepStatus::Cancelled),
+        ];
+        assert_eq!(check_run_completion(&steps), Some(RunStatus::Cancelled));
     }
 
     #[test]
