@@ -81,16 +81,30 @@ pub async fn stream_run(
             }
 
             // Check if run is terminal
-            let all_terminal = steps.iter().all(|(_, s)| {
+            let all_terminal = steps.iter().all(|step| {
+                let status = step
+                    .get("status")
+                    .and_then(serde_json::Value::as_str)
+                    .unwrap_or_default();
                 matches!(
-                    s.as_str(),
+                    status,
                     "succeeded" | "failed" | "recovered" | "cancelled" | "skipped"
                 )
             });
 
             if all_terminal && !steps.is_empty() {
-                let any_failed = steps.iter().any(|(_, s)| s == "failed" || s == "skipped");
-                let any_cancelled = steps.iter().any(|(_, s)| s == "cancelled");
+                let any_failed = steps.iter().any(|step| {
+                    matches!(
+                        step.get("status").and_then(serde_json::Value::as_str),
+                        Some("failed" | "skipped")
+                    )
+                });
+                let any_cancelled = steps.iter().any(|step| {
+                    matches!(
+                        step.get("status").and_then(serde_json::Value::as_str),
+                        Some("cancelled")
+                    )
+                });
                 let final_status = if any_failed {
                     "failed"
                 } else if any_cancelled {
