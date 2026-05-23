@@ -138,8 +138,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/conversations/{id}/messages", post(conversations::add_message))
         // Memory system (organizational intelligence) - disabled
         // Context-Flow debugging endpoints
-        .route("/api/context/runs/:run_id/artifacts", get(context_api::list_artifacts_for_run))
-        .route("/api/context/runs/:run_id/context", get(context_api::preview_context_for_run))
+        .route("/api/context/runs/{run_id}/artifacts", get(context_api::list_artifacts_for_run))
+        .route("/api/context/runs/{run_id}/context", get(context_api::preview_context_for_run))
         .route("/api/context/stats", get(context_api::get_context_stats))
         .route("/api/context/health", get(context_api::get_context_health))
         .route("/api/context/test", post(context_api::test_context_assembly))
