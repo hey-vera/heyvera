@@ -425,7 +425,7 @@ async fn handle_worker_msg(
                             .emit_mc_event(
                                 user_id,
                                 MissionControlEvent::StepCompleted {
-                                    run_id,
+                                    run_id: run_id.clone(),
                                     step_id: step_id.clone(),
                                     exit_code,
                                     files_changed: output.files_changed.clone(),

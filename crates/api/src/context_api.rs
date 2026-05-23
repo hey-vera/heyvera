@@ -101,7 +101,7 @@ pub async fn list_artifacts_for_run(
         })
         .collect();
 
-    (StatusCode::OK, Json(response))
+    (StatusCode::OK, Json(serde_json::json!(response)))
 }
 
 /// GET /api/context/runs/{run_id}/context
@@ -138,12 +138,15 @@ pub async fn preview_context_for_run(
 
     let predecessor_previews: Vec<PredecessorSummaryPreview> = context.predecessor_summaries
         .into_iter()
-        .map(|pred| PredecessorSummaryPreview {
-            step_id: pred.step_id,
-            kind: pred.kind,
-            summary: pred.summary,
-            files_changed: pred.files_changed,
-            token_count: pred.summary.len() as u32 / 4,
+        .map(|pred| {
+            let token_count = pred.summary.len() as u32 / 4;
+            PredecessorSummaryPreview {
+                step_id: pred.step_id,
+                kind: pred.kind,
+                summary: pred.summary,
+                files_changed: pred.files_changed,
+                token_count,
+            }
         })
         .collect();
 
@@ -195,7 +198,7 @@ pub async fn get_context_stats(
         },
     };
 
-    (StatusCode::OK, Json(response))
+    (StatusCode::OK, Json(serde_json::json!(response)))
 }
 
 /// POST /api/context/test
@@ -205,9 +208,10 @@ pub async fn test_context_assembly(
     _user: ClerkUser,
     Json(params): Json<TestContextQuery>,
 ) -> impl IntoResponse {
+    let run_id = params.run_id.clone();
     preview_context_for_run(
         State(state),
-        Path(params.run_id),
+        Path(run_id),
         Query(params),
         _user,
     ).await
