@@ -10,7 +10,9 @@ use cortex_core::evaluator::{
 use cortex_core::protocol::{BrainMessage, PredecessorSummary, StepContext};
 use cortex_core::provider::{ProviderId, Tier};
 use cortex_core::routing::{Intent, RiskLevel, RoutingDecision};
-use cortex_core::task::RequiredCheck;
+use cortex_core::task::{
+    AcceptanceCriterion, AcceptanceVerification, RequiredCheck, WorkKind, WorkRecipe,
+};
 use cortex_engine::captain::{
     EdgeType, RunStatus, SchedulerEvent, SchedulerState, StepKind, StepRef, StepStatus,
     check_run_completion, plan_heal,
@@ -416,6 +418,21 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
         .with_dispatch_contract(allowed_paths.clone(), base_commit.clone());
     task.required_checks =
         infer_required_checks(step.kind, risk, &allowed_paths, &state.workspace_dir);
+    let recipe = build_work_recipe(
+        step.kind,
+        &step.objective,
+        risk,
+        tier,
+        &allowed_paths,
+        base_commit.as_deref(),
+        &task.required_checks,
+    );
+    task.acceptance_criteria = recipe
+        .acceptance
+        .iter()
+        .map(|criterion| criterion.text.clone())
+        .collect();
+    task = task.with_work_recipe(recipe);
     if !db.record_step_work_contract(&step.step_id, &step.run_id, lease_gen, &task) {
         tracing::error!(
             "failed to persist work contract for step {} lease {}; unleasing before dispatch",
@@ -542,6 +559,97 @@ fn infer_required_checks(
     };
 
     selected.into_iter().collect()
+}
+
+fn build_work_recipe(
+    kind: StepKind,
+    objective: &str,
+    risk: RiskLevel,
+    tier: Tier,
+    allowed_paths: &[String],
+    expected_base_commit: Option<&str>,
+    required_checks: &[RequiredCheck],
+) -> WorkRecipe {
+    let work_kind = work_kind_for_step(kind, objective);
+    let mut constraints = vec![
+        format!("risk={risk:?}"),
+        format!("tier={tier:?}"),
+        "Do not change files outside the allowed path set unless explicitly required by the task"
+            .to_string(),
+    ];
+    if let Some(base) = expected_base_commit {
+        constraints.push(format!("expected_base_commit={base}"));
+    }
+
+    let acceptance = if required_checks.is_empty() {
+        vec![AcceptanceCriterion {
+            id: "manual-objective-satisfied".to_string(),
+            text: format!(
+                "{} work satisfies the objective without violating the dispatch constraints",
+                work_kind.as_str()
+            ),
+            verification: AcceptanceVerification::Manual,
+        }]
+    } else {
+        required_checks
+            .iter()
+            .map(|check| AcceptanceCriterion {
+                id: format!("required-check-{}", check.name),
+                text: format!("Required check `{}` passes", check.name),
+                verification: AcceptanceVerification::RequiredCheck {
+                    check_name: check.name.clone(),
+                },
+            })
+            .collect()
+    };
+
+    WorkRecipe {
+        version: 1,
+        kind: work_kind,
+        objective: objective.to_string(),
+        target_paths: allowed_paths.to_vec(),
+        required_checks: required_checks.to_vec(),
+        acceptance,
+        constraints,
+    }
+}
+
+fn work_kind_for_step(kind: StepKind, objective: &str) -> WorkKind {
+    match kind {
+        StepKind::Search | StepKind::Think => WorkKind::Explore,
+        StepKind::Test => WorkKind::Test,
+        StepKind::Build => WorkKind::Build,
+        StepKind::Lint => WorkKind::Lint,
+        StepKind::Review => WorkKind::Review,
+        StepKind::Heal => WorkKind::Heal,
+        StepKind::Gate => WorkKind::Gate,
+        StepKind::Execute => infer_execute_work_kind(objective),
+    }
+}
+
+fn infer_execute_work_kind(objective: &str) -> WorkKind {
+    let lower = objective.to_ascii_lowercase();
+    if lower.contains("ship")
+        || lower.contains("deploy")
+        || lower.contains("release")
+        || lower.contains("pull request")
+        || lower.contains(" pr")
+    {
+        WorkKind::Ship
+    } else if lower.contains("refactor")
+        || lower.contains("restructure")
+        || lower.contains("rework")
+    {
+        WorkKind::Refactor
+    } else if lower.contains("add ")
+        || lower.contains("create ")
+        || lower.contains("implement ")
+        || lower.contains("new ")
+    {
+        WorkKind::Add
+    } else {
+        WorkKind::Modify
+    }
 }
 
 fn npm_required_check(workspace_dir: &Path, intent: CheckIntent) -> Option<RequiredCheck> {
@@ -1503,6 +1611,39 @@ mod tests {
         assert_eq!(checks.len(), 1);
         assert_eq!(checks[0].name, "npm:build");
         assert_eq!(checks[0].command, "npm run build");
+    }
+
+    #[test]
+    fn recipe_for_test_step_mirrors_required_checks() {
+        let checks = vec![RequiredCheck {
+            name: "cargo:test".to_string(),
+            command: "cargo test -p cortex-api".to_string(),
+            required: true,
+        }];
+
+        let recipe = build_work_recipe(
+            StepKind::Test,
+            "run the API tests",
+            RiskLevel::Medium,
+            Tier::Execute,
+            &["crates/api/src/lib.rs".to_string()],
+            Some("abc123"),
+            &checks,
+        );
+
+        assert_eq!(recipe.kind, WorkKind::Test);
+        assert_eq!(recipe.required_checks.len(), 1);
+        assert_eq!(recipe.acceptance.len(), 1);
+        assert_eq!(
+            recipe.acceptance[0].text,
+            "Required check `cargo:test` passes"
+        );
+        assert!(
+            recipe
+                .constraints
+                .iter()
+                .any(|c| c == "expected_base_commit=abc123")
+        );
     }
 
     #[test]

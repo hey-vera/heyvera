@@ -36,6 +36,8 @@ pub struct TaskContract {
     pub rollback_notes: Option<String>,
     #[serde(default)]
     pub required_checks: Vec<RequiredCheck>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub work_recipe: Option<WorkRecipe>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -44,6 +46,69 @@ pub struct RequiredCheck {
     pub command: String,
     #[serde(default = "default_required_check")]
     pub required: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkRecipe {
+    pub version: u32,
+    pub kind: WorkKind,
+    pub objective: String,
+    #[serde(default)]
+    pub target_paths: Vec<String>,
+    #[serde(default)]
+    pub required_checks: Vec<RequiredCheck>,
+    #[serde(default)]
+    pub acceptance: Vec<AcceptanceCriterion>,
+    #[serde(default)]
+    pub constraints: Vec<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum WorkKind {
+    Explore,
+    Modify,
+    Add,
+    Refactor,
+    Test,
+    Build,
+    Lint,
+    Review,
+    Ship,
+    Heal,
+    Gate,
+}
+
+impl WorkKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Explore => "explore",
+            Self::Modify => "modify",
+            Self::Add => "add",
+            Self::Refactor => "refactor",
+            Self::Test => "test",
+            Self::Build => "build",
+            Self::Lint => "lint",
+            Self::Review => "review",
+            Self::Ship => "ship",
+            Self::Heal => "heal",
+            Self::Gate => "gate",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AcceptanceCriterion {
+    pub id: String,
+    pub text: String,
+    pub verification: AcceptanceVerification,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum AcceptanceVerification {
+    Manual,
+    RequiredCheck { check_name: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -110,6 +175,7 @@ impl TaskContract {
             budget_limit: None,
             rollback_notes: None,
             required_checks: Vec::new(),
+            work_recipe: None,
         }
     }
 
@@ -131,6 +197,11 @@ impl TaskContract {
         self.with_allowed_paths(allowed_paths)
             .with_expected_base_commit(expected_base_commit)
     }
+
+    pub fn with_work_recipe(mut self, work_recipe: WorkRecipe) -> Self {
+        self.work_recipe = Some(work_recipe);
+        self
+    }
 }
 
 fn default_operations_for_tier(tier: Tier) -> Vec<Operation> {
@@ -148,4 +219,56 @@ fn default_operations_for_tier(tier: Tier) -> Vec<Operation> {
 
 fn default_required_check() -> bool {
     true
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn task_contract_deserializes_without_work_recipe() {
+        let raw = r#"{
+            "id": "00000000-0000-0000-0000-000000000000",
+            "objective": "change the thing",
+            "tier": "execute",
+            "risk": "medium",
+            "allowed_operations": ["read", "edit"],
+            "acceptance_criteria": [],
+            "created_at": "2026-05-23T00:00:00Z"
+        }"#;
+
+        let task: TaskContract = serde_json::from_str(raw).unwrap();
+
+        assert!(task.work_recipe.is_none());
+    }
+
+    #[test]
+    fn task_contract_serializes_work_recipe_when_present() {
+        let recipe = WorkRecipe {
+            version: 1,
+            kind: WorkKind::Test,
+            objective: "run checks".to_string(),
+            target_paths: vec!["crates/api/src/lib.rs".to_string()],
+            required_checks: vec![RequiredCheck {
+                name: "cargo:test".to_string(),
+                command: "cargo test -p cortex-api".to_string(),
+                required: true,
+            }],
+            acceptance: vec![AcceptanceCriterion {
+                id: "required-check-cargo:test".to_string(),
+                text: "Required check `cargo:test` passes".to_string(),
+                verification: AcceptanceVerification::RequiredCheck {
+                    check_name: "cargo:test".to_string(),
+                },
+            }],
+            constraints: vec!["Stay within allowed paths".to_string()],
+        };
+
+        let task = TaskContract::new("run checks".to_string(), Tier::Execute, RiskLevel::Medium)
+            .with_work_recipe(recipe);
+        let value = serde_json::to_value(task).unwrap();
+
+        assert_eq!(value["work_recipe"]["kind"], "test");
+        assert_eq!(value["work_recipe"]["version"], 1);
+    }
 }

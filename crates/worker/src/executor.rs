@@ -70,11 +70,12 @@ impl Executor {
             None
         };
         let effective_dir_ref = effective_dir.as_deref();
+        let task_prompt = build_task_prompt(task);
 
         let mut command = Command::new(&cmd);
         command
             .args(&args)
-            .arg(&task.objective)
+            .arg(&task_prompt)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
 
@@ -517,6 +518,72 @@ fn build_command(decision: &RoutingDecision) -> Result<(String, Vec<String>), Co
     }
 }
 
+fn build_task_prompt(task: &TaskContract) -> String {
+    let mut lines = vec![
+        "Cortex dispatch contract".to_string(),
+        format!("Objective: {}", task.objective),
+    ];
+
+    if let Some(recipe) = &task.work_recipe {
+        lines.push(format!("Work kind: {}", recipe.kind.as_str()));
+        push_list(&mut lines, "Target paths", &recipe.target_paths);
+    }
+
+    push_list(&mut lines, "Allowed paths", &task.allowed_paths);
+    push_list(&mut lines, "Forbidden paths", &task.forbidden_paths);
+
+    if let Some(base) = &task.expected_base_commit {
+        lines.push(format!("Expected base commit: {base}"));
+    }
+
+    if !task.required_checks.is_empty() {
+        lines.push("Required checks:".to_string());
+        for check in &task.required_checks {
+            let requirement = if check.required {
+                "required"
+            } else {
+                "optional"
+            };
+            lines.push(format!(
+                "- {} ({requirement}): {}",
+                check.name, check.command
+            ));
+        }
+    }
+
+    let acceptance_texts: Vec<String> = task
+        .work_recipe
+        .as_ref()
+        .map(|recipe| {
+            recipe
+                .acceptance
+                .iter()
+                .map(|criterion| criterion.text.clone())
+                .collect()
+        })
+        .unwrap_or_else(|| task.acceptance_criteria.clone());
+    push_list(&mut lines, "Acceptance criteria", &acceptance_texts);
+
+    if let Some(recipe) = &task.work_recipe {
+        push_list(&mut lines, "Constraints", &recipe.constraints);
+    }
+
+    lines.push(
+        "Follow the contract exactly. Report changed files and verification results.".to_string(),
+    );
+    lines.join("\n")
+}
+
+fn push_list(lines: &mut Vec<String>, label: &str, values: &[String]) {
+    if values.is_empty() {
+        return;
+    }
+    lines.push(format!("{label}:"));
+    for value in values {
+        lines.push(format!("- {value}"));
+    }
+}
+
 pub fn check_cli_available(provider: ProviderId) -> bool {
     let cmd = provider.cli_name();
     std::process::Command::new("which")
@@ -899,6 +966,64 @@ mod tests {
         // Missing text field
         let line2 = r#"{"type":"content_block_delta","delta":{"type":"input_json_delta"}}"#;
         assert_eq!(extract_claude_text(line2), None);
+    }
+
+    #[test]
+    fn task_prompt_includes_work_recipe_contract() {
+        let mut task = TaskContract::new(
+            "update lifecycle handling".to_string(),
+            cortex_core::provider::Tier::Execute,
+            cortex_core::routing::RiskLevel::Medium,
+        )
+        .with_dispatch_contract(
+            vec!["crates/api/src/ws.rs".to_string()],
+            Some("abc123".to_string()),
+        );
+        task.required_checks = vec![cortex_core::task::RequiredCheck {
+            name: "cargo:check".to_string(),
+            command: "cargo check -p cortex-api".to_string(),
+            required: true,
+        }];
+        task.work_recipe = Some(cortex_core::task::WorkRecipe {
+            version: 1,
+            kind: cortex_core::task::WorkKind::Modify,
+            objective: task.objective.clone(),
+            target_paths: task.allowed_paths.clone(),
+            required_checks: task.required_checks.clone(),
+            acceptance: vec![cortex_core::task::AcceptanceCriterion {
+                id: "required-check-cargo:check".to_string(),
+                text: "Required check `cargo:check` passes".to_string(),
+                verification: cortex_core::task::AcceptanceVerification::RequiredCheck {
+                    check_name: "cargo:check".to_string(),
+                },
+            }],
+            constraints: vec!["risk=Medium".to_string()],
+        });
+
+        let prompt = build_task_prompt(&task);
+
+        assert!(prompt.contains("Objective: update lifecycle handling"));
+        assert!(prompt.contains("Work kind: modify"));
+        assert!(prompt.contains("- crates/api/src/ws.rs"));
+        assert!(prompt.contains("Expected base commit: abc123"));
+        assert!(prompt.contains("- cargo:check (required): cargo check -p cortex-api"));
+        assert!(prompt.contains("Required check `cargo:check` passes"));
+    }
+
+    #[test]
+    fn task_prompt_falls_back_without_work_recipe() {
+        let mut task = TaskContract::new(
+            "inspect the repo".to_string(),
+            cortex_core::provider::Tier::Search,
+            cortex_core::routing::RiskLevel::Low,
+        );
+        task.acceptance_criteria = vec!["Summarize the relevant files".to_string()];
+
+        let prompt = build_task_prompt(&task);
+
+        assert!(prompt.contains("Objective: inspect the repo"));
+        assert!(prompt.contains("Summarize the relevant files"));
+        assert!(!prompt.contains("Work kind:"));
     }
 
     #[test]
