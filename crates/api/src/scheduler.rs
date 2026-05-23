@@ -12,6 +12,7 @@ use cortex_core::provider::{ProviderId, Tier};
 use cortex_core::routing::{Intent, RiskLevel, RoutingDecision};
 use cortex_core::task::{
     AcceptanceCriterion, AcceptanceVerification, RequiredCheck, WorkKind, WorkRecipe,
+    WorkRecipeSeed,
 };
 use cortex_engine::captain::{
     EdgeType, RunStatus, SchedulerEvent, SchedulerState, StepKind, StepRef, StepStatus,
@@ -412,6 +413,9 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
     // from predecessor steps, and pass file_paths from the run's goal
     let base_commit = db.get_run_latest_commit(&step.run_id);
     let allowed_paths = db.get_run_file_paths(&step.run_id);
+    let planner_seed = db
+        .get_step_recipe_seed_json(&step.step_id)
+        .and_then(|raw| serde_json::from_str::<WorkRecipeSeed>(&raw).ok());
 
     // Build and persist the dispatch-time work contract before handing work to a worker.
     let mut task = cortex_core::task::TaskContract::new(step.objective.clone(), tier, risk)
@@ -427,6 +431,7 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
         &allowed_paths,
         base_commit.as_deref(),
         &task.required_checks,
+        planner_seed.as_ref(),
     );
     task.acceptance_criteria = recipe
         .acceptance
@@ -570,6 +575,7 @@ fn build_work_recipe(
     allowed_paths: &[String],
     expected_base_commit: Option<&str>,
     required_checks: &[RequiredCheck],
+    planner_seed: Option<&WorkRecipeSeed>,
 ) -> WorkRecipe {
     let mut constraints = vec![
         format!("risk={risk:?}"),
@@ -580,17 +586,11 @@ fn build_work_recipe(
     if let Some(base) = expected_base_commit {
         constraints.push(format!("expected_base_commit={base}"));
     }
+    if let Some(seed) = planner_seed {
+        constraints.extend(seed.constraints.iter().cloned());
+    }
 
-    let acceptance = if required_checks.is_empty() {
-        vec![AcceptanceCriterion {
-            id: "manual-objective-satisfied".to_string(),
-            text: format!(
-                "{} work satisfies the objective without violating the dispatch constraints",
-                work_kind.as_str()
-            ),
-            verification: AcceptanceVerification::Manual,
-        }]
-    } else {
+    let acceptance = if !required_checks.is_empty() {
         required_checks
             .iter()
             .map(|check| AcceptanceCriterion {
@@ -601,13 +601,28 @@ fn build_work_recipe(
                 },
             })
             .collect()
+    } else if let Some(seed) = planner_seed.filter(|seed| !seed.acceptance.is_empty()) {
+        seed.acceptance.clone()
+    } else {
+        vec![AcceptanceCriterion {
+            id: "manual-objective-satisfied".to_string(),
+            text: format!(
+                "{} work satisfies the objective without violating the dispatch constraints",
+                work_kind.as_str()
+            ),
+            verification: AcceptanceVerification::Manual,
+        }]
     };
+    let target_paths = planner_seed
+        .filter(|seed| !seed.target_paths.is_empty())
+        .map(|seed| seed.target_paths.clone())
+        .unwrap_or_else(|| allowed_paths.to_vec());
 
     WorkRecipe {
         version: 1,
         kind: work_kind,
         objective: objective.to_string(),
-        target_paths: allowed_paths.to_vec(),
+        target_paths,
         required_checks: required_checks.to_vec(),
         acceptance,
         constraints,
@@ -1506,7 +1521,16 @@ pub async fn create_run_from_goal(
     let now_ms = chrono::Utc::now().timestamp_millis();
 
     // Collect steps and edges for batch insertion in a single transaction
-    let steps: Vec<(String, String, String, String, String, String, i64)> = builder
+    let steps: Vec<(
+        String,
+        String,
+        String,
+        Option<String>,
+        String,
+        String,
+        String,
+        i64,
+    )> = builder
         .steps()
         .iter()
         .map(|step| {
@@ -1514,6 +1538,9 @@ pub async fn create_run_from_goal(
                 step.id.clone(),
                 step.kind.as_str().to_string(),
                 step.work_kind.as_str().to_string(),
+                step.recipe_seed
+                    .as_ref()
+                    .and_then(|seed| serde_json::to_string(seed).ok()),
                 step.tier.clone(),
                 step.risk.clone(),
                 step.objective.clone(),
@@ -1638,6 +1665,7 @@ mod tests {
             &["crates/api/src/lib.rs".to_string()],
             Some("abc123"),
             &checks,
+            None,
         );
 
         assert_eq!(recipe.kind, WorkKind::Test);
@@ -1652,6 +1680,40 @@ mod tests {
                 .constraints
                 .iter()
                 .any(|c| c == "expected_base_commit=abc123")
+        );
+    }
+
+    #[test]
+    fn recipe_uses_planner_seed_without_required_checks() {
+        let seed = WorkRecipeSeed {
+            target_paths: vec!["crates/engine/src/decomposer.rs".to_string()],
+            acceptance: vec![AcceptanceCriterion {
+                id: "planner-objective-satisfied".to_string(),
+                text: "Planner objective is satisfied".to_string(),
+                verification: AcceptanceVerification::Manual,
+            }],
+            constraints: vec!["planner_risk=medium".to_string()],
+        };
+
+        let recipe = build_work_recipe(
+            WorkKind::Refactor,
+            "refactor decomposition",
+            RiskLevel::Medium,
+            Tier::Execute,
+            &[],
+            None,
+            &[],
+            Some(&seed),
+        );
+
+        assert_eq!(recipe.kind, WorkKind::Refactor);
+        assert_eq!(recipe.target_paths, vec!["crates/engine/src/decomposer.rs"]);
+        assert_eq!(recipe.acceptance[0].text, "Planner objective is satisfied");
+        assert!(
+            recipe
+                .constraints
+                .iter()
+                .any(|c| c == "planner_risk=medium")
         );
     }
 

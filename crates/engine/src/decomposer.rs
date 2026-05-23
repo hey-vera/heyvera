@@ -1,6 +1,8 @@
 use cortex_core::evaluator::{classify_risk, parse_intent};
 use cortex_core::routing::{Intent, RiskLevel};
-use cortex_core::task::WorkKind;
+use cortex_core::task::{
+    AcceptanceCriterion, AcceptanceVerification, WorkKind, WorkRecipeSeed,
+};
 
 use crate::captain::{RunBuilder, StepKind};
 
@@ -38,6 +40,10 @@ pub fn decompose_goal(
 
         let work_kind = intent_to_work_kind(intent_ev.intent);
         let idx = builder.add_step_with_work_kind(kind, work_kind, &tier, &risk, &split.text);
+        builder.set_step_recipe_seed(
+            idx,
+            build_recipe_seed(work_kind, &split.text, file_paths, risk_ev.level),
+        );
         step_indices.push(idx);
 
         if i > 0 && split.ordering == SplitOrdering::Sequential {
@@ -280,6 +286,37 @@ fn intent_to_work_kind(intent: Intent) -> WorkKind {
     }
 }
 
+fn build_recipe_seed(
+    work_kind: WorkKind,
+    objective: &str,
+    file_paths: &[String],
+    risk: RiskLevel,
+) -> WorkRecipeSeed {
+    let mut constraints = vec![
+        "Use the planner-selected work kind as the source of truth for this step".to_string(),
+        format!("planner_risk={}", risk_level_str(risk)),
+    ];
+    if file_paths.is_empty() {
+        constraints.push("No explicit target paths were provided by the user".to_string());
+    } else {
+        constraints.push("Stay inside the user-selected target paths unless the task proves a related file is required".to_string());
+    }
+
+    WorkRecipeSeed {
+        target_paths: file_paths.to_vec(),
+        acceptance: vec![AcceptanceCriterion {
+            id: "planner-objective-satisfied".to_string(),
+            text: format!(
+                "{} step satisfies planner objective: {}",
+                work_kind.as_str(),
+                objective
+            ),
+            verification: AcceptanceVerification::Manual,
+        }],
+        constraints,
+    }
+}
+
 fn risk_level_str(level: RiskLevel) -> String {
     match level {
         RiskLevel::Low => "low",
@@ -453,6 +490,27 @@ mod tests {
             work_kinds,
             vec![WorkKind::Add, WorkKind::Refactor, WorkKind::Ship]
         );
+    }
+
+    #[test]
+    fn step_recipe_seed_carries_paths_and_acceptance() {
+        let builder = decompose_goal(
+            "u1",
+            "refactor auth module",
+            &["crates/api/src/auth.rs".to_string()],
+            "auto",
+        )
+        .unwrap();
+
+        let seed = builder.steps()[0].recipe_seed.as_ref().unwrap();
+        assert_eq!(seed.target_paths, vec!["crates/api/src/auth.rs"]);
+        assert!(seed.acceptance[0]
+            .text
+            .contains("refactor step satisfies planner objective"));
+        assert!(seed
+            .constraints
+            .iter()
+            .any(|c| c.starts_with("planner_risk=")));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use cortex_core::task::WorkKind;
+use cortex_core::task::{WorkKind, WorkRecipeSeed};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -331,6 +331,7 @@ pub struct StepDef {
     pub tier: String,
     pub risk: String,
     pub objective: String,
+    pub recipe_seed: Option<WorkRecipeSeed>,
     pub required_provider: Option<String>,
     pub max_attempts: u32,
 }
@@ -373,10 +374,17 @@ impl RunBuilder {
             tier: tier.to_string(),
             risk: risk.to_string(),
             objective: objective.to_string(),
+            recipe_seed: None,
             required_provider: None,
             max_attempts: 3,
         });
         idx
+    }
+
+    pub fn set_step_recipe_seed(&mut self, idx: usize, recipe_seed: WorkRecipeSeed) {
+        if let Some(step) = self.steps.get_mut(idx) {
+            step.recipe_seed = Some(recipe_seed);
+        }
     }
 
     pub fn add_edge(&mut self, from: usize, to: usize, edge_type: EdgeType) {

@@ -63,6 +63,16 @@ pub struct WorkRecipe {
     pub constraints: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkRecipeSeed {
+    #[serde(default)]
+    pub target_paths: Vec<String>,
+    #[serde(default)]
+    pub acceptance: Vec<AcceptanceCriterion>,
+    #[serde(default)]
+    pub constraints: Vec<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkKind {

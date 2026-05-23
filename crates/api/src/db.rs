@@ -143,7 +143,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 14;
+const SCHEMA_VERSION: i64 = 15;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -197,6 +197,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 14 {
         migrate_v14(conn);
+    }
+    if current < 15 {
+        migrate_v15(conn);
     }
 }
 
@@ -375,6 +378,7 @@ fn migrate_v2(conn: &Connection) {
             kind TEXT NOT NULL,
             status TEXT NOT NULL DEFAULT 'pending',
             work_kind TEXT NOT NULL DEFAULT 'modify',
+            recipe_seed_json TEXT,
             tier TEXT NOT NULL,
             risk TEXT NOT NULL,
             objective TEXT NOT NULL,
@@ -813,6 +817,15 @@ fn migrate_v14(conn: &Connection) {
         .expect("migration v14 failed");
 
     tracing::info!("applied migration v14: steps.work_kind planner recipe intent");
+}
+
+fn migrate_v15(conn: &Connection) {
+    conn.execute("ALTER TABLE steps ADD COLUMN recipe_seed_json TEXT", [])
+        .ok();
+    conn.execute_batch("UPDATE schema_version SET version = 15;")
+        .expect("migration v15 failed");
+
+    tracing::info!("applied migration v15: steps.recipe_seed_json planner recipe seeds");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1407,7 +1420,7 @@ impl Database {
         goal: &str,
         profile: &str,
         file_paths: &[String],
-        steps: &[(String, String, String, String, String, String, i64)], // (id, kind, work_kind, tier, risk, objective, created_at)
+        steps: &[(String, String, String, Option<String>, String, String, String, i64)], // (id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at)
         edges: &[(String, String, String)], // (step_id, depends_on_id, edge_type)
     ) -> String {
         let conn = self.conn.lock().unwrap();
@@ -1426,11 +1439,11 @@ impl Database {
             params![run_id, user_id, goal, profile, file_paths_json, now],
         ).expect("failed to create run in batch");
 
-        for (id, kind, work_kind, tier, risk, objective, created_at) in steps {
+        for (id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at) in steps {
             conn.execute(
-                "INSERT INTO steps (id, run_id, kind, work_kind, status, tier, risk, objective, created_at, updated_at)
-                 VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7, ?8, ?8)",
-                params![id, run_id, kind, work_kind, tier, risk, objective, created_at],
+                "INSERT INTO steps (id, run_id, kind, work_kind, recipe_seed_json, status, tier, risk, objective, created_at, updated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, ?8, ?9, ?9)",
+                params![id, run_id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at],
             ).expect("failed to create step in batch");
         }
 
@@ -2010,6 +2023,15 @@ impl Database {
                 row.get::<_, String>(4)?,
             )),
         ).ok()
+    }
+
+    pub fn get_step_recipe_seed_json(&self, step_id: &str) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT recipe_seed_json FROM steps WHERE id = ?1",
+            params![step_id],
+            |row| row.get::<_, Option<String>>(0),
+        ).ok().flatten()
     }
 
     pub fn get_run_user_id(&self, run_id: &str) -> Option<String> {
