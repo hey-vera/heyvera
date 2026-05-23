@@ -187,7 +187,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 16;
+const SCHEMA_VERSION: i64 = 17;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -247,6 +247,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 16 {
         migrate_v16(conn);
+    }
+    if current < 17 {
+        migrate_v17(conn);
     }
 }
 
@@ -890,6 +893,17 @@ fn migrate_v16(conn: &Connection) {
     ).expect("migration v16 failed");
 
     tracing::info!("applied migration v16: run payload snapshot indexes");
+}
+
+fn migrate_v17(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_step_attempts_run_step_latest
+            ON step_attempts(run_id, step_id, attempt_number DESC);
+
+        UPDATE schema_version SET version = 17;"
+    ).expect("migration v17 failed");
+
+    tracing::info!("applied migration v17: latest attempt snapshot index");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
