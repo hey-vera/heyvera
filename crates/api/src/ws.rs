@@ -392,6 +392,7 @@ async fn handle_worker_msg(
             };
             let mut completion_accepted = false;
             let mut completion_error = "step failed before verification".to_string();
+            let mut step_transitioned = false;
             if let Some(db) = &state.db {
                 // Record usage for pressure tracking
                 record_step_usage(
@@ -452,7 +453,7 @@ async fn handle_worker_msg(
                 }
 
                 if verified_success {
-                    let step_updated = db.complete_step(
+                    step_transitioned = db.complete_step(
                         &step_id,
                         lease_gen,
                         Some(&truncated_summary),
@@ -460,13 +461,17 @@ async fn handle_worker_msg(
                         base_commit.as_deref(),
                         head_commit.as_deref(),
                     );
-                    if !step_updated {
+                    if !step_transitioned {
                         tracing::warn!(
                             "complete_step returned false for step {step_id} lease_gen={lease_gen} — \
                              likely stale lease_gen (step may have been re-leased or already completed)"
                         );
+                        completion_error =
+                            "stale worker completion ignored: step is no longer leased to this attempt"
+                                .to_string();
+                    } else {
+                        db.complete_attempt(&step_id, lease_gen);
                     }
-                    db.complete_attempt(&step_id, lease_gen);
                 } else {
                     if verifier_failure.is_empty() {
                         verifier_failure = "verifier rejected worker completion".to_string();
@@ -480,133 +485,141 @@ async fn handle_worker_msg(
                         base_commit.as_deref(),
                         head_commit.as_deref(),
                     );
-                    db.fail_step(
+                    step_transitioned = db.fail_step(
                         &step_id,
                         lease_gen,
                         &verifier_failure,
                         Some("VerifierRejected"),
                     );
-                    db.fail_attempt(
-                        &step_id,
-                        lease_gen,
-                        Some("VerifierRejected"),
-                        Some(&verifier_failure),
-                    );
-                }
-                completion_accepted = verified_success;
-
-                if let Some(run_id) = resolved_run_id {
-                    // If this step produced a branch, record it on the run
-                    if verified_success {
-                        if let Some(ref branch_name) = branch {
-                            db.record_run_branch(&run_id, branch_name);
-                        }
-                    }
-
-                    if verified_success {
-                        state
-                            .emit_scheduler_event(SchedulerEvent::StepCompleted {
-                                run_id: run_id.clone(),
-                                step_id: step_id.clone(),
-                                cost_estimate: output.cost_estimate,
-                            })
-                            .await;
-                    } else {
-                        state
-                            .emit_scheduler_event(SchedulerEvent::StepFailed {
-                                run_id: run_id.clone(),
-                                step_id: step_id.clone(),
-                            })
-                            .await;
-                    }
-
-                    // Emit MC event
-                    if let Some(user_id) = authed_user_id.as_deref() {
-                        if verified_success {
-                            state
-                                .emit_mc_event(
-                                    user_id,
-                                    MissionControlEvent::StepCompleted {
-                                        run_id: run_id.clone(),
-                                        step_id: step_id.clone(),
-                                        exit_code,
-                                        files_changed: output.files_changed.clone(),
-                                        cost_estimate: output.cost_estimate,
-                                    },
-                                )
-                                .await;
-                        } else {
-                            state
-                                .emit_mc_event(
-                                    user_id,
-                                    MissionControlEvent::StepFailed {
-                                        run_id: run_id.clone(),
-                                        step_id: step_id.clone(),
-                                        error: verifier_failure.clone(),
-                                        failure_kind: "VerifierRejected".to_string(),
-                                    },
-                                )
-                                .await;
-                        }
-                    }
-
-                    // Add artifact to Context-Flow Pipeline for future steps
-                    let artifact_kind = if verified_success {
-                        // Determine artifact type based on output content
-                        if !output.files_changed.is_empty() {
-                            ArtifactKind::Code
-                        } else if output.summary.to_lowercase().contains("analy") {
-                            ArtifactKind::Analysis
-                        } else if output.summary.to_lowercase().contains("plan") {
-                            ArtifactKind::Plan
-                        } else {
-                            ArtifactKind::Answer
-                        }
-                    } else {
-                        ArtifactKind::Error
-                    };
-
-                    let confidence = if verified_success { 0.8 } else { 0.1 };
-
-                    let artifact = ContextBus::create_artifact(
-                        &step_id,
-                        &run_id,
-                        artifact_kind,
-                        &output.summary,
-                        &truncated_summary,
-                        output.files_changed.clone(),
-                        confidence,
-                    );
-
-                    state
-                        .context_bus
-                        .add_artifact(state.db.as_ref(), artifact)
-                        .await;
-
-                    tracing::debug!("artifact added to context-flow pipeline for run {run_id}");
-                }
-
-                // Vera observes the completed step
-                if let Some(user_id) = authed_user_id.as_deref() {
-                    if verified_success {
-                        let duration_ms = if let Some((_, _, started_at)) =
-                            db.get_attempt_provider_model(&step_id, lease_gen)
-                        {
-                            let now = chrono::Utc::now().timestamp_millis();
-                            (now - started_at).max(0) as u64
-                        } else {
-                            0
-                        };
-                        state.vera_tracker.record_step_completed(
-                            user_id,
-                            duration_ms,
-                            exit_code,
-                            None,
+                    if step_transitioned {
+                        db.fail_attempt(
+                            &step_id,
+                            lease_gen,
+                            Some("VerifierRejected"),
+                            Some(&verifier_failure),
                         );
                     } else {
+                        tracing::warn!(
+                            "fail_step returned false for verifier-rejected step {step_id} lease_gen={lease_gen} — \
+                             likely stale lease_gen (step may have been re-leased or already completed)"
+                        );
+                        completion_error =
+                            "stale verifier rejection ignored: step is no longer leased to this attempt"
+                                .to_string();
+                    }
+                }
+                completion_accepted = verified_success && step_transitioned;
+
+                if step_transitioned {
+                    if let Some(run_id) = resolved_run_id {
+                        if verified_success {
+                            if let Some(ref branch_name) = branch {
+                                db.record_run_branch(&run_id, branch_name);
+                            }
+                        }
+
+                        if verified_success {
+                            state
+                                .emit_scheduler_event(SchedulerEvent::StepCompleted {
+                                    run_id: run_id.clone(),
+                                    step_id: step_id.clone(),
+                                    cost_estimate: output.cost_estimate,
+                                })
+                                .await;
+                        } else {
+                            state
+                                .emit_scheduler_event(SchedulerEvent::StepFailed {
+                                    run_id: run_id.clone(),
+                                    step_id: step_id.clone(),
+                                })
+                                .await;
+                        }
+
+                        if let Some(user_id) = authed_user_id.as_deref() {
+                            if verified_success {
+                                state
+                                    .emit_mc_event(
+                                        user_id,
+                                        MissionControlEvent::StepCompleted {
+                                            run_id: run_id.clone(),
+                                            step_id: step_id.clone(),
+                                            exit_code,
+                                            files_changed: output.files_changed.clone(),
+                                            cost_estimate: output.cost_estimate,
+                                        },
+                                    )
+                                    .await;
+                            } else {
+                                state
+                                    .emit_mc_event(
+                                        user_id,
+                                        MissionControlEvent::StepFailed {
+                                            run_id: run_id.clone(),
+                                            step_id: step_id.clone(),
+                                            error: verifier_failure.clone(),
+                                            failure_kind: "VerifierRejected".to_string(),
+                                        },
+                                    )
+                                    .await;
+                            }
+                        }
+
+                        let artifact_kind = if verified_success {
+                            if !output.files_changed.is_empty() {
+                                ArtifactKind::Code
+                            } else if output.summary.to_lowercase().contains("analy") {
+                                ArtifactKind::Analysis
+                            } else if output.summary.to_lowercase().contains("plan") {
+                                ArtifactKind::Plan
+                            } else {
+                                ArtifactKind::Answer
+                            }
+                        } else {
+                            ArtifactKind::Error
+                        };
+
+                        let confidence = if verified_success { 0.8 } else { 0.1 };
+                        let artifact = ContextBus::create_artifact(
+                            &step_id,
+                            &run_id,
+                            artifact_kind,
+                            &output.summary,
+                            &truncated_summary,
+                            output.files_changed.clone(),
+                            confidence,
+                        );
+
                         state
-                            .vera_tracker
-                            .record_step_failed(user_id, "VerifierRejected", None);
+                            .context_bus
+                            .add_artifact(state.db.as_ref(), artifact)
+                            .await;
+
+                        tracing::debug!("artifact added to context-flow pipeline for run {run_id}");
+                    }
+
+                    if let Some(user_id) = authed_user_id.as_deref() {
+                        if verified_success {
+                            let duration_ms = if let Some((_, _, started_at)) =
+                                db.get_attempt_provider_model(&step_id, lease_gen)
+                            {
+                                let now = chrono::Utc::now().timestamp_millis();
+                                (now - started_at).max(0) as u64
+                            } else {
+                                0
+                            };
+                            state.vera_tracker.record_step_completed(
+                                user_id,
+                                duration_ms,
+                                exit_code,
+                                None,
+                            );
+                        } else {
+                            state.vera_tracker.record_step_failed(
+                                user_id,
+                                "VerifierRejected",
+                                None,
+                            );
+                        }
                     }
                 }
             }
@@ -662,7 +675,24 @@ async fn handle_worker_msg(
             );
 
             if let Some(db) = &state.db {
-                db.fail_step(&step_id, lease_gen, error_msg, Some(&kind_str));
+                let step_transitioned =
+                    db.fail_step(&step_id, lease_gen, error_msg, Some(&kind_str));
+                if !step_transitioned {
+                    tracing::warn!(
+                        "fail_step returned false for worker-failed step {step_id} lease_gen={lease_gen} — \
+                         likely stale lease_gen (step may have been re-leased or already completed)"
+                    );
+                    if let Some(tx) = state.get_step_sender(&step_id).await {
+                        let _ = tx
+                            .send(StepEvent::Failed {
+                                step_id: step_id.clone(),
+                                error: "stale worker failure ignored: step is no longer leased to this attempt".to_string(),
+                            })
+                            .await;
+                    }
+                    state.remove_step_sender(&step_id).await;
+                    return;
+                }
                 db.fail_attempt(&step_id, lease_gen, Some(&kind_str), Some(error_msg));
 
                 // Record usage even on failure (still consumed tokens/time)

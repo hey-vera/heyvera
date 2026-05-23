@@ -1619,7 +1619,7 @@ impl Database {
         let rows = conn.execute(
             "UPDATE steps SET status = 'succeeded', output_summary = ?1, files_changed = ?2,
                  base_commit = ?3, head_commit = ?4, updated_at = ?5, version = version + 1
-             WHERE id = ?6 AND lease_gen = ?7 AND status IN ('leased', 'running', 'orphaned')",
+             WHERE id = ?6 AND lease_gen = ?7 AND status IN ('leased', 'running')",
             params![output_summary, files_changed, base_commit, head_commit, now, step_id, lease_gen],
         ).unwrap_or(0);
         rows > 0
@@ -1667,7 +1667,8 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
-            "UPDATE steps SET status = 'orphaned', updated_at = ?1, version = version + 1
+            "UPDATE steps SET status = 'orphaned', assigned_worker = NULL, lease_deadline = NULL,
+                 updated_at = ?1, version = version + 1
              WHERE status = 'leased' AND lease_deadline < ?1
              RETURNING id"
         ).unwrap();
@@ -2567,8 +2568,11 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let count: i64 = conn
             .query_row(
-                "SELECT COUNT(*) FROM steps WHERE id = ?1 AND assigned_worker = ?2",
-                params![step_id, worker_id],
+                "SELECT COUNT(*) FROM steps
+                 WHERE id = ?1 AND assigned_worker = ?2
+                 AND status IN ('leased', 'running')
+                 AND lease_deadline IS NOT NULL AND lease_deadline >= ?3",
+                params![step_id, worker_id, Utc::now().timestamp_millis()],
                 |row| row.get(0),
             )
             .unwrap_or(0);
