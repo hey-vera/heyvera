@@ -408,28 +408,31 @@ async fn handle_worker_msg(
                 let mut verifier_failure = String::new();
 
                 if let Some(run_id) = resolved_run_id.as_deref() {
-                    let (verifier_status, verifier_verdict, evidence_json, report_passed) =
-                        verify_worker_completion(
-                            db,
-                            run_id,
-                            &step_id,
-                            &attempt_id,
-                            lease_gen,
-                            worker_id,
-                            exit_code,
-                            &output,
-                            base_commit.as_deref(),
-                            head_commit.as_deref(),
-                            branch.as_deref(),
-                            &truncated_summary,
-                            &message_id,
-                        );
+                    let (
+                        verifier_status,
+                        verifier_verdict,
+                        verifier_diagnostic,
+                        evidence_json,
+                        report_passed,
+                    ) = verify_worker_completion(
+                        db,
+                        run_id,
+                        &step_id,
+                        &attempt_id,
+                        lease_gen,
+                        worker_id,
+                        exit_code,
+                        &output,
+                        base_commit.as_deref(),
+                        head_commit.as_deref(),
+                        branch.as_deref(),
+                        &truncated_summary,
+                        &message_id,
+                    );
 
                     verified_success = report_passed;
                     if !report_passed {
-                        verifier_failure = format!(
-                            "verifier rejected worker completion: status={verifier_status}, verdict={verifier_verdict}"
-                        );
+                        verifier_failure = verifier_diagnostic;
                     }
 
                     db.record_verifier_report(
@@ -781,7 +784,7 @@ fn verify_worker_completion(
     branch: Option<&str>,
     truncated_summary: &str,
     message_id: &str,
-) -> (String, String, String, bool) {
+) -> (String, String, String, String, bool) {
     let persisted_contract = db.get_step_work_contract(step_id, lease_gen);
     let (risk, objective) = db
         .get_step_details(step_id)
@@ -849,6 +852,7 @@ fn verify_worker_completion(
     let status = verifier_status(report.verdict).to_string();
     let verdict = verifier_verdict(report.verdict).to_string();
     let passed = report.verdict.is_success();
+    let diagnostic = verifier_diagnostic(&status, &verdict, &report);
     let evidence_json = serde_json::json!({
         "source": "engine_verifier",
         "message_id": message_id,
@@ -871,7 +875,7 @@ fn verify_worker_completion(
     })
     .to_string();
 
-    (status, verdict, evidence_json, passed)
+    (status, verdict, diagnostic, evidence_json, passed)
 }
 
 fn fallback_task_contract(objective: String, risk: RiskLevel) -> TaskContract {
@@ -916,6 +920,127 @@ fn check_summary(check: &cortex_core::protocol::CheckEvidence) -> Option<String>
     } else {
         Some(parts.join(": "))
     }
+}
+
+fn verifier_diagnostic(
+    status: &str,
+    verdict: &str,
+    report: &cortex_engine::verifier::VerifierReport,
+) -> String {
+    let mut parts = vec![format!(
+        "verifier rejected worker completion: status={status}, verdict={verdict}, next_action={:?}",
+        report.next_action
+    )];
+
+    if !report.evidence_floor.satisfied && !report.evidence_floor.missing.is_empty() {
+        parts.push(format!(
+            "missing evidence: {}",
+            report.evidence_floor.missing.join(", ")
+        ));
+    }
+
+    if !report.allowed_path_violations.is_empty() {
+        let violations = report
+            .allowed_path_violations
+            .iter()
+            .take(5)
+            .map(|violation| format!("{} ({})", violation.path, violation.reason))
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("path violations: {violations}"));
+    }
+
+    if !report.stale_base_notes.is_empty() {
+        let notes = report
+            .stale_base_notes
+            .iter()
+            .take(3)
+            .map(|note| note.note.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("base mismatch: {notes}"));
+    }
+
+    if !report.required_check_summary.missing.is_empty() {
+        let missing = report
+            .required_check_summary
+            .missing
+            .iter()
+            .take(5)
+            .map(|check| check.name.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("missing required checks: {missing}"));
+    }
+
+    if !report.required_check_summary.failed.is_empty() {
+        let failed = report
+            .required_check_summary
+            .failed
+            .iter()
+            .take(5)
+            .map(|check| {
+                check
+                    .summary
+                    .as_ref()
+                    .filter(|summary| !summary.trim().is_empty())
+                    .map(|summary| format!("{} ({summary})", check.name))
+                    .unwrap_or_else(|| check.name.clone())
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("failed required checks: {failed}"));
+    }
+
+    if !report.check_summary.failures.is_empty() {
+        let failed = report
+            .check_summary
+            .failures
+            .iter()
+            .take(5)
+            .map(|failure| {
+                failure
+                    .summary
+                    .as_ref()
+                    .filter(|summary| !summary.trim().is_empty())
+                    .map(|summary| format!("{} ({summary})", failure.name))
+                    .unwrap_or_else(|| failure.name.clone())
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("check failures: {failed}"));
+    }
+
+    if report.command_summary.failed > 0 {
+        let failed = report
+            .command_summary
+            .failures
+            .iter()
+            .take(5)
+            .map(|failure| {
+                failure
+                    .summary
+                    .as_ref()
+                    .filter(|summary| !summary.trim().is_empty())
+                    .map(|summary| format!("{} ({summary})", failure.command))
+                    .unwrap_or_else(|| failure.command.clone())
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        parts.push(format!("command failures: {failed}"));
+    }
+
+    truncate_diagnostic(&parts.join("; "), 2_000)
+}
+
+fn truncate_diagnostic(value: &str, max_chars: usize) -> String {
+    if value.chars().count() <= max_chars {
+        return value.to_string();
+    }
+
+    let mut truncated = value.chars().take(max_chars).collect::<String>();
+    truncated.push_str("...");
+    truncated
 }
 
 fn parse_verifier_risk(risk: &str) -> RiskLevel {
@@ -1076,5 +1201,99 @@ async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, St
                 clerk::get_or_refresh_jwks_pub(&state.jwks_cache, clerk_secret, true).await?;
             clerk::verify_token_pub(token, &keys)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cortex_engine::verifier::{
+        AcceptanceCoverage, AllowedPathViolation, CheckEvidence as EngineCheckEvidence,
+        CheckFailure, CheckStatus as EngineCheckStatus, CheckSummary, CommandSummary,
+        RequiredCheckSummary, VerifierFloorSummary, VerifierNextAction,
+        VerifierReport as EngineVerifierReport,
+    };
+
+    fn rejected_report() -> EngineVerifierReport {
+        EngineVerifierReport {
+            verdict: VerifierVerdict::Failed,
+            risk: RiskLevel::High,
+            evidence_signals: Vec::new(),
+            evidence_floor: VerifierFloorSummary {
+                satisfied: false,
+                signals_met: Vec::new(),
+                missing: vec!["independent verification".into()],
+            },
+            allowed_path_violations: Vec::new(),
+            command_summary: CommandSummary {
+                total: 0,
+                succeeded: 0,
+                failed: 0,
+                unknown: 0,
+                failures: Vec::new(),
+            },
+            check_summary: CheckSummary {
+                total: 0,
+                passed: 0,
+                failed: 0,
+                skipped: 0,
+                unknown: 0,
+                failures: Vec::new(),
+            },
+            required_check_summary: RequiredCheckSummary::default(),
+            acceptance_coverage: AcceptanceCoverage {
+                evaluated: false,
+                total: 0,
+                covered: 0,
+                uncovered: Vec::new(),
+                note: "not evaluated".into(),
+            },
+            stale_base_notes: Vec::new(),
+            next_action: VerifierNextAction::AddEvidence,
+        }
+    }
+
+    #[test]
+    fn verifier_diagnostic_includes_missing_evidence_and_next_action() {
+        let report = rejected_report();
+
+        let diagnostic = verifier_diagnostic("needs_evidence", "needs_evidence", &report);
+
+        assert!(diagnostic.contains("next_action=AddEvidence"));
+        assert!(diagnostic.contains("missing evidence: independent verification"));
+    }
+
+    #[test]
+    fn verifier_diagnostic_includes_path_and_required_check_failures() {
+        let mut report = rejected_report();
+        report.allowed_path_violations.push(AllowedPathViolation {
+            path: "docs/readme.md".into(),
+            reason: "changed path is outside the allowed path contract".into(),
+        });
+        report
+            .required_check_summary
+            .failed
+            .push(EngineCheckEvidence {
+                name: "npm:build".into(),
+                status: EngineCheckStatus::Failed,
+                summary: Some("exit code 1".into()),
+            });
+        report.check_summary.failures.push(CheckFailure {
+            name: "npm:build".into(),
+            summary: Some("exit code 1".into()),
+        });
+
+        let diagnostic = verifier_diagnostic("verified", "fail", &report);
+
+        assert!(diagnostic.contains("path violations: docs/readme.md"));
+        assert!(diagnostic.contains("failed required checks: npm:build (exit code 1)"));
+        assert!(diagnostic.contains("check failures: npm:build (exit code 1)"));
+    }
+
+    #[test]
+    fn truncate_diagnostic_caps_long_messages() {
+        let diagnostic = truncate_diagnostic("abcdef", 3);
+
+        assert_eq!(diagnostic, "abc...");
     }
 }
