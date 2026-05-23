@@ -17,6 +17,7 @@ use cortex_engine::captain::SchedulerEvent;
 use crate::clerk;
 use crate::mission_control::MissionControlEvent;
 use crate::state::{AppState, StepEvent};
+use crate::context_flow::{ContextBus, ArtifactKind};
 
 const GRACE_PERIOD_MS: i64 = 60_000;
 const REGISTER_TIMEOUT_SECS: u64 = 10;
@@ -433,6 +434,38 @@ async fn handle_worker_msg(
                             )
                             .await;
                     }
+
+                    // Add artifact to Context-Flow Pipeline for future steps
+                    let artifact_kind = if exit_code == 0 {
+                        // Determine artifact type based on output content
+                        if !output.files_changed.is_empty() {
+                            ArtifactKind::Code
+                        } else if output.summary.to_lowercase().contains("analy") {
+                            ArtifactKind::Analysis
+                        } else if output.summary.to_lowercase().contains("plan") {
+                            ArtifactKind::Plan
+                        } else {
+                            ArtifactKind::Answer
+                        }
+                    } else {
+                        ArtifactKind::Error
+                    };
+
+                    let confidence = if exit_code == 0 { 0.8 } else { 0.1 };
+
+                    let artifact = ContextBus::create_artifact(
+                        &step_id,
+                        &run_id,
+                        artifact_kind,
+                        &output.summary,
+                        &truncated_summary,
+                        output.files_changed.clone(),
+                        confidence,
+                    );
+
+                    state.context_bus.add_artifact(state.db.as_ref(), artifact).await;
+
+                    tracing::debug!("artifact added to context-flow pipeline for run {run_id}");
                 }
 
                 // Vera observes the completed step
