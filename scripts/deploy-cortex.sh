@@ -39,13 +39,41 @@ if [ -f "$ENV_FILE" ]; then
   echo "[env] Loaded $ENV_FILE"
 fi
 
-# ── git ──────────────────────────────────────
-echo "[git] Fetching $BRANCH..."
-git fetch "$GIT_REMOTE" "$BRANCH"
-git checkout "$BRANCH" 2>/dev/null || git checkout -b "$BRANCH" "$GIT_REMOTE/$BRANCH"
+# ── git (bulletproof) ───────────────────────────
+echo "[git] Nuclear reset to $BRANCH..."
+
+# Fetch latest remote state
+git fetch "$GIT_REMOTE" "$BRANCH" 2>/dev/null || {
+    echo "[git] Initial fetch failed, cleaning and retrying..."
+    git gc --prune=now 2>/dev/null || true
+    git fetch "$GIT_REMOTE" "$BRANCH"
+}
+
+# Abort any in-progress operations
+git rebase --abort 2>/dev/null || true
+git merge --abort 2>/dev/null || true
+git cherry-pick --abort 2>/dev/null || true
+
+# Force checkout branch (create if needed)
+git checkout "$BRANCH" 2>/dev/null || {
+    echo "[git] Creating new branch $BRANCH..."
+    git checkout -b "$BRANCH" "$GIT_REMOTE/$BRANCH" 2>/dev/null || {
+        # If that fails, force create from remote
+        git branch -D "$BRANCH" 2>/dev/null || true
+        git checkout -b "$BRANCH" "$GIT_REMOTE/$BRANCH"
+    }
+}
+
+# Nuclear reset: force exact remote state
 git reset --hard "$GIT_REMOTE/$BRANCH"
+git clean -fd  # Remove untracked files
+git submodule update --init --recursive 2>/dev/null || true
+
+# Ensure tracking is set up correctly
+git branch --set-upstream-to="$GIT_REMOTE/$BRANCH" "$BRANCH" 2>/dev/null || true
+
 COMMIT=$(git rev-parse --short HEAD)
-echo "[git] At $COMMIT"
+echo "[git] ✓ Nuclear reset complete → $COMMIT"
 
 # ── frontend ─────────────────────────────────
 echo "[vite] Building frontend..."
