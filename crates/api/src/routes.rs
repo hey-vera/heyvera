@@ -249,6 +249,7 @@ pub async fn get_run(
         "goal": goal,
         "steps": steps.iter().map(|(sid, status)| {
             let details = db.get_step_details(sid);
+            let predecessors = db.get_step_predecessors(sid);
             let output = db.get_step_output_summary(sid);
             let files = db
                 .get_step_files_changed(sid)
@@ -258,6 +259,7 @@ pub async fn get_run(
             let mut step = serde_json::json!({
                 "id": sid,
                 "status": status,
+                "predecessors": predecessors,
             });
             if let Some((kind, tier, risk, objective)) = details {
                 step["kind"] = serde_json::json!(kind);

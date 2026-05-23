@@ -723,6 +723,7 @@ export interface RunStep {
   verification_status?: string | null;
   verifier_verdict?: string | null;
   verifier_report_id?: string | null;
+  predecessors?: string[];
   parent_id?: string | null;
 }
 

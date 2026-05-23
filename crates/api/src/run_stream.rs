@@ -67,9 +67,11 @@ pub async fn stream_run(
                 "heal_attempts": heal_count,
                 "steps": steps.iter().map(|(sid, status)| {
                     let details = db.get_step_details(sid);
+                    let predecessors = db.get_step_predecessors(sid);
                     let mut step = serde_json::json!({
                         "id": sid,
                         "status": status,
+                        "predecessors": predecessors,
                     });
                     if let Some((kind, tier, risk, objective)) = details {
                         step["kind"] = serde_json::json!(kind);
