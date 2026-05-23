@@ -241,7 +241,7 @@ where
                     }
                 };
 
-                verify_token(&token, &keys)
+                Ok(verify_token(&token, &keys)
                     .map(|claims| ClerkUser {
                         user_id: claims.sub,
                     })
@@ -250,7 +250,7 @@ where
                         ClerkUser {
                             user_id: "local".to_string(),
                         }
-                    })
+                    }))
             }
         }
     }
