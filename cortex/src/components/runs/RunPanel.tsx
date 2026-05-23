@@ -91,6 +91,16 @@ function stepHealthLabel(step: RunStep) {
   return HEALTH_LABELS[step.health] ?? step.health.replaceAll('_', ' ');
 }
 
+function blockedByLine(step: RunStep, run: RunSummary) {
+  if (!step.blocked_by?.length) return null;
+  const labels = step.blocked_by.map((blocker) => {
+    const match = run.steps.find((candidate) => candidate.id === blocker.id);
+    const label = match ? stepLabel(match, run.steps.indexOf(match)) : blocker.id;
+    return `${label ?? 'dependency'} (${blocker.status ?? 'unknown'})`;
+  });
+  return labels.join(', ');
+}
+
 function getWorkerSignal(run: RunSummary | null) {
   if (!run) return { label: 'Worker status unknown', className: 'border-white/8 bg-white/4 text-[var(--muted)]' };
   const statuses = run.steps.map((step) => step.status);
@@ -447,8 +457,13 @@ export default function RunPanel({
                       Checks: {selectedStep.required_checks?.length ?? selectedStep.work_recipe?.required_checks?.length ?? 0}
                     </div>
                   </div>
-                  {(stepRecipeLine(selectedStep) || selectedStep.verification_status || selectedStep.last_error || selectedStep.output_summary) && (
+                  {(blockedByLine(selectedStep, run) || stepRecipeLine(selectedStep) || selectedStep.verification_status || selectedStep.last_error || selectedStep.output_summary) && (
                     <div className="mt-2 space-y-1 text-[10px] leading-4 text-[var(--muted)]">
+                      {blockedByLine(selectedStep, run) && (
+                        <div className="truncate text-amber-200">
+                          Blocked by: {blockedByLine(selectedStep, run)}
+                        </div>
+                      )}
                       {stepRecipeLine(selectedStep) && (
                         <div className="truncate text-[var(--muted-strong)]">Recipe: {stepRecipeLine(selectedStep)}</div>
                       )}

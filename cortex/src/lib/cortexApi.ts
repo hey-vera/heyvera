@@ -724,6 +724,7 @@ export interface RunStep {
   assigned_worker?: string | null;
   lease_stale?: boolean;
   health?: string;
+  blocked_by?: Array<{ id?: string; status?: string; edge_type?: string }>;
   error?: string | null;
   last_error?: string | null;
   output_summary?: string | null;

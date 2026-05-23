@@ -1,13 +1,29 @@
+use std::collections::HashMap;
+
 use serde_json::{json, Value};
 
-use crate::db::{Database, RunStepSnapshot};
+use crate::db::{Database, RunStepSnapshot, StepDependencyEdge};
 
 const TERMINAL_STATUSES: &[&str] = &["succeeded", "failed", "recovered", "cancelled", "skipped"];
 
 pub fn build_run_step_payloads(db: &Database, run_id: &str) -> Vec<Value> {
-    db.get_run_step_snapshots(run_id)
+    let snapshots = db.get_run_step_snapshots(run_id);
+    let status_by_step: HashMap<String, String> = snapshots
+        .iter()
+        .map(|snapshot| (snapshot.id.clone(), snapshot.status.clone()))
+        .collect();
+    let blockers_by_step =
+        dependency_blockers_by_step(&db.get_run_step_dependency_edges(run_id), &status_by_step);
+
+    snapshots
         .into_iter()
-        .map(build_step_payload)
+        .map(|snapshot| {
+            let blockers = blockers_by_step
+                .get(&snapshot.id)
+                .cloned()
+                .unwrap_or_default();
+            build_step_payload(snapshot, blockers)
+        })
         .collect()
 }
 
@@ -53,7 +69,7 @@ pub fn build_run_graph_payload(db: &Database, run_id: &str, steps: &[Value]) -> 
     })
 }
 
-fn build_step_payload(snapshot: RunStepSnapshot) -> Value {
+fn build_step_payload(snapshot: RunStepSnapshot, blocked_by: Vec<Value>) -> Value {
     let status = snapshot.status.clone();
     let lease_stale = snapshot
         .lease_deadline
@@ -62,7 +78,7 @@ fn build_step_payload(snapshot: RunStepSnapshot) -> Value {
                 && deadline < chrono::Utc::now().timestamp_millis()
         })
         .unwrap_or(false);
-    let health = step_health(&snapshot, lease_stale);
+    let health = step_health(&snapshot, lease_stale, !blocked_by.is_empty());
     let files = snapshot
         .files_changed
         .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok());
@@ -81,6 +97,7 @@ fn build_step_payload(snapshot: RunStepSnapshot) -> Value {
         "assigned_worker": snapshot.assigned_worker,
         "lease_stale": lease_stale,
         "health": health,
+        "blocked_by": blocked_by,
     });
 
     step["kind"] = json!(snapshot.kind);
@@ -117,7 +134,42 @@ fn build_step_payload(snapshot: RunStepSnapshot) -> Value {
     step
 }
 
-fn step_health(snapshot: &RunStepSnapshot, lease_stale: bool) -> &'static str {
+fn dependency_blockers_by_step(
+    edges: &[StepDependencyEdge],
+    status_by_step: &HashMap<String, String>,
+) -> HashMap<String, Vec<Value>> {
+    let mut blockers: HashMap<String, Vec<Value>> = HashMap::new();
+
+    for edge in edges {
+        let dependency_status = status_by_step
+            .get(&edge.depends_on_id)
+            .map(String::as_str)
+            .unwrap_or("unknown");
+        if dependency_satisfied(&edge.edge_type, dependency_status) {
+            continue;
+        }
+
+        blockers
+            .entry(edge.step_id.clone())
+            .or_default()
+            .push(json!({
+                "id": edge.depends_on_id,
+                "status": dependency_status,
+                "edge_type": edge.edge_type,
+            }));
+    }
+
+    blockers
+}
+
+fn dependency_satisfied(edge_type: &str, dependency_status: &str) -> bool {
+    match edge_type {
+        "completion_required" => TERMINAL_STATUSES.contains(&dependency_status),
+        _ => dependency_status == "succeeded",
+    }
+}
+
+fn step_health(snapshot: &RunStepSnapshot, lease_stale: bool, has_blockers: bool) -> &'static str {
     if lease_stale {
         return "lease_stale";
     }
@@ -131,7 +183,7 @@ fn step_health(snapshot: &RunStepSnapshot, lease_stale: bool) -> &'static str {
     if matches!(snapshot.status.as_str(), "leased" | "running") {
         return "in_progress";
     }
-    if snapshot.status == "pending" && !snapshot.predecessors.is_empty() {
+    if snapshot.status == "pending" && has_blockers {
         return "waiting_on_dependency";
     }
     if snapshot.attempt_count >= snapshot.max_attempts
@@ -241,5 +293,58 @@ mod tests {
         assert_eq!(steps[0]["assigned_worker"], "worker_1");
         assert_eq!(steps[0]["lease_stale"], false);
         assert_eq!(steps[0]["health"], "terminal");
+    }
+
+    #[test]
+    fn run_step_payload_reports_unsatisfied_dependency_blockers() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = test_db(dir.path());
+        let run_id = db.create_run_with_steps(
+            "user_1",
+            "ship cortex",
+            "auto",
+            &[],
+            &[
+                (
+                    "step_a".to_string(),
+                    "execute".to_string(),
+                    "modify".to_string(),
+                    None,
+                    "standard".to_string(),
+                    "low".to_string(),
+                    "Apply the change".to_string(),
+                    1,
+                ),
+                (
+                    "step_b".to_string(),
+                    "test".to_string(),
+                    "verify".to_string(),
+                    None,
+                    "standard".to_string(),
+                    "low".to_string(),
+                    "Verify the change".to_string(),
+                    2,
+                ),
+            ],
+            &[(
+                "step_b".to_string(),
+                "step_a".to_string(),
+                "success_required".to_string(),
+            )],
+        );
+
+        let steps = build_run_step_payloads(&db, &run_id);
+        let blocked_step = steps
+            .iter()
+            .find(|step| step["id"] == "step_b")
+            .expect("step_b should be present");
+
+        assert_eq!(blocked_step["health"], "waiting_on_dependency");
+        assert_eq!(blocked_step["blocked_by"][0]["id"], "step_a");
+        assert_eq!(blocked_step["blocked_by"][0]["status"], "pending");
+        assert_eq!(
+            blocked_step["blocked_by"][0]["edge_type"],
+            "success_required"
+        );
     }
 }
