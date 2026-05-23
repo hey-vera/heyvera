@@ -120,6 +120,19 @@ export default function RunPanel({
   const [error, setError] = useState<string | null>(null);
   const streamRef = useRef<AbortController | null>(null);
   const workerSignal = useMemo(() => getWorkerSignal(run), [run]);
+  const operationMap = useMemo(() => {
+    const nodes = run?.graph?.nodes ?? [];
+    const edges = run?.graph?.edges ?? [];
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
+    const incomingByNode = new Map<string, typeof edges>();
+
+    for (const edge of edges) {
+      if (!nodeById.has(edge.from) || !nodeById.has(edge.to)) continue;
+      incomingByNode.set(edge.to, [...(incomingByNode.get(edge.to) ?? []), edge]);
+    }
+
+    return { nodes, edges, nodeById, incomingByNode };
+  }, [run?.graph]);
 
   const refreshRuns = useCallback(async () => {
     setIsLoadingRuns(true);
@@ -335,6 +348,50 @@ export default function RunPanel({
               <RefreshCcw className={`h-3.5 w-3.5 ${isLoadingRun ? 'animate-spin' : ''}`} />
             </button>
           </div>
+
+          {operationMap.nodes.length > 0 && (
+            <div className="mt-3 rounded-lg border border-white/8 bg-white/[0.02] p-2.5">
+              <div className="mb-2 flex items-center justify-between gap-2">
+                <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-[var(--muted-strong)]">
+                  <GitBranch className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
+                  <span className="truncate">Operation map</span>
+                </span>
+                <span className="shrink-0 text-[10px] text-[var(--muted)]">
+                  {operationMap.nodes.length} ops · {operationMap.edges.length} deps
+                </span>
+              </div>
+              <div className="max-h-44 space-y-1.5 overflow-y-auto pr-1">
+                {operationMap.nodes.map((node) => {
+                  const incoming = operationMap.incomingByNode.get(node.id) ?? [];
+                  const status = node.status ?? 'pending';
+                  const dependencyLabels = incoming
+                    .map((edge) => operationMap.nodeById.get(edge.from)?.label)
+                    .filter(Boolean);
+                  return (
+                    <div
+                      key={node.id}
+                      className="min-w-0 rounded-md border border-white/8 bg-black/10 px-2 py-1.5"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className={`h-2 w-2 shrink-0 rounded-full border ${statusClass(status)}`} />
+                          <span className="truncate text-[11px] font-medium text-white">{node.label}</span>
+                        </span>
+                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] ${statusClass(status)}`}>
+                          {STATUS_LABELS[status] ?? status}
+                        </span>
+                      </div>
+                      <div className="mt-1 truncate text-[10px] text-[var(--muted)]">
+                        {dependencyLabels.length > 0
+                          ? `After: ${dependencyLabels.join(', ')}`
+                          : 'Starts immediately'}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           <div className="mt-3 space-y-2">
             {run.steps.length === 0 ? (
