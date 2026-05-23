@@ -265,27 +265,54 @@ impl Executor {
             if let Some(guard) = worktree_guard.as_ref() {
                 let is_execute_tier = task.tier == cortex_core::provider::Tier::Execute;
                 if is_execute_tier && guard.has_uncommitted_changes() {
-                    let commit_msg = format!("cortex: {}", task.objective);
-                    match guard.commit_changes(&commit_msg) {
-                        Ok(Some(hash)) => {
-                            tracing::info!(
-                                step_id = %step.step_id,
-                                commit = %hash,
-                                "auto-committed uncommitted changes"
-                            );
-                        }
-                        Ok(None) => {
-                            tracing::debug!(
-                                step_id = %step.step_id,
-                                "no staged changes after git add"
-                            );
-                        }
-                        Err(e) => {
-                            tracing::warn!(
-                                step_id = %step.step_id,
-                                error = %e,
-                                "auto-commit failed, changes may be lost"
-                            );
+                    let precommit_git_evidence = effective_dir.and_then(|dir| {
+                        worktree::collect_git_evidence(
+                            dir,
+                            base_commit.as_deref(),
+                            Some(guard.branch_name()),
+                        )
+                    });
+                    let changed_files = precommit_git_evidence
+                        .as_ref()
+                        .map(|evidence| evidence.changed_files.as_slice())
+                        .unwrap_or(&[]);
+                    let policy_violation = changed_files_have_policy_violation(
+                        changed_files,
+                        &task.allowed_paths,
+                        &task.forbidden_paths,
+                    );
+                    let checks_passed = required_checks_allow_commit(&check_evidence);
+
+                    if policy_violation || !checks_passed {
+                        tracing::warn!(
+                            step_id = %step.step_id,
+                            policy_violation,
+                            checks_passed,
+                            "skipping auto-commit for work that cannot satisfy the dispatch contract"
+                        );
+                    } else {
+                        let commit_msg = format!("cortex: {}", task.objective);
+                        match guard.commit_changes(&commit_msg) {
+                            Ok(Some(hash)) => {
+                                tracing::info!(
+                                    step_id = %step.step_id,
+                                    commit = %hash,
+                                    "auto-committed uncommitted changes"
+                                );
+                            }
+                            Ok(None) => {
+                                tracing::debug!(
+                                    step_id = %step.step_id,
+                                    "no staged changes after git add"
+                                );
+                            }
+                            Err(e) => {
+                                tracing::warn!(
+                                    step_id = %step.step_id,
+                                    error = %e,
+                                    "auto-commit failed, changes may be lost"
+                                );
+                            }
                         }
                     }
                 }
@@ -684,6 +711,78 @@ fn completion_files_changed(
     }
 }
 
+fn required_checks_allow_commit(checks: &[CheckEvidence]) -> bool {
+    checks
+        .iter()
+        .filter(|check| check.required)
+        .all(|check| !check.timed_out && check.exit_code == Some(0))
+}
+
+fn changed_files_have_policy_violation(
+    changed_files: &[String],
+    allowed_paths: &[String],
+    forbidden_paths: &[String],
+) -> bool {
+    changed_files.iter().any(|path| {
+        let Ok(normalized) = normalize_repo_path(path) else {
+            return true;
+        };
+
+        let forbidden = forbidden_paths.iter().any(|forbidden| {
+            normalize_repo_path(forbidden)
+                .map(|forbidden| path_matches_contract_path(&normalized, &forbidden))
+                .unwrap_or(false)
+        });
+        if forbidden {
+            return true;
+        }
+
+        if allowed_paths.is_empty() || allowed_paths.iter().any(|path| path.trim() == "*") {
+            return false;
+        }
+
+        !allowed_paths.iter().any(|allowed| {
+            normalize_repo_path(allowed)
+                .map(|allowed| path_matches_contract_path(&normalized, &allowed))
+                .unwrap_or(false)
+        })
+    })
+}
+
+fn path_matches_contract_path(path: &str, contract_path: &str) -> bool {
+    if contract_path.is_empty() {
+        return false;
+    }
+
+    path == contract_path || path.starts_with(&format!("{}/", contract_path.trim_end_matches('/')))
+}
+
+fn normalize_repo_path(path: &str) -> Result<String, ()> {
+    let path = path.trim().replace('\\', "/");
+    if path.is_empty() {
+        return Err(());
+    }
+
+    let mut parts = Vec::new();
+    for part in path.split('/') {
+        match part {
+            "" | "." => {}
+            ".." => {
+                if parts.pop().is_none() {
+                    return Err(());
+                }
+            }
+            part => parts.push(part),
+        }
+    }
+
+    if parts.is_empty() {
+        Err(())
+    } else {
+        Ok(parts.join("/"))
+    }
+}
+
 async fn run_required_checks(
     task: &TaskContract,
     working_dir: &std::path::Path,
@@ -925,5 +1024,68 @@ mod tests {
         let parsed = vec!["src/stdout.rs".to_string()];
 
         assert_eq!(completion_files_changed(None, parsed.clone()), parsed);
+    }
+
+    #[test]
+    fn required_checks_block_commit_when_required_check_fails() {
+        let checks = vec![CheckEvidence {
+            name: "build".into(),
+            command: "npm run build".into(),
+            required: true,
+            exit_code: Some(1),
+            stdout_excerpt: None,
+            stderr_excerpt: Some("failed".into()),
+            timed_out: false,
+            duration_ms: 10,
+        }];
+
+        assert!(!required_checks_allow_commit(&checks));
+    }
+
+    #[test]
+    fn optional_failed_checks_do_not_block_commit() {
+        let checks = vec![CheckEvidence {
+            name: "optional".into(),
+            command: "npm run lint".into(),
+            required: false,
+            exit_code: Some(1),
+            stdout_excerpt: None,
+            stderr_excerpt: Some("failed".into()),
+            timed_out: false,
+            duration_ms: 10,
+        }];
+
+        assert!(required_checks_allow_commit(&checks));
+    }
+
+    #[test]
+    fn changed_files_outside_allowed_paths_block_commit() {
+        let changed = vec!["src/main.rs".to_string(), "docs/readme.md".to_string()];
+        let allowed = vec!["src".to_string()];
+
+        assert!(changed_files_have_policy_violation(&changed, &allowed, &[]));
+    }
+
+    #[test]
+    fn forbidden_paths_block_commit_even_when_allowed() {
+        let changed = vec!["src/secrets.env".to_string()];
+        let allowed = vec!["src".to_string()];
+        let forbidden = vec!["src/secrets.env".to_string()];
+
+        assert!(changed_files_have_policy_violation(
+            &changed, &allowed, &forbidden
+        ));
+    }
+
+    #[test]
+    fn allowed_paths_permit_nested_changes() {
+        let changed = vec!["src/api/routes.rs".to_string()];
+        let allowed = vec!["src".to_string()];
+
+        assert!(!changed_files_have_policy_violation(
+            &changed,
+            &allowed,
+            &[]
+        ));
     }
 }
