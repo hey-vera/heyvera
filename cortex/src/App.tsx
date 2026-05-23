@@ -1,15 +1,20 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CreditCard, ExternalLink, PanelRight, Loader2, Menu, Search } from 'lucide-react';
+import { CreditCard, ExternalLink, Loader2, Menu, Search, LayoutGrid } from 'lucide-react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import TrialBanner from './components/billing/TrialBanner';
 import GroupSidebar from './components/groups/GroupSidebar';
 import CommandPalette from './components/shell/CommandPalette';
-import StatusBar from './components/shell/StatusBar';
-import TaskManagerChat from './components/tasks/TaskManagerChat';
+import TaskManagerSidebar from './components/shell/TaskManagerSidebar';
+import ProjectChat from './components/chat/ProjectChat';
+import PersonalTaskManager from './components/personal/PersonalTaskManager';
+import TaskManagerSwitcher from './components/shell/TaskManagerSwitcher';
 import { useChatSession } from './lib/useChatSession';
 import { useAuthGate } from './lib/useAuthGate';
 import { useSomaSession } from './lib/useSomaSession';
 import { useBilling } from './lib/useBilling';
+import { isOnboardingComplete } from './lib/onboarding';
+import SignInScreen from './components/auth/SignInScreen';
+import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import {
   CortexApiError,
   getAdminStats,
@@ -90,7 +95,6 @@ function readRunProfile(): RunProfile {
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel'));
 const PricingCards = lazy(() => import('./components/billing/PricingCards'));
 const SettingsPanel = lazy(() => import('./components/SettingsPanel'));
-const WorkSurface = lazy(() => import('./components/work-surface/WorkSurface'));
 
 function isFreeTierAccessState(accessState: BillingAccessState | undefined) {
   return Boolean(accessState && FREE_TIER_ACCESS_STATES.has(accessState));
@@ -203,23 +207,21 @@ function CortexShell() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsInitialTab, setSettingsInitialTab] = useState<SettingsTab>('providers');
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [workSurfaceOpen, setWorkSurfaceOpen] = useState(false);
   const activeConversationId = conversationByGroup[activeGroupId] ?? null;
   const [renamingTitle, setRenamingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [conversationListVersion, setConversationListVersion] = useState(0);
   const sessionControls = readSessionControls();
   const [runProfile, setRunProfile] = useState<RunProfile>(readRunProfile);
-  const runBridgeGoal = null;
-  const runBridgeNonce = 0;
   const [adminOpen, setAdminOpen] = useState(false);
   const [checkoutOpen, setCheckoutOpen] = useState(false);
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [paletteConversations, setPaletteConversations] = useState<ConversationSummary[]>([]);
   const [taskState, setTaskState] = useState<TaskManagerState | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [personalTaskManagerOpen, setPersonalTaskManagerOpen] = useState(false);
+  const [taskManagerSwitcherOpen, setTaskManagerSwitcherOpen] = useState(false);
   const billingEnabled = clerkEnabled && isSignedIn;
-  const isDetachedWindow = useMemo(() => new URLSearchParams(window.location.search).has('detached'), []);
 
   const handleConversationCreated = useCallback((conversationId: string) => {
     setGroupConversation(activeGroupId, conversationId);
@@ -331,7 +333,6 @@ function CortexShell() {
     isStreaming,
     isLoadingConversation,
     activeConversationTitle,
-    workEvents,
     setDraft,
     sendMessage,
     stopStreaming,
@@ -392,13 +393,8 @@ function CortexShell() {
   }, [activeGroup]);
 
 
-  const clearRunBridgeGoal = useCallback(() => {
-    // Task Manager Chat does not currently bridge chat drafts into runs.
-  }, []);
 
   const headerTitle = activeConversationTitle?.trim() || 'New chat';
-  const approvalCount = messages.filter((message) => message.approvalRequest?.state === 'pending').length;
-  const showWorkBadge = isStreaming || approvalCount > 0;
   const accessState = billing.status?.access_state;
   const isFreeTier = billingEnabled && isFreeTierAccessState(accessState);
   const runtimeLocked = billingEnabled && accessState === 'payment_failed';
@@ -465,8 +461,12 @@ function CortexShell() {
           setSettingsOpen(false);
           return;
         }
-        if (workSurfaceOpen) {
-          setWorkSurfaceOpen(false);
+        if (personalTaskManagerOpen) {
+          setPersonalTaskManagerOpen(false);
+          return;
+        }
+        if (taskManagerSwitcherOpen) {
+          setTaskManagerSwitcherOpen(false);
           return;
         }
         if (sidebarOpen) {
@@ -489,12 +489,12 @@ function CortexShell() {
       } else if (key === 'b') {
         event.preventDefault();
         setSidebarOpen((open) => !open);
-      } else if (key === 'j') {
-        event.preventDefault();
-        setWorkSurfaceOpen((open) => !open);
       } else if (key === ',') {
         event.preventDefault();
         handleOpenSettings();
+      } else if (key === 'p') {
+        event.preventDefault();
+        setTaskManagerSwitcherOpen(!taskManagerSwitcherOpen);
       } else if (key === 'o' && event.shiftKey) {
         event.preventDefault();
         handlePopOutTaskManager();
@@ -511,10 +511,11 @@ function CortexShell() {
     handleOpenSettings,
     handlePopOutTaskManager,
     isStreaming,
+    personalTaskManagerOpen,
     settingsOpen,
     sidebarOpen,
     stopStreaming,
-    workSurfaceOpen,
+    taskManagerSwitcherOpen,
   ]);
 
   if (!isLoaded) {
@@ -525,7 +526,23 @@ function CortexShell() {
     );
   }
 
-  // Users can access Cortex immediately - no auth gate needed for demo mode
+  // Auth gate: enforce sign-in and onboarding flow
+  if (clerkEnabled && !isSignedIn) {
+    return <SignInScreen />;
+  }
+
+  // Onboarding flow for new users
+  if (clerkEnabled && isSignedIn && userId && !isOnboardingComplete(userId)) {
+    return (
+      <OnboardingFlow
+        userId={userId}
+        onComplete={() => {
+          // Force re-render after onboarding completion
+          window.location.reload();
+        }}
+      />
+    );
+  }
 
   return (
     <div className="flex h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
@@ -584,6 +601,15 @@ function CortexShell() {
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-12 shrink-0 items-center justify-between border-b border-white/6 px-3 sm:px-4">
           <div className="flex min-w-0 items-center gap-2">
+            <button
+              type="button"
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--accent)]/20 bg-[var(--accent)]/10 text-[var(--accent)] transition hover:bg-[var(--accent)]/20 hover:border-[var(--accent)]/30 active:scale-95"
+              aria-label="Open Personal Task Manager"
+              title="Personal Task Manager - Master overview across all teams"
+              onClick={() => setTaskManagerSwitcherOpen(!taskManagerSwitcherOpen)}
+            >
+              <LayoutGrid className="h-4 w-4" />
+            </button>
             <button
               type="button"
               className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 lg:hidden"
@@ -660,21 +686,24 @@ function CortexShell() {
             >
               <ExternalLink className="h-4 w-4" />
             </button>
-            <button
-              type="button"
-              className="relative inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 text-xs text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 xl:hidden"
-              aria-label="Open work surface"
-              title="Open work surface (Ctrl+J)"
-              onClick={() => setWorkSurfaceOpen(true)}
-            >
-              <PanelRight className="h-4 w-4" />
-              <span className="hidden sm:inline">Work</span>
-              {showWorkBadge && (
-                <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[var(--accent)]" />
-              )}
-            </button>
           </div>
         </header>
+
+        {/* Task Manager Switcher */}
+        <TaskManagerSwitcher
+          groups={groups}
+          userId={userId ?? 'local'}
+          activeGroupId={activeGroupId}
+          isOpen={taskManagerSwitcherOpen}
+          onClose={() => setTaskManagerSwitcherOpen(false)}
+          onSwitchToGroup={(groupId) => {
+            navigate(`/app/groups/${groupId}/tasks`);
+          }}
+          onOpenPersonalTaskManager={() => {
+            setPersonalTaskManagerOpen(true);
+          }}
+        />
+
         <TrialBanner billing={billing.status} onOpenBilling={() => handleOpenSettings('billing')} />
         {isFreeTier && accessState && (
           <FreeTierBanner
@@ -686,49 +715,43 @@ function CortexShell() {
           <PaymentIssueBanner onOpenBilling={() => handleOpenSettings('billing')} />
         )}
 
-        <TaskManagerChat
-          group={activeGroup}
-          userId={userId ?? 'local'}
-          activeConversationId={activeConversationId}
-          messages={messages}
-          draft={draft}
-          isStreaming={isStreaming}
-          isLoadingConversation={isLoadingConversation}
-          needsSubscription={false}
-          onDraftChange={setDraft}
-          onSend={sendMessage}
-          onStop={isStreaming ? stopStreaming : undefined}
-          onSubscribe={() => setCheckoutOpen(true)}
-          onApprovalAction={updateApproval}
-          onTaskStateChange={setTaskState}
-        />
-        <StatusBar
-          groupName={activeGroup.name}
-          activeConversationTitle={headerTitle}
-          isStreaming={isStreaming}
-          isLoadingConversation={isLoadingConversation}
-          runProfile={runProfile}
-          taskState={taskState}
-          detached={isDetachedWindow}
-          onOpenCommandPalette={() => setCommandPaletteOpen(true)}
-          onOpenWorkSurface={() => setWorkSurfaceOpen(true)}
-        />
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <ProjectChat
+            group={activeGroup}
+            userId={userId ?? 'local'}
+            activeConversationId={activeConversationId}
+            messages={messages}
+            draft={draft}
+            isStreaming={isStreaming}
+            isLoadingConversation={isLoadingConversation}
+            needsSubscription={false}
+            onDraftChange={setDraft}
+            onSend={sendMessage}
+            onStop={isStreaming ? stopStreaming : undefined}
+            onSubscribe={() => setCheckoutOpen(true)}
+            onApprovalAction={updateApproval}
+          />
+
+          <TaskManagerSidebar
+            group={activeGroup}
+            userId={userId ?? 'local'}
+            activeConversationId={activeConversationId}
+            messages={messages}
+            draft={draft}
+            isStreaming={isStreaming}
+            isLoadingConversation={isLoadingConversation}
+            needsSubscription={false}
+            onDraftChange={setDraft}
+            onSend={sendMessage}
+            onStop={isStreaming ? stopStreaming : undefined}
+            onSubscribe={() => setCheckoutOpen(true)}
+            onApprovalAction={updateApproval}
+            onTaskStateChange={setTaskState}
+          />
+        </div>
       </div>
 
-      <Suspense fallback={null}>
-        <WorkSurface
-          messages={messages}
-          workEvents={workEvents}
-          isStreaming={isStreaming}
-          runProfile={runProfile}
-          runBridgeGoal={runBridgeGoal}
-          runBridgeNonce={runBridgeNonce}
-          open={workSurfaceOpen}
-          onClose={() => setWorkSurfaceOpen(false)}
-          onRunBridgeConsumed={clearRunBridgeGoal}
-          onApprovalAction={updateApproval}
-        />
-      </Suspense>
+      {/* WorkSurface hidden for clean interface */}
 
       {/* Settings modal */}
       {settingsOpen && (
@@ -746,6 +769,20 @@ function CortexShell() {
         <Suspense fallback={null}>
           <AdminPanel onClose={() => setAdminOpen(false)} />
         </Suspense>
+      )}
+
+      {/* Personal Task Manager */}
+      {personalTaskManagerOpen && (
+        <PersonalTaskManager
+          groups={groups}
+          userId={userId ?? 'local'}
+          activeGroupId={activeGroupId}
+          onClose={() => setPersonalTaskManagerOpen(false)}
+          onSwitchToGroup={(groupId) => {
+            navigate(`/app/groups/${groupId}/tasks`);
+            setPersonalTaskManagerOpen(false);
+          }}
+        />
       )}
 
       {/* Checkout modal (fallback for in-app subscribe links) */}
@@ -780,7 +817,6 @@ function CortexShell() {
         onSelectGroup={(nextGroupId) => navigate(`/app/groups/${nextGroupId}/tasks`)}
         onSelectConversation={handleSelectConversation}
         onOpenSettings={() => handleOpenSettings()}
-        onOpenWorkSurface={() => setWorkSurfaceOpen(true)}
         onPopOutTaskManager={handlePopOutTaskManager}
       />
     </div>
@@ -791,9 +827,12 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<CortexShell />} />
-        <Route path="/groups/:groupId/tasks" element={<CortexShell />} />
-        <Route path="*" element={<Navigate to="/" replace />} />
+        <Route path="/" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+        <Route path="/app" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+        <Route path="/app/groups/:groupId/tasks" element={<CortexShell />} />
+        {/* Legacy redirects */}
+        <Route path="/groups/:groupId/tasks" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+        <Route path="*" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
       </Routes>
     </BrowserRouter>
   );

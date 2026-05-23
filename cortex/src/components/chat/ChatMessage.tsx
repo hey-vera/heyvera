@@ -1,11 +1,14 @@
 import { Check, Copy, Bot, Route, ShieldCheck, Sparkles, User } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import ApprovalCard from './ApprovalCard';
+import FlowOptions from './FlowOptions';
 import type { ApprovalState, ChatMessage as ChatMessageType } from '../../types';
 
 interface ChatMessageProps {
   message: ChatMessageType;
   onApprovalAction: (messageId: string, nextState: ApprovalState) => void;
+  onSelectFlowOption?: (optionId: string, optionLabel: string) => void;
+  flowOptionsDisabled?: boolean;
 }
 
 function formatTime(timestamp: string) {
@@ -45,7 +48,12 @@ function RoutingReceipt({ message }: { message: ChatMessageType }) {
   );
 }
 
-export default function ChatMessage({ message, onApprovalAction }: ChatMessageProps) {
+export default function ChatMessage({
+  message,
+  onApprovalAction,
+  onSelectFlowOption,
+  flowOptionsDisabled = false
+}: ChatMessageProps) {
   const isUser = message.role === 'user';
   const [copied, setCopied] = useState(false);
   const canCopy = message.content.trim().length > 0;
@@ -87,6 +95,13 @@ export default function ChatMessage({ message, onApprovalAction }: ChatMessagePr
           <RoutingReceipt message={message} />
           {message.approvalRequest ? (
             <ApprovalCard request={message.approvalRequest} onAction={onApprovalAction} />
+          ) : null}
+          {message.conversationFlow && message.conversationFlow.options.length > 0 && onSelectFlowOption ? (
+            <FlowOptions
+              options={message.conversationFlow.options}
+              onSelectOption={onSelectFlowOption}
+              disabled={flowOptionsDisabled}
+            />
           ) : null}
         </div>
         <div className="mt-1.5 flex items-center gap-1.5 px-1 text-[11px] text-[var(--muted)]">

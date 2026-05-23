@@ -1,7 +1,7 @@
 import type { ChatSessionControls, CortexState, RunProfile, SovereigntyLoopState, TaskManagerState } from '../types';
 
 const CONFIGURED_API_BASE = import.meta.env.VITE_CORTEX_API as string | undefined;
-const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.heyvera.org');
+const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : '');
 
 function apiUrl(path: string) {
   const base = BASE_URL.replace(/\/$/, '');
@@ -900,4 +900,223 @@ export async function addMessageToConversation(
     body: JSON.stringify({ role, content, provider, model }),
   });
   return res.json();
+}
+
+// Memory API
+
+export interface MemoryStats {
+  total: number;
+  policies: number;
+  team_rules: number;
+  notes: number;
+  avg_effectiveness: number;
+}
+
+export interface WorkspaceMemory {
+  id: string;
+  workspace_id: string;
+  content: string;
+  importance: 'Remember' | 'TeamRule' | 'Policy';
+  created_by: string;
+  created_at: string;
+  expires_at: string | null;
+  effectiveness_score: number;
+  tags: string[];
+}
+
+export interface MemoryMatch {
+  memory: WorkspaceMemory;
+  relevance_score: number;
+  match_reason: string;
+}
+
+export interface MemorySuggestion {
+  text: string;
+  category: 'remember' | 'recall' | 'forget' | 'list';
+  command: string;
+  description?: string;
+}
+
+export async function getMemoryStats(workspaceId = 'default'): Promise<MemoryStats> {
+  return requestJson<MemoryStats>(`/api/memory/stats?workspace_id=${encodeURIComponent(workspaceId)}`);
+}
+
+export async function listMemories(
+  workspaceId = 'default',
+  importanceFilter?: string,
+  limit = 20,
+  offset = 0,
+): Promise<WorkspaceMemory[]> {
+  const params = new URLSearchParams({
+    workspace_id: workspaceId,
+    limit: limit.toString(),
+    offset: offset.toString(),
+  });
+  if (importanceFilter) {
+    params.set('importance', importanceFilter);
+  }
+  return requestJson<WorkspaceMemory[]>(`/api/memory/memories?${params}`);
+}
+
+export async function searchMemories(
+  query: string,
+  workspaceId = 'default',
+  limit = 10,
+): Promise<MemoryMatch[]> {
+  return requestJson<MemoryMatch[]>('/api/memory/memories/search', {
+    method: 'POST',
+    body: JSON.stringify({
+      query,
+      workspace_id: workspaceId,
+      limit,
+    }),
+  });
+}
+
+export async function storeMemory(
+  content: string,
+  importance: 'Remember' | 'TeamRule' | 'Policy' = 'Remember',
+  workspaceId = 'default',
+  contextTrigger?: string,
+  tags?: string[],
+): Promise<WorkspaceMemory> {
+  return requestJson<WorkspaceMemory>('/api/memory/memories', {
+    method: 'POST',
+    body: JSON.stringify({
+      content,
+      importance,
+      workspace_id: workspaceId,
+      context_trigger: contextTrigger,
+      tags,
+    }),
+  });
+}
+
+export async function removeMemories(pattern: string, workspaceId = 'default'): Promise<{ count: number }> {
+  return requestJson<{ count: number }>('/api/memory/remove', {
+    method: 'DELETE',
+    body: JSON.stringify({
+      pattern,
+      workspace_id: workspaceId,
+    }),
+  });
+}
+
+export async function getMemorySuggestions(
+  context?: {
+    files?: string[];
+    message?: string;
+    recentMessages?: string[];
+  },
+): Promise<MemorySuggestion[]> {
+  return requestJson<MemorySuggestion[]>('/api/memory/suggestions', {
+    method: 'POST',
+    body: JSON.stringify(context || {}),
+  });
+}
+
+export async function updateMemoryEffectiveness(
+  memoryId: string,
+  outcomeQuality: number,
+): Promise<void> {
+  await authedFetch(apiUrl(`/api/memory/memories/${encodeURIComponent(memoryId)}/effectiveness`), {
+    method: 'POST',
+    body: JSON.stringify({ outcome_quality: outcomeQuality }),
+  });
+}
+
+// New memory-enhanced chat functions
+export interface MemoryEnhancedChatRequest {
+  message: string;
+  files?: string[];
+  workspaceId?: string;
+  conversationId?: string;
+  teamMembers?: string[];
+  projectPhase?: string;
+  activeTopics?: string[];
+}
+
+export interface MemoryEnhancedChatResponse {
+  relevant_memories: MemoryMatch[];
+  live_suggestions: LiveMemorySuggestion[];
+  auto_capture?: AutoCaptureOpportunity;
+  memory_stats: {
+    total_memories: number;
+    avg_effectiveness: number;
+    recent_activity: number;
+    context_quality: number;
+  };
+  enhanced_context: string;
+}
+
+export interface LiveMemorySuggestion {
+  suggestion_id: string;
+  suggestion_type: 'ProactiveMemory' | 'ContextualRetrieval' | 'KnowledgeGap' | 'ConflictWarning';
+  relevance_score: number;
+  confidence: number;
+  suggestion: {
+    suggested_content: string;
+    prediction_type: string;
+  };
+  trigger_reason: string;
+  suggested_action: string;
+}
+
+export interface AutoCaptureOpportunity {
+  opportunity_id: string;
+  content: string;
+  suggested_importance: 'Remember' | 'TeamRule' | 'Policy';
+  confidence: number;
+  rationale: string;
+  suggested_tags: string[];
+  requires_approval: boolean;
+}
+
+export async function processMemoryEnhancedChat(
+  request: MemoryEnhancedChatRequest
+): Promise<MemoryEnhancedChatResponse> {
+  return requestJson<MemoryEnhancedChatResponse>('/api/memory/chat/process', {
+    method: 'POST',
+    body: JSON.stringify({
+      message: {
+        content: request.message,
+        sender: 'user', // Would get from auth
+        metadata: {},
+      },
+      context: {
+        conversation_id: request.conversationId || 'default',
+        messages: [{
+          content: request.message,
+          sender: 'user',
+          metadata: {},
+        }],
+        current_files: request.files || [],
+        active_topics: request.activeTopics || [],
+        workspace_id: request.workspaceId || 'default',
+        team_members: request.teamMembers || [],
+        project_phase: request.projectPhase || 'development',
+        priority_areas: [],
+        knowledge_gaps: [],
+      },
+    }),
+  });
+}
+
+export async function applyMemorySuggestion(suggestionId: string): Promise<void> {
+  return requestJson<void>(`/api/memory/chat/suggestions/${encodeURIComponent(suggestionId)}/apply`, {
+    method: 'POST',
+  });
+}
+
+export async function createFromAutoCapture(
+  opportunity: AutoCaptureOpportunity,
+  workspaceId = 'default'
+): Promise<WorkspaceMemory> {
+  return requestJson<WorkspaceMemory>('/api/memory/chat/auto-capture', {
+    method: 'POST',
+    body: JSON.stringify({
+      ...opportunity,
+      workspace_id: workspaceId,
+    }),
+  });
 }

@@ -124,6 +124,30 @@ export interface ApprovalRequest {
   state: ApprovalState;
 }
 
+export interface FlowOption {
+  id: string;
+  label: string;
+  description?: string;
+  category: string;
+}
+
+export interface FlowState {
+  currentStep: string;
+  progress: number;
+  completed: boolean;
+}
+
+export interface ConversationFlow {
+  flowType: string;
+  options: FlowOption[];
+  flowState: FlowState;
+  flowComplete: boolean;
+  handoff?: {
+    target: string;
+    context: unknown;
+  };
+}
+
 export interface ChatMessage {
   id: string;
   role: ChatRole;
@@ -136,6 +160,7 @@ export interface ChatMessage {
   isStreaming?: boolean;
   approvalRequest?: ApprovalRequest;
   sovereignty?: SovereigntyLoopState;
+  conversationFlow?: ConversationFlow;
 }
 
 export type SessionSpeed = 'steady' | 'balanced' | 'rapid';
