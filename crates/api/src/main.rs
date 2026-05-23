@@ -54,7 +54,7 @@ async fn main() {
         tracing::info!("auth: disabled (no CLERK_SECRET_KEY) — all requests treated as user \"local\"");
     }
 
-    let state = AppState::new(ledger_path, workspace_dir, clerk_secret_key);
+    let state = AppState::new(ledger_path, workspace_dir, clerk_secret_key).await;
 
     // Start the scheduler loop
     let scheduler_tx = scheduler::spawn_scheduler(state.clone());
