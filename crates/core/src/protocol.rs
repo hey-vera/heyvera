@@ -153,6 +153,8 @@ pub struct WorkerEvidencePacket {
     #[serde(default)]
     pub command: CommandEvidence,
     #[serde(default)]
+    pub checks: Vec<CheckEvidence>,
+    #[serde(default)]
     pub parsed_files_changed: Vec<String>,
 }
 
@@ -186,10 +188,31 @@ pub struct CommandEvidence {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CheckEvidence {
+    pub name: String,
+    pub command: String,
+    #[serde(default = "default_required_check")]
+    pub required: bool,
+    pub exit_code: Option<i32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stdout_excerpt: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stderr_excerpt: Option<String>,
+    #[serde(default)]
+    pub timed_out: bool,
+    #[serde(default)]
+    pub duration_ms: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct StepContext {
     pub predecessor_summaries: Vec<PredecessorSummary>,
     pub user_goal: String,
     pub conversation_excerpt: Option<String>,
+}
+
+fn default_required_check() -> bool {
+    true
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

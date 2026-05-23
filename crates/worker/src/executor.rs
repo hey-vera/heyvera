@@ -4,7 +4,7 @@ use std::process::Stdio;
 use cortex_core::error::CortexError;
 use cortex_core::failure::{WorkerFailureKind, WorkerFailureReport};
 use cortex_core::protocol::{
-    CommandEvidence, GitEvidence, StepOutput, WorkerEvidencePacket,
+    CheckEvidence, CommandEvidence, GitEvidence, StepOutput, WorkerEvidencePacket,
 };
 use cortex_core::provider::ProviderId;
 use cortex_core::routing::RoutingDecision;
@@ -15,6 +15,8 @@ use tokio::sync::mpsc;
 
 use crate::stream::WorkerEvent;
 use crate::worktree;
+
+const REQUIRED_CHECK_TIMEOUT_SECS: u64 = 120;
 
 pub struct StepExecution {
     pub step_id: String,
@@ -83,8 +85,15 @@ impl Executor {
         let base_commit = get_git_head(effective_dir_ref);
 
         let result = Self::run_child(
-            command, &cmd, step, &tx, decision, effective_dir_ref, base_commit,
-            task, &mut worktree_guard,
+            command,
+            &cmd,
+            step,
+            &tx,
+            decision,
+            effective_dir_ref,
+            base_commit,
+            task,
+            &mut worktree_guard,
         )
         .await;
 
@@ -243,6 +252,12 @@ impl Executor {
                 last_lines.join("\n")
             };
 
+            let check_evidence = if let Some(dir) = effective_dir {
+                run_required_checks(task, dir).await
+            } else {
+                Vec::new()
+            };
+
             // Auto-commit any uncommitted changes left by the CLI tool.
             // Only for execute-tier tasks (not search/think) that actually
             // produced file changes.
@@ -344,6 +359,7 @@ impl Executor {
                                 Some(summary)
                             },
                         },
+                        checks: check_evidence,
                         parsed_files_changed,
                     }),
                     tokens_in,
@@ -400,7 +416,11 @@ fn extract_claude_text(line: &str) -> Option<String> {
             let content_val = v.get("message")?.get("content")?;
             // Handle content as a plain string
             if let Some(s) = content_val.as_str() {
-                return if s.is_empty() { None } else { Some(s.to_string()) };
+                return if s.is_empty() {
+                    None
+                } else {
+                    Some(s.to_string())
+                };
             }
             // Handle content as an array of blocks
             let content = content_val.as_array()?;
@@ -523,7 +543,10 @@ fn extract_codex_usage(line: &str) -> Option<(i64, i64)> {
         .and_then(|t| t.as_i64())?;
     let output = v
         .get("usage")
-        .and_then(|u| u.get("output_tokens").or_else(|| u.get("completion_tokens")))
+        .and_then(|u| {
+            u.get("output_tokens")
+                .or_else(|| u.get("completion_tokens"))
+        })
         .and_then(|t| t.as_i64())?;
     Some((input, output))
 }
@@ -659,6 +682,94 @@ fn completion_files_changed(
         Some(evidence) => evidence.changed_files.clone(),
         None => parsed_files_changed,
     }
+}
+
+async fn run_required_checks(
+    task: &TaskContract,
+    working_dir: &std::path::Path,
+) -> Vec<CheckEvidence> {
+    let mut results = Vec::new();
+
+    for check in &task.required_checks {
+        if check.command.trim().is_empty() {
+            results.push(CheckEvidence {
+                name: check.name.clone(),
+                command: check.command.clone(),
+                required: check.required,
+                exit_code: None,
+                stdout_excerpt: None,
+                stderr_excerpt: Some("required check command is empty".to_string()),
+                timed_out: false,
+                duration_ms: 0,
+            });
+            continue;
+        }
+
+        let started = std::time::Instant::now();
+        let mut command = Command::new("sh");
+        command
+            .arg("-lc")
+            .arg(&check.command)
+            .current_dir(working_dir)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        let output = tokio::time::timeout(
+            std::time::Duration::from_secs(REQUIRED_CHECK_TIMEOUT_SECS),
+            command.output(),
+        )
+        .await;
+
+        let duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
+        match output {
+            Ok(Ok(output)) => {
+                results.push(CheckEvidence {
+                    name: check.name.clone(),
+                    command: check.command.clone(),
+                    required: check.required,
+                    exit_code: output.status.code(),
+                    stdout_excerpt: excerpt_from_text(
+                        &String::from_utf8_lossy(&output.stdout),
+                        4_000,
+                    ),
+                    stderr_excerpt: excerpt_from_text(
+                        &String::from_utf8_lossy(&output.stderr),
+                        4_000,
+                    ),
+                    timed_out: false,
+                    duration_ms,
+                });
+            }
+            Ok(Err(err)) => {
+                results.push(CheckEvidence {
+                    name: check.name.clone(),
+                    command: check.command.clone(),
+                    required: check.required,
+                    exit_code: None,
+                    stdout_excerpt: None,
+                    stderr_excerpt: Some(format!("failed to run required check: {err}")),
+                    timed_out: false,
+                    duration_ms,
+                });
+            }
+            Err(_) => {
+                results.push(CheckEvidence {
+                    name: check.name.clone(),
+                    command: check.command.clone(),
+                    required: check.required,
+                    exit_code: None,
+                    stdout_excerpt: None,
+                    stderr_excerpt: Some(format!(
+                        "required check timed out after {REQUIRED_CHECK_TIMEOUT_SECS}s"
+                    )),
+                    timed_out: true,
+                    duration_ms,
+                });
+            }
+        }
+    }
+
+    results
 }
 
 fn excerpt_from_lines(lines: &[String], max_chars: usize) -> Option<String> {

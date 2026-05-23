@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -11,26 +11,24 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use cortex_core::failure::WorkerFailureKind;
-use cortex_core::protocol::{BrainMessage, StepOutput, WorkerMessage, PROTOCOL_VERSION};
+use cortex_core::protocol::{BrainMessage, PROTOCOL_VERSION, StepOutput, WorkerMessage};
 use cortex_core::routing::RiskLevel;
 use cortex_core::task::TaskContract;
 use cortex_engine::captain::SchedulerEvent;
 use cortex_engine::verifier::{
-    verify_step, StructuredStepEvidence, VerifierInput, VerifierVerdict, VerifierWorkContract,
+    CheckEvidence as VerifierCheckEvidence, CheckStatus, StructuredStepEvidence, VerifierInput,
+    VerifierVerdict, VerifierWorkContract, verify_step,
 };
 
 use crate::clerk;
+use crate::context_flow::{ArtifactKind, ContextBus};
 use crate::mission_control::MissionControlEvent;
 use crate::state::{AppState, StepEvent};
-use crate::context_flow::{ContextBus, ArtifactKind};
 
 const GRACE_PERIOD_MS: i64 = 60_000;
 const REGISTER_TIMEOUT_SECS: u64 = 10;
 
-pub async fn ws_handler(
-    ws: WebSocketUpgrade,
-    State(state): State<Arc<AppState>>,
-) -> Response {
+pub async fn ws_handler(ws: WebSocketUpgrade, State(state): State<Arc<AppState>>) -> Response {
     if state.is_shutting_down.load(Ordering::SeqCst) {
         return (StatusCode::SERVICE_UNAVAILABLE, "server is shutting down").into_response();
     }
@@ -67,25 +65,23 @@ async fn handle_worker_connection(mut socket: WebSocket, state: Arc<AppState>) {
     )
     .await
     {
-        Ok(Some(Ok(Message::Text(text)))) => {
-            match serde_json::from_str::<WorkerMessage>(&text) {
-                Ok(msg @ WorkerMessage::Register { .. }) => Some(msg),
-                Ok(_) => {
-                    tracing::warn!(
-                        "worker {worker_id}: first message was not Register, closing connection"
-                    );
-                    let _ = socket.send(Message::Close(None)).await;
-                    return;
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        "worker {worker_id}: invalid first message: {e}, closing connection"
-                    );
-                    let _ = socket.send(Message::Close(None)).await;
-                    return;
-                }
+        Ok(Some(Ok(Message::Text(text)))) => match serde_json::from_str::<WorkerMessage>(&text) {
+            Ok(msg @ WorkerMessage::Register { .. }) => Some(msg),
+            Ok(_) => {
+                tracing::warn!(
+                    "worker {worker_id}: first message was not Register, closing connection"
+                );
+                let _ = socket.send(Message::Close(None)).await;
+                return;
             }
-        }
+            Err(e) => {
+                tracing::warn!(
+                    "worker {worker_id}: invalid first message: {e}, closing connection"
+                );
+                let _ = socket.send(Message::Close(None)).await;
+                return;
+            }
+        },
         Ok(Some(Ok(Message::Close(_)))) | Ok(None) => {
             tracing::info!("worker {worker_id}: disconnected before registration");
             return;
@@ -270,7 +266,8 @@ async fn handle_worker_msg(
             state.clear_disabled_providers(worker_id).await;
 
             // Capture provider strings before moving provider_ids
-            let provider_strings: Vec<String> = provider_ids.iter().map(|p| p.to_string()).collect();
+            let provider_strings: Vec<String> =
+                provider_ids.iter().map(|p| p.to_string()).collect();
 
             state
                 .register_worker(
@@ -332,10 +329,12 @@ async fn handle_worker_msg(
 
             // Forward to SSE channel (chat endpoint)
             if let Some(tx) = state.get_step_sender(&step_id).await {
-                let _ = tx.send(StepEvent::Output {
-                    step_id: step_id.clone(),
-                    line: line.clone(),
-                }).await;
+                let _ = tx
+                    .send(StepEvent::Output {
+                        step_id: step_id.clone(),
+                        line: line.clone(),
+                    })
+                    .await;
             }
 
             // Emit MC event (throttled by the MC connection handler)
@@ -444,7 +443,8 @@ async fn handle_worker_msg(
                         &evidence_json,
                     );
                 } else {
-                    verifier_failure = "verifier could not resolve run for completed step".to_string();
+                    verifier_failure =
+                        "verifier could not resolve run for completed step".to_string();
                     verified_success = false;
                 }
 
@@ -469,8 +469,18 @@ async fn handle_worker_msg(
                         verifier_failure = "verifier rejected worker completion".to_string();
                     }
                     completion_error = verifier_failure.clone();
-                    db.fail_step(&step_id, lease_gen, &verifier_failure, Some("VerifierRejected"));
-                    db.fail_attempt(&step_id, lease_gen, Some("VerifierRejected"), Some(&verifier_failure));
+                    db.fail_step(
+                        &step_id,
+                        lease_gen,
+                        &verifier_failure,
+                        Some("VerifierRejected"),
+                    );
+                    db.fail_attempt(
+                        &step_id,
+                        lease_gen,
+                        Some("VerifierRejected"),
+                        Some(&verifier_failure),
+                    );
                 }
                 completion_accepted = verified_success;
 
@@ -557,7 +567,10 @@ async fn handle_worker_msg(
                         confidence,
                     );
 
-                    state.context_bus.add_artifact(state.db.as_ref(), artifact).await;
+                    state
+                        .context_bus
+                        .add_artifact(state.db.as_ref(), artifact)
+                        .await;
 
                     tracing::debug!("artifact added to context-flow pipeline for run {run_id}");
                 }
@@ -565,15 +578,24 @@ async fn handle_worker_msg(
                 // Vera observes the completed step
                 if let Some(user_id) = authed_user_id.as_deref() {
                     if verified_success {
-                        let duration_ms = if let Some((_, _, started_at)) = db.get_attempt_provider_model(&step_id, lease_gen) {
+                        let duration_ms = if let Some((_, _, started_at)) =
+                            db.get_attempt_provider_model(&step_id, lease_gen)
+                        {
                             let now = chrono::Utc::now().timestamp_millis();
                             (now - started_at).max(0) as u64
                         } else {
                             0
                         };
-                        state.vera_tracker.record_step_completed(user_id, duration_ms, exit_code, None);
+                        state.vera_tracker.record_step_completed(
+                            user_id,
+                            duration_ms,
+                            exit_code,
+                            None,
+                        );
                     } else {
-                        state.vera_tracker.record_step_failed(user_id, "VerifierRejected", None);
+                        state
+                            .vera_tracker
+                            .record_step_failed(user_id, "VerifierRejected", None);
                     }
                 }
             }
@@ -581,15 +603,19 @@ async fn handle_worker_msg(
             // Forward to SSE channel (chat endpoint)
             if let Some(tx) = state.get_step_sender(&step_id).await {
                 if completion_accepted {
-                    let _ = tx.send(StepEvent::Completed {
-                        step_id: step_id.clone(),
-                        exit_code,
-                    }).await;
+                    let _ = tx
+                        .send(StepEvent::Completed {
+                            step_id: step_id.clone(),
+                            exit_code,
+                        })
+                        .await;
                 } else {
-                    let _ = tx.send(StepEvent::Failed {
-                        step_id: step_id.clone(),
-                        error: completion_error,
-                    }).await;
+                    let _ = tx
+                        .send(StepEvent::Failed {
+                            step_id: step_id.clone(),
+                            error: completion_error,
+                        })
+                        .await;
                 }
             }
             state.remove_step_sender(&step_id).await;
@@ -613,10 +639,7 @@ async fn handle_worker_msg(
                 }
             }
 
-            tracing::warn!(
-                "step {step_id} failed: {:?} msg={message_id}",
-                failure.kind
-            );
+            tracing::warn!("step {step_id} failed: {:?} msg={message_id}", failure.kind);
 
             let error_msg = failure.stderr_excerpt.as_deref().unwrap_or("unknown error");
             let kind_str = format!("{:?}", failure.kind);
@@ -632,7 +655,14 @@ async fn handle_worker_msg(
                 db.fail_attempt(&step_id, lease_gen, Some(&kind_str), Some(error_msg));
 
                 // Record usage even on failure (still consumed tokens/time)
-                record_step_usage(db, &step_id, lease_gen, authed_user_id.as_deref(), None, None);
+                record_step_usage(
+                    db,
+                    &step_id,
+                    lease_gen,
+                    authed_user_id.as_deref(),
+                    None,
+                    None,
+                );
 
                 if let Some(run_id) = resolve_run_id(step_run_cache, state, &step_id) {
                     state
@@ -660,22 +690,31 @@ async fn handle_worker_msg(
 
                 // Vera observes the failed step
                 if let Some(user_id) = authed_user_id.as_deref() {
-                    state.vera_tracker.record_step_failed(user_id, &kind_str, None);
+                    state
+                        .vera_tracker
+                        .record_step_failed(user_id, &kind_str, None);
                 }
 
                 // Forward to SSE channel (chat endpoint)
                 if let Some(tx) = state.get_step_sender(&step_id).await {
-                    let _ = tx.send(StepEvent::Failed {
-                        step_id: step_id.clone(),
-                        error: error_msg.to_string(),
-                    }).await;
+                    let _ = tx
+                        .send(StepEvent::Failed {
+                            step_id: step_id.clone(),
+                            error: error_msg.to_string(),
+                        })
+                        .await;
                 }
                 state.remove_step_sender(&step_id).await;
 
                 // Emit ProviderAuthExpired so scheduler disables the provider on this worker
                 if is_auth_expired {
-                    let provider_name = failure.tool.clone().unwrap_or_else(|| "unknown".to_string());
-                    let user_id = authed_user_id.clone().unwrap_or_else(|| "local".to_string());
+                    let provider_name = failure
+                        .tool
+                        .clone()
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let user_id = authed_user_id
+                        .clone()
+                        .unwrap_or_else(|| "local".to_string());
                     tracing::warn!(
                         "provider auth expired: provider={provider_name}, worker={worker_id}, user={user_id}"
                     );
@@ -709,7 +748,9 @@ async fn handle_worker_msg(
                 if renewed {
                     tracing::debug!("lease renewed for step {step_id} gen={lease_gen}");
                 } else {
-                    tracing::warn!("lease renewal failed for step {step_id} gen={lease_gen} — stale or not leased");
+                    tracing::warn!(
+                        "lease renewal failed for step {step_id} gen={lease_gen} — stale or not leased"
+                    );
                 }
             }
         }
@@ -747,7 +788,25 @@ fn verify_worker_completion(
         .map(|(_, _, risk, objective)| (parse_verifier_risk(&risk), objective))
         .unwrap_or((RiskLevel::Medium, String::new()));
 
-    let git = output.evidence.as_ref().and_then(|packet| packet.git.as_ref());
+    let git = output
+        .evidence
+        .as_ref()
+        .and_then(|packet| packet.git.as_ref());
+    let checks = output
+        .evidence
+        .as_ref()
+        .map(|packet| {
+            packet
+                .checks
+                .iter()
+                .map(|check| VerifierCheckEvidence {
+                    name: check.name.clone(),
+                    status: check_status(check.exit_code, check.timed_out),
+                    summary: check_summary(check),
+                })
+                .collect()
+        })
+        .unwrap_or_default();
     let evidence = StructuredStepEvidence {
         step_id: Some(step_id.to_string()),
         attempt_id: Some(attempt_id.to_string()),
@@ -761,7 +820,7 @@ fn verify_worker_completion(
             .and_then(|evidence| evidence.head_commit.clone())
             .or_else(|| head_commit.map(str::to_string)),
         commands: Vec::new(),
-        checks: Vec::new(),
+        checks,
         signals: Vec::new(),
     };
 
@@ -784,10 +843,7 @@ fn verify_worker_completion(
             )
         });
 
-    let input = VerifierInput {
-        contract,
-        evidence,
-    };
+    let input = VerifierInput { contract, evidence };
 
     let report = verify_step(input.clone());
     let status = verifier_status(report.verdict).to_string();
@@ -822,6 +878,46 @@ fn fallback_task_contract(objective: String, risk: RiskLevel) -> TaskContract {
     TaskContract::new(objective, cortex_core::provider::Tier::Execute, risk)
 }
 
+fn check_status(exit_code: Option<i32>, timed_out: bool) -> CheckStatus {
+    if timed_out {
+        CheckStatus::Failed
+    } else {
+        match exit_code {
+            Some(0) => CheckStatus::Passed,
+            Some(_) => CheckStatus::Failed,
+            None => CheckStatus::Unknown,
+        }
+    }
+}
+
+fn check_summary(check: &cortex_core::protocol::CheckEvidence) -> Option<String> {
+    let mut parts = Vec::new();
+    if check.timed_out {
+        parts.push("timed out".to_string());
+    }
+    if let Some(code) = check.exit_code {
+        parts.push(format!("exit code {code}"));
+    }
+    if let Some(stderr) = check
+        .stderr_excerpt
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        parts.push(stderr.clone());
+    } else if let Some(stdout) = check
+        .stdout_excerpt
+        .as_ref()
+        .filter(|s| !s.trim().is_empty())
+    {
+        parts.push(stdout.clone());
+    }
+    if parts.is_empty() {
+        None
+    } else {
+        Some(parts.join(": "))
+    }
+}
+
 fn parse_verifier_risk(risk: &str) -> RiskLevel {
     match risk.to_ascii_lowercase().as_str() {
         "low" => RiskLevel::Low,
@@ -833,9 +929,7 @@ fn parse_verifier_risk(risk: &str) -> RiskLevel {
 
 fn verifier_status(verdict: VerifierVerdict) -> &'static str {
     match verdict {
-        VerifierVerdict::Success | VerifierVerdict::Failed | VerifierVerdict::Blocked => {
-            "verified"
-        }
+        VerifierVerdict::Success | VerifierVerdict::Failed | VerifierVerdict::Blocked => "verified",
         VerifierVerdict::NeedsEvidence => "needs_evidence",
     }
 }
@@ -933,7 +1027,8 @@ async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, St
             if delegation.issuer_did != heart.did() {
                 return Err(format!(
                     "delegation issuer {} is not Cortex heart {}",
-                    delegation.issuer_did, heart.did()
+                    delegation.issuer_did,
+                    heart.did()
                 ));
             }
         }
@@ -957,7 +1052,10 @@ async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, St
             );
         }
 
-        tracing::info!("worker authenticated via soma delegation: {}", delegation.subject_did);
+        tracing::info!(
+            "worker authenticated via soma delegation: {}",
+            delegation.subject_did
+        );
         return Ok(delegation.subject_did);
     }
 
