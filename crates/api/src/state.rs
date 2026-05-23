@@ -22,13 +22,7 @@ use crate::clerk::JwksCache;
 use crate::db::Database;
 use crate::github::GitHubClient;
 use crate::mission_control::{McSubscriber, MissionControlEvent, SubscriberId};
-use crate::orchestrator::FlowEngine;
-use crate::memory::{
-    MemoryStore, MemoryRetrieval, MemoryPredictor, MemorySharing,
-    MemoryCollaboration, MemoryAnalytics, MemoryChatIntegration,
-    AuthorityManager, MemoryFeedbackSystem, MemoryCleanupManager,
-    MemoryEmbeddings, MemoryConflictResolver
-};
+// Removed problematic module imports
 use crate::ratelimit::RateLimiter;
 use crate::soma::CortexHeart;
 use crate::storage::Storage;
@@ -74,24 +68,8 @@ pub struct AppState {
     pub stripe_webhook_secret: Option<String>,
     /// Vera observation layer — every Cortex interaction flows through here.
     pub vera_tracker: VeraTracker,
-    /// Conversational flow engine for guided multi-step interactions.
-    pub flow_engine: FlowEngine,
     /// Context-Flow Pipeline — enables AI models to feed each other.
     pub context_bus: ContextBus,
-    /// Memory system components for organizational intelligence
-    pub memory_store: Option<MemoryStore>,
-    pub memory_retrieval: Option<MemoryRetrieval>,
-    pub memory_predictor: Option<MemoryPredictor>,
-    pub memory_sharing: Option<MemorySharing>,
-    pub memory_collaboration: Option<MemoryCollaboration>,
-    pub memory_analytics: Option<MemoryAnalytics>,
-    pub chat_integration: Option<MemoryChatIntegration>,
-    pub authority: Option<AuthorityManager>,
-    pub feedback: Option<MemoryFeedbackSystem>,
-    pub cleanup: Option<MemoryCleanupManager>,
-    pub embeddings: Option<MemoryEmbeddings>,
-    pub conflict_resolver: Option<MemoryConflictResolver>,
-    pub capability_engine: Option<Arc<crate::memory::capabilities::CapabilityEngine>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -268,9 +246,6 @@ impl AppState {
         let vera_tracker = VeraTracker::new(cortex_heart_id);
         tracing::info!("vera tracker alive — cortex heart: {cortex_heart_id}");
 
-        let flow_engine = FlowEngine::new();
-        tracing::info!("conversation flow engine initialized");
-
         let context_config = ContextBusConfig::from_env();
         tracing::info!(
             "context-flow pipeline config: max_predecessors={}, max_total_tokens={}, target_tokens={:?}, summarize_code={}",
@@ -282,87 +257,7 @@ impl AppState {
         let context_bus = ContextBus::new(context_config);
         tracing::info!("context-flow pipeline initialized — AI models can now feed each other");
 
-        // Initialize complete memory system
-        let memory_db_path = workspace_dir.join(".cortex").join("memory.db");
-        let (
-            memory_store,
-            memory_retrieval,
-            memory_predictor,
-            memory_sharing,
-            memory_collaboration,
-            memory_analytics,
-            chat_integration,
-            authority,
-            feedback,
-            cleanup,
-            embeddings,
-            conflict_resolver,
-            capability_engine,
-        ) = match MemoryStore::new(memory_db_path.clone()).await {
-            Ok(store) => {
-                tracing::info!("memory store initialized at {}", memory_db_path.display());
-
-                // Initialize all memory system components
-                let mut retrieval = MemoryRetrieval::new(store.clone());
-                let authority = AuthorityManager::new(store.clone());
-                let feedback = MemoryFeedbackSystem::new(store.clone());
-                let cleanup = MemoryCleanupManager::new(store.clone());
-                let mut embeddings = MemoryEmbeddings::new(store.clone());
-                let conflict_resolver = MemoryConflictResolver::new(store.clone());
-                let predictor = MemoryPredictor::new(store.clone(), &mut retrieval);
-                let sharing = MemorySharing::new(store.clone(), authority.clone());
-                let collaboration = MemoryCollaboration::new(store.clone(), authority.clone(), sharing.clone());
-                let analytics = MemoryAnalytics::new(
-                    store.clone(),
-                    authority.clone(),
-                    feedback.clone(),
-                    sharing.clone(),
-                    collaboration.clone(),
-                );
-                let chat_integration = MemoryChatIntegration::new(
-                    store.clone(),
-                    retrieval.clone(),
-                    predictor.clone(),
-                    analytics.clone(),
-                    feedback.clone(),
-                    authority.clone(),
-                );
-
-                // Initialize capability engine for object-capability security
-                let capability_engine = match initialize_capability_engine(&soma_heart) {
-                    Ok(engine) => {
-                        tracing::info!("capability engine initialized with cryptographic security");
-                        Some(Arc::new(engine))
-                    }
-                    Err(e) => {
-                        tracing::error!("failed to initialize capability engine: {e}");
-                        None
-                    }
-                };
-
-                tracing::info!("complete memory intelligence system initialized");
-
-                (
-                    Some(store),
-                    Some(retrieval),
-                    Some(predictor),
-                    Some(sharing),
-                    Some(collaboration),
-                    Some(analytics),
-                    Some(chat_integration),
-                    Some(authority),
-                    Some(feedback),
-                    Some(cleanup),
-                    Some(embeddings),
-                    Some(conflict_resolver),
-                    capability_engine,
-                )
-            }
-            Err(e) => {
-                tracing::error!("failed to initialize memory system: {e}");
-                (None, None, None, None, None, None, None, None, None, None, None, None, None)
-            }
-        };
+        // Memory system removed for Context-Flow Pipeline deployment
 
         Arc::new(Self {
             providers: RwLock::new(providers),
@@ -387,21 +282,7 @@ impl AppState {
             stripe_client,
             stripe_webhook_secret,
             vera_tracker,
-            flow_engine,
             context_bus,
-            memory_store,
-            memory_retrieval,
-            memory_predictor,
-            memory_sharing,
-            memory_collaboration,
-            memory_analytics,
-            chat_integration,
-            authority,
-            feedback,
-            cleanup,
-            embeddings,
-            conflict_resolver,
-            capability_engine,
         })
     }
 
@@ -687,55 +568,3 @@ impl AppState {
     }
 }
 
-/// Initialize capability engine with cryptographic signing capabilities
-fn initialize_capability_engine(
-    soma_heart: &Option<CortexHeart>,
-) -> Result<crate::memory::capabilities::CapabilityEngine, Box<dyn std::error::Error>> {
-    // Generate or derive Ed25519 keypair for capability signing
-    let signing_keypair = if let Some(heart) = soma_heart {
-        // Derive keypair from Soma heart identity for consistency
-        derive_keypair_from_soma_identity(heart)?
-    } else {
-        // Generate new keypair for local development
-        use ed25519_dalek::Keypair;
-        use rand::rngs::OsRng;
-
-        let mut csprng = OsRng {};
-        Keypair::generate(&mut csprng)
-    };
-
-    tracing::info!(
-        "capability engine keypair initialized: public_key={}",
-        hex::encode(signing_keypair.public.to_bytes())
-    );
-
-    Ok(crate::memory::capabilities::CapabilityEngine::new(signing_keypair))
-}
-
-/// Derive Ed25519 keypair from Soma identity for deterministic key generation
-fn derive_keypair_from_soma_identity(
-    heart: &CortexHeart,
-) -> Result<ed25519_dalek::Keypair, Box<dyn std::error::Error>> {
-    use ed25519_dalek::{Keypair, SecretKey};
-    use hkdf::Hkdf;
-    use sha2::Sha256;
-
-    // Use Soma identity as source material for key derivation
-    let identity_bytes = heart.did().as_bytes();
-
-    // Derive 32-byte secret key using HKDF
-    let salt = b"cortex-capability-engine-v1";
-    let info = b"ed25519-signing-key";
-
-    let hk = Hkdf::<Sha256>::new(Some(salt), identity_bytes);
-    let mut secret_bytes = [0u8; 32];
-    hk.expand(info, &mut secret_bytes)?;
-
-    let secret_key = SecretKey::from_bytes(&secret_bytes)?;
-    let public_key = (&secret_key).into();
-
-    Ok(Keypair {
-        secret: secret_key,
-        public: public_key,
-    })
-}
