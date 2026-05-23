@@ -834,7 +834,7 @@ async fn load_ready_steps_for_run(state: &AppState, sched: &mut SchedulerState, 
 
 // --- Heal insertion ---
 
-async fn try_heal(state: &AppState, sched: &mut SchedulerState, run_id: &str, step_id: &str) {
+async fn try_heal(state: &AppState, _sched: &mut SchedulerState, run_id: &str, step_id: &str) {
     let db = match &state.db {
         Some(db) => db,
         None => return,
