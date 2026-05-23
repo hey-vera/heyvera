@@ -138,7 +138,7 @@ impl StepKind {
     }
 
     pub fn is_healable(&self) -> bool {
-        matches!(self, Self::Test | Self::Build | Self::Lint)
+        matches!(self, Self::Execute | Self::Test | Self::Build | Self::Lint)
     }
 }
 
@@ -177,11 +177,24 @@ impl EdgeType {
 
 #[derive(Debug, Clone)]
 pub enum SchedulerEvent {
-    RunCreated { run_id: String },
-    StepCompleted { run_id: String, step_id: String, cost_estimate: Option<f64> },
-    StepFailed { run_id: String, step_id: String },
-    WorkerConnected { worker_id: String },
-    WorkerDisconnected { worker_id: String },
+    RunCreated {
+        run_id: String,
+    },
+    StepCompleted {
+        run_id: String,
+        step_id: String,
+        cost_estimate: Option<f64>,
+    },
+    StepFailed {
+        run_id: String,
+        step_id: String,
+    },
+    WorkerConnected {
+        worker_id: String,
+    },
+    WorkerDisconnected {
+        worker_id: String,
+    },
     ProviderAuthExpired {
         worker_id: String,
         provider: String,
@@ -369,7 +382,9 @@ impl RunBuilder {
 
         for &(from, to, _) in &self.edges {
             if from >= self.steps.len() || to >= self.steps.len() {
-                return Err(format!("edge references invalid step index: {from} -> {to}"));
+                return Err(format!(
+                    "edge references invalid step index: {from} -> {to}"
+                ));
             }
             if from == to {
                 return Err(format!("self-referencing edge at step {from}"));
@@ -594,7 +609,11 @@ mod tests {
         let mut state = SchedulerState::new();
 
         // Set max_concurrent to 1 for user-a
-        state.user_queues.entry("user-a".into()).or_default().max_concurrent = 1;
+        state
+            .user_queues
+            .entry("user-a".into())
+            .or_default()
+            .max_concurrent = 1;
 
         for i in 0..3 {
             state.enqueue_ready_step(StepRef {
@@ -674,10 +693,10 @@ mod tests {
 
     #[test]
     fn step_kind_healable() {
+        assert!(StepKind::Execute.is_healable());
         assert!(StepKind::Test.is_healable());
         assert!(StepKind::Build.is_healable());
         assert!(StepKind::Lint.is_healable());
-        assert!(!StepKind::Execute.is_healable());
         assert!(!StepKind::Think.is_healable());
         assert!(!StepKind::Heal.is_healable());
     }
