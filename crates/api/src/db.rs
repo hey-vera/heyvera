@@ -168,7 +168,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 15;
+const SCHEMA_VERSION: i64 = 16;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -225,6 +225,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 15 {
         migrate_v15(conn);
+    }
+    if current < 16 {
+        migrate_v16(conn);
     }
 }
 
@@ -851,6 +854,23 @@ fn migrate_v15(conn: &Connection) {
         .expect("migration v15 failed");
 
     tracing::info!("applied migration v15: steps.recipe_seed_json planner recipe seeds");
+}
+
+fn migrate_v16(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_steps_run_created
+            ON steps(run_id, created_at ASC, id ASC);
+
+        CREATE INDEX IF NOT EXISTS idx_verifier_reports_run_step_latest
+            ON verifier_reports(run_id, step_id, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_step_work_contracts_run_step_latest
+            ON step_work_contracts(run_id, step_id, lease_gen DESC, created_at DESC);
+
+        UPDATE schema_version SET version = 16;"
+    ).expect("migration v16 failed");
+
+    tracing::info!("applied migration v16: run payload snapshot indexes");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
