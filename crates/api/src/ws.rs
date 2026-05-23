@@ -472,6 +472,14 @@ async fn handle_worker_msg(
                         verifier_failure = "verifier rejected worker completion".to_string();
                     }
                     completion_error = verifier_failure.clone();
+                    db.record_failed_step_output(
+                        &step_id,
+                        lease_gen,
+                        Some(&truncated_summary),
+                        files_json.as_deref(),
+                        base_commit.as_deref(),
+                        head_commit.as_deref(),
+                    );
                     db.fail_step(
                         &step_id,
                         lease_gen,

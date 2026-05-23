@@ -83,6 +83,17 @@ pub trait Storage: Send + Sync {
     /// Mark a leased/running step as failed.  Returns `true` if a row was updated.
     fn fail_step(&self, step_id: &str, lease_gen: i64, error: &str, kind: Option<&str>) -> bool;
 
+    /// Preserve rejected completion evidence on a failed step for heal context and UI inspection.
+    fn record_failed_step_output(
+        &self,
+        step_id: &str,
+        lease_gen: i64,
+        summary: Option<&str>,
+        files: Option<&str>,
+        base: Option<&str>,
+        head: Option<&str>,
+    ) -> bool;
+
     /// Check that `worker_id` currently holds the lease on `step_id`.
     fn verify_step_worker(&self, step_id: &str, worker_id: &str) -> bool;
 
@@ -222,6 +233,18 @@ impl Storage for Database {
 
     fn fail_step(&self, step_id: &str, lease_gen: i64, error: &str, kind: Option<&str>) -> bool {
         Database::fail_step(self, step_id, lease_gen, error, kind)
+    }
+
+    fn record_failed_step_output(
+        &self,
+        step_id: &str,
+        lease_gen: i64,
+        summary: Option<&str>,
+        files: Option<&str>,
+        base: Option<&str>,
+        head: Option<&str>,
+    ) -> bool {
+        Database::record_failed_step_output(self, step_id, lease_gen, summary, files, base, head)
     }
 
     fn verify_step_worker(&self, step_id: &str, worker_id: &str) -> bool {

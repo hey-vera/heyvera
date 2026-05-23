@@ -1636,6 +1636,33 @@ impl Database {
         rows > 0
     }
 
+    pub fn record_failed_step_output(
+        &self,
+        step_id: &str,
+        lease_gen: i64,
+        output_summary: Option<&str>,
+        files_changed: Option<&str>,
+        base_commit: Option<&str>,
+        head_commit: Option<&str>,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "UPDATE steps
+             SET output_summary = ?1,
+                 files_changed = ?2,
+                 base_commit = ?3,
+                 head_commit = ?4,
+                 updated_at = ?5,
+                 version = version + 1
+             WHERE id = ?6
+               AND lease_gen = ?7
+               AND status IN ('leased', 'running', 'failed')",
+            params![output_summary, files_changed, base_commit, head_commit, now, step_id, lease_gen],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
     pub fn expire_stale_leases(&self) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
