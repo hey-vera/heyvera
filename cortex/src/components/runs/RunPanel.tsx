@@ -65,6 +65,17 @@ function stepDetail(step: RunStep) {
   return null;
 }
 
+function stepRecipeLine(step: RunStep) {
+  const kind = step.work_recipe?.kind ?? step.work_kind;
+  const paths = step.work_recipe?.target_paths ?? [];
+  const checks = step.required_checks ?? step.work_recipe?.required_checks ?? [];
+  const parts = [];
+  if (kind) parts.push(kind);
+  if (paths.length > 0) parts.push(paths.slice(0, 2).join(', '));
+  if (checks.length > 0) parts.push(`${checks.length} check${checks.length === 1 ? '' : 's'}`);
+  return parts.join(' · ');
+}
+
 function getWorkerSignal(run: RunSummary | null) {
   if (!run) return { label: 'Worker status unknown', className: 'border-white/8 bg-white/4 text-[var(--muted)]' };
   const statuses = run.steps.map((step) => step.status);
@@ -343,8 +354,13 @@ export default function RunPanel({
                       {STATUS_LABELS[step.status] ?? step.status}
                     </span>
                   </div>
-                  {(stepDetail(step) || (step.files_changed?.length ?? 0) > 0 || step.verification_status) && (
+                  {(stepDetail(step) || stepRecipeLine(step) || (step.files_changed?.length ?? 0) > 0 || step.verification_status) && (
                     <div className="mt-1.5 space-y-1 pl-5 text-[10px] leading-4 text-[var(--muted)]">
+                      {stepRecipeLine(step) && (
+                        <div className="truncate text-[var(--muted-strong)]">
+                          Recipe: {stepRecipeLine(step)}
+                        </div>
+                      )}
                       {step.verification_status && (
                         <div className="truncate">
                           Verify: {step.verification_status}{step.verifier_verdict ? ` · ${step.verifier_verdict}` : ''}

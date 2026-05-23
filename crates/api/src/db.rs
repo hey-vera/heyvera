@@ -2390,6 +2390,29 @@ impl Database {
             .ok()
     }
 
+    pub fn get_latest_step_work_contract(&self, step_id: &str) -> Option<TaskContract> {
+        let conn = self.conn.lock().unwrap();
+        let contract_json: String = conn.query_row(
+            "SELECT contract_json FROM step_work_contracts
+             WHERE step_id = ?1
+             ORDER BY lease_gen DESC, created_at DESC
+             LIMIT 1",
+            params![step_id],
+            |row| row.get(0),
+        ).ok()?;
+
+        serde_json::from_str(&contract_json)
+            .map_err(|err| {
+                tracing::error!(
+                    step_id = %step_id,
+                    error = %err,
+                    "failed to deserialize latest step work contract"
+                );
+                err
+            })
+            .ok()
+    }
+
     pub fn get_run_profile(&self, run_id: &str) -> Option<String> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(

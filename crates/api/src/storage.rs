@@ -126,6 +126,9 @@ pub trait Storage: Send + Sync {
     /// Return the work contract for a specific step lease, if one was recorded.
     fn get_step_work_contract(&self, step_id: &str, lease_gen: i64) -> Option<TaskContract>;
 
+    /// Return the latest work contract for a step, if one was recorded.
+    fn get_latest_step_work_contract(&self, step_id: &str) -> Option<TaskContract>;
+
     // ── Usage ──────────────────────────────────────────────────────────
 
     /// Record a usage event (tokens consumed by a step execution).
@@ -295,6 +298,10 @@ impl Storage for Database {
 
     fn get_step_work_contract(&self, step_id: &str, lease_gen: i64) -> Option<TaskContract> {
         Database::get_step_work_contract(self, step_id, lease_gen)
+    }
+
+    fn get_latest_step_work_contract(&self, step_id: &str) -> Option<TaskContract> {
+        Database::get_latest_step_work_contract(self, step_id)
     }
 
     fn record_usage(

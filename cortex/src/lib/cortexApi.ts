@@ -713,6 +713,7 @@ export interface RunStep {
   goal?: string;
   title?: string;
   kind?: string;
+  work_kind?: string;
   tier?: string;
   risk?: string;
   objective?: string;
@@ -723,6 +724,17 @@ export interface RunStep {
   verification_status?: string | null;
   verifier_verdict?: string | null;
   verifier_report_id?: string | null;
+  recipe_seed?: unknown;
+  work_recipe?: {
+    version?: number;
+    kind?: string;
+    target_paths?: string[];
+    acceptance?: Array<{ id?: string; text?: string; verification?: unknown }>;
+    constraints?: string[];
+    required_checks?: Array<{ name?: string; command?: string; required?: boolean }>;
+  } | null;
+  acceptance_criteria?: string[];
+  required_checks?: Array<{ name?: string; command?: string; required?: boolean }>;
   predecessors?: string[];
   parent_id?: string | null;
 }

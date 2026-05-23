@@ -263,6 +263,10 @@ pub async fn get_run_detail(
             let output = db.get_step_output_summary(sid);
             let files = db.get_step_files_changed(sid);
             let error = db.get_step_last_error(sid);
+            let recipe_seed = db
+                .get_step_recipe_seed_json(sid)
+                .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok());
+            let work_contract = db.get_latest_step_work_contract(sid);
 
             let mut step = serde_json::json!({
                 "id": sid,
@@ -285,6 +289,17 @@ pub async fn get_run_detail(
             }
             if let Some(e) = error {
                 step["last_error"] = serde_json::json!(e);
+            }
+            if let Some(recipe_seed) = recipe_seed {
+                step["recipe_seed"] = recipe_seed;
+            }
+            if let Some(work_contract) = work_contract {
+                if let Some(work_recipe) = work_contract.work_recipe {
+                    step["work_recipe"] =
+                        serde_json::to_value(work_recipe).unwrap_or(serde_json::Value::Null);
+                }
+                step["acceptance_criteria"] = serde_json::json!(work_contract.acceptance_criteria);
+                step["required_checks"] = serde_json::json!(work_contract.required_checks);
             }
             step
         })

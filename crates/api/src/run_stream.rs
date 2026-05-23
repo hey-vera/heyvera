@@ -96,7 +96,21 @@ pub async fn stream_run(
                         step["verification_status"] = serde_json::json!(verifier.status);
                         step["verifier_verdict"] = serde_json::json!(verifier.verdict);
                         step["verifier_report_id"] = serde_json::json!(verifier.id);
+                    }
+                    if let Some(recipe_seed) = db
+                        .get_step_recipe_seed_json(sid)
+                        .and_then(|raw| serde_json::from_str::<serde_json::Value>(&raw).ok())
+                    {
+                        step["recipe_seed"] = recipe_seed;
+                    }
+                    if let Some(work_contract) = db.get_latest_step_work_contract(sid) {
+                        if let Some(work_recipe) = work_contract.work_recipe {
+                            step["work_recipe"] =
+                                serde_json::to_value(work_recipe).unwrap_or(serde_json::Value::Null);
                         }
+                        step["acceptance_criteria"] = serde_json::json!(work_contract.acceptance_criteria);
+                        step["required_checks"] = serde_json::json!(work_contract.required_checks);
+                    }
                     step
                 }).collect::<Vec<_>>(),
                 "tick": tick,
