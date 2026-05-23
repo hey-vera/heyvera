@@ -1111,6 +1111,12 @@ async fn try_heal(state: &AppState, _sched: &mut SchedulerState, run_id: &str, s
         EdgeType::SuccessRequired.as_str(),
     );
 
+    if !db.mark_step_recovered(step_id) {
+        tracing::warn!(
+            "inserted heal chain for step {step_id}, but failed to mark original step recovered"
+        );
+    }
+
     db.increment_heal_count(run_id);
 
     tracing::info!(

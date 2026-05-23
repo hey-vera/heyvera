@@ -1533,7 +1533,7 @@ impl Database {
                  WHERE sd.step_id = s.id
                  AND (
                      (sd.edge_type = 'success_required' AND dep.status != 'succeeded')
-                     OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed'))
+                     OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed', 'recovered'))
                  )
              )"
         ).unwrap();
@@ -1563,7 +1563,7 @@ impl Database {
                  WHERE sd.step_id = s.id
                  AND (
                      (sd.edge_type = 'success_required' AND dep.status != 'succeeded')
-                     OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed'))
+                     OR (sd.edge_type = 'completion_required' AND dep.status NOT IN ('succeeded', 'failed', 'recovered'))
                  )
              )"
         ).unwrap();
@@ -1632,6 +1632,17 @@ impl Database {
             "UPDATE steps SET status = 'failed', last_error = ?1, updated_at = ?2, version = version + 1
              WHERE id = ?3 AND lease_gen = ?4 AND status IN ('leased', 'running')",
             params![error, now, step_id, lease_gen],
+        ).unwrap_or(0);
+        rows > 0
+    }
+
+    pub fn mark_step_recovered(&self, step_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let rows = conn.execute(
+            "UPDATE steps SET status = 'recovered', updated_at = ?1, version = version + 1
+             WHERE id = ?2 AND status = 'failed'",
+            params![now, step_id],
         ).unwrap_or(0);
         rows > 0
     }
@@ -2642,7 +2653,7 @@ impl Database {
                 "SELECT sd.step_id FROM step_dependencies sd
                  JOIN steps s ON s.id = sd.step_id
                  WHERE sd.depends_on_id = ?1 AND sd.edge_type = 'success_required'
-                 AND s.status NOT IN ('succeeded', 'failed', 'cancelled', 'skipped')"
+                 AND s.status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped')"
             ).unwrap();
 
             let dependents: Vec<String> = stmt
@@ -2659,7 +2670,7 @@ impl Database {
 
                 conn.execute(
                     "UPDATE steps SET status = 'skipped', updated_at = ?1, version = version + 1
-                     WHERE id = ?2 AND status NOT IN ('succeeded', 'failed', 'cancelled', 'skipped')",
+                     WHERE id = ?2 AND status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped')",
                     params![now, dep_id],
                 ).ok();
 

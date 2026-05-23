@@ -54,6 +54,7 @@ pub enum StepStatus {
     Running,
     Succeeded,
     Failed,
+    Recovered,
     Cancelled,
     Orphaned,
     Skipped,
@@ -63,7 +64,7 @@ impl StepStatus {
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            Self::Succeeded | Self::Failed | Self::Cancelled | Self::Skipped
+            Self::Succeeded | Self::Failed | Self::Recovered | Self::Cancelled | Self::Skipped
         )
     }
 
@@ -75,6 +76,7 @@ impl StepStatus {
             Self::Running => "running",
             Self::Succeeded => "succeeded",
             Self::Failed => "failed",
+            Self::Recovered => "recovered",
             Self::Cancelled => "cancelled",
             Self::Orphaned => "orphaned",
             Self::Skipped => "skipped",
@@ -89,6 +91,7 @@ impl StepStatus {
             "running" => Some(Self::Running),
             "succeeded" => Some(Self::Succeeded),
             "failed" => Some(Self::Failed),
+            "recovered" => Some(Self::Recovered),
             "cancelled" => Some(Self::Cancelled),
             "orphaned" => Some(Self::Orphaned),
             "skipped" => Some(Self::Skipped),
@@ -655,6 +658,15 @@ mod tests {
             ("s2".into(), StepStatus::Failed),
         ];
         assert_eq!(check_run_completion(&steps), Some(RunStatus::Failed));
+    }
+
+    #[test]
+    fn check_run_recovered_is_terminal_but_not_failed() {
+        let steps = vec![
+            ("s1".into(), StepStatus::Recovered),
+            ("s2".into(), StepStatus::Succeeded),
+        ];
+        assert_eq!(check_run_completion(&steps), Some(RunStatus::Succeeded));
     }
 
     #[test]

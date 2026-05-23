@@ -111,11 +111,14 @@ pub async fn stream_run(
 
             // Check if run is terminal
             let all_terminal = steps.iter().all(|(_, s)| {
-                matches!(s.as_str(), "succeeded" | "failed" | "cancelled" | "skipped")
+                matches!(
+                    s.as_str(),
+                    "succeeded" | "failed" | "recovered" | "cancelled" | "skipped"
+                )
             });
 
             if all_terminal && !steps.is_empty() {
-                let any_failed = steps.iter().any(|(_, s)| s == "failed");
+                let any_failed = steps.iter().any(|(_, s)| s == "failed" || s == "skipped");
                 let final_status = if any_failed { "failed" } else { "succeeded" };
                 yield Ok(Event::default().event("run_complete").data(
                     serde_json::json!({
