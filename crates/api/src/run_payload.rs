@@ -1,11 +1,11 @@
 use serde_json::{json, Value};
 
-use crate::db::Database;
+use crate::db::{Database, RunStepSnapshot};
 
 pub fn build_run_step_payloads(db: &Database, run_id: &str) -> Vec<Value> {
-    db.get_all_step_statuses(run_id)
-        .iter()
-        .map(|(sid, status)| build_step_payload(db, sid, status))
+    db.get_run_step_snapshots(run_id)
+        .into_iter()
+        .map(build_step_payload)
         .collect()
 }
 
@@ -51,43 +51,36 @@ pub fn build_run_graph_payload(db: &Database, run_id: &str, steps: &[Value]) -> 
     })
 }
 
-fn build_step_payload(db: &Database, sid: &str, status: &str) -> Value {
-    let details = db.get_step_details(sid);
-    let predecessors = db.get_step_predecessors(sid);
-    let output = db.get_step_output_summary(sid);
-    let files = db
-        .get_step_files_changed(sid)
+fn build_step_payload(snapshot: RunStepSnapshot) -> Value {
+    let files = snapshot
+        .files_changed
         .and_then(|raw| serde_json::from_str::<Vec<String>>(&raw).ok());
-    let error = db.get_step_last_error(sid);
-    let verifier = db.get_latest_verifier_report(sid);
-    let recipe_seed = db
-        .get_step_recipe_seed_json(sid)
+    let recipe_seed = snapshot
+        .recipe_seed_json
         .and_then(|raw| serde_json::from_str::<Value>(&raw).ok());
-    let work_contract = db.get_latest_step_work_contract(sid);
 
     let mut step = json!({
-        "id": sid,
-        "status": status,
-        "predecessors": predecessors,
+        "id": snapshot.id,
+        "status": snapshot.status,
+        "predecessors": snapshot.predecessors,
     });
 
-    if let Some((kind, work_kind, tier, risk, objective)) = details {
-        step["kind"] = json!(kind);
-        step["work_kind"] = json!(work_kind);
-        step["tier"] = json!(tier);
-        step["risk"] = json!(risk);
-        step["objective"] = json!(objective);
-    }
-    if let Some(output) = output {
+    step["kind"] = json!(snapshot.kind);
+    step["work_kind"] = json!(snapshot.work_kind);
+    step["tier"] = json!(snapshot.tier);
+    step["risk"] = json!(snapshot.risk);
+    step["objective"] = json!(snapshot.objective);
+
+    if let Some(output) = snapshot.output_summary {
         step["output_summary"] = json!(output);
     }
     if let Some(files) = files {
         step["files_changed"] = json!(files);
     }
-    if let Some(error) = error {
+    if let Some(error) = snapshot.last_error {
         step["last_error"] = json!(error);
     }
-    if let Some(verifier) = verifier {
+    if let Some(verifier) = snapshot.verifier_report {
         step["verification_status"] = json!(verifier.status);
         step["verifier_verdict"] = json!(verifier.verdict);
         step["verifier_report_id"] = json!(verifier.id);
@@ -95,7 +88,7 @@ fn build_step_payload(db: &Database, sid: &str, status: &str) -> Value {
     if let Some(recipe_seed) = recipe_seed {
         step["recipe_seed"] = recipe_seed;
     }
-    if let Some(work_contract) = work_contract {
+    if let Some(work_contract) = snapshot.work_contract {
         if let Some(work_recipe) = work_contract.work_recipe {
             step["work_recipe"] = serde_json::to_value(work_recipe).unwrap_or(Value::Null);
         }

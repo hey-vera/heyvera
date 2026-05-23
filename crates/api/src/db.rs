@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -86,6 +87,23 @@ pub struct StepDependencyEdge {
     pub step_id: String,
     pub depends_on_id: String,
     pub edge_type: String,
+}
+
+pub struct RunStepSnapshot {
+    pub id: String,
+    pub status: String,
+    pub kind: String,
+    pub work_kind: String,
+    pub tier: String,
+    pub risk: String,
+    pub objective: String,
+    pub recipe_seed_json: Option<String>,
+    pub output_summary: Option<String>,
+    pub files_changed: Option<String>,
+    pub last_error: Option<String>,
+    pub predecessors: Vec<String>,
+    pub verifier_report: Option<VerifierReport>,
+    pub work_contract: Option<TaskContract>,
 }
 
 // --- Billing types ---
@@ -2148,6 +2166,114 @@ impl Database {
         ).unwrap();
         stmt.query_map(params![run_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn get_run_step_snapshots(&self, run_id: &str) -> Vec<RunStepSnapshot> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut predecessors_by_step: HashMap<String, Vec<String>> = HashMap::new();
+        let mut predecessor_stmt = conn.prepare(
+            "SELECT sd.step_id, sd.depends_on_id
+             FROM step_dependencies sd
+             JOIN steps s ON s.id = sd.step_id
+             WHERE s.run_id = ?1
+             ORDER BY sd.step_id ASC, sd.depends_on_id ASC"
+        ).unwrap();
+        for row in predecessor_stmt
+            .query_map(params![run_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+        {
+            predecessors_by_step.entry(row.0).or_default().push(row.1);
+        }
+
+        let mut verifier_by_step: HashMap<String, VerifierReport> = HashMap::new();
+        let mut verifier_stmt = conn.prepare(
+            "SELECT id, step_id, run_id, lease_gen, worker_id, verifier, status, verdict,
+                    evidence_json, created_at, updated_at
+             FROM verifier_reports
+             WHERE run_id = ?1
+             ORDER BY step_id ASC, created_at DESC"
+        ).unwrap();
+        for report in verifier_stmt
+            .query_map(params![run_id], |row| Ok(VerifierReport {
+                id: row.get(0)?,
+                step_id: row.get(1)?,
+                run_id: row.get(2)?,
+                lease_gen: row.get(3)?,
+                worker_id: row.get(4)?,
+                verifier: row.get(5)?,
+                status: row.get(6)?,
+                verdict: row.get(7)?,
+                evidence_json: row.get(8)?,
+                created_at: row.get(9)?,
+                updated_at: row.get(10)?,
+            }))
+            .unwrap()
+            .filter_map(|r| r.ok())
+        {
+            verifier_by_step.entry(report.step_id.clone()).or_insert(report);
+        }
+
+        let mut contract_by_step: HashMap<String, TaskContract> = HashMap::new();
+        let mut contract_stmt = conn.prepare(
+            "SELECT step_id, contract_json
+             FROM step_work_contracts
+             WHERE run_id = ?1
+             ORDER BY step_id ASC, lease_gen DESC, created_at DESC"
+        ).unwrap();
+        for (step_id, contract_json) in contract_stmt
+            .query_map(params![run_id], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+        {
+            if contract_by_step.contains_key(&step_id) {
+                continue;
+            }
+            match serde_json::from_str::<TaskContract>(&contract_json) {
+                Ok(contract) => {
+                    contract_by_step.insert(step_id, contract);
+                }
+                Err(err) => {
+                    tracing::error!(
+                        step_id = %step_id,
+                        error = %err,
+                        "failed to deserialize latest step work contract"
+                    );
+                }
+            }
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT id, status, kind, work_kind, tier, risk, objective, recipe_seed_json,
+                    output_summary, files_changed, last_error
+             FROM steps
+             WHERE run_id = ?1
+             ORDER BY created_at ASC, id ASC"
+        ).unwrap();
+        stmt.query_map(params![run_id], |row| {
+            let id = row.get::<_, String>(0)?;
+            Ok(RunStepSnapshot {
+                predecessors: predecessors_by_step.remove(&id).unwrap_or_default(),
+                verifier_report: verifier_by_step.remove(&id),
+                work_contract: contract_by_step.remove(&id),
+                id,
+                status: row.get(1)?,
+                kind: row.get(2)?,
+                work_kind: row.get(3)?,
+                tier: row.get(4)?,
+                risk: row.get(5)?,
+                objective: row.get(6)?,
+                recipe_seed_json: row.get(7)?,
+                output_summary: row.get(8)?,
+                files_changed: row.get(9)?,
+                last_error: row.get(10)?,
+            })
         }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
