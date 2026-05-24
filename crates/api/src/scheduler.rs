@@ -1512,6 +1512,9 @@ pub async fn create_run_from_goal(
     goal: &str,
     file_paths: &[String],
     profile: &str,
+    task_id: Option<&str>,
+    group_id: Option<&str>,
+    conversation_id: Option<&str>,
 ) -> Result<String, String> {
     use cortex_engine::decomposer::decompose_goal;
 
@@ -1563,7 +1566,17 @@ pub async fn create_run_from_goal(
         })
         .collect();
 
-    let run_id = db.create_run_with_steps(user_id, goal, profile, file_paths, &steps, &edges);
+    let run_id = db.create_run_with_steps(
+        user_id,
+        goal,
+        profile,
+        file_paths,
+        task_id,
+        group_id,
+        conversation_id,
+        &steps,
+        &edges,
+    );
 
     scheduler_tx
         .send(SchedulerEvent::RunCreated {

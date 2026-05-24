@@ -124,6 +124,12 @@ pub struct CreateRunRequest {
     pub file_paths: Vec<String>,
     #[serde(default = "default_profile")]
     pub profile: String,
+    #[serde(default)]
+    pub task_id: Option<String>,
+    #[serde(default)]
+    pub group_id: Option<String>,
+    #[serde(default)]
+    pub conversation_id: Option<String>,
 }
 
 fn default_profile() -> String {
@@ -147,6 +153,17 @@ pub async fn create_run(
     if req.file_paths.len() > 50 {
         return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "too many file paths (max 50)".into() })));
     }
+    for (label, value) in [
+        ("task_id", req.task_id.as_deref()),
+        ("group_id", req.group_id.as_deref()),
+        ("conversation_id", req.conversation_id.as_deref()),
+    ] {
+        if let Some(value) = value {
+            if value.len() > 256 || !value.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.')) {
+                return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: format!("invalid {label}") })));
+            }
+        }
+    }
     let file_paths = crate::validate::sanitize_file_paths(&req.file_paths)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
     let scheduler_tx = state.scheduler_tx.read().await;
@@ -168,6 +185,9 @@ pub async fn create_run(
         &req.goal,
         &file_paths,
         &req.profile,
+        req.task_id.as_deref(),
+        req.group_id.as_deref(),
+        req.conversation_id.as_deref(),
     )
     .await
     .map_err(|e| {
@@ -264,10 +284,14 @@ pub async fn get_run(
 
     let steps = build_run_step_payloads(db, &id);
     let graph = build_run_graph_payload(db, &id, &steps);
+    let (task_id, group_id, conversation_id) = db.get_run_binding(&id).unwrap_or((None, None, None));
 
     Ok(Json(serde_json::json!({
         "id": id,
         "goal": goal,
+        "task_id": task_id,
+        "group_id": group_id,
+        "conversation_id": conversation_id,
         "steps": steps,
         "graph": graph,
     })))
