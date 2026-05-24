@@ -17,6 +17,7 @@ import ChatComposer from '../chat/ChatComposer';
 import ChatTimeline from '../chat/ChatTimeline';
 import ResizablePanels from '../shell/ResizablePanels';
 import TaskBoard from './TaskBoard';
+import TaskInspector from './TaskInspector';
 import { parseTaskCommand, useTaskManager } from '../../lib/taskManager';
 import {
   processMemoryEnhancedChat,
@@ -353,10 +354,15 @@ export default function TaskManagerChat({
   const [memoryData, setMemoryData] = useState<MemoryEnhancedChatResponse | null>(null);
   const [showMemoryPanel, setShowMemoryPanel] = useState(false);
   const [isProcessingMemory, setIsProcessingMemory] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
 
   const parsedPreview = useMemo(
     () => parseTaskCommand(draft, taskManager.state),
     [draft, taskManager.state],
+  );
+  const selectedTask = useMemo(
+    () => taskManager.state.tasks.find((task) => task.id === selectedTaskId) ?? taskManager.state.tasks[0] ?? null,
+    [selectedTaskId, taskManager.state.tasks],
   );
 
   // Process message through memory system
@@ -434,8 +440,13 @@ export default function TaskManagerChat({
 
   const handleLaunchTaskInProjectChat = useCallback((task: TaskManagerTask) => {
     const linkedTask = taskManager.launchTaskInProjectChat(task.id, activeConversationId);
+    setSelectedTaskId(task.id);
     onLaunchTaskInProjectChat?.(linkedTask ?? task);
   }, [activeConversationId, onLaunchTaskInProjectChat, taskManager]);
+
+  const handleSelectTask = useCallback((task: TaskManagerTask) => {
+    setSelectedTaskId(task.id);
+  }, []);
 
   useEffect(() => {
     onTaskStateChange?.(taskManager.state);
@@ -679,7 +690,15 @@ export default function TaskManagerChat({
               tasks={taskManager.state.tasks}
               members={taskManager.state.members}
               compact
+              selectedTaskId={selectedTask?.id ?? null}
               onUpdateTask={taskManager.updateTask}
+              onSelectTask={handleSelectTask}
+              onLaunchTask={handleLaunchTaskInProjectChat}
+            />
+            <TaskInspector
+              task={selectedTask}
+              members={taskManager.state.members}
+              activity={taskManager.state.activity}
               onLaunchTask={handleLaunchTaskInProjectChat}
             />
           </div>
