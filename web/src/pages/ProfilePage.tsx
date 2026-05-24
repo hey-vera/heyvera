@@ -18,6 +18,25 @@ import { PostCard } from '../components/shared/PostCard';
 const TABS = ['Posts', 'Replies', 'Media', 'Likes'] as const;
 type Tab = typeof TABS[number];
 
+const EMPTY_TAB_COPY: Record<Tab, { title: string; detail: string }> = {
+  Posts: {
+    title: 'No posts yet',
+    detail: 'Posts from this profile will appear here.',
+  },
+  Replies: {
+    title: 'No replies yet',
+    detail: 'Replies will appear here when this profile has reply posts.',
+  },
+  Media: {
+    title: 'No media posts yet',
+    detail: 'Posts with media attachments will appear here.',
+  },
+  Likes: {
+    title: 'No liked posts yet',
+    detail: 'Posts liked from this loaded profile feed will appear here.',
+  },
+};
+
 function formatCount(count: number): string {
   if (count < 1000) return String(count);
   if (count < 1_000_000) return `${(count / 1000).toFixed(count < 10000 ? 1 : 0).replace(/\.0$/, '')}K`;
@@ -76,6 +95,43 @@ export function ProfilePage() {
     void (nextFollowing ? followUser(profile.id) : unfollowUser(profile.id));
   };
 
+  const handleLike = (id: string, liked: boolean) => {
+    setPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === id
+          ? {
+              ...post,
+              liked,
+              like_count: Math.max(0, post.like_count + (liked ? 1 : -1)),
+            }
+          : post,
+      ),
+    );
+    void (liked ? likePost(id) : unlikePost(id));
+  };
+
+  const handleRepost = (id: string, reposted: boolean) => {
+    setPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === id
+          ? {
+              ...post,
+              reposted,
+              repost_count: Math.max(0, post.repost_count + (reposted ? 1 : -1)),
+            }
+          : post,
+      ),
+    );
+    void repostPost(id);
+  };
+
+  const handleBookmark = (id: string, bookmarked: boolean) => {
+    setPosts((currentPosts) =>
+      currentPosts.map((post) => (post.id === id ? { ...post, bookmarked } : post)),
+    );
+    void bookmarkPost(id);
+  };
+
   if (loading) {
     return <LoadingState label="Loading profile" />;
   }
@@ -85,7 +141,13 @@ export function ProfilePage() {
   }
 
   const ownProfile = !handle;
-  const visiblePosts = activeTab === 'Posts' ? posts : [];
+  const visiblePosts = posts.filter((post) => {
+    if (activeTab === 'Replies') return Boolean(post.reply_to);
+    if (activeTab === 'Media') return Boolean(post.media?.length);
+    if (activeTab === 'Likes') return post.liked;
+    return true;
+  });
+  const emptyCopy = EMPTY_TAB_COPY[activeTab];
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
@@ -191,15 +253,15 @@ export function ProfilePage() {
       </div>
 
       {visiblePosts.length === 0 ? (
-        <EmptyState title={activeTab === 'Posts' ? 'No posts yet' : 'Nothing here yet'} />
+        <EmptyState title={emptyCopy.title} detail={emptyCopy.detail} />
       ) : (
         visiblePosts.map((post) => (
           <PostCard
             key={post.id}
             post={post}
-            onLike={(id, liked) => void (liked ? likePost(id) : unlikePost(id))}
-            onRepost={(id) => void repostPost(id)}
-            onBookmark={(id) => void bookmarkPost(id)}
+            onLike={handleLike}
+            onRepost={handleRepost}
+            onBookmark={handleBookmark}
           />
         ))
       )}

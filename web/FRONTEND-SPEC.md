@@ -191,11 +191,11 @@ All data loading goes through this client. When `VITE_API_URL` is empty, returns
 - [x] Add loading spinners/skeletons while data loads
 
 ### P1 — Should do
-- [ ] Like heart animation (CSS sprite or scale+color transition)
-- [ ] Hover states on all interactive elements (nav items have pill bg, cards have subtle bg change)
+- [x] Like heart animation (CSS sprite or scale+color transition)
+- [x] Hover states on all interactive elements (nav items have pill bg, cards have subtle bg change)
 - [x] Compose modal: media upload placeholders, character counter, emoji picker placeholder
 - [x] Messages: clicking a conversation shows messages in right panel
-- [ ] Profile: render actual PostCards in tabs
+- [x] Profile: render actual PostCards in tabs
 - [x] Settings: clicking a section shows its options in right panel
 - [x] Search functionality in ExplorePage
 - [x] Post thread route loads a post through `getPost(id)` and renders `PostCard`
@@ -207,8 +207,8 @@ All data loading goes through this client. When `VITE_API_URL` is empty, returns
 - [ ] Bookmark folders
 - [ ] Community feed view
 - [ ] Reply threading with vertical connector lines
-- [ ] Repost dropdown menu (Repost vs Quote)
-- [ ] Share dropdown menu
+- [x] Repost dropdown menu (Repost vs Quote)
+- [x] Share dropdown menu
 
 ## Rules for Workers
 

@@ -1,10 +1,13 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   BarChart3,
   Bookmark,
+  Copy,
   Heart,
+  Link,
   MessageCircle,
+  Quote,
   Repeat2,
   Share,
 } from 'lucide-react';
@@ -42,11 +45,29 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
   const [bookmarked, setBookmarked] = useState(post.bookmarked);
   const [likeCount, setLikeCount] = useState(post.like_count);
   const [repostCount, setRepostCount] = useState(post.repost_count);
+  const [likeAnimating, setLikeAnimating] = useState(false);
+  const [openMenu, setOpenMenu] = useState<'repost' | 'share' | null>(null);
+  const likeTimerRef = useRef<number | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (likeTimerRef.current != null) {
+        window.clearTimeout(likeTimerRef.current);
+      }
+    };
+  }, []);
 
   const toggleLike = () => {
     const nextLiked = !liked;
     setLiked(nextLiked);
     setLikeCount((count) => Math.max(0, nextLiked ? count + 1 : count - 1));
+    if (nextLiked) {
+      setLikeAnimating(true);
+      if (likeTimerRef.current != null) {
+        window.clearTimeout(likeTimerRef.current);
+      }
+      likeTimerRef.current = window.setTimeout(() => setLikeAnimating(false), 180);
+    }
     onLike?.(post.id, nextLiked);
   };
 
@@ -54,6 +75,7 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
     const nextReposted = !reposted;
     setReposted(nextReposted);
     setRepostCount((count) => Math.max(0, nextReposted ? count + 1 : count - 1));
+    setOpenMenu(null);
     onRepost?.(post.id, nextReposted);
   };
 
@@ -61,6 +83,24 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
     const nextBookmarked = !bookmarked;
     setBookmarked(nextBookmarked);
     onBookmark?.(post.id, nextBookmarked);
+  };
+
+  const copyPostLink = () => {
+    setOpenMenu(null);
+    if (typeof window === 'undefined' || !navigator.clipboard) return;
+    const postUrl = new URL(`/post/${post.id}`, window.location.origin).toString();
+    void navigator.clipboard.writeText(postUrl);
+  };
+
+  const sharePost = () => {
+    setOpenMenu(null);
+    if (typeof window === 'undefined' || !navigator.share) return;
+    const postUrl = new URL(`/post/${post.id}`, window.location.origin).toString();
+    void navigator.share({
+      title: `${post.author.display_name} on HeyVera`,
+      text: post.content,
+      url: postUrl,
+    });
   };
 
   return (
@@ -141,14 +181,19 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
             count={post.reply_count}
             color="reply"
           />
-          <ActionButton
+          <DropdownAction
             icon={Repeat2}
             label="Repost"
             count={repostCount}
             active={reposted}
             color="repost"
-            onClick={toggleRepost}
-          />
+            open={openMenu === 'repost'}
+            onToggle={() => setOpenMenu((menu) => (menu === 'repost' ? null : 'repost'))}
+            onClose={() => setOpenMenu(null)}
+          >
+            <MenuItem icon={Repeat2} label={reposted ? 'Undo repost' : 'Repost'} onClick={toggleRepost} />
+            <MenuItem icon={Quote} label="Quote" onClick={() => setOpenMenu(null)} />
+          </DropdownAction>
           <ActionButton
             icon={Heart}
             label="Like"
@@ -156,6 +201,7 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
             active={liked}
             color="like"
             onClick={toggleLike}
+            animate={likeAnimating}
           />
           <ActionButton
             icon={BarChart3}
@@ -170,11 +216,17 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
             color="reply"
             onClick={toggleBookmark}
           />
-          <ActionButton
+          <DropdownAction
             icon={Share}
             label="Share"
             color="reply"
-          />
+            open={openMenu === 'share'}
+            onToggle={() => setOpenMenu((menu) => (menu === 'share' ? null : 'share'))}
+            onClose={() => setOpenMenu(null)}
+          >
+            <MenuItem icon={Copy} label="Copy link" onClick={copyPostLink} />
+            <MenuItem icon={Link} label="Share" onClick={sharePost} />
+          </DropdownAction>
         </div>
       </div>
     </article>
@@ -188,6 +240,7 @@ function ActionButton({
   active,
   color,
   onClick,
+  animate,
 }: {
   icon: LucideIcon;
   label: string;
@@ -195,6 +248,7 @@ function ActionButton({
   active?: boolean;
   color: 'reply' | 'repost' | 'like';
   onClick?: () => void;
+  animate?: boolean;
 }) {
   const Icon = icon;
   const activeColor =
@@ -216,13 +270,107 @@ function ActionButton({
         e.stopPropagation();
         onClick?.();
       }}
-      className="group flex items-center gap-1 rounded-full p-2 text-[13px] transition-colors hover:bg-[color:color-mix(in_srgb,var(--action-color)_10%,transparent)] hover:text-[var(--action-color)]"
+      className="group flex items-center gap-1 rounded-full p-2 text-[13px] transition-colors duration-150 hover:bg-[color:color-mix(in_srgb,var(--action-color)_10%,transparent)] hover:text-[var(--action-color)] focus-visible:bg-[color:color-mix(in_srgb,var(--action-color)_10%,transparent)] focus-visible:text-[var(--action-color)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--action-color)]"
       style={style}
     >
-      <Icon size={18} strokeWidth={2} fill={active && color === 'like' ? 'currentColor' : 'none'} />
+      <span
+        className={`relative flex h-[18px] w-[18px] items-center justify-center transition-transform duration-150 ${animate ? 'scale-125' : 'scale-100'}`}
+      >
+        {animate && (
+          <span className="absolute inset-0 rounded-full bg-[var(--color-like)] opacity-20 transition-opacity duration-150" />
+        )}
+        <Icon size={18} strokeWidth={2} fill={active && color === 'like' ? 'currentColor' : 'none'} />
+      </span>
       {count != null && count > 0 && (
-        <span>{formatCount(count)}</span>
+        <span className="min-w-[1ch] transition-colors duration-150">{formatCount(count)}</span>
       )}
+    </button>
+  );
+}
+
+function DropdownAction({
+  icon,
+  label,
+  count,
+  active,
+  color,
+  open,
+  onToggle,
+  onClose,
+  children,
+}: {
+  icon: LucideIcon;
+  label: string;
+  count?: number;
+  active?: boolean;
+  color: 'reply' | 'repost' | 'like';
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="relative"
+      onBlur={(e) => {
+        if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) {
+          onClose();
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <ActionButton
+        icon={icon}
+        label={label}
+        count={count}
+        active={active}
+        color={color}
+        onClick={onToggle}
+      />
+      {open && (
+        <div
+          className="absolute left-0 z-20 mt-1 min-w-40 overflow-hidden rounded-lg border py-1 shadow-xl"
+          style={{
+            backgroundColor: 'var(--bg-elevated)',
+            borderColor: 'var(--border-primary)',
+            color: 'var(--text-primary)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void;
+}) {
+  const Icon = icon;
+
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-3 px-4 py-2 text-left text-[15px] transition-colors duration-150 hover:bg-white/[0.06] focus-visible:bg-white/[0.06] focus-visible:outline-none"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
+      <Icon size={18} strokeWidth={2} />
+      <span>{label}</span>
     </button>
   );
 }

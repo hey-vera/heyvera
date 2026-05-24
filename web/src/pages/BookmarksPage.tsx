@@ -1,40 +1,177 @@
+import { useEffect, useMemo, useState } from 'react';
+import { Bookmark, Search } from 'lucide-react';
+import { bookmarkPost, getFeed, likePost, repostPost, unlikePost } from '../api/client';
+import type { Post } from '../api/types';
+import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
+import { PostCard } from '../components/shared/PostCard';
+
+function filterBookmarkedPosts(posts: Post[], query: string): Post[] {
+  const normalizedQuery = query.trim().toLowerCase();
+  if (!normalizedQuery) return posts;
+
+  return posts.filter((post) => {
+    const searchableText = [
+      post.content,
+      post.author.display_name,
+      post.author.handle,
+    ].join(' ').toLowerCase();
+
+    return searchableText.includes(normalizedQuery);
+  });
+}
+
 export function BookmarksPage() {
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [query, setQuery] = useState('');
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadBookmarks() {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const response = await getFeed();
+        if (!cancelled) {
+          setPosts(response.posts.filter((post) => post.bookmarked));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Unable to load bookmarks');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    void loadBookmarks();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [reloadKey]);
+
+  const filteredPosts = useMemo(() => filterBookmarkedPosts(posts, query), [posts, query]);
+  const trimmedQuery = query.trim();
+
+  const handleLike = (id: string, liked: boolean) => {
+    setPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === id
+          ? {
+              ...post,
+              liked,
+              like_count: Math.max(0, post.like_count + (liked ? 1 : -1)),
+            }
+          : post,
+      ),
+    );
+    void (liked ? likePost(id) : unlikePost(id));
+  };
+
+  const handleRepost = (id: string, reposted: boolean) => {
+    setPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === id
+          ? {
+              ...post,
+              reposted,
+              repost_count: Math.max(0, post.repost_count + (reposted ? 1 : -1)),
+            }
+          : post,
+      ),
+    );
+    void repostPost(id);
+  };
+
+  const handleBookmark = (id: string, bookmarked: boolean) => {
+    setPosts((currentPosts) =>
+      bookmarked
+        ? currentPosts.map((post) => (post.id === id ? { ...post, bookmarked } : post))
+        : currentPosts.filter((post) => post.id !== id),
+    );
+    void bookmarkPost(id);
+  };
+
   return (
-    <div className="min-h-screen bg-black text-[#E7E9EA]">
-      {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-[#2F3336] bg-black/80 backdrop-blur-md px-4 py-3">
-        <h1 className="text-[20px] font-bold text-[#E7E9EA]">Bookmarks</h1>
-        <p className="text-[13px] text-[#71767B]">@yourhandle</p>
+    <div
+      className="min-h-screen"
+      style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+    >
+      <div
+        className="sticky top-0 z-10 border-b bg-black/80 px-4 py-3 backdrop-blur-md"
+        style={{ borderColor: 'var(--border-primary)' }}
+      >
+        <div className="flex items-center gap-3">
+          <Bookmark className="h-5 w-5 shrink-0" aria-hidden="true" style={{ color: 'var(--accent)' }} />
+          <div className="min-w-0">
+            <h1 className="text-[20px] font-bold leading-6">Bookmarks</h1>
+            <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+              Posts saved for later
+            </p>
+          </div>
+        </div>
       </div>
 
-      {/* Search bar */}
-      <div className="border-b border-[#2F3336] px-4 py-3">
-        <div className="relative">
-          <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#71767B]">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-              <path d="M10.25 3.75c-3.59 0-6.5 2.91-6.5 6.5s2.91 6.5 6.5 6.5c1.795 0 3.419-.726 4.596-1.904 1.178-1.177 1.904-2.801 1.904-4.596 0-3.59-2.91-6.5-6.5-6.5zm-8.5 6.5c0-4.694 3.806-8.5 8.5-8.5s8.5 3.806 8.5 8.5c0 1.986-.682 3.815-1.82 5.262l4.529 4.528-1.414 1.414-4.529-4.529A8.457 8.457 0 0 1 10.25 18.75c-4.694 0-8.5-3.806-8.5-8.5z" />
-            </svg>
-          </span>
-          <input
-            type="text"
-            placeholder="Search bookmarks"
-            className="w-full rounded-full border border-[#2F3336] bg-[#16181C] py-2.5 pl-10 pr-4 text-[15px] text-[#E7E9EA] placeholder-[#71767B] outline-none focus:border-[#00BA7C] transition-colors"
+      <div className="border-b px-4 py-3" style={{ borderColor: 'var(--border-primary)' }}>
+        <label className="relative block">
+          <span className="sr-only">Search bookmarks</span>
+          <Search
+            className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2"
+            aria-hidden="true"
+            style={{ color: 'var(--text-secondary)' }}
           />
-        </div>
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search bookmarks"
+            className="w-full rounded-full border py-2.5 pl-10 pr-4 text-[15px] outline-none transition-colors placeholder:text-[color:var(--text-secondary)] focus:border-[color:var(--accent)]"
+            style={{
+              backgroundColor: 'var(--bg-elevated)',
+              borderColor: 'var(--border-primary)',
+              color: 'var(--text-primary)',
+            }}
+          />
+        </label>
       </div>
 
-      {/* Empty state */}
-      <div className="flex flex-col items-center justify-center py-24 px-8 text-center">
-        <div className="mb-5 text-5xl text-[#71767B]">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="currentColor" className="mx-auto text-[#71767B]">
-            <path d="M4 4.5C4 3.12 5.119 2 6.5 2h11C18.881 2 20 3.12 20 4.5v18.44l-8-5.71-8 5.71V4.5zM6.5 4c-.276 0-.5.22-.5.5v14.56l6-4.29 6 4.29V4.5c0-.28-.224-.5-.5-.5h-11z" />
-          </svg>
-        </div>
-        <h2 className="text-[20px] font-bold text-[#E7E9EA] mb-2">Save posts for later</h2>
-        <p className="text-[15px] text-[#71767B] max-w-xs leading-normal">
-          Don't lose track of posts you love. Bookmark them and revisit anytime.
-        </p>
-      </div>
+      {loading && <LoadingState label="Loading bookmarks" />}
+
+      {!loading && error && (
+        <ErrorState
+          detail={error}
+          onRetry={() => setReloadKey((key) => key + 1)}
+        />
+      )}
+
+      {!loading && !error && posts.length === 0 && (
+        <EmptyState
+          title="Save posts for later"
+          detail="When you bookmark posts, they will appear here."
+        />
+      )}
+
+      {!loading && !error && posts.length > 0 && filteredPosts.length === 0 && (
+        <EmptyState
+          title="No matching bookmarks"
+          detail={`No saved posts match "${trimmedQuery}".`}
+        />
+      )}
+
+      {!loading && !error && filteredPosts.map((post) => (
+        <PostCard
+          key={post.id}
+          post={post}
+          onLike={handleLike}
+          onRepost={handleRepost}
+          onBookmark={handleBookmark}
+        />
+      ))}
     </div>
   );
 }
