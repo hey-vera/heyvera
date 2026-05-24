@@ -58,6 +58,16 @@ function formatRunStatus(status?: string | null) {
   return status ? status.replaceAll('_', ' ') : 'run linked';
 }
 
+function getRunSnapshotAge(timestamp?: string | null) {
+  if (!timestamp) return null;
+  const ageMs = Date.now() - new Date(timestamp).getTime();
+  const minutes = Math.max(Math.floor(ageMs / 60000), 0);
+  return {
+    label: minutes < 1 ? 'fresh' : `${formatAge(timestamp)} ago`,
+    stale: minutes >= 5,
+  };
+}
+
 function TaskCard({
   task,
   assignee,
@@ -75,6 +85,8 @@ function TaskCard({
   onSelectTask?: TaskBoardProps['onSelectTask'];
   onLaunchTask?: TaskBoardProps['onLaunchTask'];
 }) {
+  const runSnapshotAge = getRunSnapshotAge(task.latestRunSyncedAt);
+
   function onDragStart(event: DragEvent<HTMLDivElement>) {
     event.dataTransfer.setData('application/cortex-task-id', task.id);
     event.dataTransfer.effectAllowed = 'move';
@@ -119,7 +131,11 @@ function TaskCard({
             <p className="mt-1 truncate text-[11px] text-[var(--muted-strong)]">
               Run: {formatRunStatus(task.latestRunStatus)}
               {task.latestRunStepSummary ? ` · ${task.latestRunStepSummary.done}/${task.latestRunStepSummary.total} done` : ''}
+              {runSnapshotAge ? ` · ${runSnapshotAge.label}` : ''}
             </p>
+          )}
+          {runSnapshotAge?.stale && (
+            <p className="mt-1 truncate text-[10px] text-amber-200">Select to refresh backend signal</p>
           )}
           <div className="mt-3 flex items-center justify-between gap-2">
             {assignee ? (
