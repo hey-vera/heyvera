@@ -922,33 +922,46 @@ export interface ConversationWithMessages {
 
 export async function listConversations(_userId = 'local'): Promise<ConversationSummary[]> {
   void _userId;
-  const res = await authedFetch(apiUrl('/api/conversations'));
-  return res.json();
+  const conversations = await requestJson<unknown>('/api/conversations');
+  return Array.isArray(conversations)
+    ? conversations.flatMap((conversation) => {
+      if (!conversation || typeof conversation !== 'object') return [];
+      const record = conversation as Partial<ConversationSummary>;
+      if (typeof record.id !== 'string') return [];
+      return [{
+        id: record.id,
+        title: typeof record.title === 'string' ? record.title : null,
+        updated_at: typeof record.updated_at === 'string' ? record.updated_at : new Date(0).toISOString(),
+        message_count: typeof record.message_count === 'number' ? record.message_count : 0,
+        last_message_preview: typeof record.last_message_preview === 'string'
+          ? record.last_message_preview
+          : null,
+      }];
+    })
+    : [];
 }
 
 export async function createConversation(_userId = 'local', title?: string): Promise<{ id: string }> {
   void _userId;
-  const res = await authedFetch(apiUrl('/api/conversations'), {
+  return requestJson<{ id: string }>('/api/conversations', {
     method: 'POST',
     body: JSON.stringify({ title }),
   });
-  return res.json();
 }
 
 export async function getConversation(id: string, _userId = 'local'): Promise<ConversationWithMessages> {
   void _userId;
-  const res = await authedFetch(apiUrl(`/api/conversations/${id}`));
-  return res.json();
+  return requestJson<ConversationWithMessages>(`/api/conversations/${id}`);
 }
 
 export async function deleteConversation(id: string, _userId = 'local'): Promise<void> {
   void _userId;
-  await authedFetch(apiUrl(`/api/conversations/${id}`), { method: 'DELETE' });
+  await requestJson<unknown>(`/api/conversations/${id}`, { method: 'DELETE' });
 }
 
 export async function updateConversationTitle(id: string, title: string, _userId = 'local'): Promise<void> {
   void _userId;
-  await authedFetch(apiUrl(`/api/conversations/${id}`), {
+  await requestJson<unknown>(`/api/conversations/${id}`, {
     method: 'PATCH',
     body: JSON.stringify({ title }),
   });
@@ -961,11 +974,10 @@ export async function addMessageToConversation(
   provider?: string,
   model?: string,
 ): Promise<ConversationMessage> {
-  const res = await authedFetch(apiUrl(`/api/conversations/${conversationId}/messages`), {
+  return requestJson<ConversationMessage>(`/api/conversations/${conversationId}/messages`, {
     method: 'POST',
     body: JSON.stringify({ role, content, provider, model }),
   });
-  return res.json();
 }
 
 // Memory API
