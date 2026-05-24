@@ -61,6 +61,15 @@ const RUN_STATUS_TONE: Record<string, string> = {
   skipped: 'border-zinc-300/20 bg-zinc-300/10 text-zinc-100',
 };
 
+const TERMINAL_RUN_STATUSES = new Set([
+  'succeeded',
+  'failed',
+  'cancelled',
+  'recovered',
+  'orphaned',
+  'skipped',
+]);
+
 function formatDateTime(timestamp?: string | null) {
   if (!timestamp) return 'Not available';
   return new Date(timestamp).toLocaleString([], {
@@ -112,6 +121,10 @@ function runStatusTone(status?: string) {
 
 function labelFromStatus(status?: string) {
   return status ? status.replaceAll('_', ' ') : 'pending';
+}
+
+function isTerminalRunStatus(status?: string) {
+  return Boolean(status && TERMINAL_RUN_STATUSES.has(status));
 }
 
 function stepLabel(step: RunStep, index: number) {
@@ -236,6 +249,14 @@ export default function TaskInspector({
   useEffect(() => {
     void refreshRunProjection();
   }, [refreshRunProjection]);
+
+  useEffect(() => {
+    if (!latestRunId || isTerminalRunStatus(run?.status)) return;
+    const interval = window.setInterval(() => {
+      void refreshRunProjection();
+    }, 5000);
+    return () => window.clearInterval(interval);
+  }, [latestRunId, refreshRunProjection, run?.status]);
 
   const runSignal = useMemo(() => buildRunSignal(run), [run]);
   const suggestedTaskStatus = useMemo(() => taskStatusFromRun(run), [run]);
