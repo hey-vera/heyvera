@@ -129,6 +129,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/runs", get(routes::list_runs).post(routes::create_run))
         .route("/api/runs/estimate", post(routes::estimate_run))
         .route("/api/runs/{id}", get(routes::get_run))
+        .route("/api/runs/{id}/events", get(routes::get_run_events))
         .route("/api/runs/{id}/pr", post(routes::create_pr))
         .route("/api/runs/{id}/stream", get(run_stream::stream_run))
         // Chat intelligence
