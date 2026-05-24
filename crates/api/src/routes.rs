@@ -57,6 +57,15 @@ pub async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     }))
 }
 
+pub async fn deploy_info() -> impl IntoResponse {
+    Json(serde_json::json!({
+        "status": "ok",
+        "service": "cortex",
+        "version": env!("CARGO_PKG_VERSION"),
+        "commit": option_env!("GITHUB_SHA"),
+    }))
+}
+
 pub async fn route_task(
     State(state): State<Arc<AppState>>,
     _user: ClerkUser,
