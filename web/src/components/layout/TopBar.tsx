@@ -1,19 +1,20 @@
-import React from "react";
 import { Settings } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { AuthControls } from "../shared/AuthControls";
 
 interface TopBarProps {
   title?: string;
   showAvatar?: boolean;
-  onAvatarClick?: () => void;
+  onProfileClick?: () => void;
 }
 
 export function TopBar({
   title = "HeyVera",
   showAvatar = true,
-  onAvatarClick,
+  onProfileClick,
 }: TopBarProps) {
   const navigate = useNavigate();
+  const handleProfileClick = onProfileClick ?? (() => navigate("/profile"));
 
   return (
     <header
@@ -26,22 +27,10 @@ export function TopBar({
         borderBottom: "1px solid var(--border-primary)",
       }}
     >
-      {/* Left: user avatar */}
-      <div className="w-8">
+      {/* Left: auth/account */}
+      <div className="min-w-8">
         {showAvatar && (
-          <button
-            onClick={onAvatarClick}
-            aria-label="Account"
-            className="w-8 h-8 rounded-full overflow-hidden focus:outline-none focus:ring-2"
-            style={{ focusRingColor: "var(--accent)" } as React.CSSProperties}
-          >
-            <div
-              className="w-full h-full rounded-full flex items-center justify-center text-sm font-semibold"
-              style={{ backgroundColor: "var(--bg-elevated)", color: "var(--text-secondary)" }}
-            >
-              U
-            </div>
-          </button>
+          <AuthControls variant="mobile" onProfile={handleProfileClick} />
         )}
       </div>
 

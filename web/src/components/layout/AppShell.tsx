@@ -62,7 +62,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
         onCompose={() => setComposeOpen(true)}
       />
 
-      <TopBar title="HeyVera" />
+      <TopBar title="HeyVera" onProfileClick={() => handleNavigate("/profile")} />
 
       <div className="mx-auto grid w-full sm:grid-cols-[88px_minmax(0,1fr)] lg:max-w-[978px] lg:grid-cols-[88px_600px_290px] xl:max-w-[1225px] xl:grid-cols-[275px_600px_350px]">
         <div className="hidden sm:block" aria-hidden="true" />

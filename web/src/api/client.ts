@@ -5,6 +5,7 @@
 import type {
   Post,
   UserProfile,
+  CreateUserProfileInput,
   Notification,
   Conversation,
   Message,
@@ -29,6 +30,7 @@ import {
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const API_BASE = import.meta.env.VITE_API_URL ?? '';
+const MOCK_VIEWER_PROFILE_KEY = 'heyvera.mock.viewer_profile';
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -36,10 +38,83 @@ function delay(ms = 100): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function jsonHeaders(headers?: HeadersInit): Headers {
+  const next = new Headers(headers);
+  if (!next.has('Content-Type')) next.set('Content-Type', 'application/json');
+  return next;
+}
+
 async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json() as Promise<T>;
+}
+
+async function fetchAuthedApi<T>(path: string, token: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  headers.set('Authorization', `Bearer ${token}`);
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
+async function fetchOptionalAuthedApi<T>(path: string, token: string, init?: RequestInit): Promise<T | null> {
+  const headers = new Headers(init?.headers);
+  headers.set('Authorization', `Bearer ${token}`);
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
+function getMockViewerProfile(): UserProfile | null {
+  if (typeof localStorage === 'undefined') return null;
+
+  const raw = localStorage.getItem(MOCK_VIEWER_PROFILE_KEY);
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as UserProfile;
+  } catch {
+    localStorage.removeItem(MOCK_VIEWER_PROFILE_KEY);
+    return null;
+  }
+}
+
+function setMockViewerProfile(profile: UserProfile): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(MOCK_VIEWER_PROFILE_KEY, JSON.stringify(profile));
+}
+
+function buildMockViewerProfile(input: CreateUserProfileInput): UserProfile {
+  const handle = input.handle.trim().replace(/^@/, '').toLowerCase();
+  const displayName = input.display_name.trim();
+
+  return {
+    id: `mock_viewer_${handle || Date.now()}`,
+    display_name: displayName,
+    handle,
+    avatar_url: input.avatar_url ?? `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(handle || displayName)}`,
+    verified: false,
+    banner_url: input.banner_url ?? '',
+    bio: input.bio ?? '',
+    location: input.location,
+    website: input.website,
+    joined_at: new Date().toISOString(),
+    follower_count: 0,
+    following_count: 0,
+    post_count: 0,
+    is_following: false,
+    is_followed_by: false,
+  };
 }
 
 // getMockData routes mock responses by path pattern.
@@ -97,6 +172,30 @@ async function getMockData<T>(path: string, _body?: unknown): Promise<T> {
 }
 
 // ─── Public API functions ─────────────────────────────────────────────────────
+
+/** Current signed-in viewer's profile, or null when none exists yet */
+export async function getCurrentUserProfile(token: string): Promise<UserProfile | null> {
+  if (!API_BASE) {
+    await delay(100);
+    return getMockViewerProfile();
+  }
+  return fetchOptionalAuthedApi<UserProfile>('/me/profile', token);
+}
+
+/** Create the signed-in viewer's profile */
+export async function createUserProfile(token: string, input: CreateUserProfileInput): Promise<UserProfile> {
+  if (!API_BASE) {
+    await delay(100);
+    const profile = buildMockViewerProfile(input);
+    setMockViewerProfile(profile);
+    return profile;
+  }
+  return fetchAuthedApi<UserProfile>('/me/profile', token, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify(input),
+  });
+}
 
 /** Home / for-you feed */
 export async function getFeed(cursor?: string): Promise<FeedResponse> {

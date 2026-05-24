@@ -12,6 +12,7 @@ import {
   Feather,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { AuthControls } from "../shared/AuthControls";
 
 interface LeftNavProps {
   activeRoute: string;
@@ -142,44 +143,7 @@ export function LeftNav({ activeRoute, onNavigate, onCompose }: LeftNavProps) {
         {/* Spacer */}
         <div className="flex-1" />
 
-        {/* Account switcher */}
-        <button
-          className="flex items-center gap-3 px-3 py-3 rounded-full hover:bg-white/10 transition-colors w-full xl:w-auto mb-4"
-          aria-label="Account menu"
-        >
-          {/* Avatar */}
-          <div
-            className="w-10 h-10 rounded-full flex items-center justify-center text-sm font-semibold flex-shrink-0"
-            style={{ backgroundColor: "var(--bg-elevated)", color: "var(--text-secondary)" }}
-          >
-            U
-          </div>
-
-          {/* Name + handle */}
-          <div className="hidden xl:flex flex-col items-start flex-1 min-w-0">
-            <span
-              className="text-sm font-bold leading-tight truncate w-full"
-              style={{ color: "var(--text-primary)" }}
-            >
-              User Name
-            </span>
-            <span
-              className="text-sm leading-tight truncate w-full"
-              style={{ color: "var(--text-secondary)" }}
-            >
-              @username
-            </span>
-          </div>
-
-          {/* More icon */}
-          <span
-            className="hidden xl:block text-sm flex-shrink-0"
-            style={{ color: "var(--text-secondary)" }}
-            aria-hidden="true"
-          >
-            •••
-          </span>
-        </button>
+        <AuthControls variant="desktop" onProfile={() => onNavigate("/profile")} />
       </div>
     </nav>
   );

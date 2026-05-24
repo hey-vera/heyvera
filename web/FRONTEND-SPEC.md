@@ -179,6 +179,8 @@ All data loading goes through this client. When `VITE_API_URL` is empty, returns
 - `followUser(id)` / `unfollowUser(id)`
 - `getCommunities()` → Community[]
 - `getCommunityFeed(id)` → FeedResponse
+- `getCurrentUserProfile(token)` → UserProfile | null (`GET /me/profile`, `Authorization: Bearer <token>`, mock returns localStorage profile or null)
+- `createUserProfile(token, input)` → UserProfile (`POST /me/profile`, JSON body, `Authorization: Bearer <token>`, mock persists localStorage profile)
 
 **Rule: Pages must load data from the API client, not hardcode content.**
 
