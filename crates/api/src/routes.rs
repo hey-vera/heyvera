@@ -197,8 +197,18 @@ pub struct ListRunsQuery {
     pub offset: usize,
 }
 
+#[derive(Deserialize)]
+pub struct ListRunEventsQuery {
+    #[serde(default = "default_run_events_limit")]
+    pub limit: usize,
+}
+
 fn default_run_limit() -> usize {
     50
+}
+
+fn default_run_events_limit() -> usize {
+    200
 }
 
 pub async fn list_runs(
@@ -260,6 +270,46 @@ pub async fn get_run(
         "goal": goal,
         "steps": steps,
         "graph": graph,
+    })))
+}
+
+pub async fn get_run_events(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    axum::extract::Path(id): axum::extract::Path<String>,
+    axum::extract::Query(query): axum::extract::Query<ListRunEventsQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "database not available".into(),
+            }),
+        )
+    })?;
+
+    if db.get_run_goal(&id).is_none() {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "run not found".into(),
+            }),
+        ));
+    }
+
+    if !db.verify_run_owner(&id, &user.user_id) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "access denied: run belongs to another user".into(),
+            }),
+        ));
+    }
+
+    let events = db.list_run_operations_events(&id, query.limit);
+    Ok(Json(serde_json::json!({
+        "run_id": id,
+        "events": events,
     })))
 }
 

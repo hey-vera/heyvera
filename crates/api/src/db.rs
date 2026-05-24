@@ -83,6 +83,23 @@ impl VerifierReport {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct OperationsEvent {
+    pub id: String,
+    pub created_at: i64,
+    pub actor_user_id: Option<String>,
+    pub scope_id: Option<String>,
+    pub project_id: Option<String>,
+    pub task_id: Option<String>,
+    pub run_id: Option<String>,
+    pub step_id: Option<String>,
+    pub attempt_id: Option<String>,
+    pub event_type: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub payload: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StepDependencyEdge {
     pub step_id: String,
     pub depends_on_id: String,
@@ -187,7 +204,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 17;
+const SCHEMA_VERSION: i64 = 18;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -250,6 +267,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 17 {
         migrate_v17(conn);
+    }
+    if current < 18 {
+        migrate_v18(conn);
     }
 }
 
@@ -906,6 +926,45 @@ fn migrate_v17(conn: &Connection) {
     tracing::info!("applied migration v17: latest attempt snapshot index");
 }
 
+fn migrate_v18(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS operations_events (
+            id TEXT PRIMARY KEY,
+            created_at INTEGER NOT NULL,
+            actor_user_id TEXT,
+            scope_id TEXT,
+            project_id TEXT,
+            task_id TEXT,
+            run_id TEXT,
+            step_id TEXT,
+            attempt_id TEXT,
+            event_type TEXT NOT NULL,
+            entity_type TEXT NOT NULL,
+            entity_id TEXT NOT NULL,
+            payload_json TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_operations_events_created_at
+            ON operations_events(created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_operations_events_run
+            ON operations_events(run_id, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_operations_events_step
+            ON operations_events(step_id, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_operations_events_entity
+            ON operations_events(entity_type, entity_id, created_at);
+
+        CREATE INDEX IF NOT EXISTS idx_operations_events_actor
+            ON operations_events(actor_user_id, created_at);
+
+        UPDATE schema_version SET version = 18;"
+    ).expect("migration v18 failed");
+
+    tracing::info!("applied migration v18: operations room event log");
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CortexGroup {
     pub id: String,
@@ -948,6 +1007,67 @@ pub struct IntegrationMapping {
 
 // --- Database implementation ---
 
+fn insert_operations_event(
+    conn: &Connection,
+    actor_user_id: Option<&str>,
+    scope_id: Option<&str>,
+    project_id: Option<&str>,
+    task_id: Option<&str>,
+    run_id: Option<&str>,
+    step_id: Option<&str>,
+    attempt_id: Option<&str>,
+    event_type: &str,
+    entity_type: &str,
+    entity_id: &str,
+    payload: &serde_json::Value,
+) {
+    let payload_json = serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string());
+    let result = conn.execute(
+        "INSERT INTO operations_events (
+            id, created_at, actor_user_id, scope_id, project_id, task_id, run_id, step_id,
+            attempt_id, event_type, entity_type, entity_id, payload_json
+         )
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+        params![
+            Uuid::new_v4().to_string(),
+            Utc::now().timestamp_millis(),
+            actor_user_id,
+            scope_id,
+            project_id,
+            task_id,
+            run_id,
+            step_id,
+            attempt_id,
+            event_type,
+            entity_type,
+            entity_id,
+            payload_json,
+        ],
+    );
+
+    if let Err(err) = result {
+        tracing::warn!(
+            event_type = event_type,
+            entity_type = entity_type,
+            entity_id = entity_id,
+            error = %err,
+            "failed to record operations event"
+        );
+    }
+}
+
+fn step_event_context(conn: &Connection, step_id: &str) -> Option<(String, String)> {
+    conn.query_row(
+        "SELECT s.run_id, r.user_id
+         FROM steps s
+         JOIN runs r ON r.id = s.run_id
+         WHERE s.id = ?1",
+        params![step_id],
+        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+    )
+    .ok()
+}
+
 impl Database {
     pub fn open(path: &Path) -> Self {
         if let Some(parent) = path.parent() {
@@ -975,6 +1095,38 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         conn.query_row("SELECT COALESCE(MAX(version), 0) FROM schema_version", [], |r| r.get(0))
             .unwrap_or(0)
+    }
+
+    pub fn list_run_operations_events(&self, run_id: &str, limit: usize) -> Vec<OperationsEvent> {
+        let conn = self.conn.lock().unwrap();
+        let limit = limit.clamp(1, 500) as i64;
+        let mut stmt = conn.prepare(
+            "SELECT id, created_at, actor_user_id, scope_id, project_id, task_id, run_id,
+                    step_id, attempt_id, event_type, entity_type, entity_id, payload_json
+             FROM operations_events
+             WHERE run_id = ?1
+             ORDER BY created_at ASC, id ASC
+             LIMIT ?2"
+        ).unwrap();
+
+        stmt.query_map(params![run_id, limit], |row| {
+            let payload_json: String = row.get(12)?;
+            Ok(OperationsEvent {
+                id: row.get(0)?,
+                created_at: row.get(1)?,
+                actor_user_id: row.get(2)?,
+                scope_id: row.get(3)?,
+                project_id: row.get(4)?,
+                task_id: row.get(5)?,
+                run_id: row.get(6)?,
+                step_id: row.get(7)?,
+                attempt_id: row.get(8)?,
+                event_type: row.get(9)?,
+                entity_type: row.get(10)?,
+                entity_id: row.get(11)?,
+                payload: serde_json::from_str(&payload_json).unwrap_or_else(|_| serde_json::json!({})),
+            })
+        }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
     // --- Conversations ---
@@ -1486,6 +1638,24 @@ impl Database {
             "INSERT INTO runs (id, user_id, goal, status, profile, file_paths, created_at, updated_at) VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?6)",
             params![id, user_id, goal, profile, file_paths_json, now],
         ).expect("failed to create run");
+        insert_operations_event(
+            &conn,
+            Some(user_id),
+            None,
+            None,
+            None,
+            Some(&id),
+            None,
+            None,
+            "run.created",
+            "run",
+            &id,
+            &serde_json::json!({
+                "status": "pending",
+                "profile": profile,
+                "file_paths": file_paths,
+            }),
+        );
         id
     }
 
@@ -1516,6 +1686,26 @@ impl Database {
             "INSERT INTO runs (id, user_id, goal, status, profile, file_paths, created_at, updated_at) VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?6)",
             params![run_id, user_id, goal, profile, file_paths_json, now],
         ).expect("failed to create run in batch");
+        insert_operations_event(
+            &conn,
+            Some(user_id),
+            None,
+            None,
+            None,
+            Some(&run_id),
+            None,
+            None,
+            "run.created",
+            "run",
+            &run_id,
+            &serde_json::json!({
+                "status": "pending",
+                "profile": profile,
+                "file_paths": file_paths,
+                "step_count": steps.len(),
+                "edge_count": edges.len(),
+            }),
+        );
 
         for (id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at) in steps {
             conn.execute(
@@ -1523,6 +1713,27 @@ impl Database {
                  VALUES (?1, ?2, ?3, ?4, ?5, 'pending', ?6, ?7, ?8, ?9, ?9)",
                 params![id, run_id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at],
             ).expect("failed to create step in batch");
+            insert_operations_event(
+                &conn,
+                Some(user_id),
+                None,
+                None,
+                None,
+                Some(&run_id),
+                Some(id.as_str()),
+                None,
+                "step.planned",
+                "step",
+                id,
+                &serde_json::json!({
+                    "status": "pending",
+                    "kind": kind,
+                    "work_kind": work_kind,
+                    "tier": tier,
+                    "risk": risk,
+                    "objective": objective,
+                }),
+            );
         }
 
         for (step_id, depends_on_id, edge_type) in edges {
@@ -1595,6 +1806,31 @@ impl Database {
              WHERE id = ?5",
             params![status, failure_reason, finished, now, run_id],
         ).unwrap_or(0);
+        if rows > 0 {
+            let actor_user_id = conn
+                .query_row("SELECT user_id FROM runs WHERE id = ?1", params![run_id], |row| {
+                    row.get::<_, String>(0)
+                })
+                .ok();
+            insert_operations_event(
+                &conn,
+                actor_user_id.as_deref(),
+                None,
+                None,
+                None,
+                Some(run_id),
+                None,
+                None,
+                "run.status_changed",
+                "run",
+                run_id,
+                &serde_json::json!({
+                    "status": status,
+                    "failure_reason": failure_reason,
+                    "finished_at": finished,
+                }),
+            );
+        }
         rows > 0
     }
 
@@ -1616,6 +1852,32 @@ impl Database {
              VALUES (?1, ?2, ?3, 'modify', 'pending', ?4, ?5, ?6, ?7, ?7)",
             params![id, run_id, kind, tier, risk, objective, now],
         ).expect("failed to create step");
+        let actor_user_id = conn
+            .query_row("SELECT user_id FROM runs WHERE id = ?1", params![run_id], |row| {
+                row.get::<_, String>(0)
+            })
+            .ok();
+        insert_operations_event(
+            &conn,
+            actor_user_id.as_deref(),
+            None,
+            None,
+            None,
+            Some(run_id),
+            Some(&id),
+            None,
+            "step.planned",
+            "step",
+            &id,
+            &serde_json::json!({
+                "status": "pending",
+                "kind": kind,
+                "work_kind": "modify",
+                "tier": tier,
+                "risk": risk,
+                "objective": objective,
+            }),
+        );
         id
     }
 
@@ -1705,12 +1967,34 @@ impl Database {
         if rows == 0 {
             return None;
         }
-        // Return the new lease_gen value
-        conn.query_row(
+        let lease_gen = conn.query_row(
             "SELECT lease_gen FROM steps WHERE id = ?1",
             params![step_id],
             |row| row.get::<_, i64>(0),
-        ).ok()
+        ).ok();
+        if let Some(lease_gen) = lease_gen {
+            let context = step_event_context(&conn, step_id);
+            insert_operations_event(
+                &conn,
+                context.as_ref().map(|(_, user_id)| user_id.as_str()),
+                None,
+                None,
+                None,
+                context.as_ref().map(|(run_id, _)| run_id.as_str()),
+                Some(step_id),
+                None,
+                "step.leased",
+                "step",
+                step_id,
+                &serde_json::json!({
+                    "status": "leased",
+                    "worker_id": worker_id,
+                    "lease_gen": lease_gen,
+                    "lease_deadline": deadline_ms,
+                }),
+            );
+        }
+        lease_gen
     }
 
     pub fn start_step(&self, step_id: &str, lease_gen: i64) -> bool {
@@ -1721,6 +2005,26 @@ impl Database {
              WHERE id = ?2 AND lease_gen = ?3 AND status IN ('leased', 'running')",
             params![now, step_id, lease_gen],
         ).unwrap_or(0);
+        if rows > 0 {
+            let context = step_event_context(&conn, step_id);
+            insert_operations_event(
+                &conn,
+                context.as_ref().map(|(_, user_id)| user_id.as_str()),
+                None,
+                None,
+                None,
+                context.as_ref().map(|(run_id, _)| run_id.as_str()),
+                Some(step_id),
+                None,
+                "step.started",
+                "step",
+                step_id,
+                &serde_json::json!({
+                    "status": "running",
+                    "lease_gen": lease_gen,
+                }),
+            );
+        }
         rows > 0
     }
 
@@ -1741,6 +2045,30 @@ impl Database {
              WHERE id = ?6 AND lease_gen = ?7 AND status IN ('leased', 'running')",
             params![output_summary, files_changed, base_commit, head_commit, now, step_id, lease_gen],
         ).unwrap_or(0);
+        if rows > 0 {
+            let context = step_event_context(&conn, step_id);
+            insert_operations_event(
+                &conn,
+                context.as_ref().map(|(_, user_id)| user_id.as_str()),
+                None,
+                None,
+                None,
+                context.as_ref().map(|(run_id, _)| run_id.as_str()),
+                Some(step_id),
+                None,
+                "step.completed",
+                "step",
+                step_id,
+                &serde_json::json!({
+                    "status": "succeeded",
+                    "lease_gen": lease_gen,
+                    "output_summary": output_summary,
+                    "files_changed": files_changed,
+                    "base_commit": base_commit,
+                    "head_commit": head_commit,
+                }),
+            );
+        }
         rows > 0
     }
 
@@ -1752,6 +2080,27 @@ impl Database {
              WHERE id = ?3 AND lease_gen = ?4 AND status IN ('leased', 'running')",
             params![error, now, step_id, lease_gen],
         ).unwrap_or(0);
+        if rows > 0 {
+            let context = step_event_context(&conn, step_id);
+            insert_operations_event(
+                &conn,
+                context.as_ref().map(|(_, user_id)| user_id.as_str()),
+                None,
+                None,
+                None,
+                context.as_ref().map(|(run_id, _)| run_id.as_str()),
+                Some(step_id),
+                None,
+                "step.failed",
+                "step",
+                step_id,
+                &serde_json::json!({
+                    "status": "failed",
+                    "lease_gen": lease_gen,
+                    "error": error,
+                }),
+            );
+        }
         rows > 0
     }
 
@@ -1763,6 +2112,26 @@ impl Database {
              WHERE id = ?3 AND status IN ('pending', 'ready', 'orphaned')",
             params![error, now, step_id],
         ).unwrap_or(0);
+        if rows > 0 {
+            let context = step_event_context(&conn, step_id);
+            insert_operations_event(
+                &conn,
+                context.as_ref().map(|(_, user_id)| user_id.as_str()),
+                None,
+                None,
+                None,
+                context.as_ref().map(|(run_id, _)| run_id.as_str()),
+                Some(step_id),
+                None,
+                "step.failed",
+                "step",
+                step_id,
+                &serde_json::json!({
+                    "status": "failed",
+                    "error": error,
+                }),
+            );
+        }
         rows > 0
     }
 
@@ -1775,6 +2144,27 @@ impl Database {
              WHERE id = ?3 AND lease_gen = ?4 AND status IN ('leased', 'running')",
             params![reason, now, step_id, lease_gen],
         ).unwrap_or(0);
+        if rows > 0 {
+            let context = step_event_context(&conn, step_id);
+            insert_operations_event(
+                &conn,
+                context.as_ref().map(|(_, user_id)| user_id.as_str()),
+                None,
+                None,
+                None,
+                context.as_ref().map(|(run_id, _)| run_id.as_str()),
+                Some(step_id),
+                None,
+                "step.cancelled",
+                "step",
+                step_id,
+                &serde_json::json!({
+                    "status": "cancelled",
+                    "lease_gen": lease_gen,
+                    "reason": reason,
+                }),
+            );
+        }
         rows > 0
     }
 
@@ -2533,6 +2923,29 @@ impl Database {
              WHERE id = ?5",
             params![step_verification_status, id, verified_at, now, step_id],
         ).ok();
+        let context = step_event_context(&conn, step_id);
+        insert_operations_event(
+            &conn,
+            context.as_ref().map(|(_, user_id)| user_id.as_str()),
+            None,
+            None,
+            None,
+            Some(run_id),
+            Some(step_id),
+            None,
+            "verifier.reported",
+            "verifier_report",
+            &id,
+            &serde_json::json!({
+                "step_id": step_id,
+                "lease_gen": lease_gen,
+                "worker_id": worker_id,
+                "verifier": verifier,
+                "status": status,
+                "verdict": verdict,
+                "step_verification_status": step_verification_status,
+            }),
+        );
 
         Some(id)
     }
