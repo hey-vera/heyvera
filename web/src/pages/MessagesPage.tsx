@@ -1,121 +1,311 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { ArrowLeft, MessageCircle, Search } from 'lucide-react';
+import { getConversations, getMessages } from '../api/client';
+import type { Conversation, Message, UserSummary } from '../api/types';
+import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 
-interface Conversation {
-  id: string;
-  name: string;
-  handle: string;
-  lastMessage: string;
-  timestamp: string;
-  unread?: boolean;
+function formatRelativeTime(value: string): string {
+  const date = new Date(value);
+  const diffMs = Date.now() - date.getTime();
+
+  if (Number.isNaN(date.getTime()) || diffMs < 0) return '';
+
+  const diffMinutes = Math.floor(diffMs / 60000);
+  if (diffMinutes < 1) return 'now';
+  if (diffMinutes < 60) return `${diffMinutes}m`;
+
+  const diffHours = Math.floor(diffMinutes / 60);
+  if (diffHours < 24) return `${diffHours}h`;
+
+  const diffDays = Math.floor(diffHours / 24);
+  if (diffDays < 7) return `${diffDays}d`;
+
+  return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-const CONVERSATIONS: Conversation[] = [
-  {
-    id: '1',
-    name: 'Vera Network',
-    handle: '@veranetwork',
-    lastMessage: 'The secure room session is ready for review.',
-    timestamp: '2h',
-    unread: true,
-  },
-  {
-    id: '2',
-    name: 'Soma Protocol',
-    handle: '@somaprotocol',
-    lastMessage: 'Fixed the identity delegation bug — ready to merge.',
-    timestamp: '5h',
-  },
-  {
-    id: '3',
-    name: 'agent_zero',
-    handle: '@agent_zero',
-    lastMessage: 'Running the orchestration benchmark now.',
-    timestamp: '1d',
-  },
-];
+function getConversationPeer(conversation: Conversation): UserSummary | undefined {
+  return conversation.participants[1] ?? conversation.participants[0];
+}
+
+function getConversationTitle(conversation: Conversation): string {
+  const peer = getConversationPeer(conversation);
+  return peer?.display_name ?? 'Conversation';
+}
+
+function getConversationHandle(conversation: Conversation): string {
+  const peer = getConversationPeer(conversation);
+  return peer ? `@${peer.handle}` : '';
+}
 
 export function MessagesPage() {
+  const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [messages, setMessages] = useState<Message[]>([]);
   const [search, setSearch] = useState('');
+  const [conversationsLoading, setConversationsLoading] = useState(true);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [conversationsError, setConversationsError] = useState<string | null>(null);
+  const [messagesError, setMessagesError] = useState<string | null>(null);
+  const [conversationsReloadKey, setConversationsReloadKey] = useState(0);
+  const [messagesReloadKey, setMessagesReloadKey] = useState(0);
 
-  const filtered = CONVERSATIONS.filter(
-    (c) =>
-      c.name.toLowerCase().includes(search.toLowerCase()) ||
-      c.handle.toLowerCase().includes(search.toLowerCase())
-  );
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadConversations() {
+      setConversationsLoading(true);
+      setConversationsError(null);
+
+      try {
+        const items = await getConversations();
+        if (!cancelled) {
+          setConversations(items);
+          setSelectedId((current) => current ?? items[0]?.id ?? null);
+        }
+      } catch (err) {
+        if (!cancelled) setConversationsError(err instanceof Error ? err.message : 'Unable to load conversations');
+      } finally {
+        if (!cancelled) setConversationsLoading(false);
+      }
+    }
+
+    void loadConversations();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversationsReloadKey]);
+
+  useEffect(() => {
+    if (!selectedId) {
+      setMessages([]);
+      setMessagesError(null);
+      setMessagesLoading(false);
+      return;
+    }
+
+    let cancelled = false;
+    const conversationId = selectedId;
+
+    async function loadMessages() {
+      setMessagesLoading(true);
+      setMessagesError(null);
+
+      try {
+        const items = await getMessages(conversationId);
+        if (!cancelled) setMessages(items);
+      } catch (err) {
+        if (!cancelled) setMessagesError(err instanceof Error ? err.message : 'Unable to load messages');
+      } finally {
+        if (!cancelled) setMessagesLoading(false);
+      }
+    }
+
+    void loadMessages();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedId, messagesReloadKey]);
+
+  const filteredConversations = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return conversations;
+
+    return conversations.filter((conversation) => {
+      const title = getConversationTitle(conversation).toLowerCase();
+      const handle = getConversationHandle(conversation).toLowerCase();
+      const lastMessage = conversation.last_message.content.toLowerCase();
+      return title.includes(query) || handle.includes(query) || lastMessage.includes(query);
+    });
+  }, [conversations, search]);
+
+  const selectedConversation = conversations.find((conversation) => conversation.id === selectedId) ?? null;
+  const selectedPeer = selectedConversation ? getConversationPeer(selectedConversation) : undefined;
+  const viewerId = selectedConversation?.participants[0]?.id;
+  const showChatOnMobile = selectedConversation !== null;
 
   return (
-    <div className="flex min-h-screen bg-black text-[#E7E9EA]">
-      {/* Conversation list */}
-      <div className="flex w-full flex-col border-r border-[#2F3336] md:w-[360px]">
-        {/* Header */}
-        <div className="sticky top-0 z-10 border-b border-[#2F3336] bg-black/80 backdrop-blur-md px-4 py-3">
-          <h1 className="text-[20px] font-bold text-[#E7E9EA]">Messages</h1>
+    <div className="flex min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+      <div
+        className={`${showChatOnMobile ? 'hidden md:flex' : 'flex'} w-full flex-col border-r md:w-[360px]`}
+        style={{ borderColor: 'var(--border-primary)' }}
+      >
+        <div className="sticky top-0 z-10 border-b bg-black/80 px-4 py-3 backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
+          <h1 className="text-[20px] font-bold">Messages</h1>
         </div>
 
-        {/* Search */}
         <div className="px-4 py-3">
           <div className="relative">
-            <span className="absolute left-4 top-1/2 -translate-y-1/2 text-[#71767B]">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M10.25 3.75c-3.59 0-6.5 2.91-6.5 6.5s2.91 6.5 6.5 6.5c1.795 0 3.419-.726 4.596-1.904 1.178-1.177 1.904-2.801 1.904-4.596 0-3.59-2.91-6.5-6.5-6.5zm-8.5 6.5c0-4.694 3.806-8.5 8.5-8.5s8.5 3.806 8.5 8.5c0 1.986-.682 3.815-1.82 5.262l4.529 4.528-1.414 1.414-4.529-4.529A8.457 8.457 0 0 1 10.25 18.75c-4.694 0-8.5-3.806-8.5-8.5z" />
-              </svg>
-            </span>
+            <Search
+              className="absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2"
+              style={{ color: 'var(--text-secondary)' }}
+              aria-hidden="true"
+            />
             <input
               type="text"
               placeholder="Search Messages"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-full border border-[#2F3336] bg-[#16181C] py-2.5 pl-10 pr-4 text-[15px] text-[#E7E9EA] placeholder-[#71767B] outline-none focus:border-[#00BA7C] transition-colors"
+              onChange={(event) => setSearch(event.target.value)}
+              className="w-full rounded-full border py-2.5 pl-10 pr-4 text-[15px] outline-none transition-colors"
+              style={{
+                backgroundColor: 'var(--bg-elevated)',
+                borderColor: 'var(--border-primary)',
+                color: 'var(--text-primary)',
+              }}
             />
           </div>
         </div>
 
-        {/* Conversation items */}
         <div className="flex-1 overflow-y-auto">
-          {filtered.map((convo) => (
-            <button
-              key={convo.id}
-              type="button"
-              onClick={() => setSelectedId(convo.id)}
-              className={`flex w-full gap-3 border-b border-[#2F3336] px-4 py-3 text-left transition-colors hover:bg-white/5 ${
-                selectedId === convo.id ? 'bg-white/5' : ''
-              }`}
-            >
-              {/* Avatar */}
-              <div className="h-10 w-10 flex-shrink-0 rounded-full bg-[#2F3336]" />
+          {conversationsLoading && <LoadingState label="Loading conversations" />}
+          {!conversationsLoading && conversationsError && (
+            <ErrorState detail={conversationsError} onRetry={() => setConversationsReloadKey((key) => key + 1)} />
+          )}
+          {!conversationsLoading && !conversationsError && conversations.length === 0 && (
+            <EmptyState title="No messages yet" detail="Conversations will appear here when someone messages you." />
+          )}
+          {!conversationsLoading && !conversationsError && conversations.length > 0 && filteredConversations.length === 0 && (
+            <EmptyState title="No results" detail="Try searching for a different name, handle, or message." />
+          )}
+          {!conversationsLoading && !conversationsError && filteredConversations.map((conversation) => {
+            const peer = getConversationPeer(conversation);
+            const selected = selectedId === conversation.id;
+            const unread = conversation.unread_count > 0;
 
-              <div className="flex-1 min-w-0">
-                <div className="flex items-baseline justify-between gap-2">
-                  <span className={`text-[15px] font-bold truncate ${convo.unread ? 'text-[#E7E9EA]' : 'text-[#E7E9EA]'}`}>
-                    {convo.name}
-                  </span>
-                  <span className="flex-shrink-0 text-xs text-[#71767B]">{convo.timestamp}</span>
+            return (
+              <button
+                key={conversation.id}
+                type="button"
+                onClick={() => setSelectedId(conversation.id)}
+                className="flex w-full gap-3 border-b px-4 py-3 text-left transition-colors hover:bg-white/5"
+                style={{
+                  backgroundColor: selected ? 'var(--bg-hover)' : 'transparent',
+                  borderColor: 'var(--border-primary)',
+                }}
+              >
+                {peer?.avatar_url ? (
+                  <img
+                    src={peer.avatar_url}
+                    alt={peer.display_name}
+                    className="h-10 w-10 flex-shrink-0 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="h-10 w-10 flex-shrink-0 rounded-full" style={{ backgroundColor: 'var(--border-primary)' }} />
+                )}
+
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-baseline justify-between gap-2">
+                    <span className="truncate text-[15px] font-bold">{getConversationTitle(conversation)}</span>
+                    <span className="flex-shrink-0 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                      {formatRelativeTime(conversation.last_message.created_at)}
+                    </span>
+                  </div>
+                  <p className="truncate text-[14px]" style={{ color: unread ? 'var(--text-primary)' : 'var(--text-secondary)' }}>
+                    {conversation.last_message.content}
+                  </p>
+                  <p className="truncate text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                    {getConversationHandle(conversation)}
+                  </p>
                 </div>
-                <p className={`text-[14px] truncate ${convo.unread ? 'text-[#E7E9EA] font-medium' : 'text-[#71767B]'}`}>
-                  {convo.lastMessage}
-                </p>
-              </div>
 
-              {convo.unread && (
-                <div className="flex-shrink-0 h-2.5 w-2.5 rounded-full bg-[#00BA7C] self-center" />
-              )}
-            </button>
-          ))}
+                {unread && (
+                  <div
+                    className="h-2.5 w-2.5 flex-shrink-0 self-center rounded-full"
+                    style={{ backgroundColor: 'var(--accent)' }}
+                    aria-label={`${conversation.unread_count} unread`}
+                  />
+                )}
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Chat panel — hidden on mobile */}
-      <div className="hidden flex-1 items-center justify-center md:flex">
-        <div className="text-center">
-          <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border border-[#2F3336]">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="#71767B">
-              <path d="M1.751 10c0-4.42 3.584-8 8.005-8h4.366c4.49 0 8.129 3.64 8.129 8.13 0 2.96-1.607 5.68-4.196 7.11l-8.054 4.46v-3.69h-.067c-4.49.1-8.183-3.51-8.183-8.01zm8.005-6c-3.317 0-6.005 2.69-6.005 6 0 3.37 2.77 6.08 6.138 6.01l.351-.01h1.761v2.3l5.087-2.81c1.951-1.08 3.163-3.13 3.163-5.36 0-3.39-2.744-6.13-6.129-6.13H9.756z" />
-            </svg>
+      <div className={`${showChatOnMobile ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 flex-col`}>
+        {selectedConversation ? (
+          <>
+            <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-black/80 px-4 py-3 backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
+              <button
+                type="button"
+                onClick={() => setSelectedId(null)}
+                className="rounded-full p-2 transition-colors hover:bg-white/5 md:hidden"
+                aria-label="Back to conversations"
+              >
+                <ArrowLeft className="h-5 w-5" aria-hidden="true" />
+              </button>
+              {selectedPeer?.avatar_url && (
+                <img
+                  src={selectedPeer.avatar_url}
+                  alt={selectedPeer.display_name}
+                  className="h-9 w-9 rounded-full object-cover"
+                />
+              )}
+              <div className="min-w-0">
+                <h2 className="truncate text-[20px] font-bold">{getConversationTitle(selectedConversation)}</h2>
+                <p className="truncate text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                  {getConversationHandle(selectedConversation)}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-4 py-4">
+              {messagesLoading && <LoadingState label="Loading messages" />}
+              {!messagesLoading && messagesError && (
+                <ErrorState detail={messagesError} onRetry={() => setMessagesReloadKey((key) => key + 1)} />
+              )}
+              {!messagesLoading && !messagesError && messages.length === 0 && (
+                <EmptyState title="No messages" detail="This conversation does not have any messages yet." />
+              )}
+              {!messagesLoading && !messagesError && messages.length > 0 && (
+                <div className="flex flex-col gap-4">
+                  {messages.map((message) => {
+                    const isViewer = Boolean(viewerId && message.sender.id === viewerId);
+
+                    return (
+                      <article key={message.id} className={`flex gap-3 ${isViewer ? 'justify-end' : 'justify-start'}`}>
+                        {!isViewer && (
+                          <img
+                            src={message.sender.avatar_url}
+                            alt={message.sender.display_name}
+                            className="mt-auto h-8 w-8 flex-shrink-0 rounded-full object-cover"
+                          />
+                        )}
+                        <div className={`max-w-[78%] ${isViewer ? 'items-end' : 'items-start'} flex flex-col gap-1`}>
+                          <div
+                            className="rounded-3xl px-4 py-2 text-[15px] leading-normal"
+                            style={{
+                              backgroundColor: isViewer ? 'var(--accent)' : 'var(--bg-elevated)',
+                              color: isViewer ? 'var(--bg-primary)' : 'var(--text-primary)',
+                            }}
+                          >
+                            {message.content}
+                          </div>
+                          <span className="px-1 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                            {message.sender.display_name} · {formatRelativeTime(message.created_at)}
+                          </span>
+                        </div>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <div className="flex flex-1 items-center justify-center px-6 text-center">
+            <div>
+              <div
+                className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border"
+                style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+              >
+                <MessageCircle className="h-7 w-7" aria-hidden="true" />
+              </div>
+              <p className="text-[20px] font-bold">Select a conversation</p>
+              <p className="mt-1 text-[15px]" style={{ color: 'var(--text-secondary)' }}>
+                Choose from your existing conversations to view messages.
+              </p>
+            </div>
           </div>
-          <p className="text-[20px] font-bold text-[#E7E9EA]">Select a conversation</p>
-          <p className="mt-1 text-[15px] text-[#71767B]">Choose from your existing conversations or start a new one.</p>
-        </div>
+        )}
       </div>
     </div>
   );
