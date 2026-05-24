@@ -20,6 +20,8 @@ import TaskBoard from './TaskBoard';
 import TaskInspector from './TaskInspector';
 import { parseTaskCommand, useTaskManager } from '../../lib/taskManager';
 import {
+  CortexApiError,
+  createRun,
   processMemoryEnhancedChat,
   applyMemorySuggestion,
   createFromAutoCapture,
@@ -32,6 +34,7 @@ import type { CortexGroup } from '../../lib/groups';
 import type {
   ApprovalState,
   ChatMessage,
+  RunProfile,
   TaskManagerTask,
   TaskMember,
 } from '../../types';
@@ -45,6 +48,7 @@ interface TaskManagerChatProps {
   isStreaming: boolean;
   isLoadingConversation: boolean;
   needsSubscription: boolean;
+  runProfile: RunProfile;
   sidebarMode?: boolean;
   onDraftChange: (value: string) => void;
   onSend: () => void;
@@ -339,6 +343,7 @@ export default function TaskManagerChat({
   isStreaming,
   isLoadingConversation,
   needsSubscription,
+  runProfile,
   sidebarMode = false,
   onDraftChange,
   onSend,
@@ -355,6 +360,8 @@ export default function TaskManagerChat({
   const [showMemoryPanel, setShowMemoryPanel] = useState(false);
   const [isProcessingMemory, setIsProcessingMemory] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [creatingRunTaskId, setCreatingRunTaskId] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
 
   const parsedPreview = useMemo(
     () => parseTaskCommand(draft, taskManager.state),
@@ -447,6 +454,36 @@ export default function TaskManagerChat({
   const handleSelectTask = useCallback((task: TaskManagerTask) => {
     setSelectedTaskId(task.id);
   }, []);
+
+  const handleCreateTaskRun = useCallback(async (task: TaskManagerTask) => {
+    if (creatingRunTaskId) return;
+    setSelectedTaskId(task.id);
+    setCreatingRunTaskId(task.id);
+    setRunError(null);
+    const goal = [
+      `Work on task: ${task.title}`,
+      task.repo ? `Repo/context: ${task.repo}` : null,
+      `Task id: ${task.id}`,
+      task.description ? `Details: ${task.description}` : null,
+      'Create a safe decomposed run plan, execute the work, verify it, and preserve evidence for review.',
+    ].filter(Boolean).join('\n');
+
+    try {
+      const created = await createRun(goal, runProfile);
+      taskManager.updateTask(task.id, {
+        status: task.status === 'done' ? task.status : 'in-progress',
+        latestRunId: created.run_id,
+      });
+    } catch (error) {
+      if (error instanceof CortexApiError && error.status === 503) {
+        setRunError('Runtime is starting up. Try again in a moment.');
+      } else {
+        setRunError(error instanceof Error ? error.message : 'Could not create backend run.');
+      }
+    } finally {
+      setCreatingRunTaskId(null);
+    }
+  }, [creatingRunTaskId, runProfile, taskManager]);
 
   useEffect(() => {
     onTaskStateChange?.(taskManager.state);
@@ -699,6 +736,9 @@ export default function TaskManagerChat({
               task={selectedTask}
               members={taskManager.state.members}
               activity={taskManager.state.activity}
+              isCreatingRun={creatingRunTaskId === selectedTask?.id}
+              runError={runError}
+              onCreateRun={handleCreateTaskRun}
               onLaunchTask={handleLaunchTaskInProjectChat}
             />
           </div>

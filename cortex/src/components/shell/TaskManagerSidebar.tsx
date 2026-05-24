@@ -5,10 +5,12 @@ import TaskBoard from '../tasks/TaskBoard';
 import TaskInspector from '../tasks/TaskInspector';
 import { openDetachedPanel } from '../../lib/shell/windowManager';
 import { useTaskManager } from '../../lib/taskManager';
+import { CortexApiError, createRun } from '../../lib/cortexApi';
 import type { CortexGroup } from '../../lib/groups';
 import type {
   ApprovalState,
   ChatMessage,
+  RunProfile,
   TaskManagerState,
   TaskManagerTask,
 } from '../../types';
@@ -22,6 +24,7 @@ interface TaskManagerSidebarProps {
   isStreaming: boolean;
   isLoadingConversation: boolean;
   needsSubscription: boolean;
+  runProfile: RunProfile;
   onDraftChange: (value: string) => void;
   onSend: () => void;
   onStop?: () => void;
@@ -42,6 +45,7 @@ export default function TaskManagerSidebar({
   isStreaming,
   isLoadingConversation,
   needsSubscription,
+  runProfile,
   onDraftChange,
   onSend,
   onStop,
@@ -54,6 +58,8 @@ export default function TaskManagerSidebar({
   const [activeView, setActiveView] = useState<SidebarView>('chat');
   const [groupTransition, setGroupTransition] = useState(false);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [creatingRunTaskId, setCreatingRunTaskId] = useState<string | null>(null);
+  const [runError, setRunError] = useState<string | null>(null);
   const taskManager = useTaskManager(group, userId);
   const selectedTask = taskManager.state.tasks.find((task) => task.id === selectedTaskId)
     ?? taskManager.state.tasks[0]
@@ -84,6 +90,36 @@ export default function TaskManagerSidebar({
   const handleSelectTask = useCallback((task: TaskManagerTask) => {
     setSelectedTaskId(task.id);
   }, []);
+
+  const handleCreateTaskRun = useCallback(async (task: TaskManagerTask) => {
+    if (creatingRunTaskId) return;
+    setSelectedTaskId(task.id);
+    setCreatingRunTaskId(task.id);
+    setRunError(null);
+    const goal = [
+      `Work on task: ${task.title}`,
+      task.repo ? `Repo/context: ${task.repo}` : null,
+      `Task id: ${task.id}`,
+      task.description ? `Details: ${task.description}` : null,
+      'Create a safe decomposed run plan, execute the work, verify it, and preserve evidence for review.',
+    ].filter(Boolean).join('\n');
+
+    try {
+      const created = await createRun(goal, runProfile);
+      taskManager.updateTask(task.id, {
+        status: task.status === 'done' ? task.status : 'in-progress',
+        latestRunId: created.run_id,
+      });
+    } catch (error) {
+      if (error instanceof CortexApiError && error.status === 503) {
+        setRunError('Runtime is starting up. Try again in a moment.');
+      } else {
+        setRunError(error instanceof Error ? error.message : 'Could not create backend run.');
+      }
+    } finally {
+      setCreatingRunTaskId(null);
+    }
+  }, [creatingRunTaskId, runProfile, taskManager]);
 
   // Minimized state
   if (!isExpanded) {
@@ -202,6 +238,7 @@ export default function TaskManagerSidebar({
             isStreaming={isStreaming}
             isLoadingConversation={isLoadingConversation}
             needsSubscription={needsSubscription}
+            runProfile={runProfile}
             onDraftChange={onDraftChange}
             onSend={onSend}
             onStop={onStop}
@@ -234,6 +271,9 @@ export default function TaskManagerSidebar({
               task={selectedTask}
               members={taskManager.state.members}
               activity={taskManager.state.activity}
+              isCreatingRun={creatingRunTaskId === selectedTask?.id}
+              runError={runError}
+              onCreateRun={handleCreateTaskRun}
               onLaunchTask={handleLaunchTaskInProjectChat}
             />
           </div>
