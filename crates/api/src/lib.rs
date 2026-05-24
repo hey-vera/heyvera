@@ -153,6 +153,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
     Router::new()
         // Public
         .route("/api/health", get(routes::health))
+        .route("/api/deploy-info", get(routes::deploy_info))
         .route("/api/auth/status", get(auth::auth_status))
         // Soma identity (public — lets clients discover Cortex's DID)
         .route("/api/soma/identity", get(soma_identity))
