@@ -204,6 +204,7 @@ export default function TaskInspector({
   const latestRunId = task?.latestRunId ?? null;
   const taskRef = useRef(task);
   const updateRunSnapshotRef = useRef(onUpdateRunSnapshot);
+  const isRefreshingRunRef = useRef(false);
 
   useEffect(() => {
     taskRef.current = task;
@@ -220,6 +221,8 @@ export default function TaskInspector({
       setRunLoadError(null);
       return;
     }
+    if (isRefreshingRunRef.current) return;
+    isRefreshingRunRef.current = true;
     setIsLoadingRun(true);
     try {
       const [nextRun, nextEvents] = await Promise.all([
@@ -242,6 +245,7 @@ export default function TaskInspector({
       setEvents([]);
       setRunLoadError(error instanceof Error ? error.message : 'Could not load linked run.');
     } finally {
+      isRefreshingRunRef.current = false;
       setIsLoadingRun(false);
     }
   }, [latestRunId]);
