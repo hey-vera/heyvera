@@ -33,7 +33,7 @@ import {
   writeGroups,
   type CortexGroup,
 } from './lib/groups';
-import type { ChatSessionControls, RunProfile } from './types';
+import type { ChatSessionControls, RunProfile, TaskManagerTask } from './types';
 import type { TaskManagerState } from './types';
 import { openDetachedPanel } from './lib/shell/windowManager';
 import { readTaskManagerState, TASK_MANAGER_CHANNEL_NAME } from './lib/taskManager';
@@ -356,6 +356,18 @@ function CortexShell() {
 
   const titleInputRef = useRef<HTMLInputElement | null>(null);
   const skipTitleBlurSaveRef = useRef(false);
+
+  const handleLaunchTaskInProjectChat = useCallback((task: TaskManagerTask) => {
+    const lines = [
+      `Work on task: ${task.title}`,
+      task.repo ? `Repo/context: ${task.repo}` : null,
+      `Task id: ${task.id}`,
+      task.projectChatConversationId ? `Attached conversation: ${task.projectChatConversationId}` : null,
+      '',
+      'Start by confirming the goal, identifying the safest first step, and then proceed with the work.',
+    ].filter(Boolean);
+    setDraft(lines.join('\n'));
+  }, [setDraft]);
 
   const handleNewChat = useCallback(() => {
     setGroupConversation(activeGroupId, null);
@@ -753,6 +765,7 @@ function CortexShell() {
               onSubscribe={() => handleOpenSettings('billing')}
               onApprovalAction={updateApproval}
               onTaskStateChange={setTaskState}
+              onLaunchTaskInProjectChat={handleLaunchTaskInProjectChat}
             />
           </div>
         </div>

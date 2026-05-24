@@ -91,6 +91,7 @@ function isActivity(value: unknown): value is TaskActivity {
       || candidate.kind === 'assigned'
       || candidate.kind === 'status'
       || candidate.kind === 'handoff'
+      || candidate.kind === 'linked'
       || candidate.kind === 'note'
     );
 }
@@ -500,7 +501,7 @@ export function useTaskManager(group: CortexGroup, userId: string) {
     });
   }, [group.id, publish, state]);
 
-  const updateTask = useCallback((taskId: string, patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority'>>) => {
+  const updateTask = useCallback((taskId: string, patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority' | 'projectChatConversationId' | 'projectChatLaunchedAt' | 'latestRunId'>>) => {
     const timestamp = nowIso();
     const previous = state.tasks.find((task) => task.id === taskId);
     if (!previous) return;
@@ -536,6 +537,42 @@ export function useTaskManager(group: CortexGroup, userId: string) {
     });
   }, [group.id, publish, state]);
 
+  const launchTaskInProjectChat = useCallback((taskId: string, conversationId: string | null) => {
+    const timestamp = nowIso();
+    const previous = state.tasks.find((task) => task.id === taskId);
+    if (!previous) return null;
+    const nextTask: TaskManagerTask = {
+      ...previous,
+      status: previous.status === 'done' ? previous.status : 'in-progress',
+      projectChatConversationId: conversationId,
+      projectChatLaunchedAt: timestamp,
+      updatedAt: timestamp,
+    };
+    publish({
+      ...state,
+      tasks: state.tasks.map((task) => task.id === taskId ? nextTask : task),
+      members: state.members.map((member) => {
+        if (member.id === nextTask.assigneeId && nextTask.status === 'in-progress') {
+          return { ...member, status: 'working', currentTaskId: nextTask.id };
+        }
+        return member;
+      }),
+      activity: [{
+        id: createId('activity'),
+        groupId: group.id,
+        taskId,
+        kind: 'linked' as const,
+        actor: 'You',
+        summary: conversationId
+          ? `${nextTask.title} opened in Project Chat.`
+          : `${nextTask.title} staged for Project Chat.`,
+        createdAt: timestamp,
+      }, ...state.activity].slice(0, 80),
+      updatedAt: timestamp,
+    });
+    return nextTask;
+  }, [group.id, publish, state]);
+
   const resetTasks = useCallback(() => {
     publish(emptyState(group, userId));
   }, [group, publish, userId]);
@@ -548,6 +585,7 @@ export function useTaskManager(group: CortexGroup, userId: string) {
     applyTextCommand,
     createTask,
     updateTask,
+    launchTaskInProjectChat,
     resetTasks,
   };
 }

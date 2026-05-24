@@ -51,6 +51,7 @@ interface TaskManagerChatProps {
   onSubscribe: () => void;
   onApprovalAction: (messageId: string, nextState: ApprovalState) => void;
   onTaskStateChange?: (state: ReturnType<typeof useTaskManager>['state']) => void;
+  onLaunchTaskInProjectChat?: (task: TaskManagerTask) => void;
 }
 
 type MobilePanel = 'chat' | 'board' | 'team';
@@ -344,6 +345,7 @@ export default function TaskManagerChat({
   onSubscribe,
   onApprovalAction,
   onTaskStateChange,
+  onLaunchTaskInProjectChat,
 }: TaskManagerChatProps) {
   const taskManager = useTaskManager(group, userId);
   const [mobilePanel, setMobilePanel] = useState<MobilePanel>('chat');
@@ -429,6 +431,11 @@ export default function TaskManagerChat({
     // Send the message
     onSend();
   }, [draft, onSend, taskManager, processMemory]);
+
+  const handleLaunchTaskInProjectChat = useCallback((task: TaskManagerTask) => {
+    const linkedTask = taskManager.launchTaskInProjectChat(task.id, activeConversationId);
+    onLaunchTaskInProjectChat?.(linkedTask ?? task);
+  }, [activeConversationId, onLaunchTaskInProjectChat, taskManager]);
 
   useEffect(() => {
     onTaskStateChange?.(taskManager.state);
@@ -673,6 +680,7 @@ export default function TaskManagerChat({
               members={taskManager.state.members}
               compact
               onUpdateTask={taskManager.updateTask}
+              onLaunchTask={handleLaunchTaskInProjectChat}
             />
           </div>
           <div className={`${mobilePanel === 'team' ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-3 lg:flex lg:p-4`}>
