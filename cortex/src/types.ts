@@ -260,9 +260,12 @@ export interface TaskManagerTask {
   updatedAt: string;
   createdBy: string;
   sourceMessageId?: string;
+  projectChatConversationId?: string | null;
+  projectChatLaunchedAt?: string | null;
+  latestRunId?: string | null;
 }
 
-export type TaskActivityKind = 'created' | 'assigned' | 'status' | 'handoff' | 'note';
+export type TaskActivityKind = 'created' | 'assigned' | 'status' | 'handoff' | 'linked' | 'note';
 
 export interface TaskActivity {
   id: string;

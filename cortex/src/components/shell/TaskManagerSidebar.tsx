@@ -9,6 +9,7 @@ import type {
   ApprovalState,
   ChatMessage,
   TaskManagerState,
+  TaskManagerTask,
 } from '../../types';
 
 interface TaskManagerSidebarProps {
@@ -26,6 +27,7 @@ interface TaskManagerSidebarProps {
   onSubscribe: () => void;
   onApprovalAction: (messageId: string, nextState: ApprovalState) => void;
   onTaskStateChange?: (state: TaskManagerState) => void;
+  onLaunchTaskInProjectChat?: (task: TaskManagerTask) => void;
 }
 
 type SidebarView = 'chat' | 'map';
@@ -45,6 +47,7 @@ export default function TaskManagerSidebar({
   onSubscribe,
   onApprovalAction,
   onTaskStateChange,
+  onLaunchTaskInProjectChat,
 }: TaskManagerSidebarProps) {
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeView, setActiveView] = useState<SidebarView>('chat');
@@ -65,6 +68,12 @@ export default function TaskManagerSidebar({
   const handleToggleExpand = useCallback(() => {
     setIsExpanded(!isExpanded);
   }, [isExpanded]);
+
+  const handleLaunchTaskInProjectChat = useCallback((task: TaskManagerTask) => {
+    const linkedTask = taskManager.launchTaskInProjectChat(task.id, activeConversationId);
+    onLaunchTaskInProjectChat?.(linkedTask ?? task);
+    setActiveView('chat');
+  }, [activeConversationId, onLaunchTaskInProjectChat, taskManager]);
 
   // Minimized state
   if (!isExpanded) {
@@ -189,6 +198,7 @@ export default function TaskManagerSidebar({
             onSubscribe={onSubscribe}
             onApprovalAction={onApprovalAction}
             onTaskStateChange={onTaskStateChange}
+            onLaunchTaskInProjectChat={onLaunchTaskInProjectChat}
             sidebarMode={true}
           />
         ) : (
@@ -206,6 +216,7 @@ export default function TaskManagerSidebar({
               members={taskManager.state.members}
               compact
               onUpdateTask={taskManager.updateTask}
+              onLaunchTask={handleLaunchTaskInProjectChat}
             />
           </div>
         )}

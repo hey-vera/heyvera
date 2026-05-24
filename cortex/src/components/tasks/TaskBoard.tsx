@@ -3,6 +3,7 @@ import {
   Circle,
   GripVertical,
   ListTodo,
+  MessageSquareText,
   PlayCircle,
   UserPlus,
 } from 'lucide-react';
@@ -16,8 +17,9 @@ interface TaskBoardProps {
   compact?: boolean;
   onUpdateTask: (
     taskId: string,
-    patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority'>>,
+    patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority' | 'projectChatConversationId' | 'projectChatLaunchedAt' | 'latestRunId'>>,
   ) => void;
+  onLaunchTask?: (task: TaskManagerTask) => void;
 }
 
 const STATUSES: TaskStatus[] = ['created', 'assigned', 'in-progress', 'done'];
@@ -55,11 +57,13 @@ function TaskCard({
   assignee,
   compact,
   onUpdateTask,
+  onLaunchTask,
 }: {
   task: TaskManagerTask;
   assignee: TaskMember | null;
   compact?: boolean;
   onUpdateTask: TaskBoardProps['onUpdateTask'];
+  onLaunchTask?: TaskBoardProps['onLaunchTask'];
 }) {
   function onDragStart(event: DragEvent<HTMLDivElement>) {
     event.dataTransfer.setData('application/cortex-task-id', task.id);
@@ -83,6 +87,9 @@ function TaskCard({
           </div>
           {task.repo && (
             <p className="mt-1 truncate text-[11px] text-[var(--muted)]">{task.repo}</p>
+          )}
+          {task.projectChatLaunchedAt && (
+            <p className="mt-1 truncate text-[11px] text-[var(--accent)]">Attached to Project Chat</p>
           )}
           <div className="mt-3 flex items-center justify-between gap-2">
             {assignee ? (
@@ -119,7 +126,26 @@ function TaskCard({
                   {status === 'in-progress' ? 'Active' : formatTaskStatus(status)}
                 </button>
               ))}
+              <button
+                type="button"
+                title="Open in Project Chat"
+                aria-label="Open task in Project Chat"
+                onClick={() => onLaunchTask?.(task)}
+                className="inline-flex h-6 w-8 shrink-0 items-center justify-center rounded-md border border-white/8 bg-white/[0.02] text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white active:scale-95"
+              >
+                <MessageSquareText className="h-3.5 w-3.5" />
+              </button>
             </div>
+          )}
+          {compact && (
+            <button
+              type="button"
+              onClick={() => onLaunchTask?.(task)}
+              className="mt-3 inline-flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-white/8 bg-white/[0.03] text-[11px] text-[var(--muted-strong)] transition hover:bg-white/[0.07] hover:text-white active:scale-[0.99]"
+            >
+              <MessageSquareText className="h-3.5 w-3.5" />
+              Open in Project Chat
+            </button>
           )}
         </div>
       </div>
@@ -133,12 +159,14 @@ function DropColumn({
   members,
   compact,
   onUpdateTask,
+  onLaunchTask,
 }: {
   status: TaskStatus;
   tasks: TaskManagerTask[];
   members: TaskMember[];
   compact?: boolean;
   onUpdateTask: TaskBoardProps['onUpdateTask'];
+  onLaunchTask?: TaskBoardProps['onLaunchTask'];
 }) {
   const Icon = STATUS_ICON[status];
   const [scrollTop, setScrollTop] = useState(0);
@@ -205,6 +233,7 @@ function DropColumn({
                 assignee={getMember(members, task.assigneeId)}
                 compact={compact}
                 onUpdateTask={onUpdateTask}
+                onLaunchTask={onLaunchTask}
               />
             ))}
             {virtualWindow.bottom > 0 && <div style={{ height: virtualWindow.bottom }} aria-hidden="true" />}
@@ -215,7 +244,7 @@ function DropColumn({
   );
 }
 
-export default function TaskBoard({ tasks, members, compact = false, onUpdateTask }: TaskBoardProps) {
+export default function TaskBoard({ tasks, members, compact = false, onUpdateTask, onLaunchTask }: TaskBoardProps) {
   const hasTasks = tasks.length > 0;
   const visibleStatuses = compact ? STATUSES.filter((status) => status !== 'done') : STATUSES;
 
@@ -239,6 +268,7 @@ export default function TaskBoard({ tasks, members, compact = false, onUpdateTas
               members={members}
               compact={compact}
               onUpdateTask={onUpdateTask}
+              onLaunchTask={onLaunchTask}
             />
           ))}
         </div>
