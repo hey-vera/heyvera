@@ -6,7 +6,7 @@ import ErrorBoundary from './components/ErrorBoundary'
 import './index.css'
 
 // Clear old cached data - force fresh start after auth fixes
-const APP_VERSION = '2026-05-23-auth-fix'
+const APP_VERSION = '2026-05-24-pages-refresh'
 const storedVersion = localStorage.getItem('cortex-app-version')
 if (storedVersion !== APP_VERSION) {
   localStorage.clear()
