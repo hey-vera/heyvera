@@ -38,7 +38,8 @@ web/src/
 │   ├── PremiumPage.tsx
 │   ├── ProfilePage.tsx
 │   ├── SettingsPage.tsx
-│   └── AIPage.tsx
+│   ├── AIPage.tsx
+│   └── PostThreadPage.tsx
 ├── router.tsx          # All routes, uses AppShell as root layout
 ├── main.tsx            # Entry point, ClerkProvider + RouterProvider
 └── index.css           # Theme CSS variables + Tailwind
@@ -151,7 +152,7 @@ The most important component. Must match X.com tweet anatomy:
 | /profile/:handle | ProfilePage | Other user's profile |
 | /settings | SettingsPage | Two-panel settings with section menu |
 | /ai | AIPage | Placeholder for AI assistant |
-| /post/:id | PostThread | Single post view (stub) |
+| /post/:id | PostThreadPage | Single post view loaded through `getPost(id)` |
 
 ## API Client (web/src/api/client.ts)
 
@@ -181,22 +182,23 @@ All data loading goes through this client. When `VITE_API_URL` is empty, returns
 ## Remaining Polish Work (priority order)
 
 ### P0 — Must do
-- [ ] Replace emoji icons with lucide-react or custom SVG icons across LeftNav, BottomBar, PostCard action bar
-- [ ] Connect HomePage to `getFeed()` — render PostCards from mock data
-- [ ] Connect ExplorePage to `getTrending()`
-- [ ] Connect NotificationsPage to `getNotifications()`
-- [ ] Connect CommunitiesPage to `getCommunities()`
-- [ ] Connect ProfilePage to `getUserProfile()` + `getProfilePosts()`
-- [ ] Add loading spinners/skeletons while data loads
+- [x] Replace emoji icons with lucide-react or custom SVG icons across LeftNav, BottomBar, PostCard action bar
+- [x] Connect HomePage to `getFeed()` — render PostCards from mock data
+- [x] Connect ExplorePage to `getTrending()`
+- [x] Connect NotificationsPage to `getNotifications()`
+- [x] Connect CommunitiesPage to `getCommunities()`
+- [x] Connect ProfilePage to `getUserProfile()` + `getProfilePosts()`
+- [x] Add loading spinners/skeletons while data loads
 
 ### P1 — Should do
 - [ ] Like heart animation (CSS sprite or scale+color transition)
 - [ ] Hover states on all interactive elements (nav items have pill bg, cards have subtle bg change)
-- [ ] Compose modal: media upload placeholders, character counter, emoji picker placeholder
-- [ ] Messages: clicking a conversation shows messages in right panel
+- [x] Compose modal: media upload placeholders, character counter, emoji picker placeholder
+- [x] Messages: clicking a conversation shows messages in right panel
 - [ ] Profile: render actual PostCards in tabs
-- [ ] Settings: clicking a section shows its options in right panel
-- [ ] Search functionality in ExplorePage
+- [x] Settings: clicking a section shows its options in right panel
+- [x] Search functionality in ExplorePage
+- [x] Post thread route loads a post through `getPost(id)` and renders `PostCard`
 
 ### P2 — Nice to have
 - [ ] Infinite scroll (intersection observer + cursor pagination)

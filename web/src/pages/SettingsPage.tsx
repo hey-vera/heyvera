@@ -1,171 +1,488 @@
 import { useState } from 'react';
+import {
+  ArrowLeft,
+  Bell,
+  Check,
+  ChevronRight,
+  CreditCard,
+  Database,
+  Lock,
+  Mail,
+  MessageCircle,
+  Monitor,
+  Palette,
+  Shield,
+  Smartphone,
+  Sparkles,
+  Star,
+  Trash2,
+  Type,
+  User,
+  Zap,
+} from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 
-type Section = 'account' | 'privacy' | 'notifications' | 'display' | 'about';
+type Section = 'account' | 'privacy' | 'notifications' | 'billing' | 'display' | 'data';
 
 interface SectionMeta {
   id: Section;
   label: string;
-  icon: React.ReactNode;
-  items: string[];
+  description: string;
+  Icon: LucideIcon;
+  controls: SettingControl[];
 }
 
-const ChevronRight = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="#71767B">
-    <path d="M8.59 16.59L13.17 12 8.59 7.41 10 6l6 6-6 6z" />
-  </svg>
-);
+interface BaseControl {
+  id: string;
+  label: string;
+  description: string;
+  Icon: LucideIcon;
+}
+
+interface ToggleControl extends BaseControl {
+  kind: 'toggle';
+  enabled: boolean;
+}
+
+interface ChoiceControl extends BaseControl {
+  kind: 'choice';
+  options: string[];
+  selected: string;
+}
+
+interface ActionControl extends BaseControl {
+  kind: 'action';
+  actionLabel: string;
+  tone?: 'danger' | 'premium';
+}
+
+type SettingControl = ToggleControl | ChoiceControl | ActionControl;
 
 const SECTIONS: SectionMeta[] = [
   {
     id: 'account',
-    label: 'Your account',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 11.816c-3.307 0-6-2.695-6-6.008 0-3.316 2.693-6.008 6-6.008s6 2.692 6 6.008c0 3.313-2.693 6.008-6 6.008zm0-10.816c-2.69 0-4.878 2.191-4.878 4.808 0 2.616 2.189 4.808 4.878 4.808s4.878-2.192 4.878-4.808c0-2.617-2.189-4.808-4.878-4.808zm7.129 20.016l-.07-.59c-.451-4.001-3.905-7.006-7.955-7.006-4.055 0-7.512 3.006-7.962 7.006l-.069.59H3l.069-.691C3.584 15.343 7.454 12.02 12 12.02c4.551 0 8.418 3.322 8.931 7.305l.069.691h-1.871z" />
-      </svg>
-    ),
-    items: [
-      'Change display name',
-      'Change username',
-      'Change email',
-      'Change password',
-      'Deactivate account',
+    label: 'Account',
+    description: 'Manage identity, sign-in, and account lifecycle settings.',
+    Icon: User,
+    controls: [
+      {
+        id: 'profile-visibility',
+        kind: 'choice',
+        label: 'Profile visibility',
+        description: 'Choose how much of your profile appears to people who are not signed in.',
+        Icon: User,
+        options: ['Public', 'Signed-in users', 'Followers only'],
+        selected: 'Public',
+      },
+      {
+        id: 'two-factor',
+        kind: 'toggle',
+        label: 'Two-step verification',
+        description: 'Require a second verification step for new sign-ins.',
+        Icon: Lock,
+        enabled: true,
+      },
+      {
+        id: 'login-alerts',
+        kind: 'toggle',
+        label: 'Login alerts',
+        description: 'Send an alert when your account signs in from a new device.',
+        Icon: Mail,
+        enabled: true,
+      },
+      {
+        id: 'deactivate',
+        kind: 'action',
+        label: 'Deactivate account',
+        description: 'Temporarily hide your profile and pause posting access.',
+        Icon: Trash2,
+        actionLabel: 'Review',
+        tone: 'danger',
+      },
     ],
   },
   {
     id: 'privacy',
-    label: 'Privacy and safety',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 4l7 3.11V11c0 4.25-2.89 8.22-7 9.43-4.11-1.21-7-5.18-7-9.43V8.11L12 5z" />
-      </svg>
-    ),
-    items: [
-      'Protected posts',
-      'Blocked accounts',
-      'Muted accounts',
-      'Direct Messages',
+    label: 'Privacy',
+    description: 'Control discoverability, messages, and safety defaults.',
+    Icon: Shield,
+    controls: [
+      {
+        id: 'protected-posts',
+        kind: 'toggle',
+        label: 'Protected posts',
+        description: 'Only approved followers can view posts you publish after this is enabled.',
+        Icon: Shield,
+        enabled: false,
+      },
+      {
+        id: 'message-requests',
+        kind: 'choice',
+        label: 'Direct message requests',
+        description: 'Decide who can start a new conversation with you.',
+        Icon: MessageCircle,
+        options: ['Everyone', 'Verified users', 'People you follow'],
+        selected: 'Verified users',
+      },
+      {
+        id: 'discoverability',
+        kind: 'toggle',
+        label: 'Find me by email or phone',
+        description: 'Allow people with your contact info to discover your account.',
+        Icon: Smartphone,
+        enabled: false,
+      },
     ],
   },
   {
     id: 'notifications',
     label: 'Notifications',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M11.996 2c-5.514 0-9.996 4.48-9.996 10s4.482 10 9.996 10C17.514 22 22 17.52 22 12S17.514 2 11.996 2zM12 20c-4.42 0-8-3.58-8-8s3.58-8 8-8 8 3.58 8 8-3.58 8-8 8zm-.75-13h1.5v5.25l4.5 2.67-.75 1.23L11.25 13V7z" />
-      </svg>
-    ),
-    items: [
-      'Push notifications',
-      'Email notifications',
-      'Filters',
+    description: 'Tune push, email, and conversation signal quality.',
+    Icon: Bell,
+    controls: [
+      {
+        id: 'push-notifications',
+        kind: 'toggle',
+        label: 'Push notifications',
+        description: 'Receive important alerts on this device.',
+        Icon: Smartphone,
+        enabled: true,
+      },
+      {
+        id: 'email-digest',
+        kind: 'choice',
+        label: 'Email digest',
+        description: 'Get a summary of activity from posts, mentions, and communities.',
+        Icon: Mail,
+        options: ['Off', 'Daily', 'Weekly'],
+        selected: 'Weekly',
+      },
+      {
+        id: 'conversation-quality',
+        kind: 'toggle',
+        label: 'Quality filter',
+        description: 'Filter repetitive or low-confidence notifications from the main tab.',
+        Icon: Zap,
+        enabled: true,
+      },
+    ],
+  },
+  {
+    id: 'billing',
+    label: 'Billing & Premium',
+    description: 'Review subscription status, usage, and payment preferences.',
+    Icon: CreditCard,
+    controls: [
+      {
+        id: 'premium-plan',
+        kind: 'choice',
+        label: 'Premium plan',
+        description: 'Your current Premium billing cadence.',
+        Icon: Star,
+        options: ['Monthly $6.99', 'Annual $69'],
+        selected: 'Annual $69',
+      },
+      {
+        id: 'usage-alerts',
+        kind: 'toggle',
+        label: 'Usage alerts',
+        description: 'Notify me before premium AI usage reaches the monthly limit.',
+        Icon: Bell,
+        enabled: true,
+      },
+      {
+        id: 'manage-billing',
+        kind: 'action',
+        label: 'Payment methods',
+        description: 'Update saved payment methods and download billing history.',
+        Icon: CreditCard,
+        actionLabel: 'Manage',
+        tone: 'premium',
+      },
     ],
   },
   {
     id: 'display',
     label: 'Display',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M8 5.5A3.5 3.5 0 0 0 4.5 9h-1a4.5 4.5 0 0 1 7.764-3.088A4.5 4.5 0 0 1 19.5 9h-1A3.5 3.5 0 0 0 15 5.5c-.95 0-1.813.38-2.445 1h-2.11A3.484 3.484 0 0 0 8 5.5z" />
-      </svg>
-    ),
-    items: [
-      'Dark mode',
-      'Font size',
-      'Color theme',
+    description: 'Adjust density, typography, and motion for the dark interface.',
+    Icon: Monitor,
+    controls: [
+      {
+        id: 'text-size',
+        kind: 'choice',
+        label: 'Text size',
+        description: 'Set the default reading size across timelines and panels.',
+        Icon: Type,
+        options: ['Compact', 'Default', 'Large'],
+        selected: 'Default',
+      },
+      {
+        id: 'timeline-density',
+        kind: 'choice',
+        label: 'Timeline density',
+        description: 'Control spacing between posts and secondary metadata.',
+        Icon: Palette,
+        options: ['Comfortable', 'Balanced', 'Dense'],
+        selected: 'Balanced',
+      },
+      {
+        id: 'reduce-motion',
+        kind: 'toggle',
+        label: 'Reduce motion',
+        description: 'Limit animated transitions while keeping core feedback visible.',
+        Icon: Monitor,
+        enabled: false,
+      },
     ],
   },
   {
-    id: 'about',
-    label: 'About',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-        <path d="M12 1.75C6.34 1.75 1.75 6.34 1.75 12S6.34 22.25 12 22.25 22.25 17.66 22.25 12 17.66 1.75 12 1.75zm0 18.5c-4.549 0-8.25-3.701-8.25-8.25S7.451 3.75 12 3.75 20.25 7.451 20.25 12 16.549 20.25 12 20.25zM11 10.5h2v7h-2v-7zm0-3.5h2v2h-2V7z" />
-      </svg>
-    ),
-    items: [
-      'Terms of Service',
-      'Privacy Policy',
-      'Cookie Policy',
-      'Version',
+    id: 'data',
+    label: 'AI & Data',
+    description: 'Set AI personalization, memory, and export preferences.',
+    Icon: Sparkles,
+    controls: [
+      {
+        id: 'ai-personalization',
+        kind: 'toggle',
+        label: 'Personalized AI assistance',
+        description: 'Use your activity and preferences to improve assistant responses.',
+        Icon: Sparkles,
+        enabled: true,
+      },
+      {
+        id: 'memory-retention',
+        kind: 'choice',
+        label: 'AI memory retention',
+        description: 'Choose how long helpful assistant context remains available.',
+        Icon: Database,
+        options: ['Off', '30 days', 'Until deleted'],
+        selected: '30 days',
+      },
+      {
+        id: 'export-data',
+        kind: 'action',
+        label: 'Download account data',
+        description: 'Prepare an archive of your posts, profile, and AI settings.',
+        Icon: Database,
+        actionLabel: 'Request',
+      },
     ],
   },
 ];
 
-export function SettingsPage() {
-  const [activeSection, setActiveSection] = useState<Section | null>(null);
+const INITIAL_TOGGLES = SECTIONS.reduce<Record<string, boolean>>((settings, section) => {
+  section.controls.forEach((control) => {
+    if (control.kind === 'toggle') {
+      settings[control.id] = control.enabled;
+    }
+  });
+  return settings;
+}, {});
 
-  const currentSection = SECTIONS.find((s) => s.id === activeSection);
+const INITIAL_CHOICES = SECTIONS.reduce<Record<string, string>>((settings, section) => {
+  section.controls.forEach((control) => {
+    if (control.kind === 'choice') {
+      settings[control.id] = control.selected;
+    }
+  });
+  return settings;
+}, {});
+
+function ToggleSwitch({ checked }: { checked: boolean }) {
+  return (
+    <span
+      className={`relative h-6 w-11 flex-shrink-0 rounded-full border transition-colors ${
+        checked
+          ? 'border-[var(--accent)] bg-[var(--accent)]'
+          : 'border-[var(--border-secondary)] bg-[var(--bg-elevated)]'
+      }`}
+      aria-hidden="true"
+    >
+      <span
+        className={`absolute top-1/2 h-4 w-4 -translate-y-1/2 rounded-full bg-[var(--text-primary)] transition-transform ${
+          checked ? 'translate-x-6' : 'translate-x-1'
+        }`}
+      />
+    </span>
+  );
+}
+
+export function SettingsPage() {
+  const [activeSection, setActiveSection] = useState<Section>('account');
+  const [showPanelOnMobile, setShowPanelOnMobile] = useState(false);
+  const [toggles, setToggles] = useState<Record<string, boolean>>(INITIAL_TOGGLES);
+  const [choices, setChoices] = useState<Record<string, string>>(INITIAL_CHOICES);
+
+  const currentSection = SECTIONS.find((section) => section.id === activeSection) ?? SECTIONS[0];
+
+  const selectSection = (section: Section) => {
+    setActiveSection(section);
+    setShowPanelOnMobile(true);
+  };
 
   return (
-    <div className="min-h-screen bg-black text-[#E7E9EA]">
-      {/* Header */}
-      <div className="sticky top-0 z-10 border-b border-[#2F3336] bg-black/80 backdrop-blur-md px-4 py-3">
-        <h1 className="text-[20px] font-bold text-[#E7E9EA]">Settings</h1>
+    <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
+      <div className="sticky top-0 z-10 border-b border-[var(--border-primary)] bg-[color-mix(in_srgb,var(--bg-primary)_82%,transparent)] px-4 py-3 backdrop-blur-md">
+        <h1 className="text-[20px] font-bold">Settings</h1>
       </div>
 
-      <div className="flex">
-        {/* Left sidebar — always visible on desktop, toggleable on mobile */}
+      <div className="flex min-h-[calc(100vh-53px)]">
         <aside
-          className={`flex-shrink-0 border-r border-[#2F3336] ${
-            activeSection ? 'hidden md:flex md:flex-col md:w-[280px]' : 'flex flex-col w-full md:w-[280px]'
+          className={`flex-shrink-0 border-r border-[var(--border-primary)] ${
+            showPanelOnMobile ? 'hidden md:flex md:w-[280px] md:flex-col' : 'flex w-full flex-col md:w-[280px]'
           }`}
         >
-          {SECTIONS.map((section) => (
-            <button
-              key={section.id}
-              type="button"
-              onClick={() => setActiveSection(section.id)}
-              className={`flex w-full items-center gap-4 border-b border-[#2F3336] px-4 py-4 text-left transition-colors hover:bg-white/5 ${
-                activeSection === section.id ? 'bg-white/5' : ''
-              }`}
-            >
-              <span className="text-[#71767B]">{section.icon}</span>
-              <span className="flex-1 text-[15px] text-[#E7E9EA] font-medium">{section.label}</span>
-              <ChevronRight />
-            </button>
-          ))}
+          {SECTIONS.map((section) => {
+            const isActive = section.id === activeSection;
+            const Icon = section.Icon;
+
+            return (
+              <button
+                key={section.id}
+                type="button"
+                onClick={() => selectSection(section.id)}
+                className={`flex w-full items-center gap-3 border-b border-[var(--border-primary)] px-4 py-4 text-left transition-colors hover:bg-[var(--bg-hover)] ${
+                  isActive ? 'bg-[var(--bg-elevated)]' : ''
+                }`}
+              >
+                <span
+                  className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full ${
+                    isActive
+                      ? 'bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)]'
+                      : 'bg-[var(--bg-elevated)] text-[var(--text-secondary)]'
+                  }`}
+                >
+                  <Icon size={19} strokeWidth={2.2} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[15px] font-bold">{section.label}</span>
+                  <span className="block truncate text-[13px] text-[var(--text-secondary)]">{section.description}</span>
+                </span>
+                {isActive ? (
+                  <Check className="hidden flex-shrink-0 text-[var(--accent)] md:block" size={18} />
+                ) : (
+                  <ChevronRight className="flex-shrink-0 text-[var(--text-secondary)]" size={18} />
+                )}
+              </button>
+            );
+          })}
         </aside>
 
-        {/* Right content area */}
-        <main className={`flex-1 ${activeSection ? 'block' : 'hidden md:block'}`}>
-          {currentSection ? (
+        <main className={`flex-1 ${showPanelOnMobile ? 'block' : 'hidden md:block'}`}>
+          <div className="flex items-center gap-3 border-b border-[var(--border-primary)] px-4 py-3 md:hidden">
+            <button
+              type="button"
+              onClick={() => setShowPanelOnMobile(false)}
+              className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-elevated)]"
+              aria-label="Back to settings sections"
+            >
+              <ArrowLeft size={20} />
+            </button>
             <div>
-              {/* Section header with back button on mobile */}
-              <div className="flex items-center gap-4 border-b border-[#2F3336] px-4 py-3 md:hidden">
-                <button
-                  type="button"
-                  onClick={() => setActiveSection(null)}
-                  className="text-[#E7E9EA] hover:opacity-70 transition-opacity"
-                  aria-label="Back"
-                >
-                  <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M7.414 13l5.043 5.04-1.414 1.42L3.586 12l7.457-7.46 1.414 1.42L7.414 11H21v2H7.414z" />
-                  </svg>
-                </button>
-                <h2 className="text-[20px] font-bold text-[#E7E9EA]">{currentSection.label}</h2>
-              </div>
-
-              <div className="hidden border-b border-[#2F3336] px-4 py-3 md:block">
-                <h2 className="text-[20px] font-bold text-[#E7E9EA]">{currentSection.label}</h2>
-              </div>
-
-              {currentSection.items.map((item) => (
-                <button
-                  key={item}
-                  type="button"
-                  className="flex w-full items-center justify-between border-b border-[#2F3336] px-4 py-4 text-left transition-colors hover:bg-white/5"
-                >
-                  <span className="text-[15px] text-[#E7E9EA]">{item}</span>
-                  <ChevronRight />
-                </button>
-              ))}
+              <h2 className="text-[20px] font-bold">{currentSection.label}</h2>
+              <p className="text-[13px] text-[var(--text-secondary)]">Settings</p>
             </div>
-          ) : (
-            <div className="hidden items-center justify-center py-20 text-[#71767B] md:flex">
-              <p className="text-[15px]">Select a setting to get started</p>
-            </div>
-          )}
+          </div>
+
+          <div className="hidden border-b border-[var(--border-primary)] px-4 py-4 md:block">
+            <h2 className="text-[20px] font-bold">{currentSection.label}</h2>
+            <p className="mt-1 text-[15px] text-[var(--text-secondary)]">{currentSection.description}</p>
+          </div>
+
+          <div className="divide-y divide-[var(--border-primary)]">
+            {currentSection.controls.map((control) => {
+              const Icon = control.Icon;
+
+              if (control.kind === 'toggle') {
+                const checked = toggles[control.id] ?? false;
+
+                return (
+                  <button
+                    key={control.id}
+                    type="button"
+                    onClick={() => setToggles((current) => ({ ...current, [control.id]: !checked }))}
+                    className="flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-[var(--bg-hover)]"
+                    aria-pressed={checked}
+                  >
+                    <Icon className="mt-0.5 flex-shrink-0 text-[var(--text-secondary)]" size={20} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[15px] font-bold">{control.label}</span>
+                      <span className="mt-1 block text-[13px] leading-5 text-[var(--text-secondary)]">
+                        {control.description}
+                      </span>
+                    </span>
+                    <ToggleSwitch checked={checked} />
+                  </button>
+                );
+              }
+
+              if (control.kind === 'choice') {
+                const selected = choices[control.id] ?? control.selected;
+
+                return (
+                  <div key={control.id} className="px-4 py-4">
+                    <div className="flex gap-3">
+                      <Icon className="mt-0.5 flex-shrink-0 text-[var(--text-secondary)]" size={20} />
+                      <div className="min-w-0 flex-1">
+                        <h3 className="text-[15px] font-bold">{control.label}</h3>
+                        <p className="mt-1 text-[13px] leading-5 text-[var(--text-secondary)]">{control.description}</p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {control.options.map((option) => {
+                            const isSelected = option === selected;
+
+                            return (
+                              <button
+                                key={option}
+                                type="button"
+                                onClick={() => setChoices((current) => ({ ...current, [control.id]: option }))}
+                                className={`min-h-9 rounded-full border px-3 text-[13px] font-bold transition-colors ${
+                                  isSelected
+                                    ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)]'
+                                    : 'border-[var(--border-secondary)] text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'
+                                }`}
+                              >
+                                {option}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                );
+              }
+
+              return (
+                <button
+                  key={control.id}
+                  type="button"
+                  className="flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-[var(--bg-hover)]"
+                >
+                  <Icon
+                    className={`mt-0.5 flex-shrink-0 ${
+                      control.tone === 'danger' ? 'text-[var(--color-danger)]' : 'text-[var(--text-secondary)]'
+                    }`}
+                    size={20}
+                  />
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15px] font-bold">{control.label}</span>
+                    <span className="mt-1 block text-[13px] leading-5 text-[var(--text-secondary)]">
+                      {control.description}
+                    </span>
+                  </span>
+                  <span
+                    className={`rounded-full border px-3 py-1.5 text-[13px] font-bold ${
+                      control.tone === 'danger'
+                        ? 'border-[var(--color-danger)] text-[var(--color-danger)]'
+                        : 'border-[var(--border-secondary)] text-[var(--text-primary)]'
+                    }`}
+                  >
+                    {control.actionLabel}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
         </main>
       </div>
     </div>
