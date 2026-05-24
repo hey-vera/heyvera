@@ -501,7 +501,7 @@ export function useTaskManager(group: CortexGroup, userId: string) {
     });
   }, [group.id, publish, state]);
 
-  const updateTask = useCallback((taskId: string, patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority' | 'projectChatConversationId' | 'projectChatLaunchedAt' | 'latestRunId'>>) => {
+  const updateTask = useCallback((taskId: string, patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority' | 'projectChatConversationId' | 'projectChatLaunchedAt' | 'latestRunId' | 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>>) => {
     const timestamp = nowIso();
     const previous = state.tasks.find((task) => task.id === taskId);
     if (!previous) return;
