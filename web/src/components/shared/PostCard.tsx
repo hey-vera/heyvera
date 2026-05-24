@@ -6,12 +6,18 @@ import {
   Copy,
   Heart,
   Link,
+  LogIn,
   MessageCircle,
   Quote,
   Repeat2,
   Share,
+  UserRound,
+  X,
 } from 'lucide-react';
+import { SignInButton } from '@clerk/clerk-react';
+import { getCurrentUserProfile } from '../../api/client';
 import type { Post } from '../../api/types';
+import { useAuth } from '../../hooks/useAuth';
 
 interface PostCardProps {
   post: Post;
@@ -19,6 +25,10 @@ interface PostCardProps {
   onRepost?: (id: string, reposted: boolean) => void;
   onBookmark?: (id: string, bookmarked: boolean) => void;
 }
+
+type AuthPrompt = 'signin' | 'profile' | 'unconfigured' | 'error' | null;
+
+const clerkConfigured = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -40,6 +50,7 @@ function formatCount(n: number): string {
 }
 
 export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) {
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [liked, setLiked] = useState(post.liked);
   const [reposted, setReposted] = useState(post.reposted);
   const [bookmarked, setBookmarked] = useState(post.bookmarked);
@@ -47,6 +58,10 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
   const [repostCount, setRepostCount] = useState(post.repost_count);
   const [likeAnimating, setLikeAnimating] = useState(false);
   const [openMenu, setOpenMenu] = useState<'repost' | 'share' | null>(null);
+  const [authPrompt, setAuthPrompt] = useState<AuthPrompt>(null);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [checkingAuth, setCheckingAuth] = useState(false);
+  const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const likeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -57,7 +72,55 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
     };
   }, []);
 
-  const toggleLike = () => {
+  const ensureCanMutate = async () => {
+    setAuthMessage(null);
+
+    if (!authEnabled || !clerkConfigured) {
+      setAuthPrompt('unconfigured');
+      return false;
+    }
+
+    if (!isSignedIn) {
+      setAuthPrompt('signin');
+      return false;
+    }
+
+    if (hasProfile === true) return true;
+    if (hasProfile === false) {
+      setAuthPrompt('profile');
+      return false;
+    }
+
+    setCheckingAuth(true);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setAuthPrompt('signin');
+        return false;
+      }
+
+      const profile = await getCurrentUserProfile(token);
+      const ready = Boolean(profile);
+      setHasProfile(ready);
+
+      if (!ready) {
+        setAuthPrompt('profile');
+        return false;
+      }
+
+      setAuthPrompt(null);
+      return true;
+    } catch (err) {
+      setAuthPrompt('error');
+      setAuthMessage(err instanceof Error ? err.message : 'Unable to verify your profile.');
+      return false;
+    } finally {
+      setCheckingAuth(false);
+    }
+  };
+
+  const toggleLike = async () => {
+    if (!(await ensureCanMutate())) return;
     const nextLiked = !liked;
     setLiked(nextLiked);
     setLikeCount((count) => Math.max(0, nextLiked ? count + 1 : count - 1));
@@ -71,7 +134,11 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
     onLike?.(post.id, nextLiked);
   };
 
-  const toggleRepost = () => {
+  const toggleRepost = async () => {
+    if (!(await ensureCanMutate())) {
+      setOpenMenu(null);
+      return;
+    }
     const nextReposted = !reposted;
     setReposted(nextReposted);
     setRepostCount((count) => Math.max(0, nextReposted ? count + 1 : count - 1));
@@ -79,10 +146,20 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
     onRepost?.(post.id, nextReposted);
   };
 
-  const toggleBookmark = () => {
+  const toggleBookmark = async () => {
+    if (!(await ensureCanMutate())) return;
     const nextBookmarked = !bookmarked;
     setBookmarked(nextBookmarked);
     onBookmark?.(post.id, nextBookmarked);
+  };
+
+  const gateReply = () => {
+    void ensureCanMutate();
+  };
+
+  const gateQuote = async () => {
+    setOpenMenu(null);
+    await ensureCanMutate();
   };
 
   const copyPostLink = () => {
@@ -105,7 +182,7 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
 
   return (
     <article
-      className="flex cursor-pointer gap-3 border-b px-4 py-3 transition-colors hover:bg-white/[0.03]"
+      className="relative flex cursor-pointer gap-3 border-b px-4 py-3 transition-colors hover:bg-white/[0.03]"
       style={{ borderColor: 'var(--border-primary)' }}
     >
       {/* Avatar */}
@@ -180,6 +257,7 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
             label="Reply"
             count={post.reply_count}
             color="reply"
+            onClick={gateReply}
           />
           <DropdownAction
             icon={Repeat2}
@@ -192,7 +270,7 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
             onClose={() => setOpenMenu(null)}
           >
             <MenuItem icon={Repeat2} label={reposted ? 'Undo repost' : 'Repost'} onClick={toggleRepost} />
-            <MenuItem icon={Quote} label="Quote" onClick={() => setOpenMenu(null)} />
+            <MenuItem icon={Quote} label="Quote" onClick={gateQuote} />
           </DropdownAction>
           <ActionButton
             icon={Heart}
@@ -229,7 +307,117 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
           </DropdownAction>
         </div>
       </div>
+      {authPrompt && (
+        <SocialAuthPrompt
+          prompt={authPrompt}
+          message={authMessage}
+          checking={checkingAuth}
+          onClose={() => setAuthPrompt(null)}
+        />
+      )}
     </article>
+  );
+}
+
+function SocialAuthPrompt({
+  prompt,
+  message,
+  checking,
+  onClose,
+}: {
+  prompt: Exclude<AuthPrompt, null>;
+  message: string | null;
+  checking: boolean;
+  onClose: () => void;
+}) {
+  const profileHref = '/profile';
+  const title =
+    prompt === 'profile'
+      ? 'Create your Vera profile'
+      : prompt === 'unconfigured'
+        ? 'Sign-in is not configured'
+        : prompt === 'error'
+          ? 'Could not verify profile'
+          : 'Sign in to keep going';
+  const body =
+    prompt === 'profile'
+      ? 'Create a profile before replying, reposting, liking, or bookmarking.'
+      : prompt === 'unconfigured'
+        ? 'Sign-in is unavailable in this environment. Open your profile when auth is configured.'
+        : prompt === 'error'
+          ? (message ?? 'Try again after your account and profile state load.')
+          : 'Use your account to reply, repost, like, or bookmark.';
+
+  return (
+    <div
+      className="absolute right-3 top-3 z-30 w-[min(20rem,calc(100%-1.5rem))] rounded-2xl border p-4 shadow-2xl"
+      style={{
+        backgroundColor: 'var(--bg-elevated)',
+        borderColor: 'var(--border-primary)',
+        color: 'var(--text-primary)',
+      }}
+      onClick={(e) => e.stopPropagation()}
+      role="dialog"
+      aria-modal="false"
+      aria-label={title}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+          style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--accent)' }}
+          aria-hidden="true"
+        >
+          {prompt === 'profile' ? <UserRound size={18} /> : <LogIn size={18} />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h2 className="text-[15px] font-bold leading-5">{title}</h2>
+              <p className="mt-1 text-[13px] leading-5" style={{ color: 'var(--text-secondary)' }}>
+                {checking ? 'Checking your profile...' : body}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+              aria-label="Close"
+              onClick={onClose}
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {prompt === 'signin' && clerkConfigured ? (
+              <SignInButton mode="modal">
+                <button
+                  type="button"
+                  className="rounded-full px-4 py-2 text-[13px] font-bold transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: 'var(--text-primary)', color: 'var(--bg-primary)' }}
+                >
+                  Sign in
+                </button>
+              </SignInButton>
+            ) : (
+              <a
+                href={profileHref}
+                className="rounded-full px-4 py-2 text-[13px] font-bold transition-opacity hover:opacity-90"
+                style={{ backgroundColor: 'var(--text-primary)', color: 'var(--bg-primary)' }}
+              >
+                Go to profile
+              </a>
+            )}
+            <button
+              type="button"
+              className="rounded-full border px-4 py-2 text-[13px] font-bold transition-colors hover:bg-white/[0.06]"
+              style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+              onClick={onClose}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 

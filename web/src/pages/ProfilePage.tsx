@@ -13,8 +13,9 @@ import {
   repostPost,
   unfollowUser,
   unlikePost,
+  updateCurrentUserProfile,
 } from '../api/client';
-import type { CreateUserProfileInput, Post, UserProfile } from '../api/types';
+import type { CreateUserProfileInput, Post, UpdateUserProfileInput, UserProfile } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
@@ -63,6 +64,9 @@ export function ProfilePage() {
   const [error, setError] = useState<string | null>(null);
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -154,6 +158,25 @@ export function ProfilePage() {
       setCreateError(err instanceof Error ? err.message : 'Unable to create profile');
     } finally {
       setCreating(false);
+    }
+  };
+
+  const handleUpdateProfile = async (input: UpdateUserProfileInput) => {
+    if (savingEdit) return;
+    setSavingEdit(true);
+    setEditError(null);
+
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again to update your profile.');
+
+      const nextProfile = await updateCurrentUserProfile(token, input);
+      setProfile(nextProfile);
+      setEditOpen(false);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Unable to update profile');
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -267,7 +290,7 @@ export function ProfilePage() {
         <div className="absolute bottom-3 right-4">
           <button
             type="button"
-            onClick={ownProfile ? undefined : toggleFollow}
+            onClick={ownProfile ? () => setEditOpen(true) : toggleFollow}
             className="rounded-full px-4 py-1.5 text-[14px] font-bold transition-colors hover:opacity-90"
             style={{
               border: ownProfile || isFollowing ? '1px solid var(--border-primary)' : undefined,
@@ -351,6 +374,19 @@ export function ProfilePage() {
             onBookmark={handleBookmark}
           />
         ))
+      )}
+
+      {ownProfile && editOpen && (
+        <EditProfileModal
+          profile={profile}
+          saving={savingEdit}
+          error={editError}
+          onClose={() => {
+            setEditOpen(false);
+            setEditError(null);
+          }}
+          onSubmit={handleUpdateProfile}
+        />
       )}
     </div>
   );
@@ -495,5 +531,134 @@ function ProfileSetupForm({ creating, error, defaultDisplayName, onSubmit }: Pro
         </div>
       </form>
     </div>
+  );
+}
+
+type EditProfileModalProps = {
+  profile: UserProfile;
+  saving: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSubmit: (input: UpdateUserProfileInput) => void;
+};
+
+function EditProfileModal({ profile, saving, error, onClose, onSubmit }: EditProfileModalProps) {
+  const [displayName, setDisplayName] = useState(profile.display_name);
+  const [bio, setBio] = useState(profile.bio);
+  const [location, setLocation] = useState(profile.location ?? '');
+  const [website, setWebsite] = useState(profile.website ?? '');
+  const [avatarUrl, setAvatarUrl] = useState(profile.avatar_url ?? '');
+  const [bannerUrl, setBannerUrl] = useState(profile.banner_url ?? '');
+
+  const cleanDisplayName = displayName.trim();
+  const canSave = cleanDisplayName.length > 0 && !saving;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-10 sm:pt-16"
+      style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+      onClick={onClose}
+    >
+      <form
+        className="w-full max-w-[600px] overflow-hidden rounded-2xl border"
+        style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}
+        onClick={(event) => event.stopPropagation()}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!canSave) return;
+          onSubmit({
+            display_name: cleanDisplayName,
+            bio: bio.trim(),
+            location: location.trim() || undefined,
+            website: website.trim() || undefined,
+            avatar_url: avatarUrl.trim() || undefined,
+            banner_url: bannerUrl.trim() || undefined,
+          });
+        }}
+      >
+        <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: 'var(--border-primary)' }}>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full p-2 transition-colors hover:bg-white/10"
+              aria-label="Close edit profile"
+            >
+              <ArrowLeft className="h-5 w-5" aria-hidden="true" />
+            </button>
+            <h2 className="text-[20px] font-bold">Edit profile</h2>
+          </div>
+          <button
+            type="submit"
+            disabled={!canSave}
+            className="rounded-full px-5 py-1.5 text-[14px] font-bold transition-opacity disabled:cursor-not-allowed disabled:opacity-50 enabled:hover:opacity-90"
+            style={{ backgroundColor: 'var(--text-primary)', color: 'var(--bg-primary)' }}
+          >
+            {saving ? 'Saving' : 'Save'}
+          </button>
+        </div>
+
+        <div className="max-h-[calc(100vh-140px)] overflow-y-auto px-4 py-5">
+          <div className="grid gap-4">
+            <ProfileEditField
+              label="Display name"
+              value={displayName}
+              onChange={setDisplayName}
+              maxLength={80}
+              required
+              disabled={saving}
+            />
+            <label className="block">
+              <span className="mb-1 block text-[13px]" style={{ color: 'var(--text-secondary)' }}>Bio</span>
+              <textarea
+                value={bio}
+                onChange={(event) => setBio(event.target.value)}
+                className="min-h-24 w-full resize-none rounded-md border bg-transparent px-3 py-2 text-[15px] leading-relaxed outline-none focus:border-[var(--accent)]"
+                style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                maxLength={280}
+                disabled={saving}
+              />
+            </label>
+            <ProfileEditField label="Location" value={location} onChange={setLocation} maxLength={80} disabled={saving} />
+            <ProfileEditField label="Website" value={website} onChange={setWebsite} maxLength={120} disabled={saving} />
+            <ProfileEditField label="Avatar URL" value={avatarUrl} onChange={setAvatarUrl} maxLength={500} disabled={saving} />
+            <ProfileEditField label="Banner URL" value={bannerUrl} onChange={setBannerUrl} maxLength={500} disabled={saving} />
+          </div>
+
+          {error && <p className="mt-3 text-[13px]" style={{ color: 'var(--color-danger)' }}>{error}</p>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ProfileEditField({
+  label,
+  value,
+  onChange,
+  maxLength,
+  required,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  maxLength: number;
+  required?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[13px]" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-md border bg-transparent px-3 py-2 text-[15px] outline-none focus:border-[var(--accent)]"
+        style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+        maxLength={maxLength}
+        required={required}
+        disabled={disabled}
+      />
+    </label>
   );
 }

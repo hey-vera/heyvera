@@ -49,6 +49,15 @@ export interface CreateUserProfileInput {
   website?: string;
 }
 
+export interface UpdateUserProfileInput {
+  display_name?: string;
+  bio?: string;
+  avatar_url?: string;
+  banner_url?: string;
+  location?: string;
+  website?: string;
+}
+
 export interface MediaAttachment {
   id: string;
   type: 'image' | 'video' | 'gif';

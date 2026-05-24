@@ -165,7 +165,7 @@ All data loading goes through this client. When `VITE_API_URL` is empty, returns
 - `getFeed(cursor?)` → FeedResponse
 - `getFollowingFeed(cursor?)` → FeedResponse
 - `getPost(id)` → Post
-- `createPost(content, media?)` → Post
+- `createPost(content, media?, token?)` → Post (passes bearer auth when token is provided)
 - `likePost(id)` / `unlikePost(id)`
 - `repostPost(id)`
 - `bookmarkPost(id)`
@@ -181,6 +181,7 @@ All data loading goes through this client. When `VITE_API_URL` is empty, returns
 - `getCommunityFeed(id)` → FeedResponse
 - `getCurrentUserProfile(token)` → UserProfile | null (`GET /me/profile`, `Authorization: Bearer <token>`, mock returns localStorage profile or null)
 - `createUserProfile(token, input)` → UserProfile (`POST /me/profile`, JSON body, `Authorization: Bearer <token>`, mock persists localStorage profile)
+- `updateCurrentUserProfile(token, input)` → UserProfile (`PATCH /me/profile`, JSON body with optional `display_name`, `bio`, `avatar_url`, `banner_url`, `location`, `website`, `Authorization: Bearer <token>`, mock updates localStorage profile)
 
 **Rule: Pages must load data from the API client, not hardcode content.**
 

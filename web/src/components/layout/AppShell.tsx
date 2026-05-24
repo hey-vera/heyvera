@@ -1,7 +1,9 @@
 import React from "react";
 import { BarChart3, Gift, Image, Smile, X } from "lucide-react";
+import { SignInButton } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
-import { createPost } from "../../api/client";
+import { createPost, getCurrentUserProfile } from "../../api/client";
+import { useAuth } from "../../hooks/useAuth";
 import { LeftNav } from "./LeftNav";
 import { RightRail } from "./RightRail";
 import { BottomBar } from "./BottomBar";
@@ -16,9 +18,13 @@ interface AppShellProps {
 
 export function AppShell({ children, activeRoute }: AppShellProps) {
   const navigate = useNavigate();
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [composeText, setComposeText] = React.useState("");
+  const [composeToken, setComposeToken] = React.useState<string | null>(null);
   const [isPosting, setIsPosting] = React.useState(false);
+  const [isCheckingComposeAccess, setIsCheckingComposeAccess] = React.useState(false);
+  const [composeGate, setComposeGate] = React.useState<"signed_out" | "profile_required" | null>(null);
   const [composeError, setComposeError] = React.useState<string | null>(null);
 
   const remainingChars = COMPOSE_MAX_CHARS - composeText.length;
@@ -30,8 +36,11 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
 
   const resetCompose = () => {
     setComposeText("");
+    setComposeToken(null);
+    setComposeGate(null);
     setComposeError(null);
     setIsPosting(false);
+    setIsCheckingComposeAccess(false);
   };
 
   const closeCompose = () => {
@@ -39,14 +48,50 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     resetCompose();
   };
 
+  const openCompose = async () => {
+    setComposeError(null);
+
+    if (!authEnabled || !isSignedIn) {
+      setComposeGate("signed_out");
+      setComposeOpen(true);
+      return;
+    }
+
+    setIsCheckingComposeAccess(true);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setComposeGate("signed_out");
+        setComposeOpen(true);
+        return;
+      }
+
+      const profile = await getCurrentUserProfile(token);
+      if (!profile) {
+        setComposeGate("profile_required");
+        setComposeOpen(true);
+        return;
+      }
+
+      setComposeGate(null);
+      setComposeToken(token);
+      setComposeOpen(true);
+    } catch {
+      setComposeError("We could not verify your profile. Try again.");
+      setComposeOpen(true);
+    } finally {
+      setIsCheckingComposeAccess(false);
+    }
+  };
+
   const handleSubmitPost = async () => {
-    if (!canPost) return;
+    if (!canPost || composeGate) return;
 
     setIsPosting(true);
     setComposeError(null);
 
     try {
-      await createPost(composeText.trim());
+      await createPost(composeText.trim(), undefined, composeToken ?? undefined);
       closeCompose();
     } catch {
       setComposeError("Post failed. Try again.");
@@ -59,7 +104,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
       <LeftNav
         activeRoute={activeRoute}
         onNavigate={handleNavigate}
-        onCompose={() => setComposeOpen(true)}
+        onCompose={() => void openCompose()}
       />
 
       <TopBar title="HeyVera" onProfileClick={() => handleNavigate("/profile")} />
@@ -85,7 +130,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
       <BottomBar
         activeRoute={activeRoute}
         onNavigate={handleNavigate}
-        onCompose={() => setComposeOpen(true)}
+        onCompose={() => void openCompose()}
       />
 
       {composeOpen && (
@@ -115,68 +160,136 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
               <button
                 className="rounded-full px-5 py-1.5 text-sm font-bold transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
                 style={{ backgroundColor: "var(--accent)", color: "var(--bg-primary)" }}
-                disabled={!canPost}
+                disabled={!canPost || Boolean(composeGate)}
                 onClick={handleSubmitPost}
                 type="button"
               >
                 {isPosting ? "Posting" : "Post"}
               </button>
             </div>
-            <div className="px-4 pb-4 pt-3">
-              <textarea
-                placeholder="What's happening?"
-                autoFocus
-                className="w-full resize-none border-none bg-transparent text-xl outline-none placeholder:text-[var(--text-secondary)]"
-                style={{ color: "var(--text-primary)", minHeight: "144px" }}
-                value={composeText}
-                onChange={(event) => {
-                  setComposeText(event.target.value.slice(0, COMPOSE_MAX_CHARS));
-                  setComposeError(null);
+            {composeGate ? (
+              <ComposeGate
+                gate={composeGate}
+                authEnabled={authEnabled}
+                onCreateProfile={() => {
+                  closeCompose();
+                  navigate("/profile");
                 }}
-                maxLength={COMPOSE_MAX_CHARS}
-                disabled={isPosting}
               />
+            ) : (
+              <div className="px-4 pb-4 pt-3">
+                <textarea
+                  placeholder={isCheckingComposeAccess ? "Checking profile..." : "What's happening?"}
+                  autoFocus
+                  className="w-full resize-none border-none bg-transparent text-xl outline-none placeholder:text-[var(--text-secondary)]"
+                  style={{ color: "var(--text-primary)", minHeight: "144px" }}
+                  value={composeText}
+                  onChange={(event) => {
+                    setComposeText(event.target.value.slice(0, COMPOSE_MAX_CHARS));
+                    setComposeError(null);
+                  }}
+                  maxLength={COMPOSE_MAX_CHARS}
+                  disabled={isPosting || isCheckingComposeAccess}
+                />
 
-              {composeError && (
-                <p className="mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
-                  {composeError}
-                </p>
-              )}
+                {composeError && (
+                  <p className="mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
+                    {composeError}
+                  </p>
+                )}
 
-              <div
-                className="mt-3 flex items-center justify-between pt-3"
-                style={{ borderTop: "1px solid var(--border-primary)" }}
-              >
-                <div className="flex items-center gap-1">
-                  {[
-                    { label: "Add media", icon: Image },
-                    { label: "Add GIF", icon: Gift },
-                    { label: "Create poll", icon: BarChart3 },
-                    { label: "Add emoji", icon: Smile },
-                  ].map(({ label, icon: Icon }) => (
-                    <button
-                      key={label}
-                      type="button"
-                      className="rounded-full p-2 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
-                      style={{ color: "var(--accent)" }}
-                      aria-label={label}
-                      disabled={isPosting}
-                    >
-                      <Icon className="h-5 w-5" aria-hidden="true" />
-                    </button>
-                  ))}
-                </div>
-                <span
-                  className="text-sm"
-                  style={{ color: remainingChars <= 20 ? "var(--color-danger)" : "var(--text-secondary)" }}
-                  aria-live="polite"
+                <div
+                  className="mt-3 flex items-center justify-between pt-3"
+                  style={{ borderTop: "1px solid var(--border-primary)" }}
                 >
-                  {remainingChars}
-                </span>
+                  <div className="flex items-center gap-1">
+                    {[
+                      { label: "Add media", icon: Image },
+                      { label: "Add GIF", icon: Gift },
+                      { label: "Create poll", icon: BarChart3 },
+                      { label: "Add emoji", icon: Smile },
+                    ].map(({ label, icon: Icon }) => (
+                      <button
+                        key={label}
+                        type="button"
+                        className="rounded-full p-2 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                        style={{ color: "var(--accent)" }}
+                        aria-label={label}
+                        disabled={isPosting || isCheckingComposeAccess}
+                      >
+                        <Icon className="h-5 w-5" aria-hidden="true" />
+                      </button>
+                    ))}
+                  </div>
+                  <span
+                    className="text-sm"
+                    style={{ color: remainingChars <= 20 ? "var(--color-danger)" : "var(--text-secondary)" }}
+                    aria-live="polite"
+                  >
+                    {remainingChars}
+                  </span>
+                </div>
               </div>
-            </div>
+            )}
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+function ComposeGate({
+  gate,
+  authEnabled,
+  onCreateProfile,
+}: {
+  gate: "signed_out" | "profile_required";
+  authEnabled: boolean;
+  onCreateProfile: () => void;
+}) {
+  if (gate === "profile_required") {
+    return (
+      <div className="px-6 py-10">
+        <h2 className="text-[23px] font-bold leading-tight" style={{ color: "var(--text-primary)" }}>
+          Create your profile first
+        </h2>
+        <p className="mt-2 text-[15px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+          Your sign-in is ready. HeyVera still needs a profile so posts have a name, handle, and identity.
+        </p>
+        <button
+          type="button"
+          onClick={onCreateProfile}
+          className="mt-5 rounded-full px-5 py-2 text-[15px] font-bold transition-opacity hover:opacity-90"
+          style={{ backgroundColor: "var(--accent)", color: "#000" }}
+        >
+          Create profile
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-6 py-10">
+      <h2 className="text-[23px] font-bold leading-tight" style={{ color: "var(--text-primary)" }}>
+        Sign in to post
+      </h2>
+      <p className="mt-2 text-[15px] leading-relaxed" style={{ color: "var(--text-secondary)" }}>
+        Sign in with Clerk, then create your HeyVera profile.
+      </p>
+      {authEnabled ? (
+        <SignInButton mode="modal">
+          <button
+            type="button"
+            className="mt-5 rounded-full px-5 py-2 text-[15px] font-bold transition-opacity hover:opacity-90"
+            style={{ backgroundColor: "var(--accent)", color: "#000" }}
+          >
+            Sign in
+          </button>
+        </SignInButton>
+      ) : (
+        <p className="mt-4 text-[13px]" style={{ color: "var(--text-secondary)" }}>
+          Sign-in is not configured for this environment.
+        </p>
       )}
     </div>
   );

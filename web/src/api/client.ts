@@ -6,6 +6,7 @@ import type {
   Post,
   UserProfile,
   CreateUserProfileInput,
+  UpdateUserProfileInput,
   Notification,
   Conversation,
   Message,
@@ -117,6 +118,33 @@ function buildMockViewerProfile(input: CreateUserProfileInput): UserProfile {
   };
 }
 
+function compactUpdateUserProfileInput(input: UpdateUserProfileInput): UpdateUserProfileInput {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as UpdateUserProfileInput;
+}
+
+function buildMockViewerProfileFromUpdate(input: UpdateUserProfileInput): UserProfile {
+  const displayName = input.display_name?.trim();
+  if (!displayName) {
+    throw new Error('Cannot update mock profile before one exists: display_name is required to create it.');
+  }
+
+  const handle = displayName
+    .toLowerCase()
+    .replace(/^@/, '')
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '') || `viewer_${Date.now()}`;
+
+  return buildMockViewerProfile({
+    display_name: displayName,
+    handle,
+    bio: input.bio,
+    avatar_url: input.avatar_url,
+    banner_url: input.banner_url,
+    location: input.location,
+    website: input.website,
+  });
+}
+
 // getMockData routes mock responses by path pattern.
 // Each branch returns the appropriate mock, then real fetch branches replace them.
 async function getMockData<T>(path: string, _body?: unknown): Promise<T> {
@@ -197,6 +225,23 @@ export async function createUserProfile(token: string, input: CreateUserProfileI
   });
 }
 
+/** Update the signed-in viewer's profile */
+export async function updateCurrentUserProfile(token: string, input: UpdateUserProfileInput): Promise<UserProfile> {
+  if (!API_BASE) {
+    await delay(100);
+    const updates = compactUpdateUserProfileInput(input);
+    const existing = getMockViewerProfile();
+    const profile = existing ? { ...existing, ...updates } : buildMockViewerProfileFromUpdate(updates);
+    setMockViewerProfile(profile);
+    return profile;
+  }
+  return fetchAuthedApi<UserProfile>('/me/profile', token, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
 /** Home / for-you feed */
 export async function getFeed(cursor?: string): Promise<FeedResponse> {
   if (!API_BASE) return getMockData<FeedResponse>(`/feed${cursor ? `?cursor=${cursor}` : ''}`);
@@ -216,7 +261,7 @@ export async function getPost(id: string): Promise<Post> {
 }
 
 /** Create a new post */
-export async function createPost(content: string, media?: File[]): Promise<Post> {
+export async function createPost(content: string, media?: File[], token?: string): Promise<Post> {
   if (!API_BASE) {
     await delay(100);
     const newPost: Post = {
@@ -237,6 +282,9 @@ export async function createPost(content: string, media?: File[]): Promise<Post>
   const form = new FormData();
   form.append('content', content);
   if (media) media.forEach(f => form.append('media', f));
+  if (token) {
+    return fetchAuthedApi<Post>('/posts', token, { method: 'POST', body: form });
+  }
   return fetchApi<Post>('/posts', { method: 'POST', body: form });
 }
 

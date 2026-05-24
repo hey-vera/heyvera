@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { SignInButton } from '@clerk/clerk-react';
 import {
   bookmarkPost,
   createPost,
   getFeed,
   getFollowingFeed,
+  getCurrentUserProfile,
   likePost,
   repostPost,
   unlikePost,
@@ -11,6 +13,7 @@ import {
 import type { FeedResponse, Post } from '../api/types';
 import { LoadingState, EmptyState, ErrorState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
+import { useAuth } from '../hooks/useAuth';
 
 const TABS = ['For you', 'Following'] as const;
 type Tab = typeof TABS[number];
@@ -18,6 +21,7 @@ type Tab = typeof TABS[number];
 const PULL_REFRESH_THRESHOLD = 72;
 
 export function HomePage() {
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('For you');
   const [posts, setPosts] = useState<Post[]>([]);
   const [cursor, setCursor] = useState<string | undefined>();
@@ -27,6 +31,7 @@ export function HomePage() {
   const [error, setError] = useState<string | null>(null);
   const [content, setContent] = useState('');
   const [posting, setPosting] = useState(false);
+  const [composeNotice, setComposeNotice] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -161,10 +166,30 @@ export function HomePage() {
     if (!trimmed || posting) return;
 
     setPosting(true);
+    setComposeNotice(null);
     try {
-      const post = await createPost(trimmed);
+      if (!authEnabled || !isSignedIn) {
+        setComposeNotice(authEnabled ? 'Sign in to post.' : 'Sign-in is not configured for this environment.');
+        return;
+      }
+
+      const token = await getToken();
+      if (!token) {
+        setComposeNotice('Sign in again to post.');
+        return;
+      }
+
+      const profile = await getCurrentUserProfile(token);
+      if (!profile) {
+        setComposeNotice('Create your profile before posting.');
+        return;
+      }
+
+      const post = await createPost(trimmed, undefined, token);
       setPosts((current) => [post, ...current]);
       setContent('');
+    } catch (err) {
+      setComposeNotice(err instanceof Error ? err.message : 'Post failed. Try again.');
     } finally {
       setPosting(false);
     }
@@ -240,6 +265,30 @@ export function HomePage() {
                 {posting ? 'Posting' : 'Post'}
               </button>
             </div>
+            {composeNotice && (
+              <div className="mt-3 flex flex-wrap items-center gap-3 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                <span>{composeNotice}</span>
+                {composeNotice === 'Sign in to post.' && authEnabled ? (
+                  <SignInButton mode="modal">
+                    <button
+                      type="button"
+                      className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover:bg-white/10"
+                      style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
+                    >
+                      Sign in
+                    </button>
+                  </SignInButton>
+                ) : composeNotice === 'Create your profile before posting.' ? (
+                  <a
+                    href="/profile"
+                    className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover:bg-white/10"
+                    style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
+                  >
+                    Go to profile
+                  </a>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       </div>

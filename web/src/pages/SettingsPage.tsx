@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { SignInButton, useClerk, UserButton } from '@clerk/clerk-react';
 import {
   ArrowLeft,
   Bell,
@@ -21,6 +22,8 @@ import {
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../hooks/useAuth';
 
 type Section = 'account' | 'privacy' | 'notifications' | 'billing' | 'display' | 'data';
 
@@ -89,6 +92,14 @@ const SECTIONS: SectionMeta[] = [
         description: 'Send an alert when your account signs in from a new device.',
         Icon: Mail,
         enabled: true,
+      },
+      {
+        id: 'manage-account',
+        kind: 'action',
+        label: 'Manage account',
+        description: 'Open your Clerk account profile, security, and session settings.',
+        Icon: User,
+        actionLabel: 'Manage',
       },
       {
         id: 'deactivate',
@@ -288,6 +299,8 @@ const INITIAL_CHOICES = SECTIONS.reduce<Record<string, string>>((settings, secti
   return settings;
 }, {});
 
+const clerkConfigured = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
+
 function ToggleSwitch({ checked }: { checked: boolean }) {
   return (
     <span
@@ -307,17 +320,111 @@ function ToggleSwitch({ checked }: { checked: boolean }) {
   );
 }
 
+function ClerkManageAccountButton({
+  className,
+  onFallback,
+}: {
+  className: string;
+  onFallback: () => void;
+}) {
+  const clerk = useClerk();
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        if (typeof clerk.openUserProfile === 'function') {
+          clerk.openUserProfile();
+          return;
+        }
+
+        onFallback();
+      }}
+      className={className}
+    >
+      Manage
+    </button>
+  );
+}
+
+function AccountSummary() {
+  const { authEnabled, isSignedIn, viewerLabel } = useAuth();
+
+  return (
+    <div className="border-b border-[var(--border-primary)] px-4 py-4">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--bg-elevated)] text-[var(--text-primary)]">
+          {clerkConfigured && authEnabled && isSignedIn ? (
+            <UserButton afterSignOutUrl="/" userProfileMode="modal" />
+          ) : (
+            <User size={20} />
+          )}
+        </div>
+        <div className="min-w-0 flex-1">
+          <h3 className="text-[15px] font-bold">
+            {isSignedIn ? viewerLabel ?? 'Signed in' : 'Signed out'}
+          </h3>
+          <p className="mt-1 text-[13px] leading-5 text-[var(--text-secondary)]">
+            {authEnabled
+              ? isSignedIn
+                ? 'Clerk session active for this browser.'
+                : 'Sign in to manage Clerk account and profile settings.'
+              : 'Clerk is not configured for this environment.'}
+          </p>
+        </div>
+        {clerkConfigured && authEnabled && !isSignedIn ? (
+          <SignInButton mode="modal">
+            <button
+              type="button"
+              className="rounded-full border border-[var(--border-secondary)] px-3 py-1.5 text-[13px] font-bold text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-elevated)]"
+            >
+              Sign in
+            </button>
+          </SignInButton>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPage() {
+  const navigate = useNavigate();
+  const { authEnabled, isSignedIn } = useAuth();
   const [activeSection, setActiveSection] = useState<Section>('account');
   const [showPanelOnMobile, setShowPanelOnMobile] = useState(false);
   const [toggles, setToggles] = useState<Record<string, boolean>>(INITIAL_TOGGLES);
   const [choices, setChoices] = useState<Record<string, string>>(INITIAL_CHOICES);
+  const [notice, setNotice] = useState<string | null>(null);
 
   const currentSection = SECTIONS.find((section) => section.id === activeSection) ?? SECTIONS[0];
 
   const selectSection = (section: Section) => {
     setActiveSection(section);
     setShowPanelOnMobile(true);
+    setNotice(null);
+  };
+
+  const handleAction = (control: ActionControl) => {
+    if (control.id === 'manage-account') {
+      if (!clerkConfigured || !authEnabled) {
+        setNotice('Clerk is not configured in this environment.');
+        return;
+      }
+
+      if (!isSignedIn) {
+        setNotice('Sign in to manage your account.');
+      }
+      return;
+    }
+
+    if (control.id === 'manage-billing') {
+      navigate('/premium');
+      return;
+    }
+
+    if (control.id === 'deactivate' || control.id === 'export-data') {
+      setNotice('Backend connection needed for this request.');
+    }
   };
 
   return (
@@ -390,6 +497,12 @@ export function SettingsPage() {
           </div>
 
           <div className="divide-y divide-[var(--border-primary)]">
+            {currentSection.id === 'account' ? <AccountSummary /> : null}
+            {notice ? (
+              <div className="border-b border-[var(--border-primary)] px-4 py-3 text-[13px] text-[var(--text-secondary)]">
+                {notice}
+              </div>
+            ) : null}
             {currentSection.controls.map((control) => {
               const Icon = control.Icon;
 
@@ -453,9 +566,8 @@ export function SettingsPage() {
               }
 
               return (
-                <button
+                <div
                   key={control.id}
-                  type="button"
                   className="flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-[var(--bg-hover)]"
                 >
                   <Icon
@@ -470,16 +582,25 @@ export function SettingsPage() {
                       {control.description}
                     </span>
                   </span>
-                  <span
-                    className={`rounded-full border px-3 py-1.5 text-[13px] font-bold ${
-                      control.tone === 'danger'
-                        ? 'border-[var(--color-danger)] text-[var(--color-danger)]'
-                        : 'border-[var(--border-secondary)] text-[var(--text-primary)]'
-                    }`}
-                  >
-                    {control.actionLabel}
-                  </span>
-                </button>
+                  {control.id === 'manage-account' && clerkConfigured && authEnabled && isSignedIn ? (
+                    <ClerkManageAccountButton
+                      className="rounded-full border border-[var(--border-secondary)] px-3 py-1.5 text-[13px] font-bold text-[var(--text-primary)] transition-colors hover:bg-[var(--bg-elevated)]"
+                      onFallback={() => navigate('/profile')}
+                    />
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => handleAction(control)}
+                      className={`rounded-full border px-3 py-1.5 text-[13px] font-bold ${
+                        control.tone === 'danger'
+                          ? 'border-[var(--color-danger)] text-[var(--color-danger)]'
+                          : 'border-[var(--border-secondary)] text-[var(--text-primary)]'
+                      } transition-colors hover:bg-[var(--bg-elevated)]`}
+                    >
+                      {control.actionLabel}
+                    </button>
+                  )}
+                </div>
               );
             })}
           </div>
