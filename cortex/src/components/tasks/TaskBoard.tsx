@@ -15,10 +15,12 @@ interface TaskBoardProps {
   tasks: TaskManagerTask[];
   members: TaskMember[];
   compact?: boolean;
+  selectedTaskId?: string | null;
   onUpdateTask: (
     taskId: string,
     patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority' | 'projectChatConversationId' | 'projectChatLaunchedAt' | 'latestRunId'>>,
   ) => void;
+  onSelectTask?: (task: TaskManagerTask) => void;
   onLaunchTask?: (task: TaskManagerTask) => void;
 }
 
@@ -56,13 +58,17 @@ function TaskCard({
   task,
   assignee,
   compact,
+  selected,
   onUpdateTask,
+  onSelectTask,
   onLaunchTask,
 }: {
   task: TaskManagerTask;
   assignee: TaskMember | null;
   compact?: boolean;
+  selected?: boolean;
   onUpdateTask: TaskBoardProps['onUpdateTask'];
+  onSelectTask?: TaskBoardProps['onSelectTask'];
   onLaunchTask?: TaskBoardProps['onLaunchTask'];
 }) {
   function onDragStart(event: DragEvent<HTMLDivElement>) {
@@ -74,7 +80,21 @@ function TaskCard({
     <div
       draggable
       onDragStart={onDragStart}
-      className="group rounded-lg border border-white/8 bg-[var(--panel)] p-3 shadow-[0_1px_0_rgba(255,255,255,0.02)] transition hover:border-white/14 hover:bg-white/[0.05]"
+      onClick={() => onSelectTask?.(task)}
+      role={onSelectTask ? 'button' : undefined}
+      tabIndex={onSelectTask ? 0 : undefined}
+      onKeyDown={(event) => {
+        if (!onSelectTask) return;
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          onSelectTask(task);
+        }
+      }}
+      className={[
+        'group rounded-lg border bg-[var(--panel)] p-3 text-left shadow-[0_1px_0_rgba(255,255,255,0.02)] transition hover:border-white/14 hover:bg-white/[0.05]',
+        selected ? 'border-[var(--accent)]/40 bg-[var(--accent)]/10' : 'border-white/8',
+        onSelectTask ? 'cursor-pointer' : '',
+      ].join(' ')}
     >
       <div className="flex items-start gap-2">
         <GripVertical className="mt-0.5 h-4 w-4 shrink-0 text-[var(--muted)] opacity-60" />
@@ -115,7 +135,10 @@ function TaskCard({
                   type="button"
                   title={formatTaskStatus(status)}
                   aria-label={`Move to ${formatTaskStatus(status)}`}
-                  onClick={() => onUpdateTask(task.id, { status })}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    onUpdateTask(task.id, { status });
+                  }}
                   className={[
                     'h-6 flex-1 rounded-md border text-[10px] transition active:scale-95',
                     task.status === status
@@ -130,7 +153,10 @@ function TaskCard({
                 type="button"
                 title="Open in Project Chat"
                 aria-label="Open task in Project Chat"
-                onClick={() => onLaunchTask?.(task)}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  onLaunchTask?.(task);
+                }}
                 className="inline-flex h-6 w-8 shrink-0 items-center justify-center rounded-md border border-white/8 bg-white/[0.02] text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white active:scale-95"
               >
                 <MessageSquareText className="h-3.5 w-3.5" />
@@ -140,7 +166,10 @@ function TaskCard({
           {compact && (
             <button
               type="button"
-              onClick={() => onLaunchTask?.(task)}
+              onClick={(event) => {
+                event.stopPropagation();
+                onLaunchTask?.(task);
+              }}
               className="mt-3 inline-flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-white/8 bg-white/[0.03] text-[11px] text-[var(--muted-strong)] transition hover:bg-white/[0.07] hover:text-white active:scale-[0.99]"
             >
               <MessageSquareText className="h-3.5 w-3.5" />
@@ -158,14 +187,18 @@ function DropColumn({
   tasks,
   members,
   compact,
+  selectedTaskId,
   onUpdateTask,
+  onSelectTask,
   onLaunchTask,
 }: {
   status: TaskStatus;
   tasks: TaskManagerTask[];
   members: TaskMember[];
   compact?: boolean;
+  selectedTaskId?: string | null;
   onUpdateTask: TaskBoardProps['onUpdateTask'];
+  onSelectTask?: TaskBoardProps['onSelectTask'];
   onLaunchTask?: TaskBoardProps['onLaunchTask'];
 }) {
   const Icon = STATUS_ICON[status];
@@ -232,7 +265,9 @@ function DropColumn({
                 task={task}
                 assignee={getMember(members, task.assigneeId)}
                 compact={compact}
+                selected={task.id === selectedTaskId}
                 onUpdateTask={onUpdateTask}
+                onSelectTask={onSelectTask}
                 onLaunchTask={onLaunchTask}
               />
             ))}
@@ -244,7 +279,15 @@ function DropColumn({
   );
 }
 
-export default function TaskBoard({ tasks, members, compact = false, onUpdateTask, onLaunchTask }: TaskBoardProps) {
+export default function TaskBoard({
+  tasks,
+  members,
+  compact = false,
+  selectedTaskId,
+  onUpdateTask,
+  onSelectTask,
+  onLaunchTask,
+}: TaskBoardProps) {
   const hasTasks = tasks.length > 0;
   const visibleStatuses = compact ? STATUSES.filter((status) => status !== 'done') : STATUSES;
 
@@ -267,7 +310,9 @@ export default function TaskBoard({ tasks, members, compact = false, onUpdateTas
               tasks={tasks.filter((task) => task.status === status)}
               members={members}
               compact={compact}
+              selectedTaskId={selectedTaskId}
               onUpdateTask={onUpdateTask}
+              onSelectTask={onSelectTask}
               onLaunchTask={onLaunchTask}
             />
           ))}

@@ -2,6 +2,7 @@ import { useCallback, useState, useEffect } from 'react';
 import { ExternalLink, MessageSquareText, PanelRightClose, PanelRightOpen, LayoutGrid } from 'lucide-react';
 import TaskManagerChat from '../tasks/TaskManagerChat';
 import TaskBoard from '../tasks/TaskBoard';
+import TaskInspector from '../tasks/TaskInspector';
 import { openDetachedPanel } from '../../lib/shell/windowManager';
 import { useTaskManager } from '../../lib/taskManager';
 import type { CortexGroup } from '../../lib/groups';
@@ -52,7 +53,11 @@ export default function TaskManagerSidebar({
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeView, setActiveView] = useState<SidebarView>('chat');
   const [groupTransition, setGroupTransition] = useState(false);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const taskManager = useTaskManager(group, userId);
+  const selectedTask = taskManager.state.tasks.find((task) => task.id === selectedTaskId)
+    ?? taskManager.state.tasks[0]
+    ?? null;
 
   // Handle group switching with visual feedback
   useEffect(() => {
@@ -71,9 +76,14 @@ export default function TaskManagerSidebar({
 
   const handleLaunchTaskInProjectChat = useCallback((task: TaskManagerTask) => {
     const linkedTask = taskManager.launchTaskInProjectChat(task.id, activeConversationId);
+    setSelectedTaskId(task.id);
     onLaunchTaskInProjectChat?.(linkedTask ?? task);
     setActiveView('chat');
   }, [activeConversationId, onLaunchTaskInProjectChat, taskManager]);
+
+  const handleSelectTask = useCallback((task: TaskManagerTask) => {
+    setSelectedTaskId(task.id);
+  }, []);
 
   // Minimized state
   if (!isExpanded) {
@@ -215,7 +225,15 @@ export default function TaskManagerSidebar({
               tasks={taskManager.state.tasks}
               members={taskManager.state.members}
               compact
+              selectedTaskId={selectedTask?.id ?? null}
               onUpdateTask={taskManager.updateTask}
+              onSelectTask={handleSelectTask}
+              onLaunchTask={handleLaunchTaskInProjectChat}
+            />
+            <TaskInspector
+              task={selectedTask}
+              members={taskManager.state.members}
+              activity={taskManager.state.activity}
               onLaunchTask={handleLaunchTaskInProjectChat}
             />
           </div>
