@@ -7,11 +7,20 @@ import {
   Loader2,
   MessageSquareText,
   PlayCircle,
+  RefreshCcw,
   ShieldCheck,
   UserCircle2,
 } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TaskActivity, TaskManagerTask, TaskMember, TaskStatus } from '../../types';
 import { formatTaskStatus } from '../../lib/taskManager';
+import {
+  getRun,
+  getRunEvents,
+  type RunOperationEvent,
+  type RunStep,
+  type RunSummary,
+} from '../../lib/cortexApi';
 
 interface TaskInspectorProps {
   task: TaskManagerTask | null;
@@ -30,6 +39,19 @@ const STATUS_TONE: Record<TaskStatus, string> = {
   done: 'border-[var(--accent)]/25 bg-[var(--accent)]/10 text-[var(--accent)]',
 };
 
+const RUN_STATUS_TONE: Record<string, string> = {
+  pending: 'border-white/8 bg-white/[0.04] text-[var(--muted)]',
+  ready: 'border-white/8 bg-white/[0.04] text-[var(--muted)]',
+  leased: 'border-sky-300/20 bg-sky-400/10 text-sky-100',
+  running: 'border-emerald-300/20 bg-emerald-400/10 text-emerald-100',
+  succeeded: 'border-[var(--accent)]/25 bg-[var(--accent)]/10 text-[var(--accent)]',
+  failed: 'border-red-300/20 bg-red-400/10 text-red-100',
+  recovered: 'border-amber-300/20 bg-amber-300/10 text-amber-100',
+  cancelled: 'border-zinc-300/20 bg-zinc-300/10 text-zinc-100',
+  orphaned: 'border-orange-300/20 bg-orange-300/10 text-orange-100',
+  skipped: 'border-zinc-300/20 bg-zinc-300/10 text-zinc-100',
+};
+
 function formatDateTime(timestamp?: string | null) {
   if (!timestamp) return 'Not available';
   return new Date(timestamp).toLocaleString([], {
@@ -37,6 +59,14 @@ function formatDateTime(timestamp?: string | null) {
     day: 'numeric',
     hour: 'numeric',
     minute: '2-digit',
+  });
+}
+
+function formatEventTime(timestamp: number) {
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
   });
 }
 
@@ -67,6 +97,57 @@ function getRiskSignal(task: TaskManagerTask) {
   return null;
 }
 
+function runStatusTone(status?: string) {
+  return RUN_STATUS_TONE[status ?? 'pending'] ?? RUN_STATUS_TONE.pending;
+}
+
+function labelFromStatus(status?: string) {
+  return status ? status.replaceAll('_', ' ') : 'pending';
+}
+
+function stepLabel(step: RunStep, index: number) {
+  return step.title || step.objective || step.goal || `Step ${index + 1}`;
+}
+
+function stepDetail(step: RunStep) {
+  if (step.last_error || step.error) return step.last_error || step.error;
+  if (step.output_summary) return step.output_summary;
+  if (step.verification_status) {
+    return [step.verification_status, step.verifier_verdict].filter(Boolean).join(' · ');
+  }
+  if (step.latest_attempt?.error_summary) return step.latest_attempt.error_summary;
+  return null;
+}
+
+function eventLabel(event: RunOperationEvent) {
+  return event.event_type.replaceAll('.', ' ');
+}
+
+function eventDetail(event: RunOperationEvent, run: RunSummary | null) {
+  const payload = event.payload ?? {};
+  const status = typeof payload.status === 'string' ? payload.status : null;
+  const worker = typeof payload.worker_id === 'string' ? payload.worker_id : null;
+  const verdict = typeof payload.verdict === 'string' ? payload.verdict : null;
+  const step = event.step_id && run
+    ? run.steps.find((candidate) => candidate.id === event.step_id)
+    : null;
+  return [
+    step ? stepLabel(step, run?.steps.indexOf(step) ?? 0) : null,
+    status ? labelFromStatus(status) : null,
+    worker ? `worker ${worker}` : null,
+    verdict,
+  ].filter(Boolean).join(' · ');
+}
+
+function buildRunSignal(run: RunSummary | null) {
+  if (!run) return null;
+  const statuses = run.steps.map((step) => step.status);
+  const active = statuses.filter((status) => status === 'leased' || status === 'running').length;
+  const done = statuses.filter((status) => status === 'succeeded' || status === 'skipped').length;
+  const failed = statuses.filter((status) => status === 'failed' || status === 'orphaned').length;
+  return { active, done, failed, total: statuses.length };
+}
+
 export default function TaskInspector({
   task,
   members,
@@ -76,6 +157,43 @@ export default function TaskInspector({
   onCreateRun,
   onLaunchTask,
 }: TaskInspectorProps) {
+  const [run, setRun] = useState<RunSummary | null>(null);
+  const [events, setEvents] = useState<RunOperationEvent[]>([]);
+  const [isLoadingRun, setIsLoadingRun] = useState(false);
+  const [runLoadError, setRunLoadError] = useState<string | null>(null);
+  const latestRunId = task?.latestRunId ?? null;
+
+  const refreshRunProjection = useCallback(async () => {
+    if (!latestRunId) {
+      setRun(null);
+      setEvents([]);
+      setRunLoadError(null);
+      return;
+    }
+    setIsLoadingRun(true);
+    try {
+      const [nextRun, nextEvents] = await Promise.all([
+        getRun(latestRunId),
+        getRunEvents(latestRunId, 50),
+      ]);
+      setRun(nextRun);
+      setEvents(nextEvents.events);
+      setRunLoadError(null);
+    } catch (error) {
+      setRun(null);
+      setEvents([]);
+      setRunLoadError(error instanceof Error ? error.message : 'Could not load linked run.');
+    } finally {
+      setIsLoadingRun(false);
+    }
+  }, [latestRunId]);
+
+  useEffect(() => {
+    void refreshRunProjection();
+  }, [refreshRunProjection]);
+
+  const runSignal = useMemo(() => buildRunSignal(run), [run]);
+
   if (!task) {
     return (
       <section className="rounded-lg border border-dashed border-white/10 bg-white/[0.02] p-3">
@@ -171,6 +289,109 @@ export default function TaskInspector({
           </div>
         </div>
       </div>
+
+      {task.latestRunId && (
+        <div className="mt-3 rounded-md border border-white/8 bg-black/10 p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="min-w-0">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-[var(--muted-strong)]">
+                <PlayCircle className="h-3.5 w-3.5 text-[var(--muted)]" />
+                Linked Run
+              </div>
+              <p className="mt-0.5 truncate text-[10px] text-[var(--muted)]">{task.latestRunId}</p>
+            </div>
+            <button
+              type="button"
+              disabled={isLoadingRun}
+              onClick={() => void refreshRunProjection()}
+              className="shrink-0 rounded-md p-1 text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 disabled:opacity-50"
+              aria-label="Refresh linked run"
+              title="Refresh linked run"
+            >
+              <RefreshCcw className={`h-3.5 w-3.5 ${isLoadingRun ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          {runLoadError ? (
+            <div className="mt-2 rounded-md border border-amber-300/20 bg-amber-300/10 px-2 py-1.5 text-[11px] leading-4 text-amber-100">
+              {runLoadError}
+            </div>
+          ) : run ? (
+            <div className="mt-2 space-y-2">
+              <div className="flex items-center justify-between gap-2">
+                <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] capitalize ${runStatusTone(run.status)}`}>
+                  {labelFromStatus(run.status)}
+                </span>
+                <span className="truncate text-[10px] text-[var(--muted)]">
+                  {runSignal
+                    ? `${runSignal.done}/${runSignal.total} done · ${runSignal.active} active · ${runSignal.failed} failed`
+                    : 'No steps yet'}
+                </span>
+              </div>
+
+              {run.steps.length === 0 ? (
+                <div className="rounded-md border border-dashed border-white/10 px-2 py-1.5 text-[11px] text-[var(--muted)]">
+                  Waiting for scheduler steps.
+                </div>
+              ) : (
+                <div className="max-h-36 space-y-1.5 overflow-y-auto pr-1">
+                  {run.steps.slice(0, 6).map((step, index) => {
+                    const detail = stepDetail(step);
+                    return (
+                      <div key={step.id} className="rounded-md border border-white/8 bg-white/[0.02] px-2 py-1.5">
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="min-w-0 truncate text-[11px] font-medium text-white">
+                            {stepLabel(step, index)}
+                          </span>
+                          <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] capitalize ${runStatusTone(step.status)}`}>
+                            {labelFromStatus(step.status)}
+                          </span>
+                        </div>
+                        {detail && (
+                          <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-[var(--muted)]">{detail}</p>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {events.length > 0 && (
+                <div>
+                  <div className="mb-1.5 flex items-center justify-between">
+                    <h3 className="text-[11px] font-medium text-[var(--muted-strong)]">Backend Events</h3>
+                    <span className="text-[10px] text-[var(--muted)]">{events.length}</span>
+                  </div>
+                  <div className="max-h-28 space-y-1.5 overflow-y-auto pr-1">
+                    {events.slice(-5).reverse().map((event) => {
+                      const detail = eventDetail(event, run);
+                      return (
+                        <div key={event.id} className="rounded-md border border-white/8 bg-white/[0.02] px-2 py-1.5">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="truncate text-[11px] font-medium capitalize text-[var(--muted-strong)]">
+                              {eventLabel(event)}
+                            </span>
+                            <span className="shrink-0 text-[10px] text-[var(--muted)]">
+                              {formatEventTime(event.created_at)}
+                            </span>
+                          </div>
+                          {detail && (
+                            <p className="mt-0.5 truncate text-[10px] text-[var(--muted)]">{detail}</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="mt-2 rounded-md border border-dashed border-white/10 px-2 py-1.5 text-[11px] text-[var(--muted)]">
+              {isLoadingRun ? 'Loading linked run.' : 'Run projection unavailable.'}
+            </div>
+          )}
+        </div>
+      )}
 
       {runError && (
         <div className="mt-3 rounded-md border border-red-300/20 bg-red-400/10 px-2.5 py-2 text-xs leading-5 text-red-100">
