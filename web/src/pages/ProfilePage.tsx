@@ -151,7 +151,7 @@ export function ProfilePage() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-      <div className="sticky top-0 z-10 flex items-center gap-6 border-b bg-black/80 px-4 py-3 backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
+      <div className="sticky top-[var(--top-bar-height)] z-10 flex items-center gap-6 border-b bg-black/80 px-4 py-3 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
         <button type="button" onClick={() => navigate(-1)} className="rounded-full p-2 transition-colors hover:bg-white/10" aria-label="Back">
           <ArrowLeft className="h-5 w-5" aria-hidden="true" />
         </button>

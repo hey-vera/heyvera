@@ -124,12 +124,15 @@ export function MessagesPage() {
   const showChatOnMobile = selectedConversation !== null;
 
   return (
-    <div className="flex min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+    <div
+      className="relative z-20 flex min-h-screen w-full md:w-[min(920px,calc(100vw-32px))] lg:w-[890px] xl:w-[950px]"
+      style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
+    >
       <div
-        className={`${showChatOnMobile ? 'hidden md:flex' : 'flex'} w-full flex-col border-r md:w-[360px]`}
+        className={`${showChatOnMobile ? 'hidden md:flex' : 'flex'} w-full flex-col border-r md:w-[360px] md:flex-shrink-0 xl:w-[380px]`}
         style={{ borderColor: 'var(--border-primary)' }}
       >
-        <div className="sticky top-0 z-10 border-b bg-black/80 px-4 py-3 backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
+        <div className="sticky top-[var(--top-bar-height)] z-10 border-b bg-black/80 px-4 py-3 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
           <h1 className="text-[20px] font-bold">Messages</h1>
         </div>
 
@@ -223,7 +226,7 @@ export function MessagesPage() {
       <div className={`${showChatOnMobile ? 'flex' : 'hidden md:flex'} min-w-0 flex-1 flex-col`}>
         {selectedConversation ? (
           <>
-            <div className="sticky top-0 z-10 flex items-center gap-3 border-b bg-black/80 px-4 py-3 backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
+            <div className="sticky top-[var(--top-bar-height)] z-10 flex items-center gap-3 border-b bg-black/80 px-4 py-3 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
               <button
                 type="button"
                 onClick={() => setSelectedId(null)}

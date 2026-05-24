@@ -66,7 +66,7 @@ export function PostThreadPage() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
       <header
-        className="sticky top-0 z-10 flex h-[53px] items-center gap-6 border-b px-4 backdrop-blur-md"
+        className="sticky top-[var(--top-bar-height)] z-10 flex h-[53px] items-center gap-6 border-b px-4 backdrop-blur-md lg:top-0"
         style={{ backgroundColor: 'color-mix(in srgb, var(--bg-primary) 80%, transparent)', borderColor: 'var(--border-primary)' }}
       >
         <button

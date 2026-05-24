@@ -59,6 +59,9 @@ Mobile   (<640px):    [Feed 100%] [BottomBar 49px] [TopBar 53px]
 - BottomBar: fixed bottom, visible only below sm (640px)
 - TopBar: sticky top with backdrop-blur, visible only below lg (1024px)
 - Center column: max-width 600px, border-left + border-right 1px #2F3336
+- Shell alignment: fixed left nav and content must be aligned as one grid; do not center the feed in a way that creates a blank channel between LeftNav and the feed on wide desktop.
+- Mobile/tablet sticky rule: when TopBar is visible below lg, route-level sticky headers/tabs/search bars must use `top: var(--top-bar-height)` or otherwise avoid overlapping the TopBar.
+- Messages exception: `/messages` may use a wider center surface for split-panel conversations; do not force the chat panel into a 600px feed column.
 
 ## Dark Theme Colors
 

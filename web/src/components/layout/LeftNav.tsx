@@ -46,9 +46,8 @@ function HeyVeraLogo() {
 export function LeftNav({ activeRoute, onNavigate, onCompose }: LeftNavProps) {
   return (
     <nav
-      className="hidden lg:flex fixed top-0 left-0 h-full flex-col z-40 overflow-y-auto"
+      className="fixed top-0 left-0 z-40 hidden h-full w-[88px] flex-col overflow-y-auto lg:left-[max(0px,calc((100vw-978px)/2))] xl:left-[max(0px,calc((100vw-1225px)/2))] xl:w-[275px] sm:flex"
       style={{
-        width: "var(--sidebar-width)",
         paddingLeft: "12px",
         paddingRight: "12px",
         backgroundColor: "var(--bg-primary)",
