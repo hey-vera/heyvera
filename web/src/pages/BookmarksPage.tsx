@@ -5,7 +5,53 @@ import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
 
-function filterBookmarkedPosts(posts: Post[], query: string): Post[] {
+type BookmarkFolderId = 'all' | 'read-later' | 'agents' | 'protocol' | 'media';
+
+interface BookmarkFolder {
+  id: BookmarkFolderId;
+  label: string;
+}
+
+const BOOKMARK_FOLDERS: BookmarkFolder[] = [
+  { id: 'all', label: 'All' },
+  { id: 'read-later', label: 'Read later' },
+  { id: 'agents', label: 'Agents' },
+  { id: 'protocol', label: 'Protocol' },
+  { id: 'media', label: 'Media' },
+];
+
+function getPostFolder(post: Post): Exclude<BookmarkFolderId, 'all'> {
+  const searchableText = [
+    post.content,
+    post.author.display_name,
+    post.author.handle,
+    post.media?.map((item) => [item.type, item.alt_text].filter(Boolean).join(' ')).join(' '),
+  ]
+    .filter(Boolean)
+    .join(' ')
+    .toLowerCase();
+
+  if (post.media?.length || /\b(image|video|gif|photo|screenshot|clip|demo)\b/.test(searchableText)) {
+    return 'media';
+  }
+
+  if (/\b(soma|protocol|rfc|delegation|proof|token|genesis|credential|identity)\b/.test(searchableText)) {
+    return 'protocol';
+  }
+
+  if (/\b(agent|agents|cortex|vera|assistant|automation|pipeline|runtime)\b/.test(searchableText)) {
+    return 'agents';
+  }
+
+  return 'read-later';
+}
+
+function filterPostsByFolder(posts: Post[], folderId: BookmarkFolderId): Post[] {
+  if (folderId === 'all') return posts;
+  return posts.filter((post) => getPostFolder(post) === folderId);
+}
+
+function filterPostsByQuery(posts: Post[], query: string): Post[] {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) return posts;
 
@@ -23,6 +69,7 @@ function filterBookmarkedPosts(posts: Post[], query: string): Post[] {
 export function BookmarksPage() {
   const [posts, setPosts] = useState<Post[]>([]);
   const [query, setQuery] = useState('');
+  const [activeFolder, setActiveFolder] = useState<BookmarkFolderId>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -55,7 +102,20 @@ export function BookmarksPage() {
     };
   }, [reloadKey]);
 
-  const filteredPosts = useMemo(() => filterBookmarkedPosts(posts, query), [posts, query]);
+  const folderCounts = useMemo(
+    () =>
+      BOOKMARK_FOLDERS.reduce<Record<BookmarkFolderId, number>>(
+        (counts, folder) => ({
+          ...counts,
+          [folder.id]: filterPostsByFolder(posts, folder.id).length,
+        }),
+        { all: 0, 'read-later': 0, agents: 0, protocol: 0, media: 0 },
+      ),
+    [posts],
+  );
+  const folderedPosts = useMemo(() => filterPostsByFolder(posts, activeFolder), [activeFolder, posts]);
+  const filteredPosts = useMemo(() => filterPostsByQuery(folderedPosts, query), [folderedPosts, query]);
+  const activeFolderLabel = BOOKMARK_FOLDERS.find((folder) => folder.id === activeFolder)?.label ?? 'Bookmarks';
   const trimmedQuery = query.trim();
 
   const handleLike = (id: string, liked: boolean) => {
@@ -103,8 +163,11 @@ export function BookmarksPage() {
       style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
     >
       <div
-        className="sticky top-0 z-10 border-b bg-black/80 px-4 py-3 backdrop-blur-md"
-        style={{ borderColor: 'var(--border-primary)' }}
+        className="sticky top-0 z-10 border-b px-4 py-3 backdrop-blur-md"
+        style={{
+          backgroundColor: 'color-mix(in srgb, var(--bg-primary) 80%, transparent)',
+          borderColor: 'var(--border-primary)',
+        }}
       >
         <div className="flex items-center gap-3">
           <Bookmark className="h-5 w-5 shrink-0" aria-hidden="true" style={{ color: 'var(--accent)' }} />
@@ -140,6 +203,41 @@ export function BookmarksPage() {
         </label>
       </div>
 
+      <div
+        className="border-b px-4"
+        style={{ borderColor: 'var(--border-primary)' }}
+        aria-label="Bookmark folders"
+      >
+        <div className="flex gap-2 overflow-x-auto py-3">
+          {BOOKMARK_FOLDERS.map((folder) => {
+            const selected = activeFolder === folder.id;
+
+            return (
+              <button
+                key={folder.id}
+                type="button"
+                onClick={() => setActiveFolder(folder.id)}
+                className="flex h-9 shrink-0 items-center gap-2 rounded-full border px-4 text-[15px] font-bold transition-colors"
+                style={{
+                  backgroundColor: selected ? 'var(--accent)' : 'var(--bg-elevated)',
+                  borderColor: selected ? 'var(--accent)' : 'var(--border-primary)',
+                  color: selected ? 'var(--bg-primary)' : 'var(--text-primary)',
+                }}
+                aria-pressed={selected}
+              >
+                <span>{folder.label}</span>
+                <span
+                  className="text-[13px] font-bold"
+                  style={{ color: selected ? 'var(--bg-primary)' : 'var(--text-secondary)' }}
+                >
+                  {folderCounts[folder.id]}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       {loading && <LoadingState label="Loading bookmarks" />}
 
       {!loading && error && (
@@ -158,8 +256,12 @@ export function BookmarksPage() {
 
       {!loading && !error && posts.length > 0 && filteredPosts.length === 0 && (
         <EmptyState
-          title="No matching bookmarks"
-          detail={`No saved posts match "${trimmedQuery}".`}
+          title={trimmedQuery ? 'No matching bookmarks' : `No ${activeFolderLabel.toLowerCase()} bookmarks`}
+          detail={
+            trimmedQuery
+              ? `No saved posts in ${activeFolderLabel} match "${trimmedQuery}".`
+              : `Saved posts assigned to ${activeFolderLabel} will appear here.`
+          }
         />
       )}
 

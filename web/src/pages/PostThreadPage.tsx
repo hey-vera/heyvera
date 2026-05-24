@@ -3,6 +3,7 @@ import { ArrowLeft } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   bookmarkPost,
+  getFeed,
   getPost,
   likePost,
   repostPost,
@@ -16,6 +17,7 @@ export function PostThreadPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const [post, setPost] = useState<Post | null>(null);
+  const [replies, setReplies] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -26,6 +28,7 @@ export function PostThreadPage() {
     async function loadPost() {
       if (!id) {
         setPost(null);
+        setReplies([]);
         setError(null);
         setLoading(false);
         return;
@@ -34,11 +37,19 @@ export function PostThreadPage() {
       setLoading(true);
       setError(null);
       try {
-        const response = await getPost(id);
-        if (!cancelled) setPost(response);
+        const [postResponse, feedResponse] = await Promise.all([getPost(id), getFeed()]);
+        const directReplies = feedResponse.posts
+          .filter((feedPost) => feedPost.reply_to === postResponse.id && feedPost.id !== postResponse.id)
+          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+
+        if (!cancelled) {
+          setPost(postResponse);
+          setReplies(directReplies);
+        }
       } catch (err) {
         if (!cancelled) {
           setPost(null);
+          setReplies([]);
           setError(err instanceof Error ? err.message : 'Unable to load post');
         }
       } finally {
@@ -78,15 +89,77 @@ export function PostThreadPage() {
         <EmptyState title="Post not found" detail="This post may have been deleted or is no longer available." />
       )}
       {!loading && !error && post && (
-        <PostCard
-          post={post}
-          onLike={(postId, liked) => void (liked ? likePost(postId) : unlikePost(postId))}
-          onRepost={(postId) => void repostPost(postId)}
-          onBookmark={(postId) => void bookmarkPost(postId)}
-        />
+        <section aria-label="Post thread">
+          <ThreadPost post={post} hasConnector={replies.length > 0} />
+          {replies.length > 0 ? (
+            replies.map((reply, index) => (
+              <ThreadReply
+                key={reply.id}
+                post={reply}
+                isLast={index === replies.length - 1}
+              />
+            ))
+          ) : (
+            <EmptyState title="No replies yet" detail="Replies to this post will appear here." />
+          )}
+        </section>
       )}
     </div>
   );
 }
 
 export default PostThreadPage;
+
+interface ThreadPostProps {
+  post: Post;
+  hasConnector: boolean;
+}
+
+interface ThreadReplyProps {
+  post: Post;
+  isLast: boolean;
+}
+
+function ThreadPost({ post, hasConnector }: ThreadPostProps) {
+  return (
+    <div className="relative">
+      {hasConnector && <ConnectorLine className="top-16 bottom-0" />}
+      <PostCard post={post} onLike={handleLike} onRepost={handleRepost} onBookmark={handleBookmark} />
+    </div>
+  );
+}
+
+function ThreadReply({ post, isLast }: ThreadReplyProps) {
+  return (
+    <div className="relative">
+      <ConnectorLine className={isLast ? 'top-0 h-9' : 'top-0 bottom-0'} />
+      <PostCard post={post} onLike={handleLike} onRepost={handleRepost} onBookmark={handleBookmark} />
+    </div>
+  );
+}
+
+interface ConnectorLineProps {
+  className: string;
+}
+
+function ConnectorLine({ className }: ConnectorLineProps) {
+  return (
+    <div
+      aria-hidden="true"
+      className={`pointer-events-none absolute left-9 w-px ${className}`}
+      style={{ backgroundColor: 'var(--border-secondary)' }}
+    />
+  );
+}
+
+function handleLike(postId: string, liked: boolean) {
+  void (liked ? likePost(postId) : unlikePost(postId));
+}
+
+function handleRepost(postId: string) {
+  void repostPost(postId);
+}
+
+function handleBookmark(postId: string) {
+  void bookmarkPost(postId);
+}

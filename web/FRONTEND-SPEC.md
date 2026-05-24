@@ -201,12 +201,12 @@ All data loading goes through this client. When `VITE_API_URL` is empty, returns
 - [x] Post thread route loads a post through `getPost(id)` and renders `PostCard`
 
 ### P2 — Nice to have
-- [ ] Infinite scroll (intersection observer + cursor pagination)
-- [ ] Pull-to-refresh on mobile
-- [ ] "Show N new posts" banner at top of feed
-- [ ] Bookmark folders
-- [ ] Community feed view
-- [ ] Reply threading with vertical connector lines
+- [x] Infinite scroll (intersection observer + cursor pagination)
+- [x] Pull-to-refresh on mobile
+- [x] "Show N new posts" banner at top of feed
+- [x] Bookmark folders
+- [x] Community feed view
+- [x] Reply threading with vertical connector lines
 - [x] Repost dropdown menu (Repost vs Quote)
 - [x] Share dropdown menu
 
