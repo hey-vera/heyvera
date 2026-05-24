@@ -18,7 +18,7 @@ interface TaskBoardProps {
   selectedTaskId?: string | null;
   onUpdateTask: (
     taskId: string,
-    patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority' | 'projectChatConversationId' | 'projectChatLaunchedAt' | 'latestRunId'>>,
+    patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority' | 'projectChatConversationId' | 'projectChatLaunchedAt' | 'latestRunId' | 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>>,
   ) => void;
   onSelectTask?: (task: TaskManagerTask) => void;
   onLaunchTask?: (task: TaskManagerTask) => void;
@@ -52,6 +52,10 @@ function formatAge(timestamp: string) {
 function getMember(members: TaskMember[], memberId?: string | null) {
   if (!memberId) return null;
   return members.find((member) => member.id === memberId) ?? null;
+}
+
+function formatRunStatus(status?: string | null) {
+  return status ? status.replaceAll('_', ' ') : 'run linked';
 }
 
 function TaskCard({
@@ -110,6 +114,12 @@ function TaskCard({
           )}
           {task.projectChatLaunchedAt && (
             <p className="mt-1 truncate text-[11px] text-[var(--accent)]">Attached to Project Chat</p>
+          )}
+          {task.latestRunId && (
+            <p className="mt-1 truncate text-[11px] text-[var(--muted-strong)]">
+              Run: {formatRunStatus(task.latestRunStatus)}
+              {task.latestRunStepSummary ? ` · ${task.latestRunStepSummary.done}/${task.latestRunStepSummary.total} done` : ''}
+            </p>
           )}
           <div className="mt-3 flex items-center justify-between gap-2">
             {assignee ? (

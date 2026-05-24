@@ -263,6 +263,14 @@ export interface TaskManagerTask {
   projectChatConversationId?: string | null;
   projectChatLaunchedAt?: string | null;
   latestRunId?: string | null;
+  latestRunStatus?: string | null;
+  latestRunSyncedAt?: string | null;
+  latestRunStepSummary?: {
+    total: number;
+    active: number;
+    done: number;
+    failed: number;
+  } | null;
 }
 
 export type TaskActivityKind = 'created' | 'assigned' | 'status' | 'handoff' | 'linked' | 'note';

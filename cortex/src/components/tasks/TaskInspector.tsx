@@ -29,7 +29,11 @@ interface TaskInspectorProps {
   isCreatingRun?: boolean;
   runError?: string | null;
   onCreateRun?: (task: TaskManagerTask) => void;
-  onSyncRunState?: (task: TaskManagerTask, status: TaskStatus) => void;
+  onSyncRunState?: (
+    task: TaskManagerTask,
+    status: TaskStatus,
+    snapshot: Pick<TaskManagerTask, 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>,
+  ) => void;
   onLaunchTask?: (task: TaskManagerTask) => void;
 }
 
@@ -305,6 +309,8 @@ export default function TaskInspector({
             <p>Project Chat: {task.projectChatLaunchedAt ? formatDateTime(task.projectChatLaunchedAt) : 'Not launched'}</p>
             <p>Conversation: {task.projectChatConversationId || 'Not attached'}</p>
             <p>Latest run: {task.latestRunId || 'Not linked'}</p>
+            {task.latestRunStatus && <p>Run status: {labelFromStatus(task.latestRunStatus)}</p>}
+            {task.latestRunSyncedAt && <p>Synced: {formatDateTime(task.latestRunSyncedAt)}</p>}
           </div>
         </div>
       </div>
@@ -350,7 +356,11 @@ export default function TaskInspector({
               {suggestedTaskStatus && suggestedTaskStatus !== task.status && (
                 <button
                   type="button"
-                  onClick={() => onSyncRunState?.(task, suggestedTaskStatus)}
+                  onClick={() => onSyncRunState?.(task, suggestedTaskStatus, {
+                    latestRunStatus: run.status ?? null,
+                    latestRunSyncedAt: new Date().toISOString(),
+                    latestRunStepSummary: runSignal,
+                  })}
                   className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-white/8 bg-white/[0.03] text-[11px] text-[var(--muted-strong)] transition hover:bg-white/[0.07] hover:text-white active:scale-[0.99]"
                 >
                   <CheckCircle2 className="h-3.5 w-3.5" />

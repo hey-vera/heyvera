@@ -121,8 +121,12 @@ export default function TaskManagerSidebar({
     }
   }, [creatingRunTaskId, runProfile, taskManager]);
 
-  const handleSyncRunState = useCallback((task: TaskManagerTask, status: TaskManagerTask['status']) => {
-    taskManager.updateTask(task.id, { status });
+  const handleSyncRunState = useCallback((
+    task: TaskManagerTask,
+    status: TaskManagerTask['status'],
+    snapshot: Pick<TaskManagerTask, 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>,
+  ) => {
+    taskManager.updateTask(task.id, { status, ...snapshot });
   }, [taskManager]);
 
   // Minimized state
