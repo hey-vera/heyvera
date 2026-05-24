@@ -29,6 +29,7 @@ interface TaskInspectorProps {
   isCreatingRun?: boolean;
   runError?: string | null;
   onCreateRun?: (task: TaskManagerTask) => void;
+  onSyncRunState?: (task: TaskManagerTask, status: TaskStatus) => void;
   onLaunchTask?: (task: TaskManagerTask) => void;
 }
 
@@ -148,6 +149,22 @@ function buildRunSignal(run: RunSummary | null) {
   return { active, done, failed, total: statuses.length };
 }
 
+function taskStatusFromRun(run: RunSummary | null): TaskStatus | null {
+  if (!run?.status) return null;
+  if (run.status === 'succeeded' || run.status === 'recovered') return 'done';
+  if (
+    run.status === 'pending'
+    || run.status === 'ready'
+    || run.status === 'leased'
+    || run.status === 'running'
+    || run.status === 'failed'
+    || run.status === 'orphaned'
+  ) {
+    return 'in-progress';
+  }
+  return null;
+}
+
 export default function TaskInspector({
   task,
   members,
@@ -155,6 +172,7 @@ export default function TaskInspector({
   isCreatingRun = false,
   runError,
   onCreateRun,
+  onSyncRunState,
   onLaunchTask,
 }: TaskInspectorProps) {
   const [run, setRun] = useState<RunSummary | null>(null);
@@ -193,6 +211,7 @@ export default function TaskInspector({
   }, [refreshRunProjection]);
 
   const runSignal = useMemo(() => buildRunSignal(run), [run]);
+  const suggestedTaskStatus = useMemo(() => taskStatusFromRun(run), [run]);
 
   if (!task) {
     return (
@@ -328,6 +347,16 @@ export default function TaskInspector({
                     : 'No steps yet'}
                 </span>
               </div>
+              {suggestedTaskStatus && suggestedTaskStatus !== task.status && (
+                <button
+                  type="button"
+                  onClick={() => onSyncRunState?.(task, suggestedTaskStatus)}
+                  className="inline-flex h-7 w-full items-center justify-center gap-1.5 rounded-md border border-white/8 bg-white/[0.03] text-[11px] text-[var(--muted-strong)] transition hover:bg-white/[0.07] hover:text-white active:scale-[0.99]"
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  Sync task to {formatTaskStatus(suggestedTaskStatus)}
+                </button>
+              )}
 
               {run.steps.length === 0 ? (
                 <div className="rounded-md border border-dashed border-white/10 px-2 py-1.5 text-[11px] text-[var(--muted)]">

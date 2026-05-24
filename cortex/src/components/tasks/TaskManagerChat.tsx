@@ -485,6 +485,10 @@ export default function TaskManagerChat({
     }
   }, [creatingRunTaskId, runProfile, taskManager]);
 
+  const handleSyncRunState = useCallback((task: TaskManagerTask, status: TaskManagerTask['status']) => {
+    taskManager.updateTask(task.id, { status });
+  }, [taskManager]);
+
   useEffect(() => {
     onTaskStateChange?.(taskManager.state);
   }, [onTaskStateChange, taskManager.state]);
@@ -739,6 +743,7 @@ export default function TaskManagerChat({
               isCreatingRun={creatingRunTaskId === selectedTask?.id}
               runError={runError}
               onCreateRun={handleCreateTaskRun}
+              onSyncRunState={handleSyncRunState}
               onLaunchTask={handleLaunchTaskInProjectChat}
             />
           </div>
