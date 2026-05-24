@@ -493,6 +493,13 @@ export default function TaskManagerChat({
     taskManager.updateTask(task.id, { status, ...snapshot });
   }, [taskManager]);
 
+  const handleUpdateRunSnapshot = useCallback((
+    task: TaskManagerTask,
+    snapshot: Pick<TaskManagerTask, 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>,
+  ) => {
+    taskManager.updateTaskRunSnapshot(task.id, snapshot);
+  }, [taskManager]);
+
   useEffect(() => {
     onTaskStateChange?.(taskManager.state);
   }, [onTaskStateChange, taskManager.state]);
@@ -748,6 +755,7 @@ export default function TaskManagerChat({
               runError={runError}
               onCreateRun={handleCreateTaskRun}
               onSyncRunState={handleSyncRunState}
+              onUpdateRunSnapshot={handleUpdateRunSnapshot}
               onLaunchTask={handleLaunchTaskInProjectChat}
             />
           </div>
