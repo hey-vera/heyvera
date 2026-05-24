@@ -759,6 +759,7 @@ function CortexShell() {
               isStreaming={isStreaming}
               isLoadingConversation={isLoadingConversation}
               needsSubscription={runtimeLocked}
+              runProfile={runProfile}
               onDraftChange={setDraft}
               onSend={sendMessage}
               onStop={isStreaming ? stopStreaming : undefined}

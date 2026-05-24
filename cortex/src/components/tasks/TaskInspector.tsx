@@ -4,6 +4,7 @@ import {
   CircleDot,
   Clock3,
   GitBranch,
+  Loader2,
   MessageSquareText,
   PlayCircle,
   ShieldCheck,
@@ -16,6 +17,9 @@ interface TaskInspectorProps {
   task: TaskManagerTask | null;
   members: TaskMember[];
   activity: TaskActivity[];
+  isCreatingRun?: boolean;
+  runError?: string | null;
+  onCreateRun?: (task: TaskManagerTask) => void;
   onLaunchTask?: (task: TaskManagerTask) => void;
 }
 
@@ -67,6 +71,9 @@ export default function TaskInspector({
   task,
   members,
   activity,
+  isCreatingRun = false,
+  runError,
+  onCreateRun,
   onLaunchTask,
 }: TaskInspectorProps) {
   if (!task) {
@@ -165,6 +172,12 @@ export default function TaskInspector({
         </div>
       </div>
 
+      {runError && (
+        <div className="mt-3 rounded-md border border-red-300/20 bg-red-400/10 px-2.5 py-2 text-xs leading-5 text-red-100">
+          {runError}
+        </div>
+      )}
+
       <div className="mt-3">
         <div className="mb-2 flex items-center justify-between gap-2">
           <h3 className="text-xs font-medium text-[var(--muted-strong)]">Recent Movement</h3>
@@ -189,14 +202,25 @@ export default function TaskInspector({
         )}
       </div>
 
-      <button
-        type="button"
-        onClick={() => onLaunchTask?.(task)}
-        className="mt-3 inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-md border border-white/8 bg-white/[0.03] text-xs text-[var(--muted-strong)] transition hover:bg-white/[0.07] hover:text-white active:scale-[0.99]"
-      >
-        <MessageSquareText className="h-3.5 w-3.5" />
-        Open in Project Chat
-      </button>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button
+          type="button"
+          onClick={() => onLaunchTask?.(task)}
+          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-white/8 bg-white/[0.03] text-xs text-[var(--muted-strong)] transition hover:bg-white/[0.07] hover:text-white active:scale-[0.99]"
+        >
+          <MessageSquareText className="h-3.5 w-3.5" />
+          Chat
+        </button>
+        <button
+          type="button"
+          disabled={isCreatingRun}
+          onClick={() => onCreateRun?.(task)}
+          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-md border border-[var(--accent)]/20 bg-[var(--accent)]/10 text-xs text-[var(--accent)] transition hover:bg-[var(--accent)]/15 active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isCreatingRun ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <PlayCircle className="h-3.5 w-3.5" />}
+          Run
+        </button>
+      </div>
     </section>
   );
 }
