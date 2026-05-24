@@ -537,6 +537,19 @@ export function useTaskManager(group: CortexGroup, userId: string) {
     });
   }, [group.id, publish, state]);
 
+  const updateTaskRunSnapshot = useCallback((taskId: string, snapshot: Pick<TaskManagerTask, 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>) => {
+    const previous = state.tasks.find((task) => task.id === taskId);
+    if (!previous) return;
+    const timestamp = nowIso();
+    publish({
+      ...state,
+      tasks: state.tasks.map((task) => task.id === taskId
+        ? { ...task, ...snapshot, updatedAt: timestamp }
+        : task),
+      updatedAt: timestamp,
+    });
+  }, [publish, state]);
+
   const launchTaskInProjectChat = useCallback((taskId: string, conversationId: string | null) => {
     const timestamp = nowIso();
     const previous = state.tasks.find((task) => task.id === taskId);
@@ -585,6 +598,7 @@ export function useTaskManager(group: CortexGroup, userId: string) {
     applyTextCommand,
     createTask,
     updateTask,
+    updateTaskRunSnapshot,
     launchTaskInProjectChat,
     resetTasks,
   };

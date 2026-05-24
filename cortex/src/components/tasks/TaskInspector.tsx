@@ -11,7 +11,7 @@ import {
   ShieldCheck,
   UserCircle2,
 } from 'lucide-react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TaskActivity, TaskManagerTask, TaskMember, TaskStatus } from '../../types';
 import { formatTaskStatus } from '../../lib/taskManager';
 import {
@@ -32,6 +32,10 @@ interface TaskInspectorProps {
   onSyncRunState?: (
     task: TaskManagerTask,
     status: TaskStatus,
+    snapshot: Pick<TaskManagerTask, 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>,
+  ) => void;
+  onUpdateRunSnapshot?: (
+    task: TaskManagerTask,
     snapshot: Pick<TaskManagerTask, 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>,
   ) => void;
   onLaunchTask?: (task: TaskManagerTask) => void;
@@ -177,6 +181,7 @@ export default function TaskInspector({
   runError,
   onCreateRun,
   onSyncRunState,
+  onUpdateRunSnapshot,
   onLaunchTask,
 }: TaskInspectorProps) {
   const [run, setRun] = useState<RunSummary | null>(null);
@@ -184,6 +189,16 @@ export default function TaskInspector({
   const [isLoadingRun, setIsLoadingRun] = useState(false);
   const [runLoadError, setRunLoadError] = useState<string | null>(null);
   const latestRunId = task?.latestRunId ?? null;
+  const taskRef = useRef(task);
+  const updateRunSnapshotRef = useRef(onUpdateRunSnapshot);
+
+  useEffect(() => {
+    taskRef.current = task;
+  }, [task]);
+
+  useEffect(() => {
+    updateRunSnapshotRef.current = onUpdateRunSnapshot;
+  }, [onUpdateRunSnapshot]);
 
   const refreshRunProjection = useCallback(async () => {
     if (!latestRunId) {
@@ -200,6 +215,14 @@ export default function TaskInspector({
       ]);
       setRun(nextRun);
       setEvents(nextEvents.events);
+      const currentTask = taskRef.current;
+      if (currentTask) {
+        updateRunSnapshotRef.current?.(currentTask, {
+          latestRunStatus: nextRun.status ?? null,
+          latestRunSyncedAt: new Date().toISOString(),
+          latestRunStepSummary: buildRunSignal(nextRun),
+        });
+      }
       setRunLoadError(null);
     } catch (error) {
       setRun(null);

@@ -129,6 +129,13 @@ export default function TaskManagerSidebar({
     taskManager.updateTask(task.id, { status, ...snapshot });
   }, [taskManager]);
 
+  const handleUpdateRunSnapshot = useCallback((
+    task: TaskManagerTask,
+    snapshot: Pick<TaskManagerTask, 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>,
+  ) => {
+    taskManager.updateTaskRunSnapshot(task.id, snapshot);
+  }, [taskManager]);
+
   // Minimized state
   if (!isExpanded) {
     return (
@@ -283,6 +290,7 @@ export default function TaskManagerSidebar({
               runError={runError}
               onCreateRun={handleCreateTaskRun}
               onSyncRunState={handleSyncRunState}
+              onUpdateRunSnapshot={handleUpdateRunSnapshot}
               onLaunchTask={handleLaunchTaskInProjectChat}
             />
           </div>
