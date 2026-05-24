@@ -469,7 +469,11 @@ export default function TaskManagerChat({
     ].filter(Boolean).join('\n');
 
     try {
-      const created = await createRun(goal, runProfile);
+      const created = await createRun(goal, runProfile, [], {
+        taskId: task.id,
+        groupId: group.id,
+        conversationId: activeConversationId,
+      });
       taskManager.updateTask(task.id, {
         status: task.status === 'done' ? task.status : 'in-progress',
         latestRunId: created.run_id,
@@ -483,7 +487,7 @@ export default function TaskManagerChat({
     } finally {
       setCreatingRunTaskId(null);
     }
-  }, [creatingRunTaskId, runProfile, taskManager]);
+  }, [activeConversationId, creatingRunTaskId, group.id, runProfile, taskManager]);
 
   const handleSyncRunState = useCallback((
     task: TaskManagerTask,

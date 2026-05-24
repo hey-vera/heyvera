@@ -204,7 +204,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 18;
+const SCHEMA_VERSION: i64 = 19;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -270,6 +270,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 18 {
         migrate_v18(conn);
+    }
+    if current < 19 {
+        migrate_v19(conn);
     }
 }
 
@@ -965,6 +968,23 @@ fn migrate_v18(conn: &Connection) {
     tracing::info!("applied migration v18: operations room event log");
 }
 
+fn migrate_v19(conn: &Connection) {
+    conn.execute("ALTER TABLE runs ADD COLUMN task_id TEXT", []).ok();
+    conn.execute("ALTER TABLE runs ADD COLUMN group_id TEXT", []).ok();
+    conn.execute("ALTER TABLE runs ADD COLUMN conversation_id TEXT", []).ok();
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_runs_task
+            ON runs(user_id, task_id, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_runs_group
+            ON runs(user_id, group_id, created_at DESC);
+
+        UPDATE schema_version SET version = 19;"
+    ).expect("migration v19 failed");
+
+    tracing::info!("applied migration v19: task-aware run metadata");
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CortexGroup {
     pub id: String,
@@ -1127,6 +1147,15 @@ impl Database {
                 payload: serde_json::from_str(&payload_json).unwrap_or_else(|_| serde_json::json!({})),
             })
         }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn get_run_binding(&self, run_id: &str) -> Option<(Option<String>, Option<String>, Option<String>)> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT task_id, group_id, conversation_id FROM runs WHERE id = ?1",
+            params![run_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        ).ok()
     }
 
     // --- Conversations ---
@@ -1626,6 +1655,19 @@ impl Database {
     // --- Runs ---
 
     pub fn create_run(&self, user_id: &str, goal: &str, profile: &str, file_paths: &[String]) -> String {
+        self.create_run_with_metadata(user_id, goal, profile, file_paths, None, None, None)
+    }
+
+    pub fn create_run_with_metadata(
+        &self,
+        user_id: &str,
+        goal: &str,
+        profile: &str,
+        file_paths: &[String],
+        task_id: Option<&str>,
+        group_id: Option<&str>,
+        conversation_id: Option<&str>,
+    ) -> String {
         let conn = self.conn.lock().unwrap();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
@@ -1635,15 +1677,16 @@ impl Database {
             serde_json::to_string(file_paths).ok()
         };
         conn.execute(
-            "INSERT INTO runs (id, user_id, goal, status, profile, file_paths, created_at, updated_at) VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?6)",
-            params![id, user_id, goal, profile, file_paths_json, now],
+            "INSERT INTO runs (id, user_id, goal, status, profile, file_paths, task_id, group_id, conversation_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+            params![id, user_id, goal, profile, file_paths_json, task_id, group_id, conversation_id, now],
         ).expect("failed to create run");
         insert_operations_event(
             &conn,
             Some(user_id),
+            group_id,
             None,
-            None,
-            None,
+            task_id,
             Some(&id),
             None,
             None,
@@ -1654,6 +1697,9 @@ impl Database {
                 "status": "pending",
                 "profile": profile,
                 "file_paths": file_paths,
+                "task_id": task_id,
+                "group_id": group_id,
+                "conversation_id": conversation_id,
             }),
         );
         id
@@ -1668,6 +1714,9 @@ impl Database {
         goal: &str,
         profile: &str,
         file_paths: &[String],
+        task_id: Option<&str>,
+        group_id: Option<&str>,
+        conversation_id: Option<&str>,
         steps: &[(String, String, String, Option<String>, String, String, String, i64)], // (id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at)
         edges: &[(String, String, String)], // (step_id, depends_on_id, edge_type)
     ) -> String {
@@ -1683,15 +1732,16 @@ impl Database {
         conn.execute("BEGIN", []).ok();
 
         conn.execute(
-            "INSERT INTO runs (id, user_id, goal, status, profile, file_paths, created_at, updated_at) VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?6)",
-            params![run_id, user_id, goal, profile, file_paths_json, now],
+            "INSERT INTO runs (id, user_id, goal, status, profile, file_paths, task_id, group_id, conversation_id, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
+            params![run_id, user_id, goal, profile, file_paths_json, task_id, group_id, conversation_id, now],
         ).expect("failed to create run in batch");
         insert_operations_event(
             &conn,
             Some(user_id),
+            group_id,
             None,
-            None,
-            None,
+            task_id,
             Some(&run_id),
             None,
             None,
@@ -1704,6 +1754,9 @@ impl Database {
                 "file_paths": file_paths,
                 "step_count": steps.len(),
                 "edge_count": edges.len(),
+                "task_id": task_id,
+                "group_id": group_id,
+                "conversation_id": conversation_id,
             }),
         );
 
@@ -1716,9 +1769,9 @@ impl Database {
             insert_operations_event(
                 &conn,
                 Some(user_id),
+                group_id,
                 None,
-                None,
-                None,
+                task_id,
                 Some(&run_id),
                 Some(id.as_str()),
                 None,
@@ -2525,7 +2578,8 @@ impl Database {
     pub fn list_user_runs(&self, user_id: &str, limit: usize, offset: usize) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT id, goal, status, profile, created_at, updated_at, started_at, finished_at, heal_attempts
+            "SELECT id, goal, status, profile, created_at, updated_at, started_at, finished_at, heal_attempts,
+                    task_id, group_id, conversation_id
              FROM runs WHERE user_id = ?1
              ORDER BY created_at DESC LIMIT ?2 OFFSET ?3"
         ).unwrap();
@@ -2540,6 +2594,9 @@ impl Database {
                 "started_at": row.get::<_, Option<i64>>(6)?,
                 "finished_at": row.get::<_, Option<i64>>(7)?,
                 "heal_attempts": row.get::<_, i32>(8)?,
+                "task_id": row.get::<_, Option<String>>(9)?,
+                "group_id": row.get::<_, Option<String>>(10)?,
+                "conversation_id": row.get::<_, Option<String>>(11)?,
             }))
         }).unwrap().filter_map(|r| r.ok()).collect()
     }
@@ -2557,7 +2614,8 @@ impl Database {
     pub fn list_user_runs_by_id(&self, run_id: &str) -> Option<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT id, goal, status, profile, created_at, updated_at, started_at, finished_at
+            "SELECT id, goal, status, profile, created_at, updated_at, started_at, finished_at,
+                    task_id, group_id, conversation_id
              FROM runs WHERE id = ?1",
             params![run_id],
             |row| {
@@ -2570,6 +2628,9 @@ impl Database {
                     "updated_at": row.get::<_, i64>(5)?,
                     "started_at": row.get::<_, Option<i64>>(6)?,
                     "finished_at": row.get::<_, Option<i64>>(7)?,
+                    "task_id": row.get::<_, Option<String>>(8)?,
+                    "group_id": row.get::<_, Option<String>>(9)?,
+                    "conversation_id": row.get::<_, Option<String>>(10)?,
                 }))
             },
         ).ok()

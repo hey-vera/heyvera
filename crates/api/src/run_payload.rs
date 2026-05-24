@@ -230,6 +230,9 @@ mod tests {
             "ship cortex",
             "auto",
             &[],
+            None,
+            None,
+            None,
             &[
                 (
                     "step_a".to_string(),
@@ -269,6 +272,53 @@ mod tests {
     }
 
     #[test]
+    fn run_binding_metadata_is_persisted_and_projected_to_events() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = test_db(dir.path());
+        let run_id = db.create_run_with_steps(
+            "user_1",
+            "ship cortex",
+            "auto",
+            &[],
+            Some("task_alpha"),
+            Some("group_alpha"),
+            Some("conversation_alpha"),
+            &[(
+                "step_a".to_string(),
+                "execute".to_string(),
+                "modify".to_string(),
+                None,
+                "standard".to_string(),
+                "low".to_string(),
+                "Apply the change".to_string(),
+                1,
+            )],
+            &[],
+        );
+
+        let (task_id, group_id, conversation_id) = db.get_run_binding(&run_id).unwrap();
+        assert_eq!(task_id.as_deref(), Some("task_alpha"));
+        assert_eq!(group_id.as_deref(), Some("group_alpha"));
+        assert_eq!(conversation_id.as_deref(), Some("conversation_alpha"));
+
+        let events = db.list_run_operations_events(&run_id, 10);
+        let run_created = events
+            .iter()
+            .find(|event| event.event_type == "run.created")
+            .unwrap();
+        assert_eq!(run_created.scope_id.as_deref(), Some("group_alpha"));
+        assert_eq!(run_created.task_id.as_deref(), Some("task_alpha"));
+        assert_eq!(run_created.payload["conversation_id"], "conversation_alpha");
+
+        let step_planned = events
+            .iter()
+            .find(|event| event.event_type == "step.planned")
+            .unwrap();
+        assert_eq!(step_planned.scope_id.as_deref(), Some("group_alpha"));
+        assert_eq!(step_planned.task_id.as_deref(), Some("task_alpha"));
+    }
+
+    #[test]
     fn run_step_payload_parses_files_changed_as_array() {
         let dir = tempfile::tempdir().unwrap();
         let db = test_db(dir.path());
@@ -277,6 +327,9 @@ mod tests {
             "ship cortex",
             "auto",
             &[],
+            None,
+            None,
+            None,
             &[(
                 "step_a".to_string(),
                 "execute".to_string(),
@@ -331,6 +384,9 @@ mod tests {
             "ship cortex",
             "auto",
             &[],
+            None,
+            None,
+            None,
             &[
                 (
                     "step_a".to_string(),

@@ -787,6 +787,9 @@ export interface RunSummary {
   status?: string;
   profile?: string;
   created_at?: string;
+  task_id?: string | null;
+  group_id?: string | null;
+  conversation_id?: string | null;
   steps: RunStep[];
   graph?: RunGraph;
 }
@@ -818,11 +821,20 @@ export interface RunListItem {
   status: string;
   profile: string;
   created_at: string;
+  task_id?: string | null;
+  group_id?: string | null;
+  conversation_id?: string | null;
 }
 
 export interface CreateRunResponse {
   run_id: string;
   steps: number;
+}
+
+export interface CreateRunOptions {
+  taskId?: string | null;
+  groupId?: string | null;
+  conversationId?: string | null;
 }
 
 export interface RunStreamEvent {
@@ -837,10 +849,18 @@ export async function createRun(
   goal: string,
   profile: string,
   filePaths: string[] = [],
+  options: CreateRunOptions = {},
 ): Promise<CreateRunResponse> {
   return requestJson<CreateRunResponse>('/api/runs', {
     method: 'POST',
-    body: JSON.stringify({ goal, file_paths: filePaths, profile }),
+    body: JSON.stringify({
+      goal,
+      file_paths: filePaths,
+      profile,
+      task_id: options.taskId ?? undefined,
+      group_id: options.groupId ?? undefined,
+      conversation_id: options.conversationId ?? undefined,
+    }),
   });
 }
 
