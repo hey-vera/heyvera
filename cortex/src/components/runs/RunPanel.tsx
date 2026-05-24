@@ -1,14 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ExternalLink, FileText, GitBranch, GitPullRequest, Loader2, Play, RefreshCcw } from 'lucide-react';
+import { Activity, AlertTriangle, ExternalLink, FileText, GitBranch, GitPullRequest, Loader2, Play, RefreshCcw } from 'lucide-react';
 import {
   CortexApiError,
   createRun,
   createRunPullRequest,
   getAuthStatus,
   getRun,
+  getRunEvents,
   listRuns,
   streamRun,
   type RunListItem,
+  type RunOperationEvent,
   type RunSummary,
   type RunStep,
 } from '../../lib/cortexApi';
@@ -55,6 +57,18 @@ const HEALTH_LABELS: Record<string, string> = {
   terminal: 'Terminal',
   verification_rejected: 'Verification rejected',
   waiting_on_dependency: 'Waiting on dependency',
+};
+
+const EVENT_LABELS: Record<string, string> = {
+  'run.created': 'Run created',
+  'run.status_changed': 'Run status changed',
+  'step.planned': 'Step planned',
+  'step.leased': 'Step leased',
+  'step.started': 'Step started',
+  'step.completed': 'Step completed',
+  'step.failed': 'Step failed',
+  'step.cancelled': 'Step cancelled',
+  'verifier.reported': 'Verifier reported',
 };
 
 function statusClass(status: string) {
@@ -128,6 +142,36 @@ function formatRunTime(timestamp: string) {
   });
 }
 
+function formatEventTime(timestamp: number) {
+  return new Date(timestamp).toLocaleTimeString([], {
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function eventLabel(event: RunOperationEvent) {
+  return EVENT_LABELS[event.event_type] ?? event.event_type.replaceAll('.', ' ');
+}
+
+function eventDetail(event: RunOperationEvent, run: RunSummary | null) {
+  const payload = event.payload ?? {};
+  const status = typeof payload.status === 'string' ? payload.status : null;
+  const worker = typeof payload.worker_id === 'string' ? payload.worker_id : null;
+  const verifier = typeof payload.verifier === 'string' ? payload.verifier : null;
+  const verdict = typeof payload.verdict === 'string' ? payload.verdict : null;
+  const step = event.step_id && run
+    ? run.steps.find((candidate) => candidate.id === event.step_id)
+    : null;
+  const parts = [
+    step ? stepLabel(step, run?.steps.indexOf(step) ?? 0) : null,
+    status ? STATUS_LABELS[status] ?? status : null,
+    worker ? `worker ${worker}` : null,
+    verifier ? `${verifier}${verdict ? ` ${verdict}` : ''}` : null,
+  ];
+  return parts.filter(Boolean).join(' · ');
+}
+
 function mergeSteps(currentSteps: RunStep[], nextSteps: RunStep[]) {
   const byId = new Map(currentSteps.map((step) => [step.id, step]));
   return nextSteps.map((step) => ({ ...(byId.get(step.id) ?? {}), ...step }));
@@ -152,6 +196,8 @@ export default function RunPanel({
   const [providerReady, setProviderReady] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedStepId, setSelectedStepId] = useState<string | null>(null);
+  const [events, setEvents] = useState<RunOperationEvent[]>([]);
+  const [isLoadingEvents, setIsLoadingEvents] = useState(false);
   const streamRef = useRef<AbortController | null>(null);
   const workerSignal = useMemo(() => getWorkerSignal(run), [run]);
   const operationMap = useMemo(() => {
@@ -167,10 +213,7 @@ export default function RunPanel({
 
     return { nodes, edges, nodeById, incomingByNode };
   }, [run?.graph]);
-  const selectedStep = useMemo(() => {
-    if (!run?.steps.length) return null;
-    return run.steps.find((step) => step.id === selectedStepId) ?? run.steps[0] ?? null;
-  }, [run?.steps, selectedStepId]);
+  const selectedStep = run?.steps.find((step) => step.id === selectedStepId) ?? run?.steps[0] ?? null;
 
   const refreshRuns = useCallback(async () => {
     setIsLoadingRuns(true);
@@ -199,12 +242,25 @@ export default function RunPanel({
     }
   }, []);
 
+  const refreshRunEvents = useCallback(async (id: string) => {
+    setIsLoadingEvents(true);
+    try {
+      const response = await getRunEvents(id);
+      setEvents(response.events);
+    } catch {
+      setEvents([]);
+    } finally {
+      setIsLoadingEvents(false);
+    }
+  }, []);
+
   useEffect(() => {
     if (!runId) return;
     streamRef.current?.abort();
     streamRef.current = null;
 
     void refreshRun(runId);
+    void refreshRunEvents(runId);
 
     const controller = streamRun(
       runId,
@@ -223,6 +279,7 @@ export default function RunPanel({
           }
           return currentRun;
         });
+        void refreshRunEvents(runId);
         if (event.type === 'run_complete') {
           void refreshRuns();
         }
@@ -239,7 +296,7 @@ export default function RunPanel({
       controller.abort();
       if (streamRef.current === controller) streamRef.current = null;
     };
-  }, [refreshRun, refreshRuns, runId]);
+  }, [refreshRun, refreshRunEvents, refreshRuns, runId]);
 
   useEffect(() => {
     void refreshRuns();
@@ -281,6 +338,7 @@ export default function RunPanel({
       setRunId(created.run_id);
       setExpectedSteps(created.steps);
       setRun({ id: created.run_id, goal: nextGoal, steps: [] });
+      setEvents([]);
       setSelectedStepId(null);
       setPullRequest(null);
       setGoal('');
@@ -305,9 +363,11 @@ export default function RunPanel({
 
   async function selectRun(nextRunId: string) {
     setRunId(nextRunId);
+    setEvents([]);
     setSelectedStepId(null);
     setPullRequest(null);
     await refreshRun(nextRunId);
+    await refreshRunEvents(nextRunId);
   }
 
   async function createPr() {
@@ -501,6 +561,61 @@ export default function RunPanel({
               )}
             </div>
           )}
+
+          <div className="mt-3 rounded-lg border border-white/8 bg-white/[0.02] p-2.5">
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <span className="inline-flex min-w-0 items-center gap-1.5 text-xs font-medium text-[var(--muted-strong)]">
+                <Activity className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
+                <span className="truncate">Live timeline</span>
+              </span>
+              <button
+                type="button"
+                disabled={isLoadingEvents || !runId}
+                onClick={() => runId && void refreshRunEvents(runId)}
+                className="rounded-md p-1 text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 disabled:opacity-50"
+                aria-label="Refresh run timeline"
+              >
+                <RefreshCcw className={`h-3.5 w-3.5 ${isLoadingEvents ? 'animate-spin' : ''}`} />
+              </button>
+            </div>
+            {events.length === 0 ? (
+              <div className="rounded-md border border-dashed border-white/10 px-2.5 py-2 text-[11px] text-[var(--muted)]">
+                Waiting for backend events.
+              </div>
+            ) : (
+              <div className="max-h-40 space-y-1.5 overflow-y-auto pr-1">
+                {events.slice(-12).reverse().map((event) => {
+                  const detail = eventDetail(event, run);
+                  const status = typeof event.payload?.status === 'string' ? event.payload.status : null;
+                  return (
+                    <button
+                      key={event.id}
+                      type="button"
+                      onClick={() => event.step_id && setSelectedStepId(event.step_id)}
+                      className="w-full min-w-0 rounded-md border border-white/8 bg-black/10 px-2 py-1.5 text-left transition hover:bg-white/6 active:scale-[0.99]"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="inline-flex min-w-0 items-center gap-2">
+                          <span className={`h-2 w-2 shrink-0 rounded-full border ${status ? statusClass(status) : 'border-white/8 bg-white/4'}`} />
+                          <span className="truncate text-[11px] font-medium text-white">
+                            {eventLabel(event)}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-[10px] text-[var(--muted)]">
+                          {formatEventTime(event.created_at)}
+                        </span>
+                      </div>
+                      {detail && (
+                        <div className="mt-1 truncate text-[10px] text-[var(--muted)]">
+                          {detail}
+                        </div>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
 
           <div className="mt-3 space-y-2">
             {run.steps.length === 0 ? (

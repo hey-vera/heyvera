@@ -791,6 +791,27 @@ export interface RunSummary {
   graph?: RunGraph;
 }
 
+export interface RunOperationEvent {
+  id: string;
+  created_at: number;
+  actor_user_id?: string | null;
+  scope_id?: string | null;
+  project_id?: string | null;
+  task_id?: string | null;
+  run_id?: string | null;
+  step_id?: string | null;
+  attempt_id?: string | null;
+  event_type: string;
+  entity_type: string;
+  entity_id: string;
+  payload?: Record<string, unknown>;
+}
+
+export interface RunEventsResponse {
+  run_id: string;
+  events: RunOperationEvent[];
+}
+
 export interface RunListItem {
   id: string;
   goal: string;
@@ -825,6 +846,10 @@ export async function createRun(
 
 export async function getRun(runId: string): Promise<RunSummary> {
   return requestJson<RunSummary>(`/api/runs/${runId}`);
+}
+
+export async function getRunEvents(runId: string, limit = 200): Promise<RunEventsResponse> {
+  return requestJson<RunEventsResponse>(`/api/runs/${runId}/events?limit=${limit}`);
 }
 
 export async function listRuns(limit = 10, offset = 0): Promise<RunListItem[]> {
