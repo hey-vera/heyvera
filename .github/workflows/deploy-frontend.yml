@@ -48,7 +48,7 @@ jobs:
           TAILSCALE_HOST: ${{ vars.TAILSCALE_HOST }}
         run: |
           test -n "$TAILSCALE_HOST"
-          TARGET="\$HOME/www/heyvera"
+          TARGET="/home/${DEPLOY_USER}/www/heyvera"
 
           # Caddy serves the deploy user's home path because this account cannot
           # create /var/www/heyvera without an interactive sudo password.
