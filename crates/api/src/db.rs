@@ -1599,6 +1599,172 @@ impl Database {
         ).is_ok()
     }
 
+    pub fn get_cortex_task_projection(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        task_id: &str,
+        event_limit: usize,
+    ) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let (
+            id,
+            title,
+            status,
+            priority,
+            conversation_id,
+            latest_run_id,
+            source_json,
+            created_at,
+            updated_at,
+            version,
+        ): (
+            String,
+            String,
+            String,
+            String,
+            Option<String>,
+            Option<String>,
+            String,
+            String,
+            String,
+            i64,
+        ) = conn
+            .query_row(
+                "SELECT id, title, status, priority, conversation_id, latest_run_id,
+                        source_json, created_at, updated_at, version
+                 FROM cortex_tasks
+                 WHERE user_id = ?1 AND group_id = ?2 AND id = ?3",
+                params![user_id, group_id, task_id],
+                |row| {
+                    Ok((
+                        row.get(0)?,
+                        row.get(1)?,
+                        row.get(2)?,
+                        row.get(3)?,
+                        row.get(4)?,
+                        row.get(5)?,
+                        row.get(6)?,
+                        row.get(7)?,
+                        row.get(8)?,
+                        row.get(9)?,
+                    ))
+                },
+            )
+            .ok()?;
+        let source = serde_json::from_str(&source_json).unwrap_or_else(|_| serde_json::json!({}));
+
+        let mut runs_stmt = conn
+            .prepare(
+                "SELECT id, goal, status, profile, created_at, updated_at, started_at, finished_at,
+                        heal_attempts, task_id, group_id, conversation_id
+                 FROM runs
+                 WHERE user_id = ?1 AND group_id = ?2 AND task_id = ?3
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 25",
+            )
+            .unwrap();
+        let runs: Vec<serde_json::Value> = runs_stmt
+            .query_map(params![user_id, group_id, task_id], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "goal": row.get::<_, String>(1)?,
+                    "status": row.get::<_, String>(2)?,
+                    "profile": row.get::<_, String>(3)?,
+                    "created_at": row.get::<_, i64>(4)?,
+                    "updated_at": row.get::<_, i64>(5)?,
+                    "started_at": row.get::<_, Option<i64>>(6)?,
+                    "finished_at": row.get::<_, Option<i64>>(7)?,
+                    "heal_attempts": row.get::<_, i32>(8)?,
+                    "task_id": row.get::<_, Option<String>>(9)?,
+                    "group_id": row.get::<_, Option<String>>(10)?,
+                    "conversation_id": row.get::<_, Option<String>>(11)?,
+                }))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect();
+
+        let mut chats_stmt = conn
+            .prepare(
+                "SELECT c.id, c.title, c.created_at, c.updated_at, tc.attached_at
+                 FROM cortex_task_chats tc
+                 JOIN conversations c ON c.id = tc.conversation_id AND c.user_id = tc.user_id
+                 WHERE tc.user_id = ?1 AND tc.group_id = ?2 AND tc.task_id = ?3
+                 ORDER BY tc.attached_at DESC, c.updated_at DESC
+                 LIMIT 25",
+            )
+            .unwrap();
+        let chats: Vec<serde_json::Value> = chats_stmt
+            .query_map(params![user_id, group_id, task_id], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "title": row.get::<_, Option<String>>(1)?,
+                    "created_at": row.get::<_, String>(2)?,
+                    "updated_at": row.get::<_, String>(3)?,
+                    "attached_at": row.get::<_, String>(4)?,
+                }))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect();
+
+        let event_limit = event_limit.clamp(1, 500) as i64;
+        let mut events_stmt = conn
+            .prepare(
+                "SELECT id, created_at, actor_user_id, scope_id, project_id, task_id, run_id,
+                        step_id, attempt_id, event_type, entity_type, entity_id, payload_json
+                 FROM operations_events
+                 WHERE task_id = ?1
+                    AND (actor_user_id = ?2 OR actor_user_id IS NULL)
+                    AND (scope_id = ?3 OR scope_id IS NULL)
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT ?4",
+            )
+            .unwrap();
+        let events: Vec<serde_json::Value> = events_stmt
+            .query_map(params![task_id, user_id, group_id, event_limit], |row| {
+                let payload_json: String = row.get(12)?;
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "created_at": row.get::<_, i64>(1)?,
+                    "actor_user_id": row.get::<_, Option<String>>(2)?,
+                    "scope_id": row.get::<_, Option<String>>(3)?,
+                    "project_id": row.get::<_, Option<String>>(4)?,
+                    "task_id": row.get::<_, Option<String>>(5)?,
+                    "run_id": row.get::<_, Option<String>>(6)?,
+                    "step_id": row.get::<_, Option<String>>(7)?,
+                    "attempt_id": row.get::<_, Option<String>>(8)?,
+                    "event_type": row.get::<_, String>(9)?,
+                    "entity_type": row.get::<_, String>(10)?,
+                    "entity_id": row.get::<_, String>(11)?,
+                    "payload": serde_json::from_str(&payload_json).unwrap_or_else(|_| serde_json::json!({})),
+                }))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect();
+
+        Some(serde_json::json!({
+            "task": {
+                "id": id,
+                "group_id": group_id,
+                "title": title,
+                "status": status,
+                "priority": priority,
+                "conversation_id": conversation_id,
+                "latest_run_id": latest_run_id,
+                "source": source,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "version": version,
+            },
+            "runs": runs,
+            "chats": chats,
+            "events": events,
+        }))
+    }
+
     pub fn conversation_exists(&self, user_id: &str, conversation_id: &str) -> bool {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
@@ -4596,5 +4762,40 @@ mod tests {
                 |_| Ok(())
             )
             .is_ok());
+    }
+
+    #[test]
+    fn get_cortex_task_projection_returns_task_runs_chats_and_events() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "First task"));
+        let conversation = db.create_conversation("user-1", Some("Project Chat"));
+
+        let run_id = db.create_run_with_metadata(
+            "user-1",
+            "Ship task",
+            "auto",
+            &[],
+            Some("task-1"),
+            Some("group-1"),
+            Some(&conversation.id),
+        );
+
+        let projection = db
+            .get_cortex_task_projection("user-1", "group-1", "task-1", 100)
+            .expect("task projection");
+
+        assert_eq!(projection["task"]["id"], "task-1");
+        assert_eq!(projection["task"]["group_id"], "group-1");
+        assert_eq!(projection["task"]["latest_run_id"], run_id);
+        assert_eq!(projection["task"]["conversation_id"], conversation.id);
+        assert_eq!(projection["runs"][0]["id"], run_id);
+        assert_eq!(projection["chats"][0]["id"], conversation.id);
+        assert!(projection["events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["event_type"] == "run.created"
+                && event["run_id"] == run_id
+                && event["task_id"] == "task-1"));
     }
 }

@@ -382,6 +382,25 @@ pub async fn get_group_tasks(
     Ok(Json(state))
 }
 
+pub async fn get_group_task_projection(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path((group_id, task_id)): Path<(String, String)>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let db = db_ref(&state)?;
+    let projection = db
+        .get_cortex_task_projection(&user.user_id, &group_id, &task_id, 100)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "task not found".into(),
+                }),
+            )
+        })?;
+    Ok(Json(projection))
+}
+
 pub async fn update_group_tasks(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
