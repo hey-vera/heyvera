@@ -231,11 +231,20 @@ All data loading goes through this client. When `VITE_API_URL` is empty, returns
 
 ## Cloudflare Deployment
 
-- Auto-deploys on push to `main`
-- Root directory: `/web`
+- `heyvera.org` is the canonical public frontend domain.
+- Cloudflare Pages is the canonical public frontend deploy surface for
+  `web/`.
+- Production deploys come from `main`.
+- Root directory: `web`
 - Build command: `npm run build`
 - Build output directory: `dist` (NOT `/dist`)
-- No submodules allowed in the repo
+- No submodules allowed in the repo.
+- `.github/workflows/deploy-frontend.yml` is not the current canonical
+  public frontend deploy path; treat it as legacy/VPS-oriented automation
+  unless a future ADR changes that.
+- Same-domain `/v1/*` requires a Cloudflare Pages Function after the backend
+  `/v1` surface is live. Until that Function exists and passes smoke, `/v1/*`
+  is not a completed production path for `heyvera.org`.
 
 ---
 

@@ -1,80 +1,101 @@
-# ClawNet Secure Release Workflow
+# HeyVera Release Workflow
 
 Status: canonical
 
+This is the production release workflow for the current HeyVera public
+frontend and backend split.
 
-This is the recommended production workflow for ClawNet if we want the release path to be modern, reviewable, and difficult to misuse.
+## Current Production Truth
 
-## Target State
+- `heyvera.org` and `www.heyvera.org` are the canonical public frontend
+  domains.
+- The canonical public frontend deploy path is Cloudflare Pages for `web/`.
+- Cloudflare Pages production deploys come from `main`.
+- Cloudflare Pages project settings must use:
+  - root directory: `web`
+  - build command: `npm run build`
+  - output directory: `dist`
+- `.github/workflows/deploy-frontend.yml` is not the current canonical
+  public frontend deploy path. Treat it as legacy/VPS-oriented automation
+  unless a future ADR explicitly re-promotes it.
+- Backend/API deployment remains separate from the Pages public frontend.
+- Same-domain `https://heyvera.org/v1/*` only becomes production-ready after
+  the backend `/v1` surface is live and a Cloudflare Pages Function proxies
+  `/v1/*` to the backend.
 
-- Short-lived feature branches and pull requests into `main`.
-- Required CI before merge for both the API and the dashboard.
-- Dependency Review and CodeQL enabled on pull requests.
-- Dependabot updates dependencies weekly.
-- Production deploys happen from GitHub Actions, not from ad hoc VPS shell sessions.
-- The deploy job joins the tailnet, reaches the private host, runs `scripts/deploy.sh`, and verifies `/api/deploy-info`.
-- The production environment requires human approval before deployment secrets are released.
+## Required PR Flow
 
-## GitHub Settings To Enable
+1. Work on a short-lived branch or isolated worktree.
+2. Keep frontend, backend, and deploy-surface changes separated unless the
+   release explicitly needs them together.
+3. Open a pull request into `main`.
+4. Wait for required checks.
+5. Verify the Cloudflare Pages preview for frontend changes.
+6. Review and merge to `main`.
+7. Let Cloudflare Pages publish the production deployment.
+8. Run the release smoke gates below before calling the release complete.
 
-1. Protect `main`.
-2. Require pull requests before merge.
-3. Require at least 1-2 approving reviews.
-4. Require status checks to pass before merge.
-5. Require linear history and block force-pushes.
-6. Enable the `production` environment with required reviewers.
-7. Restrict the `production` environment to `main`.
+## Frontend Smoke Gates
 
-Required status checks:
+Run these after the Cloudflare Pages production deployment finishes:
 
-- `api`
-- `dashboard`
-- `dependency-review`
-- `analyze`
+- `https://heyvera.org/` returns `200`.
+- `https://www.heyvera.org/` either returns `200` or redirects cleanly to
+  `https://heyvera.org/`.
+- The live HTML references the expected built asset bundle.
+- The referenced JavaScript and CSS assets return `200`.
+- Browser smoke passes on desktop and mobile widths for the public homepage.
+- No console errors block first render.
+- The production deployment in Cloudflare Pages points at the expected `main`
+  commit.
 
-## Production Secrets And Variables
+## Backend And Same-Domain API Gates
 
-Create these in the GitHub `production` environment:
+Before treating same-domain API calls as production-ready:
 
-Secrets:
+- Backend `/v1` is deployed and has its own health/deploy metadata check.
+- A Cloudflare Pages Function exists for `/v1/*`.
+- The Pages Function preserves method, path, query string, request body, and
+  required auth headers.
+- CORS/cookie/auth behavior is verified for the production domain.
+- A representative unauthenticated `/v1` read returns the expected status.
+- A representative authenticated `/v1` request reaches the backend with auth
+  intact.
+- Failure behavior is intentional: backend errors surface as API errors, not
+  as the frontend SPA fallback.
 
-- `TS_OAUTH_CLIENT_ID`
-- `TS_OAUTH_SECRET`
+Until those are true, same-domain `/v1/*` is a planned integration point, not
+a completed production path.
 
-Variables:
+## Rollback Gates
 
-- `TAILSCALE_HOST`
-- `DEPLOY_USER`
-- `PUBLIC_API_URL`
+Before release:
 
-Recommended values:
+- Identify the previous good Cloudflare Pages production deployment.
+- Confirm Cloudflare rollback permission exists for the operator handling the
+  release.
+- Confirm the rollback target belongs to the intended project and domain.
+- If a Pages Function changed, confirm the previous good Function state or
+  commit is known.
+- If backend behavior changed, confirm frontend rollback remains compatible
+  with the live backend contract.
 
-- `DEPLOY_USER=deploy`
-- `PUBLIC_API_URL=https://api.claw-net.org`
+After rollback:
 
-## Production Deploy Flow
+- Re-run the frontend smoke gates.
+- Re-run same-domain `/v1/*` gates if a Pages Function or API route was part
+  of the release.
+- Record the rolled-back deployment and reason in the release notes or
+  incident log.
 
-1. Open a pull request.
-2. Wait for CI, Dependency Review, and CodeQL to pass.
-3. Review and merge to `main`.
-4. Run `Deploy Production` from GitHub Actions.
-5. Approve the `production` environment deployment.
-6. Verify `https://api.claw-net.org/api/deploy-info`.
+## Stop Conditions
 
-## Why This Is Stronger
+Do not call the release complete if:
 
-- It stops normal production deploys from depending on one person’s shell habits.
-- It makes the deployed branch and commit visible after every release.
-- It keeps the runtime host private behind Tailscale.
-- It treats deployment approval as an explicit control instead of an implicit ritual.
-
-## Next Step After This
-
-The next jump beyond this workflow is immutable artifact deployment:
-
-- build the Docker image in CI,
-- push it to a registry by digest,
-- generate provenance/SBOM attestations,
-- and have production pull that exact digest instead of rebuilding from Git on the host.
-
-That is the path from "strong modern workflow" to "platform-grade release engineering."
+- Cloudflare Pages production points at an unexpected commit.
+- `heyvera.org` serves stale or missing assets after cache settles.
+- `/v1/*` is expected by the frontend but has no Pages Function proxy.
+- API paths are swallowed by the SPA fallback.
+- There is no known previous good Pages deployment for rollback.
+- Production env vars are assumed from setup notes instead of verified against
+  the code path that actually runs.

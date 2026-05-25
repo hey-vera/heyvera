@@ -60,6 +60,10 @@ Use this for the homepage launch PR on
 - visual sign-off should happen in a real browser preview before merge
 - meta description, OG tags, and favicon are still not in scope for this
   first homepage pass
+- `.github/workflows/deploy-frontend.yml` is not the current canonical
+  public frontend deploy path; production goes through Cloudflare Pages
+- same-domain `/v1/*` requires a Cloudflare Pages Function after backend
+  `/v1` is live
 
 ## Validation
 
@@ -85,3 +89,7 @@ Use this for the homepage launch PR on
 - merge to `main`
 - verify Cloudflare production publish
 - verify `heyvera.org` reflects the homepage update
+- verify Cloudflare Pages production points at the expected `main` commit
+- identify the previous good Cloudflare Pages deployment for rollback
+- if `/v1/*` is in scope, verify the Pages Function proxy reaches the backend
+  and does not fall through to the SPA

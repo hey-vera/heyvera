@@ -1,211 +1,75 @@
 # Homepage Live Integration
 
-This file explains why the new homepage is not live on `heyvera.org` yet
-and what has to change to make `web/` the production public surface.
+Status: canonical
 
-Important correction:
-- the repo contains two different production stories
-- the frontend workflow docs point to Cloudflare Pages as the intended
-  public-site delivery path
-- the root deploy script and `Caddyfile` still reflect an older VPS-served
-  public-site model
+Read date: 2026-05-25.
 
-For the current homepage launch, prefer the Cloudflare Pages path unless
-live infra truth proves otherwise.
+This file records the production integration truth for the public HeyVera
+homepage.
 
-## Verified Current Truth
+## Current Decision
 
-Read date: 2026-05-06.
+- `heyvera.org` is the canonical public frontend domain.
+- `web/` is the public frontend app.
+- Cloudflare Pages is the canonical public frontend deploy path.
+- Cloudflare Pages production deploys from `main`.
+- The Cloudflare Pages build uses root `web`, command `npm run build`, and
+  output directory `dist`.
+- `.github/workflows/deploy-frontend.yml` is not the current canonical public
+  frontend deploy path. Treat it as legacy/VPS-oriented automation unless a
+  future ADR changes that.
 
-### Homepage implementation truth
+## Same-Domain API Rule
 
-- the new homepage exists in `web/`
-- the built app is a Vite React app
-- the homepage work is currently local and uncommitted
+The desired same-domain API shape is:
 
-Relevant files:
-- `web/src/*`
-- `web/index.html`
-- `web/package.json`
+- public frontend: `https://heyvera.org`
+- same-domain API: `https://heyvera.org/v1/*`
+- backend origin: the live backend `/v1` service
 
-### Frontend workflow truth
+That same-domain path is not complete from Cloudflare Pages static hosting
+alone. After the backend `/v1` surface is live, `web/` needs a Cloudflare
+Pages Function that proxies `/v1/*` to the backend.
 
-The current frontend workflow docs assume:
-- `web/` is the public site
-- Cloudflare Pages is the delivery surface
-- `main` is the production branch
-- `web/` is the project root for the Cloudflare Pages build
+The Function must preserve:
 
-Relevant files:
-- `web/AGENTS.md`
-- `web/frontend-sync/ADMIN-CHECKLIST.md`
-- `web/SETUP.md`
+- HTTP method
+- path and query string
+- request body
+- auth headers and other required API headers
+- backend status codes and API error bodies
 
-### Root repo deploy truth
+API paths must not fall through to the frontend SPA fallback.
 
-The root production deploy path still assumes:
-- public site assets come from `site/`
-- dashboard assets come from `dashboard/dist/`
-- `heyvera.org` serves `/var/www/heyvera`
-- `/dashboard/*` serves `/var/www/heyvera-dashboard`
+## Release Smoke
 
-Relevant files:
-- `.github/workflows/deploy-production.yml`
-- `scripts/deploy.sh`
-- `Caddyfile`
+After a production Pages deploy:
 
-### Critical mismatch
+1. Open `https://heyvera.org/`.
+2. Confirm the public homepage renders.
+3. Confirm the live HTML references the expected built assets.
+4. Confirm the referenced JavaScript and CSS assets return `200`.
+5. Check desktop and mobile widths.
+6. Confirm Cloudflare Pages production points at the expected `main` commit.
+7. If `/v1/*` is in release scope, verify representative same-domain API
+   requests reach the backend through the Pages Function.
 
-The new homepage is not live because the repo does not present one clean
-production truth.
+## Rollback Gate
 
-More specifically:
-- frontend docs point to Cloudflare Pages for `web/`
-- root deploy infra still expects a legacy `site/` path
-- there is currently no `site/` directory in the repo
-- the homepage lives in `web/`
+Before calling the release complete:
 
-That means the real task is:
-- choose the canonical publish path
-- remove ambiguity
-- and then use that path consistently
+- identify the previous good Cloudflare Pages production deployment
+- confirm the operator can roll back to it
+- identify the previous good Pages Function state if `/v1/*` proxy behavior
+  changed
+- confirm frontend rollback remains compatible with the live backend contract
 
-## Correct Product Decision
+After rollback, repeat the release smoke.
 
-For current frontend truth, the right decision is:
+## Not Current Truth
 
-- `web/` should become the production public site for `heyvera.org`
-- Cloudflare Pages should be treated as the preferred homepage delivery
-  path
-- `dashboard/` should remain the separate built SPA served under
-  `/dashboard/`
-- do not revive the old `site/` model as the main public surface unless
-  infra truth explicitly forces it
-
-Reason:
-- all current public-site planning truth points at `web/`
-- the new homepage is already built there
-- `web/AGENTS.md` and `frontend-sync/ADMIN-CHECKLIST.md` already point to
-  Cloudflare Pages
-- keeping `site/` as the canonical public surface would duplicate the
-  product truth and reintroduce drift
-
-## Preferred Integration Path
-
-### Preferred path: Cloudflare Pages
-
-Use this if the `web/` Cloudflare project is still connected to the repo
-and the custom domain for `heyvera.org` is attached there.
-
-What must be true:
-- Cloudflare repo integration is real
-- project root is `web`
-- build command is `npm run build`
-- output directory is `dist`
-- production branch is `main`
-
-In that model, the homepage goes live when:
-1. the homepage changes are isolated cleanly
-2. the frontend branch is pushed
-3. preview looks good
-4. the work merges to `main`
-5. Cloudflare Pages publishes the production build to `heyvera.org`
-
-### Secondary path: VPS-served public site
-
-Use this only if live infra truth shows `heyvera.org` is still being served
-from the VPS path in `scripts/deploy.sh` and `Caddyfile`.
-
-That path would require:
-- teaching deploy to build `web/`
-- changing the VPS-served root site behavior
-
-This should be treated as the fallback interpretation, not the default one.
-
-## Required Integration Work
-
-There are four real steps.
-
-### Step 1 - Clean git boundary first
-
-Do not publish from the current branch state yet.
-
-Why:
-- the branch is dirty
-- the branch is diverged
-- there are many unrelated repo changes present
-
-Manager requirement:
-- isolate the homepage and publish-path work cleanly before production
-  movement
-
-### Step 2 - Confirm the canonical live path
-
-Manager job:
-- confirm whether `heyvera.org` is attached to the Cloudflare Pages `web/`
-  project
-- if yes, stop treating the homepage launch as blocked on the VPS
-  static-site flow
-- if no, treat the VPS path as the fallback integration target
-
-### Step 3 - If Cloudflare is canonical, clean the branch -> preview -> main flow
-
-Needed behavior:
-- isolate homepage work from unrelated repo dirt
-- push the frontend branch cleanly
-- verify Cloudflare preview
-- merge to `main`
-- let Cloudflare publish production
-
-Minimum desired outcome:
-- `heyvera.org` updates from the `web/` Cloudflare project
-
-### Step 4 - Only if VPS is still canonical, rewire deploy to publish `web/`
-
-Needed behavior:
-- run `npm ci` and `npm run build` inside `web/`
-- sync `web/dist/` to `/var/www/heyvera`
-- update `Caddyfile` so the root public app is served as an SPA while
-  preserving dashboard and API routing
-
-## Safe Execution Order
-
-1. confirm whether Cloudflare Pages or VPS is the canonical homepage path
-2. isolate homepage publish-path work from unrelated repo dirt
-3. if Cloudflare is canonical, clean the branch -> preview -> main flow
-4. if VPS is canonical, patch `scripts/deploy.sh` and `Caddyfile`
-5. verify the chosen path cleanly
-6. publish
-7. verify `heyvera.org` live
-
-## Not The Right Move
-
-Avoid these shortcuts:
-- manually copying local files to the server and calling it done
-- rebuilding a parallel `site/` copy of the homepage
-- deploying from the current dirty branch without isolating the slice
-- changing the homepage and publish path in the same messy commit as
-  unrelated backend work
-- assuming the VPS path is canonical when the frontend workflow docs point
-  to Cloudflare Pages
-
-## Exact Manager Read
-
-The homepage itself is not the blocker anymore.
-
-The blocker is production integration:
-- `web/` is now the intended public surface
-- the repo contains conflicting production stories
-- frontend docs point to Cloudflare Pages
-- root deploy infra still points to a legacy `site/` path that is not even
-  present
-
-So the next real work item is:
-- homepage-to-production integration for `web/`, with Cloudflare Pages as
-  the preferred publish path unless infra truth proves otherwise
-
-Not:
-- redesigning the homepage again
-- starting socials
-- starting marketplace
-- starting crypto
+- The public homepage is not blocked on VPS static-site deployment.
+- The old `site/`-style VPS public-site model is not canonical for
+  `heyvera.org`.
+- `.github/workflows/deploy-frontend.yml` does not define the current
+  canonical public frontend deploy path.
