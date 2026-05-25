@@ -2,7 +2,7 @@ import React from "react";
 import { BarChart3, Gift, Image, Smile, X } from "lucide-react";
 import { SignInButton } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
-import { createPost, getCurrentUserProfile } from "../../api/client";
+import { createPost, fetchMyProfile } from "../../api/social";
 import { useAuth } from "../../hooks/useAuth";
 import { LeftNav } from "./LeftNav";
 import { RightRail } from "./RightRail";
@@ -67,18 +67,17 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
         return;
       }
 
-      const profile = await getCurrentUserProfile(token);
-      if (!profile) {
-        setComposeGate("profile_required");
-        setComposeOpen(true);
-        return;
-      }
-
+      await fetchMyProfile(token);
       setComposeGate(null);
       setComposeToken(token);
       setComposeOpen(true);
-    } catch {
-      setComposeError("We could not verify your profile. Try again.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "";
+      if (msg.includes("404") || msg.toLowerCase().includes("not found")) {
+        setComposeGate("profile_required");
+      } else {
+        setComposeError("We could not verify your profile. Try again.");
+      }
       setComposeOpen(true);
     } finally {
       setIsCheckingComposeAccess(false);
@@ -92,7 +91,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     setComposeError(null);
 
     try {
-      await createPost(composeText.trim(), undefined, composeToken ?? undefined);
+      await createPost(composeToken!, { body: composeText.trim() });
       closeCompose();
     } catch {
       setComposeError("Post failed. Try again.");
