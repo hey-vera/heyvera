@@ -884,8 +884,10 @@ export interface CortexApprovalRequest {
   id: string;
   group_id: string;
   task_id?: string | null;
+  step_id?: string | null;
   conversation_id?: string | null;
   run_id?: string | null;
+  ask_type: string;
   status: 'pending' | 'approved' | 'rejected' | 'cancelled' | string;
   title: string;
   body: string;
