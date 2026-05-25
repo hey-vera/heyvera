@@ -11,6 +11,18 @@ Verified against the current repo on 2026-05-25. This checklist is evidence-boun
 - Do not mark future backend, media, payments, search, or messaging work complete from plans alone.
 - Re-run this checklist against `main` before any production launch call.
 
+## Current Production Routing Truth
+
+Status: verified live on 2026-05-25
+
+- [x] `https://heyvera.org` is served by Cloudflare Pages as the frontend origin.
+- [x] `https://heyvera.org/v1/health` currently returns frontend HTML, not API health JSON.
+- [x] `https://api.heyvera.org/api/health` currently returns Cortex JSON and is the live backend health path that exists today.
+- [x] `https://api.heyvera.org/v1/health` currently returns `404 Not Found`.
+- [x] `https://cortex.heyvera.org/api/health` currently returns frontend HTML and must not be treated as the API origin.
+- [x] Draft PR `#231` is only a follow-on step for a Cloudflare Pages Function proxy on `/v1/*`; it is not a substitute for the backend `/v1/*` surface existing first.
+- [ ] Do not point production frontend traffic at `heyvera.org/v1/*` until the upstream backend `/v1/*` routes exist and are verified.
+
 ## Phase 0 - Frontend Foundation
 
 Status: mostly complete on `feat/cortex-billing-ui`
@@ -31,6 +43,7 @@ Status: mostly complete on `feat/cortex-billing-ui`
 - [ ] Frontend E2E coverage exists for signed-out, signed-in-no-profile, signed-in-with-profile, posting, profile edit, and social actions.
 - [ ] Mobile/tablet/desktop screenshots are captured in an automated regression path.
 - [ ] Main JS bundle is code-split or explicitly accepted for first launch.
+- [ ] Production frontend env is set only after backend `/v1/*` is live and the final API origin is verified.
 
 ## Phase 1 - Canonical Decisions And Contracts
 
@@ -223,6 +236,12 @@ Status: later wave
 
 Status: blocked until backend and ops gates pass
 
+- [ ] Launch order is preserved: backend `/v1/*` first, then Cloudflare Pages Function proxy for `heyvera.org/v1/*`, then frontend env switch and smoke tests.
+- [ ] Backend `/v1/health` exists on the canonical API origin and returns the expected API health payload before any frontend proxy cutover.
+- [ ] Cloudflare Pages Function proxy is enabled only after upstream `api.heyvera.org/v1/*` works end-to-end.
+- [ ] `heyvera.org/v1/health` returns API health output after proxy enablement, not frontend HTML.
+- [ ] Frontend production `VITE_API_URL` target is verified against the chosen launch path (`https://api.heyvera.org/v1` direct or `https://heyvera.org/v1` via proxy).
+- [ ] Frontend post-cutover smokes cover home feed, profile bootstrap, profile create/edit, post create, and core social actions against the production API path.
 - [ ] Latest work is pushed.
 - [ ] PR is opened and reviewed.
 - [ ] Work is merged to `main`.
@@ -247,6 +266,7 @@ Status: blocked until backend and ops gates pass
 
 - Frontend foundation: mostly complete on feature branch, pending real Clerk/E2E production QA.
 - Backend foundation: documented, not implemented.
-- Core production blocker: Rust backend vertical slice plus auth/profile/post/feed/social action integration.
+- Core production blocker: Rust backend vertical slice plus auth/profile/post/feed/social action integration, including a real backend `/v1/*` surface on the canonical API origin.
+- Routing blocker: `heyvera.org/v1/*` is not live API traffic yet; `api.heyvera.org/api/*` is the currently working Cortex path, while `api.heyvera.org/v1/*` still needs to exist before any Pages proxy cutover.
 - Later waves: media, messages, search, communities, notifications, payments.
-- Launch: blocked until backend, observability, CI, backups, smoke/load tests, and deploy gates pass on `main`.
+- Launch: blocked until backend `/v1/*`, proxy sequencing, frontend env cutover, observability, CI, backups, smoke/load tests, and deploy gates pass on `main`.
