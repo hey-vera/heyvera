@@ -77,6 +77,40 @@ pub struct CloudflarePagesStatus {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct GitHubActionsStatus {
+    pub configured: bool,
+    pub owner: String,
+    pub repo: String,
+    pub workflow: String,
+    pub workflow_id: Option<i64>,
+    pub workflow_name: Option<String>,
+    pub workflow_path: Option<String>,
+    pub branch: String,
+    pub status: DeploySurfaceStatus,
+    pub run_id: Option<i64>,
+    pub run_number: Option<i64>,
+    pub run_attempt: Option<i64>,
+    pub run_status: Option<String>,
+    pub conclusion: Option<String>,
+    pub event: Option<String>,
+    pub head_branch: Option<String>,
+    pub head_sha: Option<String>,
+    pub head_sha_short: Option<String>,
+    pub html_url: Option<String>,
+    pub created_at: Option<String>,
+    pub updated_at: Option<String>,
+    pub run_started_at: Option<String>,
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+struct ResolvedGitHubWorkflow {
+    id: i64,
+    name: Option<String>,
+    path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct DeploymentCommitStatus {
     pub status: CommitAlignmentStatus,
     pub backend_commit: Option<String>,
@@ -96,6 +130,7 @@ pub struct DeployStatusResponse {
     pub generated_at: String,
     pub backend: BackendDeployStatus,
     pub frontend: FrontendDeployStatus,
+    pub github_actions: GitHubActionsStatus,
     pub commits: DeploymentCommitStatus,
 }
 
@@ -126,6 +161,7 @@ async fn build_deploy_status() -> DeployStatusResponse {
     };
 
     let frontend = build_frontend_status().await;
+    let github_actions = inspect_github_actions(backend.branch.as_deref().unwrap_or("main")).await;
     let commits = build_commit_status(&backend, &frontend);
     let status = if frontend.status == DeploySurfaceStatus::Drift {
         DeploySurfaceStatus::Drift
@@ -142,6 +178,7 @@ async fn build_deploy_status() -> DeployStatusResponse {
         generated_at,
         backend,
         frontend,
+        github_actions,
         commits,
     }
 }
@@ -381,6 +418,256 @@ async fn inspect_cloudflare_pages() -> CloudflarePagesStatus {
     }
 }
 
+async fn inspect_github_actions(branch: &str) -> GitHubActionsStatus {
+    let (owner, repo) = github_repo();
+    let workflow =
+        std::env::var("GITHUB_DEPLOY_WORKFLOW").unwrap_or_else(|_| "Deploy Production".to_string());
+    let branch = std::env::var("GITHUB_DEPLOY_BRANCH").unwrap_or_else(|_| branch.to_string());
+    let api_token = std::env::var("GITHUB_TOKEN")
+        .or_else(|_| std::env::var("GH_TOKEN"))
+        .ok();
+
+    let Some(api_token) = api_token else {
+        return GitHubActionsStatus {
+            configured: false,
+            owner,
+            repo,
+            workflow,
+            workflow_id: None,
+            workflow_name: None,
+            workflow_path: None,
+            branch,
+            status: DeploySurfaceStatus::Unknown,
+            run_id: None,
+            run_number: None,
+            run_attempt: None,
+            run_status: None,
+            conclusion: None,
+            event: None,
+            head_branch: None,
+            head_sha: None,
+            head_sha_short: None,
+            html_url: None,
+            created_at: None,
+            updated_at: None,
+            run_started_at: None,
+            error: Some("GitHub Actions read token is not configured".to_string()),
+        };
+    };
+
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .user_agent("cortex-deploy-status/0.1")
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => {
+            return github_error_status(owner, repo, workflow, branch, true, err.to_string());
+        }
+    };
+    let resolved_workflow =
+        match resolve_github_workflow(&client, &api_token, &owner, &repo, &workflow).await {
+            Ok(workflow) => workflow,
+            Err(err) => {
+                return github_error_status(owner, repo, workflow, branch, true, err);
+            }
+        };
+    let url = format!(
+        "https://api.github.com/repos/{}/{}/actions/workflows/{}/runs",
+        owner, repo, resolved_workflow.id
+    );
+    let response = client
+        .get(url)
+        .bearer_auth(api_token)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .query(&[("branch", branch.as_str()), ("per_page", "1")])
+        .send()
+        .await
+        .and_then(|res| res.error_for_status());
+
+    let body = match response {
+        Ok(res) => match res.json::<Value>().await {
+            Ok(body) => body,
+            Err(err) => {
+                return github_error_status(owner, repo, workflow, branch, true, err.to_string());
+            }
+        },
+        Err(err) => {
+            return github_error_status(owner, repo, workflow, branch, true, err.to_string());
+        }
+    };
+
+    let run = body.pointer("/workflow_runs/0");
+    match run {
+        Some(run) => github_status_from_run(owner, repo, workflow, resolved_workflow, branch, run),
+        None => GitHubActionsStatus {
+            configured: true,
+            owner,
+            repo,
+            workflow,
+            workflow_id: Some(resolved_workflow.id),
+            workflow_name: resolved_workflow.name,
+            workflow_path: resolved_workflow.path,
+            branch,
+            status: DeploySurfaceStatus::Unknown,
+            run_id: None,
+            run_number: None,
+            run_attempt: None,
+            run_status: None,
+            conclusion: None,
+            event: None,
+            head_branch: None,
+            head_sha: None,
+            head_sha_short: None,
+            html_url: None,
+            created_at: None,
+            updated_at: None,
+            run_started_at: None,
+            error: Some("GitHub Actions response did not include workflow runs".to_string()),
+        },
+    }
+}
+
+fn github_repo() -> (String, String) {
+    let raw = std::env::var("GITHUB_REPOSITORY").unwrap_or_else(|_| "hey-vera/heyvera".to_string());
+    let mut parts = raw.splitn(2, '/');
+    let owner = parts.next().unwrap_or("hey-vera").to_string();
+    let repo = parts.next().unwrap_or("heyvera").to_string();
+    (owner, repo)
+}
+
+async fn resolve_github_workflow(
+    client: &reqwest::Client,
+    api_token: &str,
+    owner: &str,
+    repo: &str,
+    requested_workflow: &str,
+) -> Result<ResolvedGitHubWorkflow, String> {
+    if let Ok(id) = requested_workflow.parse::<i64>() {
+        return Ok(ResolvedGitHubWorkflow {
+            id,
+            name: None,
+            path: None,
+        });
+    }
+
+    let url = format!("https://api.github.com/repos/{owner}/{repo}/actions/workflows");
+    let body = client
+        .get(url)
+        .bearer_auth(api_token)
+        .header("Accept", "application/vnd.github+json")
+        .header("X-GitHub-Api-Version", "2022-11-28")
+        .send()
+        .await
+        .and_then(|res| res.error_for_status())
+        .map_err(|err| err.to_string())?
+        .json::<Value>()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    let workflows = body
+        .get("workflows")
+        .and_then(Value::as_array)
+        .ok_or_else(|| "GitHub Actions response did not include workflows".to_string())?;
+    for workflow in workflows {
+        let id = json_i64(workflow, &["id"]);
+        let name = json_string(workflow, &["name"]);
+        let path = json_string(workflow, &["path"]);
+        let filename = path.as_deref().and_then(|path| path.rsplit('/').next());
+        let matches = name.as_deref() == Some(requested_workflow)
+            || path.as_deref() == Some(requested_workflow)
+            || filename == Some(requested_workflow);
+        if matches {
+            let Some(id) = id else {
+                return Err("Matched GitHub workflow did not include an id".to_string());
+            };
+            return Ok(ResolvedGitHubWorkflow { id, name, path });
+        }
+    }
+
+    Err(format!(
+        "GitHub Actions workflow `{requested_workflow}` was not found"
+    ))
+}
+
+fn github_status_from_run(
+    owner: String,
+    repo: String,
+    workflow: String,
+    resolved_workflow: ResolvedGitHubWorkflow,
+    branch: String,
+    run: &Value,
+) -> GitHubActionsStatus {
+    let head_sha = json_string(run, &["head_sha"]);
+    let conclusion = json_string(run, &["conclusion"]);
+    let status = match conclusion.as_deref() {
+        Some("success") => DeploySurfaceStatus::Match,
+        _ => DeploySurfaceStatus::Unknown,
+    };
+
+    GitHubActionsStatus {
+        configured: true,
+        owner,
+        repo,
+        workflow,
+        workflow_id: Some(resolved_workflow.id),
+        workflow_name: resolved_workflow.name,
+        workflow_path: resolved_workflow.path,
+        branch,
+        status,
+        run_id: json_i64(run, &["id"]),
+        run_number: json_i64(run, &["run_number"]),
+        run_attempt: json_i64(run, &["run_attempt"]),
+        run_status: json_string(run, &["status"]),
+        conclusion,
+        event: json_string(run, &["event"]),
+        head_branch: json_string(run, &["head_branch"]),
+        head_sha_short: head_sha.as_deref().map(short_commit),
+        head_sha,
+        html_url: json_string(run, &["html_url"]),
+        created_at: json_string(run, &["created_at"]),
+        updated_at: json_string(run, &["updated_at"]),
+        run_started_at: json_string(run, &["run_started_at"]),
+        error: None,
+    }
+}
+
+fn github_error_status(
+    owner: String,
+    repo: String,
+    workflow: String,
+    branch: String,
+    configured: bool,
+    error: String,
+) -> GitHubActionsStatus {
+    GitHubActionsStatus {
+        configured,
+        owner,
+        repo,
+        workflow,
+        workflow_id: None,
+        workflow_name: None,
+        workflow_path: None,
+        branch,
+        status: DeploySurfaceStatus::Unknown,
+        run_id: None,
+        run_number: None,
+        run_attempt: None,
+        run_status: None,
+        conclusion: None,
+        event: None,
+        head_branch: None,
+        head_sha: None,
+        head_sha_short: None,
+        html_url: None,
+        created_at: None,
+        updated_at: None,
+        run_started_at: None,
+        error: Some(error),
+    }
+}
+
 fn cloudflare_error_status(
     project: String,
     configured: bool,
@@ -438,6 +725,18 @@ fn json_string(value: &Value, path: &[&str]) -> Option<String> {
         }
     }
     current.as_str().map(ToString::to_string)
+}
+
+fn json_i64(value: &Value, path: &[&str]) -> Option<i64> {
+    let mut current = value;
+    for segment in path {
+        if let Ok(index) = segment.parse::<usize>() {
+            current = current.get(index)?;
+        } else {
+            current = current.get(*segment)?;
+        }
+    }
+    current.as_i64()
 }
 
 async fn fetch_live_assets(public_url: &str) -> Result<FrontendAssets, String> {
@@ -523,6 +822,84 @@ mod tests {
             json_string(&deployment, &["id"]).as_deref(),
             Some("deployment-123")
         );
+    }
+
+    #[test]
+    fn parses_github_actions_run_metadata() {
+        let run = serde_json::json!({
+            "id": 26413241249i64,
+            "run_number": 42,
+            "run_attempt": 1,
+            "status": "completed",
+            "conclusion": "success",
+            "event": "workflow_dispatch",
+            "head_branch": "main",
+            "head_sha": "15f5b31746b3547142b566cb08067ed80256c41b",
+            "html_url": "https://github.com/hey-vera/heyvera/actions/runs/26413241249",
+            "created_at": "2026-05-25T17:53:21Z",
+            "updated_at": "2026-05-25T17:56:42Z",
+            "run_started_at": "2026-05-25T17:53:24Z"
+        });
+
+        let status = github_status_from_run(
+            "hey-vera".to_string(),
+            "heyvera".to_string(),
+            "Deploy Production".to_string(),
+            test_resolved_workflow(),
+            "main".to_string(),
+            &run,
+        );
+
+        assert_eq!(status.configured, true);
+        assert_eq!(status.workflow_id, Some(259523968));
+        assert_eq!(status.workflow_name.as_deref(), Some("Deploy Production"));
+        assert_eq!(
+            status.workflow_path.as_deref(),
+            Some(".github/workflows/deploy-production.yml")
+        );
+        assert_eq!(status.status, DeploySurfaceStatus::Match);
+        assert_eq!(status.run_id, Some(26413241249));
+        assert_eq!(status.run_number, Some(42));
+        assert_eq!(status.run_attempt, Some(1));
+        assert_eq!(status.run_status.as_deref(), Some("completed"));
+        assert_eq!(status.conclusion.as_deref(), Some("success"));
+        assert_eq!(status.event.as_deref(), Some("workflow_dispatch"));
+        assert_eq!(status.head_branch.as_deref(), Some("main"));
+        assert_eq!(status.head_sha_short.as_deref(), Some("15f5b31"));
+        assert_eq!(
+            status.html_url.as_deref(),
+            Some("https://github.com/hey-vera/heyvera/actions/runs/26413241249")
+        );
+    }
+
+    #[test]
+    fn github_actions_non_success_run_is_unknown_not_asset_drift() {
+        let run = serde_json::json!({
+            "id": 26413241249i64,
+            "status": "completed",
+            "conclusion": "failure",
+            "head_sha": "15f5b31746b3547142b566cb08067ed80256c41b"
+        });
+
+        let status = github_status_from_run(
+            "hey-vera".to_string(),
+            "heyvera".to_string(),
+            "Deploy Production".to_string(),
+            test_resolved_workflow(),
+            "main".to_string(),
+            &run,
+        );
+
+        assert_eq!(status.status, DeploySurfaceStatus::Unknown);
+        assert_eq!(status.conclusion.as_deref(), Some("failure"));
+    }
+
+    fn test_resolved_workflow() -> ResolvedGitHubWorkflow {
+        ResolvedGitHubWorkflow {
+            id: 259523968,
+            name: Some("Deploy Production".to_string()),
+            path: Some(".github/workflows/deploy-production.yml".to_string()),
+        }
     }
 
     #[test]

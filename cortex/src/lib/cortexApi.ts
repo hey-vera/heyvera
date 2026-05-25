@@ -272,6 +272,31 @@ export interface DeploymentStatus {
       error: string | null;
     };
   };
+  github_actions: {
+    configured: boolean;
+    owner: string;
+    repo: string;
+    workflow: string;
+    workflow_id: number | null;
+    workflow_name: string | null;
+    workflow_path: string | null;
+    branch: string;
+    status: 'match' | 'drift' | 'unknown';
+    run_id: number | null;
+    run_number: number | null;
+    run_attempt: number | null;
+    run_status: string | null;
+    conclusion: string | null;
+    event: string | null;
+    head_branch: string | null;
+    head_sha: string | null;
+    head_sha_short: string | null;
+    html_url: string | null;
+    created_at: string | null;
+    updated_at: string | null;
+    run_started_at: string | null;
+    error: string | null;
+  };
 }
 
 export async function getDeploymentStatus(): Promise<DeploymentStatus> {
