@@ -6,6 +6,7 @@ pub mod clerk;
 mod context_api;
 mod context_flow;
 mod conversations;
+mod deploy_status;
 pub mod db;
 pub mod github;
 mod integrations;
@@ -155,6 +156,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Public
         .route("/api/health", get(routes::health))
         .route("/api/deploy-info", get(routes::deploy_info))
+        .route("/api/deploy-status", get(deploy_status::deploy_status))
+        .route("/api/deployment/status", get(deploy_status::deploy_status))
         .route("/api/auth/status", get(auth::auth_status))
         // Soma identity (public — lets clients discover Cortex's DID)
         .route("/api/soma/identity", get(soma_identity))
