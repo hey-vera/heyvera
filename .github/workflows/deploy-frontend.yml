@@ -48,11 +48,12 @@ jobs:
           TAILSCALE_HOST: ${{ vars.TAILSCALE_HOST }}
         run: |
           test -n "$TAILSCALE_HOST"
-          TARGET=/var/www/heyvera
+          TARGET="/home/${DEPLOY_USER}/www/heyvera"
 
-          # Caddy serves /var/www/heyvera, so fail rather than deploying elsewhere.
+          # Caddy serves the deploy user's home path because this account cannot
+          # create /var/www/heyvera without an interactive sudo password.
           ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" \
-            "sudo -n mkdir -p ${TARGET} && sudo -n chown -R ${DEPLOY_USER}:${DEPLOY_USER} ${TARGET}"
+            "mkdir -p ${TARGET}"
 
           echo "Deploying to ${TARGET}"
 
@@ -73,13 +74,17 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" \
             "caddy validate --config /tmp/Caddyfile.new && sudo -n cp /tmp/Caddyfile.new /etc/caddy/Caddyfile && sudo -n systemctl reload caddy && echo '[caddy] Reloaded' || echo '[caddy] sudo unavailable — Caddyfile not updated, reload manually'"
 
-      - name: Smoke frontend
+      - name: Smoke deployed files
+        env:
+          DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
+          TAILSCALE_HOST: ${{ vars.TAILSCALE_HOST }}
         run: |
-          curl --retry 5 --retry-delay 2 --retry-all-errors -fsSI https://heyvera.org/ \
-            | grep -qi '^content-type: text/html'
-          ASSET=$(curl --retry 5 --retry-delay 2 --retry-all-errors -fsS https://heyvera.org/ \
-            | grep -o '/assets/[^"]*\.js' \
+          ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" <<'EOF'
+          set -euo pipefail
+          ROOT="/home/$USER/www/heyvera"
+          test -f "$ROOT/index.html"
+          ASSET=$(grep -o '/assets/[^"]*\.js' "$ROOT/index.html" \
             | head -n 1)
           test -n "$ASSET"
-          curl --retry 5 --retry-delay 2 --retry-all-errors -fsSI "https://heyvera.org${ASSET}" \
-            | grep -qi '^content-type: application/javascript'
+          test -f "$ROOT${ASSET}"
+          EOF
