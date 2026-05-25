@@ -4,7 +4,7 @@ pub mod billing;
 mod chat;
 pub mod clerk;
 mod context_api;
-mod context_flow;
+pub mod context_flow;
 mod conversations;
 pub mod db;
 pub mod github;
