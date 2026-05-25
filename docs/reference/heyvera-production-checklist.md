@@ -21,6 +21,7 @@ Status: verified live on 2026-05-25
 - [x] `https://api.heyvera.org/v1/health` currently returns `404 Not Found`.
 - [x] `https://cortex.heyvera.org/api/health` currently returns frontend HTML and must not be treated as the API origin.
 - [x] Draft PR `#231` is only a follow-on step for a Cloudflare Pages Function proxy on `/v1/*`; it is not a substitute for the backend `/v1/*` surface existing first.
+- [x] Non-destructive public smoke gate exists: `scripts/heyvera-launch-smoke.sh` and manual workflow `HeyVera Launch Smoke`.
 - [ ] Do not point production frontend traffic at `heyvera.org/v1/*` until the upstream backend `/v1/*` routes exist and are verified.
 
 ## Phase 0 - Frontend Foundation
@@ -240,6 +241,8 @@ Status: blocked until backend and ops gates pass
 - [ ] Backend `/v1/health` exists on the canonical API origin and returns the expected API health payload before any frontend proxy cutover.
 - [ ] Cloudflare Pages Function proxy is enabled only after upstream `api.heyvera.org/v1/*` works end-to-end.
 - [ ] `heyvera.org/v1/health` returns API health output after proxy enablement, not frontend HTML.
+- [ ] `HEYVERA_SMOKE_MODE=pre-proxy bash scripts/heyvera-launch-smoke.sh` passes before enabling PR `#231` or any equivalent `/v1` proxy.
+- [ ] `HEYVERA_SMOKE_MODE=post-proxy bash scripts/heyvera-launch-smoke.sh` passes after enabling the Pages `/v1` proxy and before frontend API env cutover.
 - [ ] Frontend production `VITE_API_URL` target is verified against the chosen launch path (`https://api.heyvera.org/v1` direct or `https://heyvera.org/v1` via proxy).
 - [ ] Frontend post-cutover smokes cover home feed, profile bootstrap, profile create/edit, post create, and core social actions against the production API path.
 - [ ] Latest work is pushed.

@@ -61,6 +61,31 @@ Recommended values:
 5. Approve the `production` environment deployment.
 6. Verify `https://api.claw-net.org/api/deploy-info`.
 
+## HeyVera Launch Smoke Gate
+
+HeyVera production cutover has an extra public smoke gate because the frontend
+origin and API origin can be routed independently:
+
+```bash
+HEYVERA_SMOKE_MODE=pre-proxy bash scripts/heyvera-launch-smoke.sh
+```
+
+Run this before enabling the Cloudflare Pages `/v1/*` proxy. It is allowed to
+find that `api.heyvera.org/v1/health` is not ready yet, but it fails if
+`heyvera.org/v1/health` appears to be serving API JSON before the upstream
+`api.heyvera.org/v1/health` path is healthy.
+
+After upstream `/v1` exists and the Pages proxy is intentionally enabled, run:
+
+```bash
+HEYVERA_SMOKE_MODE=post-proxy bash scripts/heyvera-launch-smoke.sh
+```
+
+Post-proxy mode requires both `https://api.heyvera.org/v1/health` and
+`https://heyvera.org/v1/health` to return non-HTML 2xx JSON. Do not merge or
+enable PR `#231`, or any equivalent Pages `/v1` proxy, before the pre-proxy
+gate has a clean result and the upstream `/v1` route is known to be ready.
+
 ## Why This Is Stronger
 
 - It stops normal production deploys from depending on one person’s shell habits.
