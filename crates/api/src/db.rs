@@ -204,7 +204,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 20;
+const SCHEMA_VERSION: i64 = 21;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -276,6 +276,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 20 {
         migrate_v20(conn);
+    }
+    if current < 21 {
+        migrate_v21(conn);
     }
 }
 
@@ -1050,6 +1053,26 @@ fn migrate_v20(conn: &Connection) {
     tracing::info!("applied migration v20: cortex task shadow index");
 }
 
+fn migrate_v21(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_operations_events_scope_created
+            ON operations_events(scope_id, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_operations_events_scope_task_created
+            ON operations_events(scope_id, task_id, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_runs_group_status_created
+            ON runs(user_id, group_id, status, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_cortex_task_chats_group_attached
+            ON cortex_task_chats(user_id, group_id, task_id, attached_at DESC);
+
+        UPDATE schema_version SET version = 21;"
+    ).expect("migration v21 failed");
+
+    tracing::info!("applied migration v21: operations summary query indexes");
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CortexGroup {
     pub id: String,
@@ -1763,6 +1786,275 @@ impl Database {
             "chats": chats,
             "events": events,
         }))
+    }
+
+    pub fn get_group_operations_summary(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        event_limit: usize,
+    ) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let generated_at = Utc::now().timestamp_millis();
+
+        let mut tasks_stmt = conn
+            .prepare(
+                "SELECT id, title, status, priority, latest_run_id, source_json, updated_at
+                 FROM cortex_tasks
+                 WHERE user_id = ?1 AND group_id = ?2",
+            )
+            .unwrap();
+        let task_rows = tasks_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+
+        let mut task_created = 0;
+        let mut task_assigned = 0;
+        let mut task_active = 0;
+        let mut task_done = 0;
+        let mut task_urgent = 0;
+        let mut task_unassigned = 0;
+        let mut task_without_run = 0;
+        let mut attention: Vec<serde_json::Value> = Vec::new();
+
+        for (task_id, title, status, priority, latest_run_id, source_json, updated_at) in &task_rows {
+            match status.as_str() {
+                "created" => task_created += 1,
+                "assigned" => task_assigned += 1,
+                "in-progress" => task_active += 1,
+                "done" => task_done += 1,
+                _ => {}
+            }
+            if priority == "urgent" {
+                task_urgent += 1;
+                if status != "in-progress" && status != "done" && attention.len() < 10 {
+                    attention.push(serde_json::json!({
+                        "kind": "urgent_not_active",
+                        "task_id": task_id,
+                        "title": title,
+                        "priority": priority,
+                        "status": status,
+                        "updated_at": updated_at,
+                    }));
+                }
+            }
+            if latest_run_id.is_none() {
+                task_without_run += 1;
+                if status == "in-progress" && attention.len() < 10 {
+                    attention.push(serde_json::json!({
+                        "kind": "active_without_run",
+                        "task_id": task_id,
+                        "title": title,
+                        "status": status,
+                        "updated_at": updated_at,
+                    }));
+                }
+            }
+            let source = serde_json::from_str::<serde_json::Value>(source_json)
+                .unwrap_or_else(|_| serde_json::json!({}));
+            let assignee = source.get("assigneeId").and_then(|value| value.as_str());
+            if assignee.map(|value| value.trim().is_empty()).unwrap_or(true) {
+                task_unassigned += 1;
+            }
+        }
+
+        let mut runs_stmt = conn
+            .prepare(
+                "SELECT id, status, task_id, created_at
+                 FROM runs
+                 WHERE user_id = ?1 AND group_id = ?2
+                 ORDER BY created_at DESC, id DESC",
+            )
+            .unwrap();
+        let run_rows = runs_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, i64>(3)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+
+        let mut runs_active = 0;
+        let mut runs_failed = 0;
+        let mut runs_succeeded = 0;
+        for (run_id, status, task_id, created_at) in &run_rows {
+            match status.as_str() {
+                "pending" | "planning" | "ready" | "leased" | "running" => runs_active += 1,
+                "failed" | "orphaned" => {
+                    runs_failed += 1;
+                    if attention.len() < 10 {
+                        attention.push(serde_json::json!({
+                            "kind": "failed_run",
+                            "run_id": run_id,
+                            "task_id": task_id,
+                            "status": status,
+                            "created_at": created_at,
+                        }));
+                    }
+                }
+                "succeeded" | "recovered" => runs_succeeded += 1,
+                _ => {}
+            }
+        }
+        let latest_run_id = run_rows.first().map(|(run_id, _, _, _)| run_id.clone());
+
+        let mut steps_stmt = conn
+            .prepare(
+                "SELECT s.id, s.run_id, s.status, s.verification_status, r.task_id
+                 FROM steps s
+                 JOIN runs r ON r.id = s.run_id
+                 WHERE r.user_id = ?1 AND r.group_id = ?2",
+            )
+            .unwrap();
+        let step_rows = steps_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+
+        let mut steps_active = 0;
+        let mut steps_failed = 0;
+        let mut steps_orphaned = 0;
+        let mut steps_verified_pass = 0;
+        let mut steps_verified_fail = 0;
+        for (step_id, run_id, status, verification_status, task_id) in &step_rows {
+            match status.as_str() {
+                "leased" | "running" => steps_active += 1,
+                "failed" => {
+                    steps_failed += 1;
+                    if attention.len() < 10 {
+                        attention.push(serde_json::json!({
+                            "kind": "failed_step",
+                            "step_id": step_id,
+                            "run_id": run_id,
+                            "task_id": task_id,
+                            "status": status,
+                        }));
+                    }
+                }
+                "orphaned" => {
+                    steps_orphaned += 1;
+                    if attention.len() < 10 {
+                        attention.push(serde_json::json!({
+                            "kind": "orphaned_step",
+                            "step_id": step_id,
+                            "run_id": run_id,
+                            "task_id": task_id,
+                            "status": status,
+                        }));
+                    }
+                }
+                _ => {}
+            }
+            match verification_status.as_deref() {
+                Some("verified_pass") => steps_verified_pass += 1,
+                Some("verified_fail") => steps_verified_fail += 1,
+                _ => {}
+            }
+        }
+
+        let event_limit = event_limit.clamp(1, 100) as i64;
+        let mut events_stmt = conn
+            .prepare(
+                "SELECT id, created_at, actor_user_id, scope_id, project_id, task_id, run_id,
+                        step_id, attempt_id, event_type, entity_type, entity_id, payload_json
+                 FROM operations_events
+                 WHERE scope_id = ?1
+                    AND (actor_user_id = ?2 OR actor_user_id IS NULL)
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT ?3",
+            )
+            .unwrap();
+        let recent_events: Vec<serde_json::Value> = events_stmt
+            .query_map(params![group_id, user_id, event_limit], |row| {
+                let payload_json: String = row.get(12)?;
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "created_at": row.get::<_, i64>(1)?,
+                    "actor_user_id": row.get::<_, Option<String>>(2)?,
+                    "scope_id": row.get::<_, Option<String>>(3)?,
+                    "project_id": row.get::<_, Option<String>>(4)?,
+                    "task_id": row.get::<_, Option<String>>(5)?,
+                    "run_id": row.get::<_, Option<String>>(6)?,
+                    "step_id": row.get::<_, Option<String>>(7)?,
+                    "attempt_id": row.get::<_, Option<String>>(8)?,
+                    "event_type": row.get::<_, String>(9)?,
+                    "entity_type": row.get::<_, String>(10)?,
+                    "entity_id": row.get::<_, String>(11)?,
+                    "payload": serde_json::from_str(&payload_json).unwrap_or_else(|_| serde_json::json!({})),
+                }))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect();
+
+        let open_tasks = task_created + task_assigned + task_active;
+        serde_json::json!({
+            "group_id": group_id,
+            "scope": "group",
+            "generated_at": generated_at,
+            "tasks": {
+                "total": task_rows.len(),
+                "open": open_tasks,
+                "active": task_active,
+                "done_raw": task_done,
+                "urgent": task_urgent,
+                "unassigned": task_unassigned,
+                "without_run": task_without_run,
+                "by_status": {
+                    "created": task_created,
+                    "assigned": task_assigned,
+                    "in_progress": task_active,
+                    "done": task_done,
+                },
+                "completion": {
+                    "gated_done_available": false,
+                    "raw_done": task_done,
+                },
+            },
+            "runs": {
+                "total": run_rows.len(),
+                "active": runs_active,
+                "failed": runs_failed,
+                "succeeded": runs_succeeded,
+                "latest_run_id": latest_run_id,
+            },
+            "steps": {
+                "total": step_rows.len(),
+                "active": steps_active,
+                "failed": steps_failed,
+                "orphaned": steps_orphaned,
+                "verified_pass": steps_verified_pass,
+                "verified_fail": steps_verified_fail,
+            },
+            "attention": attention,
+            "recent_events": recent_events,
+        })
     }
 
     pub fn conversation_exists(&self, user_id: &str, conversation_id: &str) -> bool {
@@ -4713,6 +5005,15 @@ mod tests {
         })
     }
 
+    fn task_state_with_tasks(tasks: serde_json::Value) -> serde_json::Value {
+        serde_json::json!({
+            "tasks": tasks,
+            "members": [],
+            "activity": [],
+            "updatedAt": "2026-05-25T00:00:00Z"
+        })
+    }
+
     #[test]
     fn upsert_group_task_state_indexes_and_reconciles_cortex_tasks() {
         let db = test_db();
@@ -4797,5 +5098,88 @@ mod tests {
             .any(|event| event["event_type"] == "run.created"
                 && event["run_id"] == run_id
                 && event["task_id"] == "task-1"));
+    }
+
+    #[test]
+    fn get_group_operations_summary_counts_user_scoped_backend_state() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state_with_tasks(serde_json::json!([
+            {
+                "id": "task-urgent",
+                "groupId": "group-1",
+                "title": "Urgent queued task",
+                "status": "created",
+                "priority": "urgent",
+                "assigneeId": null,
+                "createdAt": "2026-05-25T00:00:00Z",
+                "updatedAt": "2026-05-25T00:00:00Z",
+                "createdBy": "You"
+            },
+            {
+                "id": "task-active",
+                "groupId": "group-1",
+                "title": "Active backend task",
+                "status": "in-progress",
+                "priority": "normal",
+                "assigneeId": "user-1",
+                "createdAt": "2026-05-25T00:00:00Z",
+                "updatedAt": "2026-05-25T00:00:00Z",
+                "createdBy": "You"
+            }
+        ])));
+        db.upsert_group_task_state("user-2", "group-1", &task_state("task-other-user", "Other user task"));
+
+        let run_id = db.create_run_with_metadata(
+            "user-1",
+            "Ship active backend task",
+            "auto",
+            &[],
+            Some("task-active"),
+            Some("group-1"),
+            None,
+        );
+        assert!(db.update_run_status(&run_id, "failed", Some("test failure")));
+
+        let other_run_id = db.create_run_with_metadata(
+            "user-2",
+            "Other user run",
+            "auto",
+            &[],
+            Some("task-other-user"),
+            Some("group-1"),
+            None,
+        );
+        assert!(db.update_run_status(&other_run_id, "failed", Some("should not leak")));
+
+        let summary = db.get_group_operations_summary("user-1", "group-1", 25);
+
+        assert_eq!(summary["group_id"], "group-1");
+        assert_eq!(summary["scope"], "group");
+        assert_eq!(summary["tasks"]["total"], 2);
+        assert_eq!(summary["tasks"]["open"], 2);
+        assert_eq!(summary["tasks"]["active"], 1);
+        assert_eq!(summary["tasks"]["urgent"], 1);
+        assert_eq!(summary["tasks"]["without_run"], 1);
+        assert_eq!(summary["tasks"]["completion"]["gated_done_available"], false);
+        assert_eq!(summary["runs"]["total"], 1);
+        assert_eq!(summary["runs"]["failed"], 1);
+        assert_eq!(summary["runs"]["latest_run_id"], run_id);
+        assert!(summary["attention"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["kind"] == "urgent_not_active"
+                && item["task_id"] == "task-urgent"));
+        assert!(summary["attention"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["kind"] == "failed_run"
+                && item["run_id"] == run_id));
+        assert!(summary["recent_events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|event| event["actor_user_id"] == "user-1"));
     }
 }
