@@ -8,7 +8,7 @@ import {
   searchAll,
   unbookmarkPost,
   unlikePost,
-} from '../api/client';
+} from '../api/social';
 import type { Community, SearchResults, TrendingTopic, UserSummary } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';

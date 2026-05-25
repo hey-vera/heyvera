@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import { ArrowLeft, MessageCircle, Search } from 'lucide-react';
-import { getConversations, getMessages } from '../api/client';
+import { getConversations, getMessages } from '../api/social';
 import type { Conversation, Message, UserSummary } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';

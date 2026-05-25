@@ -3,15 +3,15 @@ import { SignInButton } from '@clerk/clerk-react';
 import {
   bookmarkPost,
   createPost,
-  getFeed,
-  getFollowingFeed,
-  getCurrentUserProfile,
+  feedPostToPost,
+  fetchHomeFeed,
+  fetchMyProfile,
   likePost,
   repostPost,
   unbookmarkPost,
   unlikePost,
-} from '../api/client';
-import type { FeedResponse, Post } from '../api/types';
+} from '../api/social';
+import type { Post } from '../api/types';
 import { LoadingState, EmptyState, ErrorState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
@@ -20,12 +20,19 @@ const TABS = ['For you', 'Following'] as const;
 type Tab = typeof TABS[number];
 
 const PULL_REFRESH_THRESHOLD = 72;
+const FEED_PAGE_SIZE = 20;
+
+/** Parsed feed result in the shape HomePage state expects. */
+type FeedResult = {
+  posts: Post[];
+  nextCursor: number | null;
+};
 
 export function HomePage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('For you');
   const [posts, setPosts] = useState<Post[]>([]);
-  const [cursor, setCursor] = useState<string | undefined>();
+  const [cursor, setCursor] = useState<number | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -36,20 +43,19 @@ export function HomePage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
-  const [pendingFeed, setPendingFeed] = useState<FeedResponse | null>(null);
+  const [pendingFeed, setPendingFeed] = useState<FeedResult | null>(null);
   const [newPostCount, setNewPostCount] = useState(0);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const touchStartY = useRef<number | null>(null);
 
-  const getOptionalToken = useCallback(async () => {
-    if (!authEnabled || !isSignedIn) return undefined;
-    return (await getToken()) ?? undefined;
-  }, [authEnabled, isSignedIn]);
-
-  const loadFeedPage = useCallback(async (nextCursor?: string) => {
-    const token = await getOptionalToken();
-    return activeTab === 'For you' ? getFeed(nextCursor, token) : getFollowingFeed(nextCursor, token);
-  }, [activeTab, getOptionalToken]);
+  const loadFeedPage = useCallback(async (offsetCursor = 0): Promise<FeedResult> => {
+    const filter = activeTab === 'Following' ? 'following' : undefined;
+    const response = await fetchHomeFeed(FEED_PAGE_SIZE, offsetCursor, filter);
+    return {
+      posts: response.feed.map(feedPostToPost),
+      nextCursor: response.pageInfo.nextCursor != null ? Number(response.pageInfo.nextCursor) : null,
+    };
+  }, [activeTab]);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,8 +69,8 @@ export function HomePage() {
         const response = await loadFeedPage();
         if (!cancelled) {
           setPosts(response.posts);
-          setCursor(response.cursor);
-          setHasMore(response.has_more);
+          setCursor(response.nextCursor);
+          setHasMore(response.nextCursor !== null);
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load feed');
@@ -80,7 +86,7 @@ export function HomePage() {
   }, [loadFeedPage, reloadKey]);
 
   const loadMorePosts = useCallback(async () => {
-    if (loading || loadingMore || !hasMore || !cursor) return;
+    if (loading || loadingMore || !hasMore || cursor === null) return;
 
     setLoadingMore(true);
     try {
@@ -90,8 +96,8 @@ export function HomePage() {
         const nextPosts = response.posts.filter((post) => !existingIds.has(post.id));
         return [...current, ...nextPosts];
       });
-      setCursor(response.cursor);
-      setHasMore(response.has_more);
+      setCursor(response.nextCursor);
+      setHasMore(response.nextCursor !== null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to load more posts');
     } finally {
@@ -138,8 +144,8 @@ export function HomePage() {
     if (!pendingFeed) return;
 
     setPosts(pendingFeed.posts);
-    setCursor(pendingFeed.cursor);
-    setHasMore(pendingFeed.has_more);
+    setCursor(pendingFeed.nextCursor);
+    setHasMore(pendingFeed.nextCursor !== null);
     setPendingFeed(null);
     setNewPostCount(0);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -186,14 +192,19 @@ export function HomePage() {
         return;
       }
 
-      const profile = await getCurrentUserProfile(token);
-      if (!profile) {
-        setComposeNotice('Create your profile before posting.');
-        return;
+      try {
+        await fetchMyProfile(token);
+      } catch (profileErr: unknown) {
+        const msg = profileErr instanceof Error ? profileErr.message.toLowerCase() : '';
+        if (msg.includes('404') || msg.includes('not found')) {
+          setComposeNotice('Create your profile before posting.');
+          return;
+        }
+        throw profileErr;
       }
 
-      const post = await createPost(trimmed, undefined, token);
-      setPosts((current) => [post, ...current]);
+      const result = await createPost(token, { body: trimmed });
+      setPosts((current) => [feedPostToPost(result.post), ...current]);
       setContent('');
     } catch (err) {
       setComposeNotice(err instanceof Error ? err.message : 'Post failed. Try again.');
@@ -332,7 +343,7 @@ export function HomePage() {
       {!loading && !error && (
         <div ref={loadMoreRef} className="min-h-12">
           {loadingMore && <LoadingState label="Loading more posts" />}
-          {!loadingMore && hasMore && !cursor && (
+          {!loadingMore && hasMore && cursor === null && (
             <div className="px-4 py-6 text-center text-[13px]" style={{ color: 'var(--text-secondary)' }}>
               More posts will load when the feed returns a cursor.
             </div>
