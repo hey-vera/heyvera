@@ -171,7 +171,7 @@ export type ProfileSummary = {
 
 const API_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/v1/social`
-  : "/v1/social";
+  : "https://api.heyvera.org/v1/social";
 
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 
