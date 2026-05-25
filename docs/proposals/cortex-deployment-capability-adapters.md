@@ -134,6 +134,9 @@ The first implementation should be read-only inspection plus verification, not m
 2. Cloudflare Pages read adapter.
    - Inspect Pages project `cortex`, latest production deployment, custom domain, build config, and deployment URL.
    - Verify `cortex.heyvera.org` serves the expected asset bundle.
+   - Initial implementation must be read-only and default to `not configured` unless these env vars exist:
+     `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID`, and `CLOUDFLARE_PAGES_PROJECT=cortex`.
+   - The adapter should treat Cloudflare Pages as the preferred Cortex frontend truth and only fall back to the VPS static artifact when Pages inspection is unavailable.
 
 3. GitHub Actions read adapter.
    - Inspect latest `Deploy Production` run, head SHA, conclusion, and deploy-info verification result.
