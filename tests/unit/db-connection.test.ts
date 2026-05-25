@@ -100,7 +100,7 @@ describe('db/connection', () => {
       const firstRows = first
         .prepare('SELECT version FROM schema_migrations ORDER BY version')
         .all() as { version: number }[];
-      expect(firstRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 197, 198, 199, 200, 201]);
+      expect(firstRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 197, 198, 199, 200, 201, 202]);
 
       // Simulate a process restart: close the handle, reset the module
       // cache, and re-init against the same file.
@@ -217,7 +217,7 @@ describe('db/connection', () => {
           )
           .all() as { version: number }[]
       ).map((v) => v.version);
-      expect(versions).toEqual([197, 198, 199, 200, 201]);
+      expect(versions).toEqual([197, 198, 199, 200, 201, 202]);
 
       const indexes = (
         db
