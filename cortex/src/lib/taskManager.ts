@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   TaskActivity,
   TaskCommandAction,
@@ -231,6 +231,20 @@ export function buildTaskSummary(state: TaskManagerState) {
 
 export type ParsedTaskAction = TaskCommandAction;
 
+export type TaskManagerSyncPhase = 'loading' | 'syncing' | 'synced' | 'local';
+
+export interface TaskManagerSyncState {
+  phase: TaskManagerSyncPhase;
+  source: 'local' | 'backend';
+  lastBackendReadAt: string | null;
+  lastBackendWriteAt: string | null;
+  lastError: string | null;
+}
+
+function errorMessage(error: unknown) {
+  return error instanceof Error ? error.message : 'Backend task state is unavailable.';
+}
+
 export function parseTaskCommand(text: string, state: TaskManagerState): ParsedTaskAction[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
@@ -413,27 +427,98 @@ function applyActions(
 
 export function useTaskManager(group: CortexGroup, userId: string) {
   const [state, setState] = useState<TaskManagerState>(() => readState(group, userId));
+  const syncRequestId = useRef(0);
+  const [sync, setSync] = useState<TaskManagerSyncState>({
+    phase: 'loading',
+    source: 'local',
+    lastBackendReadAt: null,
+    lastBackendWriteAt: null,
+    lastError: null,
+  });
+
+  const commitRemoteState = useCallback((remoteState: TaskManagerState, writeKind: 'read' | 'write') => {
+    const next = mergeDefaultMembers(remoteState, group, userId);
+    const timestamp = nowIso();
+    setState(next);
+    writeState(group.id, next);
+    setSync((current) => ({
+      ...current,
+      phase: 'synced',
+      source: 'backend',
+      lastBackendReadAt: writeKind === 'read' ? timestamp : current.lastBackendReadAt,
+      lastBackendWriteAt: writeKind === 'write' ? timestamp : current.lastBackendWriteAt,
+      lastError: null,
+    }));
+    broadcastTaskState(group.id);
+    return next;
+  }, [group, userId]);
+
+  const markSyncing = useCallback(() => {
+    setSync((current) => ({
+      ...current,
+      phase: 'syncing',
+      source: 'local',
+      lastError: null,
+    }));
+  }, []);
+
+  const markLocalFallback = useCallback((error: unknown) => {
+    setSync((current) => ({
+      ...current,
+      phase: 'local',
+      source: 'local',
+      lastError: errorMessage(error),
+    }));
+  }, []);
+
+  const loadRemoteState = useCallback(async () => {
+    const requestId = syncRequestId.current + 1;
+    syncRequestId.current = requestId;
+    setSync((current) => ({
+      ...current,
+      phase: 'loading',
+      source: 'local',
+      lastError: null,
+    }));
+
+    try {
+      const remoteState = await getGroupTaskManagerState(group.id);
+      if (syncRequestId.current !== requestId) return null;
+      return commitRemoteState(remoteState, 'read');
+    } catch (error) {
+      if (syncRequestId.current === requestId) markLocalFallback(error);
+      return null;
+    }
+  }, [commitRemoteState, group.id, markLocalFallback]);
+
+  const persistOptimisticState = useCallback((optimisticState: TaskManagerState) => {
+    setState(optimisticState);
+    writeState(group.id, optimisticState);
+    broadcastTaskState(group.id);
+    markSyncing();
+  }, [group.id, markSyncing]);
+
+  const syncWholeState = useCallback((next: TaskManagerState) => {
+    void updateGroupTaskManagerState(group.id, next)
+      .then((remoteState) => {
+        commitRemoteState(remoteState, 'write');
+      })
+      .catch(markLocalFallback);
+  }, [commitRemoteState, group.id, markLocalFallback]);
 
   useEffect(() => {
     setState(readState(group, userId));
+    setSync((current) => ({
+      ...current,
+      phase: 'loading',
+      source: 'local',
+      lastError: null,
+    }));
   }, [group, userId]);
 
   useEffect(() => {
-    let cancelled = false;
-    void getGroupTaskManagerState(group.id)
-      .then((remoteState) => {
-        if (cancelled) return;
-        const next = mergeDefaultMembers(remoteState, group, userId);
-        setState(next);
-        writeState(group.id, next);
-      })
-      .catch(() => {
-        // The local task manager remains usable until backend task endpoints land.
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [group, userId]);
+    void loadRemoteState();
+  }, [loadRemoteState]);
 
   useEffect(() => {
     writeState(group.id, state);
@@ -458,75 +543,50 @@ export function useTaskManager(group: CortexGroup, userId: string) {
   }, [group, userId]);
 
   const publish = useCallback((next: TaskManagerState) => {
-    setState(next);
-    writeState(group.id, next);
-    void updateGroupTaskManagerState(group.id, next).catch(() => {
-      // Keep local state as the source of truth when the API is unavailable.
-    });
-    broadcastTaskState(group.id);
-  }, [group.id]);
+    persistOptimisticState(next);
+    syncWholeState(next);
+  }, [persistOptimisticState, syncWholeState]);
 
   const publishTaskPatch = useCallback((
     taskId: string,
     patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority' | 'projectChatConversationId' | 'projectChatLaunchedAt' | 'latestRunId' | 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>>,
     optimisticState: TaskManagerState,
   ) => {
-    setState(optimisticState);
-    writeState(group.id, optimisticState);
-    broadcastTaskState(group.id);
+    persistOptimisticState(optimisticState);
     void patchGroupTaskManagerTask(group.id, taskId, patch)
       .then((remoteState) => {
-        const next = mergeDefaultMembers(remoteState, group, userId);
-        setState(next);
-        writeState(group.id, next);
-        broadcastTaskState(group.id);
+        commitRemoteState(remoteState, 'write');
       })
       .catch(() => {
-        void updateGroupTaskManagerState(group.id, optimisticState).catch(() => {
-          // Keep local state as the source of truth when the API is unavailable.
-        });
+        syncWholeState(optimisticState);
       });
-  }, [group, userId]);
+  }, [commitRemoteState, group.id, persistOptimisticState, syncWholeState]);
 
   const publishTaskCreate = useCallback((task: TaskManagerTask, optimisticState: TaskManagerState) => {
-    setState(optimisticState);
-    writeState(group.id, optimisticState);
-    broadcastTaskState(group.id);
+    persistOptimisticState(optimisticState);
     void createGroupTaskManagerTask(group.id, task)
       .then((remoteState) => {
-        const next = mergeDefaultMembers(remoteState, group, userId);
-        setState(next);
-        writeState(group.id, next);
-        broadcastTaskState(group.id);
+        commitRemoteState(remoteState, 'write');
       })
       .catch(() => {
-        void updateGroupTaskManagerState(group.id, optimisticState).catch(() => {
-          // Keep local state as the source of truth when the API is unavailable.
-        });
+        syncWholeState(optimisticState);
       });
-  }, [group, userId]);
+  }, [commitRemoteState, group.id, persistOptimisticState, syncWholeState]);
 
   const publishTaskActions = useCallback((
     actions: ParsedTaskAction[],
     actor: string,
     optimisticState: TaskManagerState,
   ) => {
-    setState(optimisticState);
-    writeState(group.id, optimisticState);
-    broadcastTaskState(group.id);
+    persistOptimisticState(optimisticState);
     void applyGroupTaskManagerActions(group.id, actions, actor)
       .then((remoteState) => {
-        const next = mergeDefaultMembers(remoteState, group, userId);
-        setState(next);
-        writeState(group.id, next);
-        broadcastTaskState(group.id);
+        commitRemoteState(remoteState, 'write');
       })
       .catch(() => {
-        void updateGroupTaskManagerState(group.id, optimisticState).catch(() => {
-          // Keep local state as the source of truth when the API is unavailable.
-        });
+        syncWholeState(optimisticState);
       });
-  }, [group, userId]);
+  }, [commitRemoteState, group.id, persistOptimisticState, syncWholeState]);
 
   const applyTextCommand = useCallback((text: string, actor = 'You') => {
     const actions = parseTaskCommand(text, state);
@@ -665,6 +725,8 @@ export function useTaskManager(group: CortexGroup, userId: string) {
   return {
     state,
     summary,
+    sync,
+    refreshBackendState: loadRemoteState,
     applyTextCommand,
     createTask,
     updateTask,
