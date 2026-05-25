@@ -1,22 +1,46 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft, CalendarDays, Link as LinkIcon, MapPin } from 'lucide-react';
+import { SignInButton } from '@clerk/clerk-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   bookmarkPost,
+  createUserProfile,
   followUser,
+  getCurrentUserProfile,
   getProfilePosts,
   getUserProfile,
   likePost,
   repostPost,
   unfollowUser,
   unlikePost,
+  updateCurrentUserProfile,
 } from '../api/client';
-import type { Post, UserProfile } from '../api/types';
+import type { CreateUserProfileInput, Post, UpdateUserProfileInput, UserProfile } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
+import { useAuth } from '../hooks/useAuth';
 
 const TABS = ['Posts', 'Replies', 'Media', 'Likes'] as const;
 type Tab = typeof TABS[number];
+
+const EMPTY_TAB_COPY: Record<Tab, { title: string; detail: string }> = {
+  Posts: {
+    title: 'No posts yet',
+    detail: 'Posts from this profile will appear here.',
+  },
+  Replies: {
+    title: 'No replies yet',
+    detail: 'Replies will appear here when this profile has reply posts.',
+  },
+  Media: {
+    title: 'No media posts yet',
+    detail: 'Posts with media attachments will appear here.',
+  },
+  Likes: {
+    title: 'No liked posts yet',
+    detail: 'Posts liked from this loaded profile feed will appear here.',
+  },
+};
 
 function formatCount(count: number): string {
   if (count < 1000) return String(count);
@@ -31,12 +55,18 @@ function formatJoinedDate(iso: string): string {
 export function ProfilePage() {
   const { handle } = useParams<{ handle?: string }>();
   const navigate = useNavigate();
-  const profileHandle = handle ?? 'vera';
+  const { authEnabled, isSignedIn, getToken, viewerLabel } = useAuth();
+  const ownProfile = !handle;
   const [activeTab, setActiveTab] = useState<Tab>('Posts');
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [createError, setCreateError] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+  const [savingEdit, setSavingEdit] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
 
@@ -46,10 +76,43 @@ export function ProfilePage() {
     async function loadProfile() {
       setLoading(true);
       setError(null);
+      setCreateError(null);
       try {
+        if (ownProfile) {
+          if (!authEnabled || !isSignedIn) {
+            if (!cancelled) {
+              setProfile(null);
+              setPosts([]);
+              setIsFollowing(false);
+            }
+            return;
+          }
+
+          const token = await getToken();
+          if (!token) throw new Error('Sign in again to load your profile.');
+
+          const nextProfile = await getCurrentUserProfile(token);
+          if (!nextProfile) {
+            if (!cancelled) {
+              setProfile(null);
+              setPosts([]);
+              setIsFollowing(false);
+            }
+            return;
+          }
+
+          const feed = await getProfilePosts(nextProfile.handle);
+          if (!cancelled) {
+            setProfile(nextProfile);
+            setPosts(feed.posts);
+            setIsFollowing(false);
+          }
+          return;
+        }
+
         const [nextProfile, feed] = await Promise.all([
-          getUserProfile(profileHandle),
-          getProfilePosts(profileHandle),
+          getUserProfile(handle),
+          getProfilePosts(handle),
         ]);
         if (!cancelled) {
           setProfile(nextProfile);
@@ -67,29 +130,143 @@ export function ProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [profileHandle, reloadKey]);
+  }, [authEnabled, handle, isSignedIn, ownProfile, reloadKey]);
 
-  const toggleFollow = () => {
+  const handleCreateProfile = async (input: CreateUserProfileInput) => {
+    if (creating) return;
+    setCreating(true);
+    setCreateError(null);
+
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again to create your profile.');
+
+      const nextProfile = await createUserProfile(token, input);
+      let nextPosts: Post[] = [];
+      try {
+        const feed = await getProfilePosts(nextProfile.handle);
+        nextPosts = feed.posts;
+      } catch {
+        nextPosts = [];
+      }
+
+      setProfile(nextProfile);
+      setPosts(nextPosts);
+      setIsFollowing(false);
+      setActiveTab('Posts');
+    } catch (err) {
+      setCreateError(err instanceof Error ? err.message : 'Unable to create profile');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleUpdateProfile = async (input: UpdateUserProfileInput) => {
+    if (savingEdit) return;
+    setSavingEdit(true);
+    setEditError(null);
+
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again to update your profile.');
+
+      const nextProfile = await updateCurrentUserProfile(token, input);
+      setProfile(nextProfile);
+      setEditOpen(false);
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : 'Unable to update profile');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const toggleFollow = async () => {
     if (!profile) return;
     const nextFollowing = !isFollowing;
     setIsFollowing(nextFollowing);
-    void (nextFollowing ? followUser(profile.id) : unfollowUser(profile.id));
+    const token = await getToken();
+    if (!token) {
+      setIsFollowing(!nextFollowing);
+      return;
+    }
+    void (nextFollowing ? followUser(profile.id, token) : unfollowUser(profile.id, token));
+  };
+
+  const handleLike = (id: string, liked: boolean, token: string) => {
+    setPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === id
+          ? {
+              ...post,
+              liked,
+              like_count: Math.max(0, post.like_count + (liked ? 1 : -1)),
+            }
+          : post,
+      ),
+    );
+    void (liked ? likePost(id, token) : unlikePost(id, token));
+  };
+
+  const handleRepost = (id: string, reposted: boolean, token: string) => {
+    setPosts((currentPosts) =>
+      currentPosts.map((post) =>
+        post.id === id
+          ? {
+              ...post,
+              reposted,
+              repost_count: Math.max(0, post.repost_count + (reposted ? 1 : -1)),
+            }
+          : post,
+      ),
+    );
+    void repostPost(id, token);
+  };
+
+  const handleBookmark = (id: string, bookmarked: boolean, token: string) => {
+    setPosts((currentPosts) =>
+      currentPosts.map((post) => (post.id === id ? { ...post, bookmarked } : post)),
+    );
+    void bookmarkPost(id, token);
   };
 
   if (loading) {
     return <LoadingState label="Loading profile" />;
   }
 
+  if (ownProfile && (!authEnabled || !isSignedIn)) {
+    return <SignedOutProfilePrompt authEnabled={authEnabled} />;
+  }
+
+  if (error) {
+    return <ErrorState detail={error} onRetry={() => setReloadKey((key) => key + 1)} />;
+  }
+
+  if (ownProfile && !profile) {
+    return (
+      <ProfileSetupForm
+        creating={creating}
+        error={createError}
+        defaultDisplayName={viewerLabel ?? ''}
+        onSubmit={handleCreateProfile}
+      />
+    );
+  }
+
   if (error || !profile) {
     return <ErrorState detail={error ?? 'Profile unavailable'} onRetry={() => setReloadKey((key) => key + 1)} />;
   }
 
-  const ownProfile = !handle;
-  const visiblePosts = activeTab === 'Posts' ? posts : [];
+  const visiblePosts = posts.filter((post) => {
+    if (activeTab === 'Replies') return Boolean(post.reply_to);
+    if (activeTab === 'Media') return Boolean(post.media?.length);
+    if (activeTab === 'Likes') return post.liked;
+    return true;
+  });
+  const emptyCopy = EMPTY_TAB_COPY[activeTab];
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-      <div className="sticky top-0 z-10 flex items-center gap-6 border-b bg-black/80 px-4 py-3 backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
+      <div className="sticky top-[var(--top-bar-height)] z-10 flex items-center gap-6 border-b bg-black/80 px-4 py-3 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
         <button type="button" onClick={() => navigate(-1)} className="rounded-full p-2 transition-colors hover:bg-white/10" aria-label="Back">
           <ArrowLeft className="h-5 w-5" aria-hidden="true" />
         </button>
@@ -118,7 +295,7 @@ export function ProfilePage() {
         <div className="absolute bottom-3 right-4">
           <button
             type="button"
-            onClick={ownProfile ? undefined : toggleFollow}
+            onClick={ownProfile ? () => setEditOpen(true) : toggleFollow}
             className="rounded-full px-4 py-1.5 text-[14px] font-bold transition-colors hover:opacity-90"
             style={{
               border: ownProfile || isFollowing ? '1px solid var(--border-primary)' : undefined,
@@ -191,20 +368,302 @@ export function ProfilePage() {
       </div>
 
       {visiblePosts.length === 0 ? (
-        <EmptyState title={activeTab === 'Posts' ? 'No posts yet' : 'Nothing here yet'} />
+        <EmptyState title={emptyCopy.title} detail={emptyCopy.detail} />
       ) : (
         visiblePosts.map((post) => (
           <PostCard
             key={post.id}
             post={post}
-            onLike={(id, liked) => void (liked ? likePost(id) : unlikePost(id))}
-            onRepost={(id) => void repostPost(id)}
-            onBookmark={(id) => void bookmarkPost(id)}
+            onLike={handleLike}
+            onRepost={handleRepost}
+            onBookmark={handleBookmark}
           />
         ))
+      )}
+
+      {ownProfile && editOpen && (
+        <EditProfileModal
+          profile={profile}
+          saving={savingEdit}
+          error={editError}
+          onClose={() => {
+            setEditOpen(false);
+            setEditError(null);
+          }}
+          onSubmit={handleUpdateProfile}
+        />
       )}
     </div>
   );
 }
 
 export default ProfilePage;
+
+function SignedOutProfilePrompt({ authEnabled }: { authEnabled: boolean }) {
+  return (
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+      <div className="sticky top-[var(--top-bar-height)] z-10 border-b bg-black/80 px-4 py-3 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
+        <h1 className="text-[20px] font-bold leading-tight">Profile</h1>
+      </div>
+      <section className="px-6 py-12">
+        <div className="mx-auto flex max-w-sm flex-col items-start gap-4">
+          <div>
+            <h2 className="text-[23px] font-bold leading-tight">Sign in to view your profile</h2>
+            <p className="mt-2 text-[15px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              Create or manage your HeyVera profile after signing in.
+            </p>
+          </div>
+          {authEnabled ? (
+            <SignInButton mode="modal">
+              <button
+                type="button"
+                className="rounded-full px-5 py-2 text-[15px] font-bold transition-colors hover:opacity-90"
+                style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+              >
+                Sign in
+              </button>
+            </SignInButton>
+          ) : (
+            <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+              Sign-in is not configured for this environment.
+            </p>
+          )}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+type ProfileSetupFormProps = {
+  creating: boolean;
+  error: string | null;
+  defaultDisplayName: string;
+  onSubmit: (input: CreateUserProfileInput) => void;
+};
+
+function ProfileSetupForm({ creating, error, defaultDisplayName, onSubmit }: ProfileSetupFormProps) {
+  const [handle, setHandle] = useState('');
+  const [displayName, setDisplayName] = useState(defaultDisplayName);
+  const [bio, setBio] = useState('');
+
+  const cleanHandle = handle.trim().replace(/^@/, '').toLowerCase();
+  const cleanDisplayName = displayName.trim();
+  const canSubmit = cleanHandle.length >= 2 && cleanDisplayName.length > 0 && !creating;
+
+  return (
+    <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
+      <div className="sticky top-[var(--top-bar-height)] z-10 border-b bg-black/80 px-4 py-3 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
+        <h1 className="text-[20px] font-bold leading-tight">Profile</h1>
+      </div>
+      <form
+        className="border-b px-4 py-5"
+        style={{ borderColor: 'var(--border-primary)' }}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!canSubmit) return;
+          onSubmit({
+            handle: cleanHandle,
+            display_name: cleanDisplayName,
+            bio: bio.trim() || undefined,
+          });
+        }}
+      >
+        <div className="mb-5">
+          <h2 className="text-[23px] font-bold leading-tight">Create your profile</h2>
+          <p className="mt-1 text-[15px]" style={{ color: 'var(--text-secondary)' }}>
+            Pick the identity people will see on HeyVera.
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-4">
+          <label className="block">
+            <span className="mb-1 block text-[13px]" style={{ color: 'var(--text-secondary)' }}>Handle</span>
+            <div className="flex rounded-md border px-3 py-2 focus-within:border-[var(--accent)]" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
+              <span className="text-[15px]" style={{ color: 'var(--text-secondary)' }}>@</span>
+              <input
+                value={handle}
+                onChange={(event) => setHandle(event.target.value)}
+                className="min-w-0 flex-1 bg-transparent text-[15px] outline-none"
+                style={{ color: 'var(--text-primary)' }}
+                placeholder="handle"
+                pattern="[A-Za-z0-9_\\-]{2,32}"
+                maxLength={32}
+                disabled={creating}
+                required
+              />
+            </div>
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-[13px]" style={{ color: 'var(--text-secondary)' }}>Display name</span>
+            <input
+              value={displayName}
+              onChange={(event) => setDisplayName(event.target.value)}
+              className="w-full rounded-md border bg-transparent px-3 py-2 text-[15px] outline-none focus:border-[var(--accent)]"
+              style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+              placeholder="Your name"
+              maxLength={80}
+              disabled={creating}
+              required
+            />
+          </label>
+
+          <label className="block">
+            <span className="mb-1 block text-[13px]" style={{ color: 'var(--text-secondary)' }}>Bio</span>
+            <textarea
+              value={bio}
+              onChange={(event) => setBio(event.target.value)}
+              className="min-h-24 w-full resize-none rounded-md border bg-transparent px-3 py-2 text-[15px] leading-relaxed outline-none focus:border-[var(--accent)]"
+              style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+              placeholder="What are you building or following?"
+              maxLength={280}
+              disabled={creating}
+            />
+          </label>
+        </div>
+
+        {error && <p className="mt-3 text-[13px]" style={{ color: 'var(--color-danger)' }}>{error}</p>}
+
+        <div className="mt-5 flex justify-end">
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="rounded-full px-5 py-2 text-[15px] font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50 enabled:hover:opacity-90"
+            style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+          >
+            {creating ? 'Creating...' : 'Create profile'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+type EditProfileModalProps = {
+  profile: UserProfile;
+  saving: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSubmit: (input: UpdateUserProfileInput) => void;
+};
+
+function EditProfileModal({ profile, saving, error, onClose, onSubmit }: EditProfileModalProps) {
+  const [displayName, setDisplayName] = useState(profile.display_name);
+  const [bio, setBio] = useState(profile.bio);
+  const [location, setLocation] = useState(profile.location ?? '');
+  const [website, setWebsite] = useState(profile.website ?? '');
+  const [avatarUrl, setAvatarUrl] = useState(profile.avatar_url ?? '');
+  const [bannerUrl, setBannerUrl] = useState(profile.banner_url ?? '');
+
+  const cleanDisplayName = displayName.trim();
+  const canSave = cleanDisplayName.length > 0 && !saving;
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-10 sm:pt-16"
+      style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+      onClick={onClose}
+    >
+      <form
+        className="w-full max-w-[600px] overflow-hidden rounded-2xl border"
+        style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}
+        onClick={(event) => event.stopPropagation()}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!canSave) return;
+          onSubmit({
+            display_name: cleanDisplayName,
+            bio: bio.trim(),
+            location: location.trim() || undefined,
+            website: website.trim() || undefined,
+            avatar_url: avatarUrl.trim() || undefined,
+            banner_url: bannerUrl.trim() || undefined,
+          });
+        }}
+      >
+        <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: 'var(--border-primary)' }}>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-full p-2 transition-colors hover:bg-white/10"
+              aria-label="Close edit profile"
+            >
+              <ArrowLeft className="h-5 w-5" aria-hidden="true" />
+            </button>
+            <h2 className="text-[20px] font-bold">Edit profile</h2>
+          </div>
+          <button
+            type="submit"
+            disabled={!canSave}
+            className="rounded-full px-5 py-1.5 text-[14px] font-bold transition-opacity disabled:cursor-not-allowed disabled:opacity-50 enabled:hover:opacity-90"
+            style={{ backgroundColor: 'var(--text-primary)', color: 'var(--bg-primary)' }}
+          >
+            {saving ? 'Saving' : 'Save'}
+          </button>
+        </div>
+
+        <div className="max-h-[calc(100vh-140px)] overflow-y-auto px-4 py-5">
+          <div className="grid gap-4">
+            <ProfileEditField
+              label="Display name"
+              value={displayName}
+              onChange={setDisplayName}
+              maxLength={80}
+              required
+              disabled={saving}
+            />
+            <label className="block">
+              <span className="mb-1 block text-[13px]" style={{ color: 'var(--text-secondary)' }}>Bio</span>
+              <textarea
+                value={bio}
+                onChange={(event) => setBio(event.target.value)}
+                className="min-h-24 w-full resize-none rounded-md border bg-transparent px-3 py-2 text-[15px] leading-relaxed outline-none focus:border-[var(--accent)]"
+                style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                maxLength={280}
+                disabled={saving}
+              />
+            </label>
+            <ProfileEditField label="Location" value={location} onChange={setLocation} maxLength={80} disabled={saving} />
+            <ProfileEditField label="Website" value={website} onChange={setWebsite} maxLength={120} disabled={saving} />
+            <ProfileEditField label="Avatar URL" value={avatarUrl} onChange={setAvatarUrl} maxLength={500} disabled={saving} />
+            <ProfileEditField label="Banner URL" value={bannerUrl} onChange={setBannerUrl} maxLength={500} disabled={saving} />
+          </div>
+
+          {error && <p className="mt-3 text-[13px]" style={{ color: 'var(--color-danger)' }}>{error}</p>}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function ProfileEditField({
+  label,
+  value,
+  onChange,
+  maxLength,
+  required,
+  disabled,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  maxLength: number;
+  required?: boolean;
+  disabled?: boolean;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[13px]" style={{ color: 'var(--text-secondary)' }}>{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        className="w-full rounded-md border bg-transparent px-3 py-2 text-[15px] outline-none focus:border-[var(--accent)]"
+        style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+        maxLength={maxLength}
+        required={required}
+        disabled={disabled}
+      />
+    </label>
+  );
+}

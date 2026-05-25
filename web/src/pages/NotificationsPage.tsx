@@ -78,7 +78,7 @@ export function NotificationsPage() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-      <div className="sticky top-0 z-10 border-b bg-black/80 backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
+      <div className="sticky top-[var(--top-bar-height)] z-10 border-b bg-black/80 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
         <div className="px-4 py-3">
           <h1 className="text-[20px] font-bold">Notifications</h1>
         </div>

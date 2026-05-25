@@ -10,6 +10,7 @@ import { PremiumPage } from './pages/PremiumPage';
 import { ProfilePage } from './pages/ProfilePage';
 import { SettingsPage } from './pages/SettingsPage';
 import { AIPage } from './pages/AIPage';
+import { PostThreadPage } from './pages/PostThreadPage';
 
 function RootLayout() {
   const location = useLocation();
@@ -39,7 +40,7 @@ export const router = createBrowserRouter([
       { path: 'profile/:handle', element: <ProfilePage /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'ai', element: <AIPage /> },
-      { path: 'post/:id', element: <div className="p-8 text-center text-[#71767B]">Post thread — coming soon</div> },
+      { path: 'post/:id', element: <PostThreadPage /> },
     ],
   },
 ]);

@@ -39,6 +39,25 @@ export interface UserProfile extends UserSummary {
   is_followed_by: boolean;
 }
 
+export interface CreateUserProfileInput {
+  display_name: string;
+  handle: string;
+  bio?: string;
+  avatar_url?: string;
+  banner_url?: string;
+  location?: string;
+  website?: string;
+}
+
+export interface UpdateUserProfileInput {
+  display_name?: string;
+  bio?: string;
+  avatar_url?: string;
+  banner_url?: string;
+  location?: string;
+  website?: string;
+}
+
 export interface MediaAttachment {
   id: string;
   type: 'image' | 'video' | 'gif';

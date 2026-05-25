@@ -5,6 +5,8 @@
 import type {
   Post,
   UserProfile,
+  CreateUserProfileInput,
+  UpdateUserProfileInput,
   Notification,
   Conversation,
   Message,
@@ -29,6 +31,7 @@ import {
 // ─── Config ───────────────────────────────────────────────────────────────────
 
 const API_BASE = import.meta.env.VITE_API_URL ?? '';
+const MOCK_VIEWER_PROFILE_KEY = 'heyvera.mock.viewer_profile';
 
 // ─── Internal helpers ─────────────────────────────────────────────────────────
 
@@ -36,10 +39,112 @@ function delay(ms = 100): Promise<void> {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+function jsonHeaders(headers?: HeadersInit): Headers {
+  const next = new Headers(headers);
+  if (!next.has('Content-Type')) next.set('Content-Type', 'application/json');
+  return next;
+}
+
 async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
   if (!res.ok) throw new Error(`API ${res.status}`);
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
+}
+
+async function fetchAuthedApi<T>(path: string, token: string, init?: RequestInit): Promise<T> {
+  const headers = new Headers(init?.headers);
+  headers.set('Authorization', `Bearer ${token}`);
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+  });
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  if (res.status === 204) return undefined as T;
+  return res.json() as Promise<T>;
+}
+
+async function fetchOptionalAuthedApi<T>(path: string, token: string, init?: RequestInit): Promise<T | null> {
+  const headers = new Headers(init?.headers);
+  headers.set('Authorization', `Bearer ${token}`);
+
+  const res = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers,
+  });
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`API ${res.status}`);
+  return res.json() as Promise<T>;
+}
+
+function getMockViewerProfile(): UserProfile | null {
+  if (typeof localStorage === 'undefined') return null;
+
+  const raw = localStorage.getItem(MOCK_VIEWER_PROFILE_KEY);
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as UserProfile;
+  } catch {
+    localStorage.removeItem(MOCK_VIEWER_PROFILE_KEY);
+    return null;
+  }
+}
+
+function setMockViewerProfile(profile: UserProfile): void {
+  if (typeof localStorage === 'undefined') return;
+  localStorage.setItem(MOCK_VIEWER_PROFILE_KEY, JSON.stringify(profile));
+}
+
+function buildMockViewerProfile(input: CreateUserProfileInput): UserProfile {
+  const handle = input.handle.trim().replace(/^@/, '').toLowerCase();
+  const displayName = input.display_name.trim();
+
+  return {
+    id: `mock_viewer_${handle || Date.now()}`,
+    display_name: displayName,
+    handle,
+    avatar_url: input.avatar_url ?? `https://api.dicebear.com/7.x/personas/svg?seed=${encodeURIComponent(handle || displayName)}`,
+    verified: false,
+    banner_url: input.banner_url ?? '',
+    bio: input.bio ?? '',
+    location: input.location,
+    website: input.website,
+    joined_at: new Date().toISOString(),
+    follower_count: 0,
+    following_count: 0,
+    post_count: 0,
+    is_following: false,
+    is_followed_by: false,
+  };
+}
+
+function compactUpdateUserProfileInput(input: UpdateUserProfileInput): UpdateUserProfileInput {
+  return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as UpdateUserProfileInput;
+}
+
+function buildMockViewerProfileFromUpdate(input: UpdateUserProfileInput): UserProfile {
+  const displayName = input.display_name?.trim();
+  if (!displayName) {
+    throw new Error('Cannot update mock profile before one exists: display_name is required to create it.');
+  }
+
+  const handle = displayName
+    .toLowerCase()
+    .replace(/^@/, '')
+    .replace(/[^a-z0-9_]+/g, '_')
+    .replace(/^_+|_+$/g, '') || `viewer_${Date.now()}`;
+
+  return buildMockViewerProfile({
+    display_name: displayName,
+    handle,
+    bio: input.bio,
+    avatar_url: input.avatar_url,
+    banner_url: input.banner_url,
+    location: input.location,
+    website: input.website,
+  });
 }
 
 // getMockData routes mock responses by path pattern.
@@ -98,6 +203,47 @@ async function getMockData<T>(path: string, _body?: unknown): Promise<T> {
 
 // ─── Public API functions ─────────────────────────────────────────────────────
 
+/** Current signed-in viewer's profile, or null when none exists yet */
+export async function getCurrentUserProfile(token: string): Promise<UserProfile | null> {
+  if (!API_BASE) {
+    await delay(100);
+    return getMockViewerProfile();
+  }
+  return fetchOptionalAuthedApi<UserProfile>('/me/profile', token);
+}
+
+/** Create the signed-in viewer's profile */
+export async function createUserProfile(token: string, input: CreateUserProfileInput): Promise<UserProfile> {
+  if (!API_BASE) {
+    await delay(100);
+    const profile = buildMockViewerProfile(input);
+    setMockViewerProfile(profile);
+    return profile;
+  }
+  return fetchAuthedApi<UserProfile>('/me/profile', token, {
+    method: 'POST',
+    headers: jsonHeaders(),
+    body: JSON.stringify(input),
+  });
+}
+
+/** Update the signed-in viewer's profile */
+export async function updateCurrentUserProfile(token: string, input: UpdateUserProfileInput): Promise<UserProfile> {
+  const updates = compactUpdateUserProfileInput(input);
+  if (!API_BASE) {
+    await delay(100);
+    const existing = getMockViewerProfile();
+    const profile = existing ? { ...existing, ...updates } : buildMockViewerProfileFromUpdate(updates);
+    setMockViewerProfile(profile);
+    return profile;
+  }
+  return fetchAuthedApi<UserProfile>('/me/profile', token, {
+    method: 'PATCH',
+    headers: jsonHeaders(),
+    body: JSON.stringify(updates),
+  });
+}
+
 /** Home / for-you feed */
 export async function getFeed(cursor?: string): Promise<FeedResponse> {
   if (!API_BASE) return getMockData<FeedResponse>(`/feed${cursor ? `?cursor=${cursor}` : ''}`);
@@ -117,7 +263,7 @@ export async function getPost(id: string): Promise<Post> {
 }
 
 /** Create a new post */
-export async function createPost(content: string, media?: File[]): Promise<Post> {
+export async function createPost(content: string, media?: File[], token?: string): Promise<Post> {
   if (!API_BASE) {
     await delay(100);
     const newPost: Post = {
@@ -138,31 +284,36 @@ export async function createPost(content: string, media?: File[]): Promise<Post>
   const form = new FormData();
   form.append('content', content);
   if (media) media.forEach(f => form.append('media', f));
-  return fetchApi<Post>('/posts', { method: 'POST', body: form });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<Post>('/posts', token, { method: 'POST', body: form });
 }
 
 /** Like a post */
-export async function likePost(id: string): Promise<void> {
+export async function likePost(id: string, token?: string): Promise<void> {
   if (!API_BASE) return getMockData<void>(`/posts/${id}/like`);
-  return fetchApi<void>(`/posts/${id}/like`, { method: 'POST' });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<void>(`/posts/${id}/like`, token, { method: 'POST' });
 }
 
 /** Unlike a post */
-export async function unlikePost(id: string): Promise<void> {
+export async function unlikePost(id: string, token?: string): Promise<void> {
   if (!API_BASE) return getMockData<void>(`/posts/${id}/like`);
-  return fetchApi<void>(`/posts/${id}/like`, { method: 'DELETE' });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<void>(`/posts/${id}/like`, token, { method: 'DELETE' });
 }
 
 /** Repost */
-export async function repostPost(id: string): Promise<void> {
+export async function repostPost(id: string, token?: string): Promise<void> {
   if (!API_BASE) return getMockData<void>(`/posts/${id}/repost`);
-  return fetchApi<void>(`/posts/${id}/repost`, { method: 'POST' });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<void>(`/posts/${id}/repost`, token, { method: 'POST' });
 }
 
 /** Bookmark a post */
-export async function bookmarkPost(id: string): Promise<void> {
+export async function bookmarkPost(id: string, token?: string): Promise<void> {
   if (!API_BASE) return getMockData<void>(`/posts/${id}/bookmark`);
-  return fetchApi<void>(`/posts/${id}/bookmark`, { method: 'POST' });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<void>(`/posts/${id}/bookmark`, token, { method: 'POST' });
 }
 
 /** Get notifications for the current user */
@@ -211,15 +362,17 @@ export async function getProfilePosts(handle: string, cursor?: string): Promise<
 }
 
 /** Follow a user */
-export async function followUser(id: string): Promise<void> {
+export async function followUser(id: string, token?: string): Promise<void> {
   if (!API_BASE) return getMockData<void>(`/users/${id}/follow`);
-  return fetchApi<void>(`/users/${id}/follow`, { method: 'POST' });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<void>(`/users/${id}/follow`, token, { method: 'POST' });
 }
 
 /** Unfollow a user */
-export async function unfollowUser(id: string): Promise<void> {
+export async function unfollowUser(id: string, token?: string): Promise<void> {
   if (!API_BASE) return getMockData<void>(`/users/${id}/follow`);
-  return fetchApi<void>(`/users/${id}/follow`, { method: 'DELETE' });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<void>(`/users/${id}/follow`, token, { method: 'DELETE' });
 }
 
 /** All communities */

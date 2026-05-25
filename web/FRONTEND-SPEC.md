@@ -38,7 +38,8 @@ web/src/
 │   ├── PremiumPage.tsx
 │   ├── ProfilePage.tsx
 │   ├── SettingsPage.tsx
-│   └── AIPage.tsx
+│   ├── AIPage.tsx
+│   └── PostThreadPage.tsx
 ├── router.tsx          # All routes, uses AppShell as root layout
 ├── main.tsx            # Entry point, ClerkProvider + RouterProvider
 └── index.css           # Theme CSS variables + Tailwind
@@ -58,6 +59,9 @@ Mobile   (<640px):    [Feed 100%] [BottomBar 49px] [TopBar 53px]
 - BottomBar: fixed bottom, visible only below sm (640px)
 - TopBar: sticky top with backdrop-blur, visible only below lg (1024px)
 - Center column: max-width 600px, border-left + border-right 1px #2F3336
+- Shell alignment: fixed left nav and content must be aligned as one grid; do not center the feed in a way that creates a blank channel between LeftNav and the feed on wide desktop.
+- Mobile/tablet sticky rule: when TopBar is visible below lg, route-level sticky headers/tabs/search bars must use `top: var(--top-bar-height)` or otherwise avoid overlapping the TopBar.
+- Messages exception: `/messages` may use a wider center surface for split-panel conversations; do not force the chat panel into a 600px feed column.
 
 ## Dark Theme Colors
 
@@ -151,7 +155,7 @@ The most important component. Must match X.com tweet anatomy:
 | /profile/:handle | ProfilePage | Other user's profile |
 | /settings | SettingsPage | Two-panel settings with section menu |
 | /ai | AIPage | Placeholder for AI assistant |
-| /post/:id | PostThread | Single post view (stub) |
+| /post/:id | PostThreadPage | Single post view loaded through `getPost(id)` |
 
 ## API Client (web/src/api/client.ts)
 
@@ -161,10 +165,10 @@ All data loading goes through this client. When `VITE_API_URL` is empty, returns
 - `getFeed(cursor?)` → FeedResponse
 - `getFollowingFeed(cursor?)` → FeedResponse
 - `getPost(id)` → Post
-- `createPost(content, media?)` → Post
-- `likePost(id)` / `unlikePost(id)`
-- `repostPost(id)`
-- `bookmarkPost(id)`
+- `createPost(content, media?, token?)` → Post (mock mode works without token; real backend mode requires bearer auth)
+- `likePost(id, token?)` / `unlikePost(id, token?)` (mock mode works without token; real backend mode requires bearer auth)
+- `repostPost(id, token?)` (mock mode works without token; real backend mode requires bearer auth)
+- `bookmarkPost(id, token?)` (mock mode works without token; real backend mode requires bearer auth)
 - `getNotifications()` → Notification[]
 - `getConversations()` → Conversation[]
 - `getMessages(conversationId)` → Message[]
@@ -172,41 +176,45 @@ All data loading goes through this client. When `VITE_API_URL` is empty, returns
 - `getTrending()` → TrendingTopic[]
 - `getUserProfile(handle)` → UserProfile
 - `getProfilePosts(handle)` → FeedResponse
-- `followUser(id)` / `unfollowUser(id)`
+- `followUser(id, token?)` / `unfollowUser(id, token?)` (mock mode works without token; real backend mode requires bearer auth)
 - `getCommunities()` → Community[]
 - `getCommunityFeed(id)` → FeedResponse
+- `getCurrentUserProfile(token)` → UserProfile | null (`GET /me/profile`, `Authorization: Bearer <token>`, mock returns localStorage profile or null)
+- `createUserProfile(token, input)` → UserProfile (`POST /me/profile`, JSON body, `Authorization: Bearer <token>`, mock persists localStorage profile)
+- `updateCurrentUserProfile(token, input)` → UserProfile (`PATCH /me/profile`, JSON body with optional `display_name`, `bio`, `avatar_url`, `banner_url`, `location`, `website`, `Authorization: Bearer <token>`, mock updates localStorage profile)
 
 **Rule: Pages must load data from the API client, not hardcode content.**
 
 ## Remaining Polish Work (priority order)
 
 ### P0 — Must do
-- [ ] Replace emoji icons with lucide-react or custom SVG icons across LeftNav, BottomBar, PostCard action bar
-- [ ] Connect HomePage to `getFeed()` — render PostCards from mock data
-- [ ] Connect ExplorePage to `getTrending()`
-- [ ] Connect NotificationsPage to `getNotifications()`
-- [ ] Connect CommunitiesPage to `getCommunities()`
-- [ ] Connect ProfilePage to `getUserProfile()` + `getProfilePosts()`
-- [ ] Add loading spinners/skeletons while data loads
+- [x] Replace emoji icons with lucide-react or custom SVG icons across LeftNav, BottomBar, PostCard action bar
+- [x] Connect HomePage to `getFeed()` — render PostCards from mock data
+- [x] Connect ExplorePage to `getTrending()`
+- [x] Connect NotificationsPage to `getNotifications()`
+- [x] Connect CommunitiesPage to `getCommunities()`
+- [x] Connect ProfilePage to `getUserProfile()` + `getProfilePosts()`
+- [x] Add loading spinners/skeletons while data loads
 
 ### P1 — Should do
-- [ ] Like heart animation (CSS sprite or scale+color transition)
-- [ ] Hover states on all interactive elements (nav items have pill bg, cards have subtle bg change)
-- [ ] Compose modal: media upload placeholders, character counter, emoji picker placeholder
-- [ ] Messages: clicking a conversation shows messages in right panel
-- [ ] Profile: render actual PostCards in tabs
-- [ ] Settings: clicking a section shows its options in right panel
-- [ ] Search functionality in ExplorePage
+- [x] Like heart animation (CSS sprite or scale+color transition)
+- [x] Hover states on all interactive elements (nav items have pill bg, cards have subtle bg change)
+- [x] Compose modal: media upload placeholders, character counter, emoji picker placeholder
+- [x] Messages: clicking a conversation shows messages in right panel
+- [x] Profile: render actual PostCards in tabs
+- [x] Settings: clicking a section shows its options in right panel
+- [x] Search functionality in ExplorePage
+- [x] Post thread route loads a post through `getPost(id)` and renders `PostCard`
 
 ### P2 — Nice to have
-- [ ] Infinite scroll (intersection observer + cursor pagination)
-- [ ] Pull-to-refresh on mobile
-- [ ] "Show N new posts" banner at top of feed
-- [ ] Bookmark folders
-- [ ] Community feed view
-- [ ] Reply threading with vertical connector lines
-- [ ] Repost dropdown menu (Repost vs Quote)
-- [ ] Share dropdown menu
+- [x] Infinite scroll (intersection observer + cursor pagination)
+- [x] Pull-to-refresh on mobile
+- [x] "Show N new posts" banner at top of feed
+- [x] Bookmark folders
+- [x] Community feed view
+- [x] Reply threading with vertical connector lines
+- [x] Repost dropdown menu (Repost vs Quote)
+- [x] Share dropdown menu
 
 ## Rules for Workers
 
