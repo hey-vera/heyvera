@@ -401,6 +401,30 @@ pub async fn get_group_task_projection(
     Ok(Json(projection))
 }
 
+pub async fn create_group_task(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(group_id): Path<String>,
+    Json(task): Json<serde_json::Value>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let db = db_ref(&state)?;
+    let current = db
+        .get_group_task_state(&user.user_id, &group_id)
+        .and_then(|value| normalize_task_state(&group_id, &value).ok())
+        .unwrap_or_else(|| empty_task_state(&group_id));
+    let (next_state, task_id, event_payload) = apply_task_create(&group_id, &current, &task)
+        .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
+    let saved = db.upsert_group_task_state(&user.user_id, &group_id, &next_state);
+    db.record_cortex_task_event(
+        &user.user_id,
+        &group_id,
+        &task_id,
+        "task.created",
+        &event_payload,
+    );
+    Ok(Json(saved))
+}
+
 pub async fn patch_group_task(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
@@ -862,6 +886,91 @@ fn apply_task_patch(
     ))
 }
 
+fn apply_task_create(
+    group_id: &str,
+    state: &serde_json::Value,
+    task: &serde_json::Value,
+) -> Result<(serde_json::Value, String, serde_json::Value), String> {
+    let normalized_task = normalize_task(group_id, task, 0)?;
+    let task_id = normalized_task
+        .get("id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "task id is required".to_string())?
+        .to_string();
+
+    let mut next_state = state.clone();
+    let tasks = next_state
+        .get_mut("tasks")
+        .and_then(|value| value.as_array_mut())
+        .ok_or_else(|| "task state requires a tasks array".to_string())?;
+    if tasks
+        .iter()
+        .any(|task| task.get("id").and_then(|value| value.as_str()) == Some(task_id.as_str()))
+    {
+        return Err("task already exists".to_string());
+    }
+    tasks.insert(0, normalized_task.clone());
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+    let task_title = normalized_task
+        .get("title")
+        .and_then(|value| value.as_str())
+        .unwrap_or("Task");
+    let activity_kind = if normalized_task
+        .get("assigneeId")
+        .and_then(|value| value.as_str())
+        .is_some()
+    {
+        "assigned"
+    } else {
+        "created"
+    };
+    let activity_summary = if activity_kind == "assigned" {
+        format!("{task_title} created and assigned.")
+    } else {
+        format!("{task_title} created.")
+    };
+
+    let activity = next_state
+        .get_mut("activity")
+        .and_then(|value| value.as_array_mut())
+        .ok_or_else(|| "task state requires an activity array".to_string())?;
+    activity.insert(
+        0,
+        serde_json::json!({
+            "id": Uuid::new_v4().to_string(),
+            "groupId": group_id,
+            "taskId": task_id,
+            "kind": activity_kind,
+            "actor": "Cortex",
+            "summary": activity_summary,
+            "createdAt": created_at,
+        }),
+    );
+    activity.truncate(500);
+    next_state["updatedAt"] = serde_json::Value::String(created_at);
+
+    let normalized = normalize_task_state(group_id, &next_state)?;
+    let created_task = normalized
+        .get("tasks")
+        .and_then(|value| value.as_array())
+        .and_then(|tasks| {
+            tasks.iter().find(|task| {
+                task.get("id").and_then(|value| value.as_str()) == Some(task_id.as_str())
+            })
+        })
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    Ok((
+        normalized,
+        task_id,
+        serde_json::json!({
+            "task": created_task,
+        }),
+    ))
+}
+
 fn normalize_task(
     group_id: &str,
     value: &serde_json::Value,
@@ -1274,5 +1383,43 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("not allowed"));
+    }
+
+    #[test]
+    fn apply_task_create_prepends_task_and_adds_activity() {
+        let state = normalize_task_state("group-1", &valid_task_state()).unwrap();
+        let (next, task_id, payload) = apply_task_create(
+            "group-1",
+            &state,
+            &serde_json::json!({
+                "id": "task-2",
+                "groupId": "group-1",
+                "title": "Review evidence gate",
+                "description": null,
+                "status": "created",
+                "assigneeId": null,
+                "repo": "hey-vera/heyvera",
+                "priority": "normal",
+                "createdAt": "2026-05-25T00:04:00Z",
+                "updatedAt": "2026-05-25T00:04:00Z",
+                "createdBy": "You"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(task_id, "task-2");
+        assert_eq!(next["tasks"][0]["id"], "task-2");
+        assert_eq!(next["tasks"][1]["id"], "task-1");
+        assert_eq!(next["activity"][0]["kind"], "created");
+        assert_eq!(next["activity"][0]["taskId"], "task-2");
+        assert_eq!(payload["task"]["id"], "task-2");
+    }
+
+    #[test]
+    fn apply_task_create_rejects_duplicate_task_id() {
+        let state = normalize_task_state("group-1", &valid_task_state()).unwrap();
+        let error = apply_task_create("group-1", &state, &state["tasks"][0]).unwrap_err();
+
+        assert!(error.contains("already exists"));
     }
 }
