@@ -151,6 +151,7 @@ The first implementation should be read-only inspection plus verification, not m
 5. Operations event integration.
    - Record deploy inspection and verification events.
    - Read-only status inspection should emit deduped `deploy.inspected` events keyed by release evidence, not one event per UI poll.
+   - Expose recent deployment events through a read-only deployment feed so the operations room can show release history without requiring deploy mutation privileges.
 
 6. Mutating preview deploy adapter.
    - Trigger safe preview deploys only.
