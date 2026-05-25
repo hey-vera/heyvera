@@ -2506,7 +2506,7 @@ function AccountFollowing({ handle }: { handle: string }) {
 
 // ── Edit profile form ──
 
-function AccountEditProfile({
+export function AccountEditProfile({
   profile,
   getToken,
   refetchMyProfile,
