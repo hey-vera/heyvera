@@ -401,6 +401,65 @@ pub async fn get_group_task_projection(
     Ok(Json(projection))
 }
 
+pub async fn create_group_task(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(group_id): Path<String>,
+    Json(task): Json<serde_json::Value>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let db = db_ref(&state)?;
+    let current = db
+        .get_group_task_state(&user.user_id, &group_id)
+        .and_then(|value| normalize_task_state(&group_id, &value).ok())
+        .unwrap_or_else(|| empty_task_state(&group_id));
+    let (next_state, task_id, event_payload) = apply_task_create(&group_id, &current, &task)
+        .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
+    let saved = db.upsert_group_task_state(&user.user_id, &group_id, &next_state);
+    db.record_cortex_task_event(
+        &user.user_id,
+        &group_id,
+        &task_id,
+        "task.created",
+        &event_payload,
+    );
+    Ok(Json(saved))
+}
+
+pub async fn apply_group_task_actions(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(group_id): Path<String>,
+    Json(request): Json<serde_json::Value>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let db = db_ref(&state)?;
+    let current = db
+        .get_group_task_state(&user.user_id, &group_id)
+        .and_then(|value| normalize_task_state(&group_id, &value).ok())
+        .unwrap_or_else(|| empty_task_state(&group_id));
+    let (next_state, events) = apply_task_actions(&group_id, &current, &request)
+        .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
+    let saved = db.upsert_group_task_state(&user.user_id, &group_id, &next_state);
+    for event in events {
+        if let Some(task_id) = event.task_id {
+            db.record_cortex_task_event(
+                &user.user_id,
+                &group_id,
+                &task_id,
+                &event.event_type,
+                &event.payload,
+            );
+        } else {
+            db.record_cortex_task_manager_event(
+                &user.user_id,
+                &group_id,
+                &event.event_type,
+                &event.payload,
+            );
+        }
+    }
+    Ok(Json(saved))
+}
+
 pub async fn patch_group_task(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
@@ -862,6 +921,345 @@ fn apply_task_patch(
     ))
 }
 
+fn apply_task_create(
+    group_id: &str,
+    state: &serde_json::Value,
+    task: &serde_json::Value,
+) -> Result<(serde_json::Value, String, serde_json::Value), String> {
+    let normalized_task = normalize_task(group_id, task, 0)?;
+    let task_id = normalized_task
+        .get("id")
+        .and_then(|value| value.as_str())
+        .ok_or_else(|| "task id is required".to_string())?
+        .to_string();
+
+    let mut next_state = state.clone();
+    let tasks = next_state
+        .get_mut("tasks")
+        .and_then(|value| value.as_array_mut())
+        .ok_or_else(|| "task state requires a tasks array".to_string())?;
+    if tasks
+        .iter()
+        .any(|task| task.get("id").and_then(|value| value.as_str()) == Some(task_id.as_str()))
+    {
+        return Err("task already exists".to_string());
+    }
+    tasks.insert(0, normalized_task.clone());
+
+    let created_at = chrono::Utc::now().to_rfc3339();
+    let task_title = normalized_task
+        .get("title")
+        .and_then(|value| value.as_str())
+        .unwrap_or("Task");
+    let activity_kind = if normalized_task
+        .get("assigneeId")
+        .and_then(|value| value.as_str())
+        .is_some()
+    {
+        "assigned"
+    } else {
+        "created"
+    };
+    let activity_summary = if activity_kind == "assigned" {
+        format!("{task_title} created and assigned.")
+    } else {
+        format!("{task_title} created.")
+    };
+
+    let activity = next_state
+        .get_mut("activity")
+        .and_then(|value| value.as_array_mut())
+        .ok_or_else(|| "task state requires an activity array".to_string())?;
+    activity.insert(
+        0,
+        serde_json::json!({
+            "id": Uuid::new_v4().to_string(),
+            "groupId": group_id,
+            "taskId": task_id,
+            "kind": activity_kind,
+            "actor": "Cortex",
+            "summary": activity_summary,
+            "createdAt": created_at,
+        }),
+    );
+    activity.truncate(500);
+    next_state["updatedAt"] = serde_json::Value::String(created_at);
+
+    let normalized = normalize_task_state(group_id, &next_state)?;
+    let created_task = normalized
+        .get("tasks")
+        .and_then(|value| value.as_array())
+        .and_then(|tasks| {
+            tasks.iter().find(|task| {
+                task.get("id").and_then(|value| value.as_str()) == Some(task_id.as_str())
+            })
+        })
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    Ok((
+        normalized,
+        task_id,
+        serde_json::json!({
+            "task": created_task,
+        }),
+    ))
+}
+
+struct TaskActionEvent {
+    task_id: Option<String>,
+    event_type: String,
+    payload: serde_json::Value,
+}
+
+fn apply_task_actions(
+    group_id: &str,
+    state: &serde_json::Value,
+    request: &serde_json::Value,
+) -> Result<(serde_json::Value, Vec<TaskActionEvent>), String> {
+    let object = request
+        .as_object()
+        .ok_or_else(|| "task actions request must be an object".to_string())?;
+    let actions = object
+        .get("actions")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| "task actions request requires an actions array".to_string())?;
+    if actions.is_empty() {
+        return Err("task actions request requires at least one action".to_string());
+    }
+    if actions.len() > 50 {
+        return Err("task actions request exceeds 50 actions".to_string());
+    }
+    let actor = optional_string(object.get("actor"), 256)?.unwrap_or_else(|| "You".to_string());
+    let timestamp = chrono::Utc::now().to_rfc3339();
+    let mut next_state = state.clone();
+    let mut events = Vec::new();
+
+    for (index, action) in actions.iter().enumerate() {
+        let action_object = action
+            .as_object()
+            .ok_or_else(|| format!("action {index} must be an object"))?;
+        let action_type = required_string(
+            action_object.get("type"),
+            32,
+            &format!("action {index} type"),
+        )?;
+        if !matches!(action_type.as_str(), "task" | "status" | "handoff" | "note") {
+            return Err(format!("action {index} has invalid type"));
+        }
+        let title = required_string(
+            action_object.get("title"),
+            256,
+            &format!("action {index} title"),
+        )?;
+        let summary = required_string(
+            action_object.get("summary"),
+            1024,
+            &format!("action {index} summary"),
+        )?;
+
+        if action_type == "status" {
+            let target_task_id = required_string(
+                action_object.get("targetTaskId"),
+                256,
+                &format!("action {index} targetTaskId"),
+            )?;
+            let status = required_string(
+                action_object.get("status"),
+                32,
+                &format!("action {index} status"),
+            )?;
+            if !matches!(status.as_str(), "created" | "assigned" | "in-progress" | "done") {
+                return Err(format!("action {index} has invalid status"));
+            }
+            let tasks = next_state
+                .get_mut("tasks")
+                .and_then(|value| value.as_array_mut())
+                .ok_or_else(|| "task state requires a tasks array".to_string())?;
+            let task = tasks
+                .iter_mut()
+                .find(|task| {
+                    task.get("id").and_then(|value| value.as_str())
+                        == Some(target_task_id.as_str())
+                })
+                .ok_or_else(|| format!("action {index} target task not found"))?;
+            let previous_task = task.clone();
+            let task_object = task
+                .as_object_mut()
+                .ok_or_else(|| format!("action {index} target task must be an object"))?;
+            task_object.insert("status".to_string(), serde_json::Value::String(status.clone()));
+            task_object.insert("updatedAt".to_string(), serde_json::Value::String(timestamp.clone()));
+            let next_task = task.clone();
+            push_task_activity(
+                group_id,
+                &mut next_state,
+                Some(&target_task_id),
+                "status",
+                &actor,
+                &summary,
+                &timestamp,
+            )?;
+            events.push(TaskActionEvent {
+                task_id: Some(target_task_id),
+                event_type: "task.status_changed".to_string(),
+                payload: serde_json::json!({
+                    "action": action,
+                    "previous": previous_task,
+                    "next": next_task,
+                }),
+            });
+            continue;
+        }
+
+        if action_type == "note" {
+            push_task_activity(
+                group_id,
+                &mut next_state,
+                None,
+                "note",
+                &actor,
+                &summary,
+                &timestamp,
+            )?;
+            events.push(TaskActionEvent {
+                task_id: None,
+                event_type: "task.note_added".to_string(),
+                payload: serde_json::json!({
+                    "action": action,
+                    "summary": summary,
+                }),
+            });
+            continue;
+        }
+
+        let assignee_id = optional_string(action_object.get("assigneeId"), 256)?;
+        let status = optional_string(action_object.get("status"), 32)?.unwrap_or_else(|| {
+            if assignee_id.is_some() {
+                "assigned".to_string()
+            } else {
+                "created".to_string()
+            }
+        });
+        if !matches!(status.as_str(), "created" | "assigned" | "in-progress" | "done") {
+            return Err(format!("action {index} has invalid status"));
+        }
+        let task_id = Uuid::new_v4().to_string();
+        let task = serde_json::json!({
+            "id": task_id,
+            "groupId": group_id,
+            "title": title,
+            "description": null,
+            "status": status,
+            "assigneeId": assignee_id,
+            "repo": null,
+            "priority": "normal",
+            "createdAt": timestamp,
+            "updatedAt": timestamp,
+            "createdBy": actor,
+        });
+        let tasks = next_state
+            .get_mut("tasks")
+            .and_then(|value| value.as_array_mut())
+            .ok_or_else(|| "task state requires a tasks array".to_string())?;
+        tasks.insert(0, task.clone());
+        if assignee_id.is_some() && status == "in-progress" {
+            mark_member_working(&mut next_state, assignee_id.as_deref(), &task_id)?;
+        }
+        let activity_kind = if action_type == "handoff" {
+            "handoff"
+        } else if assignee_id.is_some() {
+            "assigned"
+        } else {
+            "created"
+        };
+        push_task_activity(
+            group_id,
+            &mut next_state,
+            Some(&task_id),
+            activity_kind,
+            &actor,
+            &summary,
+            &timestamp,
+        )?;
+        let event_type = if action_type == "handoff" {
+            "task.handoff"
+        } else {
+            "task.created"
+        };
+        events.push(TaskActionEvent {
+            task_id: Some(task_id),
+            event_type: event_type.to_string(),
+            payload: serde_json::json!({
+                "action": action,
+                "task": task,
+            }),
+        });
+    }
+
+    next_state["updatedAt"] = serde_json::Value::String(timestamp);
+    Ok((normalize_task_state(group_id, &next_state)?, events))
+}
+
+fn push_task_activity(
+    group_id: &str,
+    state: &mut serde_json::Value,
+    task_id: Option<&str>,
+    kind: &str,
+    actor: &str,
+    summary: &str,
+    created_at: &str,
+) -> Result<(), String> {
+    let activity = state
+        .get_mut("activity")
+        .and_then(|value| value.as_array_mut())
+        .ok_or_else(|| "task state requires an activity array".to_string())?;
+    activity.insert(
+        0,
+        serde_json::json!({
+            "id": Uuid::new_v4().to_string(),
+            "groupId": group_id,
+            "taskId": task_id,
+            "kind": kind,
+            "actor": actor,
+            "summary": summary,
+            "createdAt": created_at,
+        }),
+    );
+    activity.truncate(500);
+    Ok(())
+}
+
+fn mark_member_working(
+    state: &mut serde_json::Value,
+    assignee_id: Option<&str>,
+    task_id: &str,
+) -> Result<(), String> {
+    let Some(assignee_id) = assignee_id else {
+        return Ok(());
+    };
+    let members = state
+        .get_mut("members")
+        .and_then(|value| value.as_array_mut())
+        .ok_or_else(|| "task state requires a members array".to_string())?;
+    for member in members {
+        let member_object = member
+            .as_object_mut()
+            .ok_or_else(|| "member must be an object".to_string())?;
+        let member_id = member_object.get("id").and_then(|value| value.as_str());
+        if member_id == Some(assignee_id) {
+            member_object.insert(
+                "status".to_string(),
+                serde_json::Value::String("working".to_string()),
+            );
+            member_object.insert(
+                "currentTaskId".to_string(),
+                serde_json::Value::String(task_id.to_string()),
+            );
+        }
+    }
+    Ok(())
+}
+
 fn normalize_task(
     group_id: &str,
     value: &serde_json::Value,
@@ -1274,5 +1672,122 @@ mod tests {
         .unwrap_err();
 
         assert!(error.contains("not allowed"));
+    }
+
+    #[test]
+    fn apply_task_create_prepends_task_and_adds_activity() {
+        let state = normalize_task_state("group-1", &valid_task_state()).unwrap();
+        let (next, task_id, payload) = apply_task_create(
+            "group-1",
+            &state,
+            &serde_json::json!({
+                "id": "task-2",
+                "groupId": "group-1",
+                "title": "Review evidence gate",
+                "description": null,
+                "status": "created",
+                "assigneeId": null,
+                "repo": "hey-vera/heyvera",
+                "priority": "normal",
+                "createdAt": "2026-05-25T00:04:00Z",
+                "updatedAt": "2026-05-25T00:04:00Z",
+                "createdBy": "You"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(task_id, "task-2");
+        assert_eq!(next["tasks"][0]["id"], "task-2");
+        assert_eq!(next["tasks"][1]["id"], "task-1");
+        assert_eq!(next["activity"][0]["kind"], "created");
+        assert_eq!(next["activity"][0]["taskId"], "task-2");
+        assert_eq!(payload["task"]["id"], "task-2");
+    }
+
+    #[test]
+    fn apply_task_create_rejects_duplicate_task_id() {
+        let state = normalize_task_state("group-1", &valid_task_state()).unwrap();
+        let error = apply_task_create("group-1", &state, &state["tasks"][0]).unwrap_err();
+
+        assert!(error.contains("already exists"));
+    }
+
+    #[test]
+    fn apply_task_actions_creates_tasks_and_records_events() {
+        let state = normalize_task_state("group-1", &valid_task_state()).unwrap();
+        let (next, events) = apply_task_actions(
+            "group-1",
+            &state,
+            &serde_json::json!({
+                "actor": "You",
+                "actions": [{
+                    "type": "task",
+                    "title": "Add command mutation endpoint",
+                    "assigneeId": "user-1",
+                    "status": "assigned",
+                    "summary": "Assigned command mutation endpoint to You."
+                }]
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(next["tasks"][0]["title"], "Add command mutation endpoint");
+        assert_eq!(next["tasks"][0]["assigneeId"], "user-1");
+        assert_eq!(next["activity"][0]["kind"], "assigned");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "task.created");
+        assert_eq!(events[0].payload["action"]["type"], "task");
+    }
+
+    #[test]
+    fn apply_task_actions_updates_status_without_replacing_board() {
+        let state = normalize_task_state("group-1", &valid_task_state()).unwrap();
+        let (next, events) = apply_task_actions(
+            "group-1",
+            &state,
+            &serde_json::json!({
+                "actor": "You",
+                "actions": [{
+                    "type": "status",
+                    "title": "Ship the operation queue",
+                    "targetTaskId": "task-1",
+                    "status": "done",
+                    "summary": "Marked Ship the operation queue done."
+                }]
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(next["tasks"][0]["id"], "task-1");
+        assert_eq!(next["tasks"][0]["status"], "done");
+        assert_eq!(next["activity"][0]["kind"], "status");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "task.status_changed");
+        assert_eq!(events[0].payload["previous"]["status"], "in-progress");
+        assert_eq!(events[0].payload["next"]["status"], "done");
+    }
+
+    #[test]
+    fn apply_task_actions_records_manager_note_event() {
+        let state = normalize_task_state("group-1", &valid_task_state()).unwrap();
+        let (next, events) = apply_task_actions(
+            "group-1",
+            &state,
+            &serde_json::json!({
+                "actor": "You",
+                "actions": [{
+                    "type": "note",
+                    "title": "Hold the rollout",
+                    "summary": "Coordination note: Hold the rollout"
+                }]
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(next["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(next["activity"][0]["kind"], "note");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].task_id, None);
+        assert_eq!(events[0].event_type, "task.note_added");
     }
 }

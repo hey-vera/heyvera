@@ -1,4 +1,11 @@
-import type { ChatSessionControls, CortexState, RunProfile, SovereigntyLoopState, TaskManagerState } from '../types';
+import type {
+  ChatSessionControls,
+  CortexState,
+  RunProfile,
+  SovereigntyLoopState,
+  TaskCommandAction,
+  TaskManagerState,
+} from '../types';
 
 const CONFIGURED_API_BASE = import.meta.env.VITE_CORTEX_API as string | undefined;
 const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.heyvera.org');
@@ -470,6 +477,41 @@ export async function updateGroupTaskManagerState(
     method: 'PUT',
     body: JSON.stringify(state),
   });
+}
+
+export async function createGroupTaskManagerTask(
+  groupId: string,
+  task: TaskManagerState['tasks'][number],
+): Promise<TaskManagerState> {
+  return requestJson<TaskManagerState>(`/api/groups/${encodeURIComponent(groupId)}/tasks`, {
+    method: 'POST',
+    body: JSON.stringify(task),
+  });
+}
+
+export async function applyGroupTaskManagerActions(
+  groupId: string,
+  actions: TaskCommandAction[],
+  actor: string,
+): Promise<TaskManagerState> {
+  return requestJson<TaskManagerState>(`/api/groups/${encodeURIComponent(groupId)}/tasks/actions`, {
+    method: 'POST',
+    body: JSON.stringify({ actions, actor }),
+  });
+}
+
+export async function patchGroupTaskManagerTask(
+  groupId: string,
+  taskId: string,
+  patch: Partial<TaskManagerState['tasks'][number]>,
+): Promise<TaskManagerState> {
+  return requestJson<TaskManagerState>(
+    `/api/groups/${encodeURIComponent(groupId)}/tasks/${encodeURIComponent(taskId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    },
+  );
 }
 
 export interface IntegrationConnection {

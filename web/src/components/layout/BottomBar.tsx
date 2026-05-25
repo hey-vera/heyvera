@@ -33,7 +33,7 @@ export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps
       <button
         onClick={onCompose}
         aria-label="Compose post"
-        className="sm:hidden fixed bottom-[61px] right-4 z-50 w-14 h-14 rounded-full flex items-center justify-center text-2xl font-bold shadow-lg"
+        className="sm:hidden fixed bottom-[calc(61px+env(safe-area-inset-bottom))] right-4 z-50 w-14 h-14 rounded-full flex items-center justify-center text-2xl font-bold shadow-lg"
         style={{ backgroundColor: "var(--accent)", color: "#000" }}
       >
         <Feather className="h-6 w-6" strokeWidth={2.4} aria-hidden="true" />
@@ -43,7 +43,8 @@ export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps
       <nav
         className="sm:hidden fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around"
         style={{
-          height: "49px",
+          height: "calc(49px + env(safe-area-inset-bottom))",
+          paddingBottom: "env(safe-area-inset-bottom)",
           backgroundColor: "#000",
           borderTop: "1px solid var(--border-primary)",
         }}
