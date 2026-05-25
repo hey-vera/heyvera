@@ -16,3 +16,7 @@ Rules:
 - proposals must not override canonical docs
 - proposals should name assumptions and dependencies clearly
 - once adopted, their durable truths should move into `docs/architecture/`, `docs/reference/`, or `docs/decisions/`
+
+## Current Proposals
+
+- `heyvera-production-foundation.md` - production foundation proposal for the X-style frontend plus Rust social backend.

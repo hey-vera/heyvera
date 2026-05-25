@@ -16,6 +16,10 @@ Before creating implementation issues from an active internal doc, check `../ide
 - near-term roadmap shaping
 - internal design work that is relevant now
 
+## Current HeyVera Workstreams
+
+- `heyvera-production-development-plan.md` - internal execution plan for parallel frontend/backend production slices.
+
 ## Graduation Rule
 
 If a doc from `active/` becomes:
