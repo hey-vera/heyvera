@@ -401,6 +401,15 @@ pub async fn get_group_task_projection(
     Ok(Json(projection))
 }
 
+pub async fn get_group_operations_summary(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(group_id): Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let db = db_ref(&state)?;
+    Ok(Json(db.get_group_operations_summary(&user.user_id, &group_id, 25)))
+}
+
 pub async fn update_group_tasks(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,

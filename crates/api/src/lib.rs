@@ -198,6 +198,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/groups/{group_id}/tasks", get(integrations::get_group_tasks))
         .route("/api/groups/{group_id}/tasks", put(integrations::update_group_tasks))
         .route("/api/groups/{group_id}/tasks/{task_id}/projection", get(integrations::get_group_task_projection))
+        .route("/api/groups/{group_id}/operations/summary", get(integrations::get_group_operations_summary))
         // Billing & Subscription
         .route("/api/billing/status", get(billing::get_billing_status))
         .route("/api/billing/checkout", post(billing::create_checkout))
