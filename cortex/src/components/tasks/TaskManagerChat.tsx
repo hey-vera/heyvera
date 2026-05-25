@@ -746,6 +746,7 @@ export default function TaskManagerChat({
               tasks={taskManager.state.tasks}
               members={taskManager.state.members}
               compact
+              showBackendSignals
               selectedTaskId={selectedTask?.id ?? null}
               onUpdateTask={taskManager.updateTask}
               onSelectTask={handleSelectTask}
