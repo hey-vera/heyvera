@@ -48,11 +48,12 @@ jobs:
           TAILSCALE_HOST: ${{ vars.TAILSCALE_HOST }}
         run: |
           test -n "$TAILSCALE_HOST"
-          TARGET=/var/www/heyvera
+          TARGET="\$HOME/www/heyvera"
 
-          # Caddy serves /var/www/heyvera, so fail rather than deploying elsewhere.
+          # Caddy serves the deploy user's home path because this account cannot
+          # create /var/www/heyvera without an interactive sudo password.
           ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" \
-            "sudo -n mkdir -p ${TARGET} && sudo -n chown -R ${DEPLOY_USER}:${DEPLOY_USER} ${TARGET}"
+            "mkdir -p ${TARGET}"
 
           echo "Deploying to ${TARGET}"
 
