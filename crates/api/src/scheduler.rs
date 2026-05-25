@@ -1613,22 +1613,25 @@ fn kind_to_intent(kind: StepKind) -> Intent {
 
 pub fn build_resource_lease_requests(
     file_paths: &[String],
+    repo_key: Option<&str>,
     task_id: Option<&str>,
     group_id: Option<&str>,
 ) -> Vec<ResourceLeaseRequest> {
     let mut seen = HashSet::new();
     let mut requests = Vec::new();
+    let repo_key = normalize_repo_key(repo_key);
 
     if let (Some(group_id), Some(task_id)) = (group_id, task_id) {
         let key = format!("{group_id}:{task_id}");
         if seen.insert(format!("task:{key}")) {
             requests.push(ResourceLeaseRequest {
                 resource_type: "task".to_string(),
-                repo_key: "default".to_string(),
+                repo_key: repo_key.clone(),
                 resource_key: key,
                 mode: "exclusive".to_string(),
                 reason: Some("task-bound run".to_string()),
                 metadata: serde_json::json!({
+                    "repo_key": repo_key,
                     "group_id": group_id,
                     "task_id": task_id,
                 }),
@@ -1640,11 +1643,11 @@ pub fn build_resource_lease_requests(
         if seen.insert("path:.".to_string()) {
             requests.push(ResourceLeaseRequest {
                 resource_type: "path".to_string(),
-                repo_key: "default".to_string(),
+                repo_key: repo_key.clone(),
                 resource_key: ".".to_string(),
                 mode: "write".to_string(),
                 reason: Some("repo-wide run without explicit file paths".to_string()),
-                metadata: serde_json::json!({ "repo_wide": true }),
+                metadata: serde_json::json!({ "repo_key": repo_key, "repo_wide": true }),
             });
         }
     } else {
@@ -1656,11 +1659,11 @@ pub fn build_resource_lease_requests(
             if seen.insert(format!("path:{key}")) {
                 requests.push(ResourceLeaseRequest {
                     resource_type: "path".to_string(),
-                    repo_key: "default".to_string(),
+                    repo_key: repo_key.clone(),
                     resource_key: key.clone(),
                     mode: "write".to_string(),
                     reason: Some("run file path scope".to_string()),
-                    metadata: serde_json::json!({ "path": key }),
+                    metadata: serde_json::json!({ "repo_key": repo_key, "path": key }),
                 });
             }
         }
@@ -1669,12 +1672,21 @@ pub fn build_resource_lease_requests(
     requests
 }
 
+pub fn normalize_repo_key(repo_key: Option<&str>) -> String {
+    repo_key
+        .map(str::trim)
+        .filter(|key| !key.is_empty())
+        .unwrap_or("default")
+        .to_string()
+}
+
 pub async fn create_run_from_goal(
     state: &AppState,
     scheduler_tx: &SchedulerTx,
     user_id: &str,
     goal: &str,
     file_paths: &[String],
+    repo_key: Option<&str>,
     profile: &str,
     task_id: Option<&str>,
     group_id: Option<&str>,
@@ -1730,7 +1742,9 @@ pub async fn create_run_from_goal(
         })
         .collect();
 
-    let resource_leases = build_resource_lease_requests(file_paths, task_id, group_id);
+    let normalized_repo_key = normalize_repo_key(repo_key);
+    let resource_leases =
+        build_resource_lease_requests(file_paths, Some(&normalized_repo_key), task_id, group_id);
     let run_id = db.create_run_with_steps_and_resource_leases(
         user_id,
         goal,
@@ -1753,9 +1767,10 @@ pub async fn create_run_from_goal(
         .map_err(|_| "scheduler channel closed")?;
 
     tracing::info!(
-        "created run {run_id}: {} steps, {} edges",
+        "created run {run_id}: {} steps, {} edges, repo_key={}",
         builder.steps().len(),
-        builder.edges().len()
+        builder.edges().len(),
+        normalized_repo_key
     );
 
     Ok(run_id)
@@ -1781,15 +1796,18 @@ mod tests {
                 "src/main.rs".to_string(),
                 "src/lib.rs".to_string(),
             ],
+            Some("github:hey-vera/heyvera"),
             Some("task-1"),
             Some("group-1"),
         );
 
         assert_eq!(requests.len(), 3);
         assert_eq!(requests[0].resource_type, "task");
+        assert_eq!(requests[0].repo_key, "github:hey-vera/heyvera");
         assert_eq!(requests[0].resource_key, "group-1:task-1");
         assert_eq!(requests[0].mode, "exclusive");
         assert_eq!(requests[1].resource_type, "path");
+        assert_eq!(requests[1].repo_key, "github:hey-vera/heyvera");
         assert_eq!(requests[1].resource_key, "src/main.rs");
         assert_eq!(requests[1].mode, "write");
         assert_eq!(requests[2].resource_key, "src/lib.rs");
@@ -1797,12 +1815,32 @@ mod tests {
 
     #[test]
     fn build_resource_lease_requests_uses_repo_wide_path_without_file_paths() {
-        let requests = build_resource_lease_requests(&[], None, None);
+        let requests = build_resource_lease_requests(&[], None, None, None);
 
         assert_eq!(requests.len(), 1);
         assert_eq!(requests[0].resource_type, "path");
+        assert_eq!(requests[0].repo_key, "default");
         assert_eq!(requests[0].resource_key, ".");
         assert_eq!(requests[0].metadata["repo_wide"], true);
+    }
+
+    #[test]
+    fn build_resource_lease_requests_scopes_same_paths_by_repo_key() {
+        let first = build_resource_lease_requests(
+            &["src/main.rs".to_string()],
+            Some("github:hey-vera/heyvera"),
+            None,
+            None,
+        );
+        let second = build_resource_lease_requests(
+            &["src/main.rs".to_string()],
+            Some("github:claw-net/claw-net"),
+            None,
+            None,
+        );
+
+        assert_eq!(first[0].resource_key, second[0].resource_key);
+        assert_ne!(first[0].repo_key, second[0].repo_key);
     }
 
     #[test]

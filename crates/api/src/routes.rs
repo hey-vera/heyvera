@@ -122,6 +122,12 @@ pub struct CreateRunRequest {
     pub goal: String,
     #[serde(default)]
     pub file_paths: Vec<String>,
+    /// Stable repository/workspace scope for conflict prevention.
+    ///
+    /// Prefer `github:{owner}/{repo}` when known. Omit for backward-compatible
+    /// single-workspace behavior.
+    #[serde(default)]
+    pub repo_key: Option<String>,
     #[serde(default = "default_profile")]
     pub profile: String,
     #[serde(default)]
@@ -153,13 +159,31 @@ pub async fn create_run(
     if req.file_paths.len() > 50 {
         return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "too many file paths (max 50)".into() })));
     }
+    if let Some(repo_key) = req.repo_key.as_deref() {
+        if repo_key.len() > 256
+            || !repo_key
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.' | '/'))
+        {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "invalid repo_key".into(),
+                }),
+            ));
+        }
+    }
     for (label, value) in [
         ("task_id", req.task_id.as_deref()),
         ("group_id", req.group_id.as_deref()),
         ("conversation_id", req.conversation_id.as_deref()),
     ] {
         if let Some(value) = value {
-            if value.len() > 256 || !value.chars().all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.')) {
+            if value.len() > 256
+                || !value
+                    .chars()
+                    .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.'))
+            {
                 return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: format!("invalid {label}") })));
             }
         }
@@ -227,6 +251,7 @@ pub async fn create_run(
         user_id,
         &req.goal,
         &file_paths,
+        req.repo_key.as_deref(),
         &req.profile,
         req.task_id.as_deref(),
         req.group_id.as_deref(),

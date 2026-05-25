@@ -6188,9 +6188,13 @@ mod tests {
     }
 
     fn path_lease(path: &str) -> ResourceLeaseRequest {
+        path_lease_in_repo("default", path)
+    }
+
+    fn path_lease_in_repo(repo_key: &str, path: &str) -> ResourceLeaseRequest {
         ResourceLeaseRequest {
             resource_type: "path".to_string(),
-            repo_key: "default".to_string(),
+            repo_key: repo_key.to_string(),
             resource_key: path.to_string(),
             mode: "write".to_string(),
             reason: Some("test".to_string()),
@@ -6356,6 +6360,39 @@ mod tests {
             )
             .unwrap();
         assert_eq!(leaked_steps, 0);
+    }
+
+    #[test]
+    fn resource_lease_path_conflicts_are_scoped_by_repo_key() {
+        let db = test_db();
+        db.create_run_with_steps_and_resource_leases(
+            "user-1",
+            "Ship first repo path change",
+            "auto",
+            &["src/main.rs".to_string()],
+            None,
+            None,
+            None,
+            &[path_lease_in_repo("github:hey-vera/heyvera", "src/main.rs")],
+            &[test_step("step-a")],
+            &[],
+        )
+        .expect("first run");
+
+        let same_path_other_repo = db.create_run_with_steps_and_resource_leases(
+            "user-1",
+            "Ship second repo path change",
+            "auto",
+            &["src/main.rs".to_string()],
+            None,
+            None,
+            None,
+            &[path_lease_in_repo("github:claw-net/claw-net", "src/main.rs")],
+            &[test_step("step-b")],
+            &[],
+        );
+
+        assert!(same_path_other_repo.is_ok());
     }
 
     #[test]
