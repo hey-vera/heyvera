@@ -893,6 +893,19 @@ export interface TaskProjection {
     created_at: string;
     updated_at: string;
     version: number;
+    completion?: {
+      gated_done: boolean;
+      raw_done: boolean;
+      reason: string;
+      run_id?: string | null;
+      run_status?: string | null;
+      steps: {
+        total: number;
+        verified_pass: number;
+        failed: number;
+        unverified: number;
+      };
+    };
   };
   runs: TaskProjectionRun[];
   chats: TaskProjectionChat[];
@@ -907,6 +920,7 @@ export interface GroupOperationsAttentionItem {
   title?: string | null;
   status?: string | null;
   priority?: string | null;
+  reason?: string | null;
   created_at?: number | null;
   updated_at?: string | null;
 }
@@ -927,6 +941,8 @@ export interface GroupOperationsSummary {
     completion: {
       gated_done_available: boolean;
       raw_done: number;
+      gated_done?: number;
+      done_without_evidence?: number;
     };
   };
   runs: {
