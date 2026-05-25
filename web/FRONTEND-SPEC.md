@@ -236,6 +236,9 @@ All data loading goes through this client. When `VITE_API_URL` is empty, returns
 - Build command: `npm run build`
 - Build output directory: `dist` (NOT `/dist`)
 - No submodules allowed in the repo
+- `heyvera.org` is the Cloudflare Pages frontend origin today; treat it as a web surface, not proof that `/v1/*` API proxying is ready.
+- Do not set production `VITE_API_URL` to `https://heyvera.org/v1` until the upstream backend `https://api.heyvera.org/v1/*` routes exist and the Pages Function proxy is verified end-to-end.
+- `https://api.heyvera.org/api/health` is the currently working live backend health path; `https://api.heyvera.org/v1/health` is not live yet.
 
 ---
 
