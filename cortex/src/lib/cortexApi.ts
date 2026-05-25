@@ -880,6 +880,23 @@ export interface TaskProjectionChat {
   attached_at: string;
 }
 
+export interface CortexApprovalRequest {
+  id: string;
+  group_id: string;
+  task_id?: string | null;
+  conversation_id?: string | null;
+  run_id?: string | null;
+  status: 'pending' | 'approved' | 'rejected' | 'cancelled' | string;
+  title: string;
+  body: string;
+  priority: 'normal' | 'high' | 'urgent' | string;
+  requested_by: string;
+  decision?: unknown;
+  created_at: number;
+  updated_at: number;
+  resolved_at?: number | null;
+}
+
 export interface TaskProjection {
   task: {
     id: string;
@@ -909,11 +926,13 @@ export interface TaskProjection {
   };
   runs: TaskProjectionRun[];
   chats: TaskProjectionChat[];
+  approvals: CortexApprovalRequest[];
   events: RunOperationEvent[];
 }
 
 export interface GroupOperationsAttentionItem {
   kind: string;
+  approval_id?: string | null;
   task_id?: string | null;
   run_id?: string | null;
   step_id?: string | null;
@@ -959,6 +978,12 @@ export interface GroupOperationsSummary {
     orphaned: number;
     verified_pass: number;
     verified_fail: number;
+  };
+  approvals?: {
+    total: number;
+    pending: number;
+    approved: number;
+    rejected: number;
   };
   attention: GroupOperationsAttentionItem[];
   recent_events: RunOperationEvent[];
@@ -1030,6 +1055,49 @@ export async function getTaskProjection(groupId: string, taskId: string): Promis
 export async function getGroupOperationsSummary(groupId: string): Promise<GroupOperationsSummary> {
   return requestJson<GroupOperationsSummary>(
     `/api/groups/${encodeURIComponent(groupId)}/operations/summary`,
+  );
+}
+
+export async function listGroupApprovals(
+  groupId: string,
+  status?: string,
+): Promise<CortexApprovalRequest[]> {
+  const query = status ? `?status=${encodeURIComponent(status)}` : '';
+  return requestJson<CortexApprovalRequest[]>(
+    `/api/groups/${encodeURIComponent(groupId)}/approvals${query}`,
+  );
+}
+
+export async function createGroupApproval(
+  groupId: string,
+  request: {
+    title: string;
+    body?: string;
+    task_id?: string | null;
+    conversation_id?: string | null;
+    run_id?: string | null;
+    priority?: string;
+    requested_by?: string;
+  },
+): Promise<CortexApprovalRequest> {
+  return requestJson<CortexApprovalRequest>(`/api/groups/${encodeURIComponent(groupId)}/approvals`, {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function resolveGroupApproval(
+  groupId: string,
+  requestId: string,
+  status: 'approved' | 'rejected' | 'cancelled',
+  decision: unknown = {},
+): Promise<CortexApprovalRequest> {
+  return requestJson<CortexApprovalRequest>(
+    `/api/groups/${encodeURIComponent(groupId)}/approvals/${encodeURIComponent(requestId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify({ status, decision }),
+    },
   );
 }
 

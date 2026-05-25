@@ -204,7 +204,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 21;
+const SCHEMA_VERSION: i64 = 22;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -279,6 +279,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 21 {
         migrate_v21(conn);
+    }
+    if current < 22 {
+        migrate_v22(conn);
     }
 }
 
@@ -1073,6 +1076,38 @@ fn migrate_v21(conn: &Connection) {
     tracing::info!("applied migration v21: operations summary query indexes");
 }
 
+fn migrate_v22(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS cortex_approval_requests (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            group_id TEXT NOT NULL,
+            task_id TEXT,
+            conversation_id TEXT,
+            run_id TEXT,
+            status TEXT NOT NULL DEFAULT 'pending',
+            title TEXT NOT NULL,
+            body TEXT NOT NULL DEFAULT '',
+            priority TEXT NOT NULL DEFAULT 'normal',
+            requested_by TEXT NOT NULL DEFAULT 'cortex',
+            decision_json TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            resolved_at INTEGER
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_cortex_approval_requests_group_status
+            ON cortex_approval_requests(user_id, group_id, status, updated_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_cortex_approval_requests_task
+            ON cortex_approval_requests(user_id, group_id, task_id, updated_at DESC);
+
+        UPDATE schema_version SET version = 22;"
+    ).expect("migration v22 failed");
+
+    tracing::info!("applied migration v22: Cortex approval request ledger");
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CortexGroup {
     pub id: String,
@@ -1083,6 +1118,24 @@ pub struct CortexGroup {
     pub accent: String,
     pub source: String,
     pub external_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CortexApprovalRequest {
+    pub id: String,
+    pub group_id: String,
+    pub task_id: Option<String>,
+    pub conversation_id: Option<String>,
+    pub run_id: Option<String>,
+    pub status: String,
+    pub title: String,
+    pub body: String,
+    pub priority: String,
+    pub requested_by: String,
+    pub decision: Option<serde_json::Value>,
+    pub created_at: i64,
+    pub updated_at: i64,
+    pub resolved_at: Option<i64>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1813,6 +1866,193 @@ impl Database {
         );
     }
 
+    pub fn create_cortex_approval_request(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        task_id: Option<&str>,
+        conversation_id: Option<&str>,
+        run_id: Option<&str>,
+        title: &str,
+        body: &str,
+        priority: &str,
+        requested_by: &str,
+    ) -> CortexApprovalRequest {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().timestamp_millis();
+        let normalized_priority = match priority {
+            "high" | "urgent" => priority,
+            _ => "normal",
+        };
+        conn.execute(
+            "INSERT INTO cortex_approval_requests (
+                id, user_id, group_id, task_id, conversation_id, run_id, status,
+                title, body, priority, requested_by, created_at, updated_at
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, ?9, ?10, ?11, ?11)",
+            params![
+                id,
+                user_id,
+                group_id,
+                task_id,
+                conversation_id,
+                run_id,
+                title.trim(),
+                body.trim(),
+                normalized_priority,
+                requested_by.trim(),
+                now,
+            ],
+        ).expect("failed to create cortex approval request");
+
+        insert_operations_event(
+            &conn,
+            Some(user_id),
+            Some(group_id),
+            None,
+            task_id,
+            run_id,
+            None,
+            None,
+            "approval.requested",
+            "approval_request",
+            &id,
+            &serde_json::json!({
+                "id": id,
+                "title": title.trim(),
+                "priority": normalized_priority,
+                "requested_by": requested_by.trim(),
+            }),
+        );
+
+        self.approval_request_from_row(&conn, user_id, group_id, &id)
+            .expect("approval request should exist after insert")
+    }
+
+    pub fn list_cortex_approval_requests(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        status: Option<&str>,
+        limit: usize,
+    ) -> Vec<CortexApprovalRequest> {
+        let conn = self.conn.lock().unwrap();
+        let limit = limit.clamp(1, 100) as i64;
+        let mut requests = Vec::new();
+        if let Some(status) = status {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM cortex_approval_requests
+                 WHERE user_id = ?1 AND group_id = ?2 AND status = ?3
+                 ORDER BY updated_at DESC, id DESC
+                 LIMIT ?4",
+            ).unwrap();
+            let rows = stmt.query_map(params![user_id, group_id, status, limit], |row| row.get::<_, String>(0)).unwrap();
+            for id in rows.filter_map(|row| row.ok()) {
+                if let Some(request) = self.approval_request_from_row(&conn, user_id, group_id, &id) {
+                    requests.push(request);
+                }
+            }
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT id FROM cortex_approval_requests
+                 WHERE user_id = ?1 AND group_id = ?2
+                 ORDER BY updated_at DESC, id DESC
+                 LIMIT ?3",
+            ).unwrap();
+            let rows = stmt.query_map(params![user_id, group_id, limit], |row| row.get::<_, String>(0)).unwrap();
+            for id in rows.filter_map(|row| row.ok()) {
+                if let Some(request) = self.approval_request_from_row(&conn, user_id, group_id, &id) {
+                    requests.push(request);
+                }
+            }
+        }
+        requests
+    }
+
+    pub fn resolve_cortex_approval_request(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        request_id: &str,
+        status: &str,
+        decision: &serde_json::Value,
+    ) -> Option<CortexApprovalRequest> {
+        let status = match status {
+            "approved" | "rejected" | "cancelled" => status,
+            _ => return None,
+        };
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let decision_json = serde_json::to_string(decision).unwrap_or_else(|_| "{}".to_string());
+        let updated = conn.execute(
+            "UPDATE cortex_approval_requests
+             SET status = ?1, decision_json = ?2, updated_at = ?3, resolved_at = ?3
+             WHERE user_id = ?4 AND group_id = ?5 AND id = ?6 AND status = 'pending'",
+            params![status, decision_json, now, user_id, group_id, request_id],
+        ).ok()? > 0;
+        if !updated {
+            return None;
+        }
+
+        let request = self.approval_request_from_row(&conn, user_id, group_id, request_id)?;
+        insert_operations_event(
+            &conn,
+            Some(user_id),
+            Some(group_id),
+            None,
+            request.task_id.as_deref(),
+            request.run_id.as_deref(),
+            None,
+            None,
+            "approval.resolved",
+            "approval_request",
+            request_id,
+            &serde_json::json!({
+                "id": request_id,
+                "status": status,
+                "decision": decision,
+            }),
+        );
+        Some(request)
+    }
+
+    fn approval_request_from_row(
+        &self,
+        conn: &Connection,
+        user_id: &str,
+        group_id: &str,
+        request_id: &str,
+    ) -> Option<CortexApprovalRequest> {
+        conn.query_row(
+            "SELECT id, group_id, task_id, conversation_id, run_id, status, title, body,
+                    priority, requested_by, decision_json, created_at, updated_at, resolved_at
+             FROM cortex_approval_requests
+             WHERE user_id = ?1 AND group_id = ?2 AND id = ?3",
+            params![user_id, group_id, request_id],
+            |row| {
+                let decision_json: Option<String> = row.get(10)?;
+                Ok(CortexApprovalRequest {
+                    id: row.get(0)?,
+                    group_id: row.get(1)?,
+                    task_id: row.get(2)?,
+                    conversation_id: row.get(3)?,
+                    run_id: row.get(4)?,
+                    status: row.get(5)?,
+                    title: row.get(6)?,
+                    body: row.get(7)?,
+                    priority: row.get(8)?,
+                    requested_by: row.get(9)?,
+                    decision: decision_json
+                        .and_then(|raw| serde_json::from_str(&raw).ok()),
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                    resolved_at: row.get(13)?,
+                })
+            },
+        ).ok()
+    }
+
     pub fn get_cortex_task_projection(
         &self,
         user_id: &str,
@@ -1967,6 +2207,24 @@ impl Database {
             .filter_map(|row| row.ok())
             .collect();
 
+        let mut approvals_stmt = conn
+            .prepare(
+                "SELECT id FROM cortex_approval_requests
+                 WHERE user_id = ?1 AND group_id = ?2 AND task_id = ?3
+                 ORDER BY updated_at DESC, id DESC
+                 LIMIT 100",
+            )
+            .unwrap();
+        let approval_ids = approvals_stmt
+            .query_map(params![user_id, group_id, task_id], |row| row.get::<_, String>(0))
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+        let approvals = approval_ids
+            .into_iter()
+            .filter_map(|id| self.approval_request_from_row(&conn, user_id, group_id, &id))
+            .collect::<Vec<_>>();
+
         Some(serde_json::json!({
             "task": {
                 "id": id,
@@ -1984,6 +2242,7 @@ impl Database {
             },
             "runs": runs,
             "chats": chats,
+            "approvals": approvals,
             "events": events,
         }))
     }
@@ -2205,6 +2464,55 @@ impl Database {
             }
         }
 
+        let mut approvals_stmt = conn
+            .prepare(
+                "SELECT id, task_id, run_id, status, title, priority, updated_at
+                 FROM cortex_approval_requests
+                 WHERE user_id = ?1 AND group_id = ?2
+                 ORDER BY updated_at DESC, id DESC",
+            )
+            .unwrap();
+        let approval_rows = approvals_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, i64>(6)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+        let mut approvals_pending = 0;
+        let mut approvals_approved = 0;
+        let mut approvals_rejected = 0;
+        for (approval_id, task_id, run_id, status, title, priority, updated_at) in &approval_rows {
+            match status.as_str() {
+                "pending" => {
+                    approvals_pending += 1;
+                    if attention.len() < 10 {
+                        attention.push(serde_json::json!({
+                            "kind": "approval_pending",
+                            "approval_id": approval_id,
+                            "task_id": task_id,
+                            "run_id": run_id,
+                            "title": title,
+                            "priority": priority,
+                            "status": status,
+                            "updated_at": updated_at,
+                        }));
+                    }
+                }
+                "approved" => approvals_approved += 1,
+                "rejected" => approvals_rejected += 1,
+                _ => {}
+            }
+        }
+
         let event_limit = event_limit.clamp(1, 100) as i64;
         let mut events_stmt = conn
             .prepare(
@@ -2280,6 +2588,12 @@ impl Database {
                 "orphaned": steps_orphaned,
                 "verified_pass": steps_verified_pass,
                 "verified_fail": steps_verified_fail,
+            },
+            "approvals": {
+                "total": approval_rows.len(),
+                "pending": approvals_pending,
+                "approved": approvals_approved,
+                "rejected": approvals_rejected,
             },
             "attention": attention,
             "recent_events": recent_events,
@@ -5319,6 +5633,92 @@ mod tests {
             .any(|event| event["event_type"] == "run.created"
                 && event["run_id"] == run_id
                 && event["task_id"] == "task-1"));
+    }
+
+    #[test]
+    fn cortex_approval_requests_are_scoped_and_resolvable() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "First task"));
+
+        let request = db.create_cortex_approval_request(
+            "user-1",
+            "group-1",
+            Some("task-1"),
+            Some("conversation-1"),
+            Some("run-1"),
+            "Approve deploy",
+            "Ship the verified change?",
+            "urgent",
+            "cortex",
+        );
+
+        assert_eq!(request.status, "pending");
+        assert_eq!(request.task_id.as_deref(), Some("task-1"));
+        assert_eq!(request.priority, "urgent");
+
+        let user_requests = db.list_cortex_approval_requests("user-1", "group-1", Some("pending"), 10);
+        assert_eq!(user_requests.len(), 1);
+        let other_user_requests = db.list_cortex_approval_requests("user-2", "group-1", Some("pending"), 10);
+        assert!(other_user_requests.is_empty());
+
+        let resolved = db
+            .resolve_cortex_approval_request(
+                "user-1",
+                "group-1",
+                &request.id,
+                "approved",
+                &serde_json::json!({ "note": "looks good" }),
+            )
+            .expect("approval resolves");
+        assert_eq!(resolved.status, "approved");
+        assert_eq!(resolved.decision.as_ref().unwrap()["note"], "looks good");
+        assert!(resolved.resolved_at.is_some());
+        assert!(db
+            .resolve_cortex_approval_request(
+                "user-1",
+                "group-1",
+                &request.id,
+                "rejected",
+                &serde_json::json!({}),
+            )
+            .is_none());
+
+        let pending = db.list_cortex_approval_requests("user-1", "group-1", Some("pending"), 10);
+        assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn projection_and_summary_surface_pending_approvals() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "First task"));
+
+        let approval = db.create_cortex_approval_request(
+            "user-1",
+            "group-1",
+            Some("task-1"),
+            None,
+            None,
+            "Approve dependency upgrade",
+            "Allow Cortex to change the dependency set?",
+            "high",
+            "task-manager",
+        );
+
+        let projection = db
+            .get_cortex_task_projection("user-1", "group-1", "task-1", 100)
+            .expect("task projection");
+        assert_eq!(projection["approvals"][0]["id"], approval.id);
+        assert_eq!(projection["approvals"][0]["status"], "pending");
+
+        let summary = db.get_group_operations_summary("user-1", "group-1", 25);
+        assert_eq!(summary["approvals"]["pending"], 1);
+        assert!(summary["attention"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["kind"] == "approval_pending"
+                && item["approval_id"] == approval.id
+                && item["task_id"] == "task-1"));
     }
 
     #[test]

@@ -500,6 +500,122 @@ pub async fn get_group_operations_summary(
     Ok(Json(db.get_group_operations_summary(&user.user_id, &group_id, 25)))
 }
 
+#[derive(Deserialize)]
+pub struct ApprovalRequestQuery {
+    pub status: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct CreateApprovalRequest {
+    pub task_id: Option<String>,
+    pub conversation_id: Option<String>,
+    pub run_id: Option<String>,
+    pub title: String,
+    pub body: Option<String>,
+    pub priority: Option<String>,
+    pub requested_by: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct ResolveApprovalRequest {
+    pub status: String,
+    pub decision: Option<serde_json::Value>,
+}
+
+fn trim_optional(value: Option<String>) -> Option<String> {
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+pub async fn list_group_approval_requests(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(group_id): Path<String>,
+    Query(query): Query<ApprovalRequestQuery>,
+) -> ApiResult<Json<Vec<crate::db::CortexApprovalRequest>>> {
+    let db = db_ref(&state)?;
+    let status = trim_optional(query.status);
+    Ok(Json(db.list_cortex_approval_requests(
+        &user.user_id,
+        &group_id,
+        status.as_deref(),
+        100,
+    )))
+}
+
+pub async fn create_group_approval_request(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(group_id): Path<String>,
+    Json(request): Json<CreateApprovalRequest>,
+) -> ApiResult<Json<crate::db::CortexApprovalRequest>> {
+    let title = request.title.trim();
+    if title.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "approval title is required".into(),
+            }),
+        ));
+    }
+    let db = db_ref(&state)?;
+    let task_id = trim_optional(request.task_id);
+    if let Some(task_id) = task_id.as_deref() {
+        if !db.cortex_task_exists(&user.user_id, &group_id, task_id) {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "task not found".into(),
+                }),
+            ));
+        }
+    }
+    let conversation_id = trim_optional(request.conversation_id);
+    let run_id = trim_optional(request.run_id);
+    let body = request.body.unwrap_or_default();
+    let priority = request.priority.unwrap_or_else(|| "normal".to_string());
+    let requested_by = request.requested_by.unwrap_or_else(|| "cortex".to_string());
+    Ok(Json(db.create_cortex_approval_request(
+        &user.user_id,
+        &group_id,
+        task_id.as_deref(),
+        conversation_id.as_deref(),
+        run_id.as_deref(),
+        title,
+        &body,
+        priority.trim(),
+        requested_by.trim(),
+    )))
+}
+
+pub async fn resolve_group_approval_request(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path((group_id, request_id)): Path<(String, String)>,
+    Json(request): Json<ResolveApprovalRequest>,
+) -> ApiResult<Json<crate::db::CortexApprovalRequest>> {
+    let decision = request.decision.unwrap_or_else(|| serde_json::json!({}));
+    let db = db_ref(&state)?;
+    let resolved = db
+        .resolve_cortex_approval_request(
+            &user.user_id,
+            &group_id,
+            &request_id,
+            request.status.trim(),
+            &decision,
+        )
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "pending approval request not found".into(),
+                }),
+            )
+        })?;
+    Ok(Json(resolved))
+}
+
 pub async fn update_group_tasks(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,

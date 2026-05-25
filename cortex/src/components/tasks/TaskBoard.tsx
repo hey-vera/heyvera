@@ -63,6 +63,7 @@ interface BoardBackendSummary {
   gatedDoneAvailable: boolean;
   gatedDone: number;
   doneWithoutEvidence: number;
+  pendingApprovals: number;
 }
 
 function formatAge(timestamp: string) {
@@ -178,6 +179,7 @@ function boardSummaryFromOperations(summary: GroupOperationsSummary): BoardBacke
     gatedDoneAvailable: summary.tasks.completion.gated_done_available,
     gatedDone: summary.tasks.completion.gated_done ?? 0,
     doneWithoutEvidence: summary.tasks.completion.done_without_evidence ?? 0,
+    pendingApprovals: summary.approvals?.pending ?? 0,
   };
 }
 
@@ -512,6 +514,7 @@ export default function TaskBoard({
               gatedDone: nextBoardSummary.gatedDone + (summary.tasks.completion.gated_done ?? 0),
               doneWithoutEvidence: nextBoardSummary.doneWithoutEvidence
                 + (summary.tasks.completion.done_without_evidence ?? 0),
+              pendingApprovals: nextBoardSummary.pendingApprovals + (summary.approvals?.pending ?? 0),
             };
           }
         } catch {
@@ -567,6 +570,11 @@ export default function TaskBoard({
                 {boardSummary.doneWithoutEvidence > 0 && (
                   <p className="mt-0.5 text-[10px] text-amber-100">
                     {boardSummary.doneWithoutEvidence} need evidence
+                  </p>
+                )}
+                {boardSummary.pendingApprovals > 0 && (
+                  <p className="mt-0.5 text-[10px] text-sky-100">
+                    {boardSummary.pendingApprovals} awaiting approval
                   </p>
                 )}
               </div>
