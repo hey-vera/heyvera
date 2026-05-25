@@ -1008,9 +1008,28 @@ export interface CreateRunResponse {
 }
 
 export interface CreateRunOptions {
+  repoKey?: string | null;
   taskId?: string | null;
   groupId?: string | null;
   conversationId?: string | null;
+}
+
+export function repoKeyFromLabel(repo?: string | null): string | undefined {
+  const raw = repo?.trim();
+  if (!raw) return undefined;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(raw)) return raw;
+
+  const githubMatch = raw.match(/github\.com[:/]([^/\s]+)\/([^/\s#?]+?)(?:\.git)?(?:[/?#\s]|$)/i);
+  if (githubMatch) {
+    return `github:${githubMatch[1]}/${githubMatch[2]}`;
+  }
+
+  const ownerRepoMatch = raw.match(/^([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)$/);
+  if (ownerRepoMatch) {
+    return `github:${ownerRepoMatch[1]}/${ownerRepoMatch[2]}`;
+  }
+
+  return raw;
 }
 
 export interface RunStreamEvent {
@@ -1032,6 +1051,7 @@ export async function createRun(
     body: JSON.stringify({
       goal,
       file_paths: filePaths,
+      repo_key: options.repoKey ?? undefined,
       profile,
       task_id: options.taskId ?? undefined,
       group_id: options.groupId ?? undefined,

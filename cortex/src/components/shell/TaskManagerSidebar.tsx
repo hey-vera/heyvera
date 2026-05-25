@@ -5,7 +5,7 @@ import TaskBoard from '../tasks/TaskBoard';
 import TaskInspector from '../tasks/TaskInspector';
 import { openDetachedPanel } from '../../lib/shell/windowManager';
 import { useTaskManager } from '../../lib/taskManager';
-import { CortexApiError, createRun } from '../../lib/cortexApi';
+import { CortexApiError, createRun, repoKeyFromLabel } from '../../lib/cortexApi';
 import type { CortexGroup } from '../../lib/groups';
 import type {
   ApprovalState,
@@ -106,6 +106,7 @@ export default function TaskManagerSidebar({
 
     try {
       const created = await createRun(goal, runProfile, [], {
+        repoKey: repoKeyFromLabel(task.repo),
         taskId: task.id,
         groupId: group.id,
         conversationId: activeConversationId,

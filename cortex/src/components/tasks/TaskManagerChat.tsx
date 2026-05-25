@@ -22,6 +22,7 @@ import { parseTaskCommand, useTaskManager } from '../../lib/taskManager';
 import {
   CortexApiError,
   createRun,
+  repoKeyFromLabel,
   processMemoryEnhancedChat,
   applyMemorySuggestion,
   createFromAutoCapture,
@@ -470,6 +471,7 @@ export default function TaskManagerChat({
 
     try {
       const created = await createRun(goal, runProfile, [], {
+        repoKey: repoKeyFromLabel(task.repo),
         taskId: task.id,
         groupId: group.id,
         conversationId: activeConversationId,
