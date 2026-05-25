@@ -2234,6 +2234,29 @@ impl Database {
         );
     }
 
+    pub fn record_deployment_event(
+        &self,
+        event_type: &str,
+        entity_id: &str,
+        payload: &serde_json::Value,
+    ) {
+        let conn = self.conn.lock().unwrap();
+        insert_operations_event(
+            &conn,
+            None,
+            Some("cortex"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            event_type,
+            "deployment",
+            entity_id,
+            payload,
+        );
+    }
+
     pub fn create_cortex_approval_request(
         &self,
         user_id: &str,
