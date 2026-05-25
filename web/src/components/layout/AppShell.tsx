@@ -19,6 +19,7 @@ interface AppShellProps {
 export function AppShell({ children, activeRoute }: AppShellProps) {
   const navigate = useNavigate();
   const { authEnabled, isSignedIn, getToken } = useAuth();
+  const isMessagesRoute = activeRoute === "/messages";
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [composeText, setComposeText] = React.useState("");
   const [composeToken, setComposeToken] = React.useState<string | null>(null);
@@ -109,22 +110,30 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
 
       <TopBar title="HeyVera" onProfileClick={() => handleNavigate("/profile")} />
 
-      <div className="mx-auto grid w-full sm:grid-cols-[88px_minmax(0,1fr)] lg:max-w-[978px] lg:grid-cols-[88px_600px_290px] xl:max-w-[1225px] xl:grid-cols-[275px_600px_350px]">
+      <div
+        className={
+          isMessagesRoute
+            ? "mx-auto grid w-full grid-cols-[1fr] sm:grid-cols-[88px_minmax(0,1fr)] md:grid-cols-[88px_minmax(0,1fr)] lg:max-w-[978px] lg:grid-cols-[88px_minmax(0,890px)] xl:max-w-[1225px] xl:grid-cols-[275px_minmax(0,950px)]"
+            : "mx-auto grid w-full grid-cols-[1fr] sm:grid-cols-[88px_minmax(0,1fr)] md:grid-cols-[88px_minmax(0,1fr)] lg:max-w-[978px] lg:grid-cols-[88px_600px_290px] xl:max-w-[1225px] xl:grid-cols-[275px_600px_350px]"
+        }
+      >
         <div className="hidden sm:block" aria-hidden="true" />
-          <main
-            className="w-full min-w-0"
-            style={{
-              borderLeft: "1px solid var(--border-primary)",
-              borderRight: "1px solid var(--border-primary)",
-              minHeight: "100vh",
-            }}
-          >
-            {children}
-          </main>
+        <main
+          className="w-full min-w-0"
+          style={{
+            borderLeft: "1px solid var(--border-primary)",
+            borderRight: "1px solid var(--border-primary)",
+            minHeight: "100vh",
+          }}
+        >
+          {children}
+        </main>
 
+        {!isMessagesRoute && (
           <div className="hidden min-w-0 lg:block lg:w-[290px] xl:w-[350px]">
             <RightRail />
           </div>
+        )}
       </div>
 
       <BottomBar

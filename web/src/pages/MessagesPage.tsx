@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SignInButton } from '@clerk/clerk-react';
 import { ArrowLeft, MessageCircle, Search } from 'lucide-react';
 import { getConversations, getMessages } from '../api/client';
 import type { Conversation, Message, UserSummary } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
+import { useAuth } from '../hooks/useAuth';
 
 function formatRelativeTime(value: string): string {
   const date = new Date(value);
@@ -38,6 +40,7 @@ function getConversationHandle(conversation: Conversation): string {
 }
 
 export function MessagesPage() {
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -57,7 +60,16 @@ export function MessagesPage() {
       setConversationsError(null);
 
       try {
-        const items = await getConversations();
+        if (authEnabled && !isSignedIn) {
+          if (!cancelled) {
+            setConversations([]);
+            setSelectedId(null);
+          }
+          return;
+        }
+
+        const token = authEnabled ? await getToken() : null;
+        const items = await getConversations(token ?? undefined);
         if (!cancelled) {
           setConversations(items);
           setSelectedId((current) => current ?? items[0]?.id ?? null);
@@ -73,7 +85,7 @@ export function MessagesPage() {
     return () => {
       cancelled = true;
     };
-  }, [conversationsReloadKey]);
+  }, [authEnabled, isSignedIn, conversationsReloadKey]);
 
   useEffect(() => {
     if (!selectedId) {
@@ -91,7 +103,8 @@ export function MessagesPage() {
       setMessagesError(null);
 
       try {
-        const items = await getMessages(conversationId);
+        const token = authEnabled ? await getToken() : null;
+        const items = await getMessages(conversationId, token ?? undefined);
         if (!cancelled) setMessages(items);
       } catch (err) {
         if (!cancelled) setMessagesError(err instanceof Error ? err.message : 'Unable to load messages');
@@ -104,7 +117,7 @@ export function MessagesPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId, messagesReloadKey]);
+  }, [authEnabled, selectedId, messagesReloadKey]);
 
   const filteredConversations = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -125,7 +138,7 @@ export function MessagesPage() {
 
   return (
     <div
-      className="relative z-20 flex min-h-screen w-full md:w-[min(920px,calc(100vw-32px))] lg:w-[890px] xl:w-[950px]"
+      className="relative z-20 flex min-h-screen w-full"
       style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
     >
       <div
@@ -160,16 +173,17 @@ export function MessagesPage() {
 
         <div className="flex-1 overflow-y-auto">
           {conversationsLoading && <LoadingState label="Loading conversations" />}
+          {!conversationsLoading && authEnabled && !isSignedIn && <SignedOutMessagesPrompt />}
           {!conversationsLoading && conversationsError && (
             <ErrorState detail={conversationsError} onRetry={() => setConversationsReloadKey((key) => key + 1)} />
           )}
-          {!conversationsLoading && !conversationsError && conversations.length === 0 && (
+          {!conversationsLoading && !(authEnabled && !isSignedIn) && !conversationsError && conversations.length === 0 && (
             <EmptyState title="No messages yet" detail="Conversations will appear here when someone messages you." />
           )}
-          {!conversationsLoading && !conversationsError && conversations.length > 0 && filteredConversations.length === 0 && (
+          {!conversationsLoading && !(authEnabled && !isSignedIn) && !conversationsError && conversations.length > 0 && filteredConversations.length === 0 && (
             <EmptyState title="No results" detail="Try searching for a different name, handle, or message." />
           )}
-          {!conversationsLoading && !conversationsError && filteredConversations.map((conversation) => {
+          {!conversationsLoading && !(authEnabled && !isSignedIn) && !conversationsError && filteredConversations.map((conversation) => {
             const peer = getConversationPeer(conversation);
             const selected = selectedId === conversation.id;
             const unread = conversation.unread_count > 0;
@@ -310,6 +324,26 @@ export function MessagesPage() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function SignedOutMessagesPrompt() {
+  return (
+    <div className="px-4 py-8">
+      <h2 className="text-[20px] font-bold">Sign in to see messages</h2>
+      <p className="mt-2 text-[15px]" style={{ color: 'var(--text-secondary)' }}>
+        Your conversations and replies will appear here after you sign in.
+      </p>
+      <SignInButton mode="modal">
+        <button
+          type="button"
+          className="mt-5 rounded-full px-5 py-2 text-[15px] font-bold"
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-primary)' }}
+        >
+          Sign in
+        </button>
+      </SignInButton>
     </div>
   );
 }

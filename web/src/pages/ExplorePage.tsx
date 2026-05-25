@@ -6,11 +6,13 @@ import {
   likePost,
   repostPost,
   searchAll,
+  unbookmarkPost,
   unlikePost,
 } from '../api/client';
 import type { Community, SearchResults, TrendingTopic, UserSummary } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
+import { useAuth } from '../hooks/useAuth';
 
 const TABS = ['For you', 'Trending', 'News', 'Tech', 'AI'] as const;
 type Tab = typeof TABS[number];
@@ -32,6 +34,7 @@ const EMPTY_SEARCH_RESULTS: SearchResults = {
 };
 
 export function ExplorePage() {
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('For you');
   const [query, setQuery] = useState('');
   const [trending, setTrending] = useState<TrendingTopic[]>([]);
@@ -50,7 +53,8 @@ export function ExplorePage() {
       setError(null);
       try {
         if (trimmedQuery) {
-          const results = await searchAll(trimmedQuery);
+          const token = authEnabled && isSignedIn ? await getToken() : null;
+          const results = await searchAll(trimmedQuery, token ?? undefined);
           if (!cancelled) setSearchResults(results);
         } else {
           const topics = await getTrending();
@@ -67,7 +71,7 @@ export function ExplorePage() {
     return () => {
       cancelled = true;
     };
-  }, [reloadKey, trimmedQuery]);
+  }, [authEnabled, isSignedIn, reloadKey, trimmedQuery]);
 
   const hasSearchResults =
     searchResults.posts.length > 0 ||
@@ -166,7 +170,7 @@ export function ExplorePage() {
                   post={post}
                   onLike={(id, liked, token) => void (liked ? likePost(id, token) : unlikePost(id, token))}
                   onRepost={(id, _reposted, token) => void repostPost(id, token)}
-                  onBookmark={(id, _bookmarked, token) => void bookmarkPost(id, token)}
+                  onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(id, token) : unbookmarkPost(id, token))}
                 />
               ))}
             </section>

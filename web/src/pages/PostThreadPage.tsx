@@ -7,15 +7,18 @@ import {
   getPost,
   likePost,
   repostPost,
+  unbookmarkPost,
   unlikePost,
 } from '../api/client';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
+import { useAuth } from '../hooks/useAuth';
 
 export function PostThreadPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [post, setPost] = useState<Post | null>(null);
   const [replies, setReplies] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -37,7 +40,11 @@ export function PostThreadPage() {
       setLoading(true);
       setError(null);
       try {
-        const [postResponse, feedResponse] = await Promise.all([getPost(id), getFeed()]);
+        const token = authEnabled && isSignedIn ? await getToken() : null;
+        const [postResponse, feedResponse] = await Promise.all([
+          getPost(id, token ?? undefined),
+          getFeed(undefined, token ?? undefined),
+        ]);
         const directReplies = feedResponse.posts
           .filter((feedPost) => feedPost.reply_to === postResponse.id && feedPost.id !== postResponse.id)
           .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
@@ -61,7 +68,7 @@ export function PostThreadPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, reloadKey]);
+  }, [authEnabled, id, isSignedIn, reloadKey]);
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
@@ -160,6 +167,6 @@ function handleRepost(postId: string, _reposted: boolean, token: string) {
   void repostPost(postId, token);
 }
 
-function handleBookmark(postId: string, _bookmarked: boolean, token: string) {
-  void bookmarkPost(postId, token);
+function handleBookmark(postId: string, bookmarked: boolean, token: string) {
+  void (bookmarked ? bookmarkPost(postId, token) : unbookmarkPost(postId, token));
 }

@@ -6,11 +6,13 @@ import {
   getCommunityFeed,
   likePost,
   repostPost,
+  unbookmarkPost,
   unlikePost,
 } from '../api/client';
 import type { Community, Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
+import { useAuth } from '../hooks/useAuth';
 
 const TABS = ['Your Communities', 'Discover'] as const;
 type Tab = typeof TABS[number];
@@ -21,6 +23,7 @@ function formatMembers(count: number): string {
 }
 
 export function CommunitiesPage() {
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('Your Communities');
   const [communities, setCommunities] = useState<Community[]>([]);
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
@@ -72,7 +75,8 @@ export function CommunitiesPage() {
       setFeedLoading(true);
       setFeedError(null);
       try {
-        const response = await getCommunityFeed(selectedCommunityId);
+        const token = authEnabled && isSignedIn ? await getToken() : null;
+        const response = await getCommunityFeed(selectedCommunityId, undefined, token ?? undefined);
         if (!cancelled) setFeedPosts(response.posts);
       } catch (err) {
         if (!cancelled) {
@@ -88,7 +92,7 @@ export function CommunitiesPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedCommunityId, feedReloadKey]);
+  }, [authEnabled, isSignedIn, selectedCommunityId, feedReloadKey]);
 
   const visibleCommunities =
     activeTab === 'Your Communities'
@@ -206,7 +210,7 @@ export function CommunitiesPage() {
               post={post}
               onLike={(id, liked, token) => void (liked ? likePost(id, token) : unlikePost(id, token))}
               onRepost={(id, _reposted, token) => void repostPost(id, token)}
-              onBookmark={(id, _bookmarked, token) => void bookmarkPost(id, token)}
+              onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(id, token) : unbookmarkPost(id, token))}
             />
           ))}
         </section>

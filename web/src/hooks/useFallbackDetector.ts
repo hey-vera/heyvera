@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const API_BASE = (import.meta as unknown as { env?: Record<string, string> }).env?.VITE_API_BASE ?? "/v1/social";
+const env = (import.meta as unknown as { env?: Record<string, string> }).env;
+const API_BASE = env?.VITE_API_URL ? `${env.VITE_API_URL}/v1/social` : "/v1/social";
 
 const RECHECK_INTERVAL_MS = 30_000; // 30 seconds
 

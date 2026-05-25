@@ -15,6 +15,7 @@ import {
   X,
 } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
+import { useNavigate } from 'react-router-dom';
 import { getCurrentUserProfile } from '../../api/client';
 import type { Post } from '../../api/types';
 import { useAuth } from '../../hooks/useAuth';
@@ -50,7 +51,8 @@ function formatCount(n: number): string {
 }
 
 export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) {
-  const { authEnabled, isSignedIn, getToken } = useAuth();
+  const navigate = useNavigate();
+  const { authEnabled, isSignedIn, getToken, userId } = useAuth();
   const [liked, setLiked] = useState(post.liked);
   const [reposted, setReposted] = useState(post.reposted);
   const [bookmarked, setBookmarked] = useState(post.bookmarked);
@@ -71,6 +73,12 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
       }
     };
   }, []);
+
+  useEffect(() => {
+    setHasProfile(null);
+    setAuthPrompt(null);
+    setAuthMessage(null);
+  }, [authEnabled, isSignedIn, userId]);
 
   const ensureCanMutate = async (): Promise<string | null> => {
     setAuthMessage(null);
@@ -156,13 +164,17 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
     onBookmark?.(post.id, nextBookmarked, token);
   };
 
-  const gateReply = () => {
-    void ensureCanMutate();
+  const gateReply = async () => {
+    const token = await ensureCanMutate();
+    if (!token) return;
+    navigate(`/post/${post.id}?compose=reply`);
   };
 
   const gateQuote = async () => {
     setOpenMenu(null);
-    await ensureCanMutate();
+    const token = await ensureCanMutate();
+    if (!token) return;
+    navigate(`/post/${post.id}?compose=quote`);
   };
 
   const copyPostLink = () => {
@@ -353,7 +365,7 @@ function SocialAuthPrompt({
 
   return (
     <div
-      className="absolute right-3 top-3 z-30 w-[min(20rem,calc(100%-1.5rem))] rounded-2xl border p-4 shadow-2xl"
+      className="fixed inset-x-3 bottom-20 z-30 rounded-2xl border p-4 shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-3 sm:top-3 sm:w-[min(20rem,calc(100%-1.5rem))]"
       style={{
         backgroundColor: 'var(--bg-elevated)',
         borderColor: 'var(--border-primary)',

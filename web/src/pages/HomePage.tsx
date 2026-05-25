@@ -8,6 +8,7 @@ import {
   getCurrentUserProfile,
   likePost,
   repostPost,
+  unbookmarkPost,
   unlikePost,
 } from '../api/client';
 import type { FeedResponse, Post } from '../api/types';
@@ -40,9 +41,15 @@ export function HomePage() {
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const touchStartY = useRef<number | null>(null);
 
-  const loadFeedPage = useCallback((nextCursor?: string) => {
-    return activeTab === 'For you' ? getFeed(nextCursor) : getFollowingFeed(nextCursor);
-  }, [activeTab]);
+  const getOptionalToken = useCallback(async () => {
+    if (!authEnabled || !isSignedIn) return undefined;
+    return (await getToken()) ?? undefined;
+  }, [authEnabled, isSignedIn]);
+
+  const loadFeedPage = useCallback(async (nextCursor?: string) => {
+    const token = await getOptionalToken();
+    return activeTab === 'For you' ? getFeed(nextCursor, token) : getFollowingFeed(nextCursor, token);
+  }, [activeTab, getOptionalToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -319,7 +326,7 @@ export function HomePage() {
           post={post}
           onLike={(id, liked, token) => void (liked ? likePost(id, token) : unlikePost(id, token))}
           onRepost={(id, _reposted, token) => void repostPost(id, token)}
-          onBookmark={(id, _bookmarked, token) => void bookmarkPost(id, token)}
+          onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(id, token) : unbookmarkPost(id, token))}
         />
       ))}
       {!loading && !error && (

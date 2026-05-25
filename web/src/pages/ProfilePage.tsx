@@ -11,6 +11,7 @@ import {
   getUserProfile,
   likePost,
   repostPost,
+  unbookmarkPost,
   unfollowUser,
   unlikePost,
   updateCurrentUserProfile,
@@ -68,6 +69,8 @@ export function ProfilePage() {
   const [editError, setEditError] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [followBusy, setFollowBusy] = useState(false);
+  const [followError, setFollowError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -101,7 +104,7 @@ export function ProfilePage() {
             return;
           }
 
-          const feed = await getProfilePosts(nextProfile.handle);
+          const feed = await getProfilePosts(nextProfile.handle, undefined, token);
           if (!cancelled) {
             setProfile(nextProfile);
             setPosts(feed.posts);
@@ -110,9 +113,10 @@ export function ProfilePage() {
           return;
         }
 
+        const token = authEnabled && isSignedIn ? await getToken() : null;
         const [nextProfile, feed] = await Promise.all([
-          getUserProfile(handle),
-          getProfilePosts(handle),
+          getUserProfile(handle, token ?? undefined),
+          getProfilePosts(handle, undefined, token ?? undefined),
         ]);
         if (!cancelled) {
           setProfile(nextProfile);
@@ -144,7 +148,7 @@ export function ProfilePage() {
       const nextProfile = await createUserProfile(token, input);
       let nextPosts: Post[] = [];
       try {
-        const feed = await getProfilePosts(nextProfile.handle);
+        const feed = await getProfilePosts(nextProfile.handle, undefined, token);
         nextPosts = feed.posts;
       } catch {
         nextPosts = [];
@@ -181,15 +185,34 @@ export function ProfilePage() {
   };
 
   const toggleFollow = async () => {
-    if (!profile) return;
-    const nextFollowing = !isFollowing;
-    setIsFollowing(nextFollowing);
-    const token = await getToken();
-    if (!token) {
-      setIsFollowing(!nextFollowing);
+    if (!profile || followBusy) return;
+
+    setFollowError(null);
+
+    if (!authEnabled || !isSignedIn) {
+      setFollowError(authEnabled ? 'Sign in to follow profiles.' : 'Sign-in is not configured for this environment.');
       return;
     }
-    void (nextFollowing ? followUser(profile.id, token) : unfollowUser(profile.id, token));
+
+    setFollowBusy(true);
+    const previousFollowing = isFollowing;
+    const nextFollowing = !isFollowing;
+    setIsFollowing(nextFollowing);
+
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again to follow profiles.');
+
+      const viewerProfile = await getCurrentUserProfile(token);
+      if (!viewerProfile) throw new Error('Create your profile before following people.');
+
+      await (nextFollowing ? followUser(profile.handle, token) : unfollowUser(profile.handle, token));
+    } catch (err) {
+      setIsFollowing(previousFollowing);
+      setFollowError(err instanceof Error ? err.message : 'Unable to update follow state.');
+    } finally {
+      setFollowBusy(false);
+    }
   };
 
   const handleLike = (id: string, liked: boolean, token: string) => {
@@ -226,7 +249,7 @@ export function ProfilePage() {
     setPosts((currentPosts) =>
       currentPosts.map((post) => (post.id === id ? { ...post, bookmarked } : post)),
     );
-    void bookmarkPost(id, token);
+    void (bookmarked ? bookmarkPost(id, token) : unbookmarkPost(id, token));
   };
 
   if (loading) {
@@ -296,6 +319,7 @@ export function ProfilePage() {
           <button
             type="button"
             onClick={ownProfile ? () => setEditOpen(true) : toggleFollow}
+            disabled={!ownProfile && followBusy}
             className="rounded-full px-4 py-1.5 text-[14px] font-bold transition-colors hover:opacity-90"
             style={{
               border: ownProfile || isFollowing ? '1px solid var(--border-primary)' : undefined,
@@ -303,7 +327,7 @@ export function ProfilePage() {
               color: ownProfile || isFollowing ? 'var(--text-primary)' : '#000',
             }}
           >
-            {ownProfile ? 'Edit profile' : isFollowing ? 'Following' : 'Follow'}
+            {ownProfile ? 'Edit profile' : followBusy ? 'Saving' : isFollowing ? 'Following' : 'Follow'}
           </button>
         </div>
       </div>
@@ -346,6 +370,11 @@ export function ProfilePage() {
             <span style={{ color: 'var(--text-secondary)' }}>Followers</span>
           </button>
         </div>
+        {followError && (
+          <p className="mt-3 text-[14px]" style={{ color: 'var(--color-danger)' }}>
+            {followError}
+          </p>
+        )}
       </section>
 
       <div className="flex border-b" style={{ borderColor: 'var(--border-primary)' }}>

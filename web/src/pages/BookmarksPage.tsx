@@ -1,9 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
+import { SignInButton } from '@clerk/clerk-react';
 import { Bookmark, Search } from 'lucide-react';
-import { bookmarkPost, getFeed, likePost, repostPost, unlikePost } from '../api/client';
+import { bookmarkPost, getFeed, likePost, repostPost, unbookmarkPost, unlikePost } from '../api/client';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
+import { useAuth } from '../hooks/useAuth';
 
 type BookmarkFolderId = 'all' | 'read-later' | 'agents' | 'protocol' | 'media';
 
@@ -67,6 +69,7 @@ function filterPostsByQuery(posts: Post[], query: string): Post[] {
 }
 
 export function BookmarksPage() {
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [query, setQuery] = useState('');
   const [activeFolder, setActiveFolder] = useState<BookmarkFolderId>('all');
@@ -82,7 +85,13 @@ export function BookmarksPage() {
       setError(null);
 
       try {
-        const response = await getFeed();
+        if (authEnabled && !isSignedIn) {
+          if (!cancelled) setPosts([]);
+          return;
+        }
+
+        const token = authEnabled ? await getToken() : null;
+        const response = await getFeed(undefined, token ?? undefined);
         if (!cancelled) {
           setPosts(response.posts.filter((post) => post.bookmarked));
         }
@@ -100,7 +109,7 @@ export function BookmarksPage() {
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [authEnabled, isSignedIn, reloadKey]);
 
   const folderCounts = useMemo(
     () =>
@@ -154,7 +163,7 @@ export function BookmarksPage() {
         ? currentPosts.map((post) => (post.id === id ? { ...post, bookmarked } : post))
         : currentPosts.filter((post) => post.id !== id),
     );
-    void bookmarkPost(id, token);
+    void (bookmarked ? bookmarkPost(id, token) : unbookmarkPost(id, token));
   };
 
   return (
@@ -240,6 +249,8 @@ export function BookmarksPage() {
 
       {loading && <LoadingState label="Loading bookmarks" />}
 
+      {!loading && authEnabled && !isSignedIn && <SignedOutBookmarksPrompt />}
+
       {!loading && error && (
         <ErrorState
           detail={error}
@@ -247,14 +258,14 @@ export function BookmarksPage() {
         />
       )}
 
-      {!loading && !error && posts.length === 0 && (
+      {!loading && !(authEnabled && !isSignedIn) && !error && posts.length === 0 && (
         <EmptyState
           title="Save posts for later"
           detail="When you bookmark posts, they will appear here."
         />
       )}
 
-      {!loading && !error && posts.length > 0 && filteredPosts.length === 0 && (
+      {!loading && !(authEnabled && !isSignedIn) && !error && posts.length > 0 && filteredPosts.length === 0 && (
         <EmptyState
           title={trimmedQuery ? 'No matching bookmarks' : `No ${activeFolderLabel.toLowerCase()} bookmarks`}
           detail={
@@ -265,7 +276,7 @@ export function BookmarksPage() {
         />
       )}
 
-      {!loading && !error && filteredPosts.map((post) => (
+      {!loading && !(authEnabled && !isSignedIn) && !error && filteredPosts.map((post) => (
         <PostCard
           key={post.id}
           post={post}
@@ -274,6 +285,28 @@ export function BookmarksPage() {
           onBookmark={handleBookmark}
         />
       ))}
+    </div>
+  );
+}
+
+function SignedOutBookmarksPrompt() {
+  return (
+    <div className="px-4 py-10">
+      <div className="mx-auto max-w-sm text-center">
+        <h2 className="text-[20px] font-bold">Sign in to see bookmarks</h2>
+        <p className="mt-2 text-[15px]" style={{ color: 'var(--text-secondary)' }}>
+          Saved posts are private to your account.
+        </p>
+        <SignInButton mode="modal">
+          <button
+            type="button"
+            className="mt-5 rounded-full px-5 py-2 text-[15px] font-bold"
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-primary)' }}
+          >
+            Sign in
+          </button>
+        </SignInButton>
+      </div>
     </div>
   );
 }

@@ -66,12 +66,13 @@ Frontend-authenticated endpoints today:
 
 The current UI assumes authenticated social actions for real production behavior and the X-style `web/src/api/client.ts` helpers now accept Clerk bearer tokens for these viewer-scoped calls:
 
-- `POST /users/{id}/follow`
-- `DELETE /users/{id}/follow`
+- `POST /follows/{handle}`
+- `DELETE /follows/{handle}`
 - `POST /posts/{id}/like`
 - `DELETE /posts/{id}/like`
 - `POST /posts/{id}/repost`
 - `POST /posts/{id}/bookmark`
+- `DELETE /posts/{id}/bookmark`
 - `GET /notifications`
 - `GET /conversations`
 - `GET /conversations/{conversation_id}/messages`
@@ -555,15 +556,9 @@ Success:
 
 - `200 OK` with `{ "ok": true }` or `204 No Content`
 
-Open point:
+#### `DELETE /posts/{id}/bookmark`
 
-- the current frontend defines bookmark but not unbookmark
-
-### Social Graph
-
-#### `POST /users/{id}/follow`
-
-Follows a user by user ID.
+Removes the viewer's bookmark from the post.
 
 Auth:
 
@@ -573,9 +568,23 @@ Success:
 
 - `200 OK` with `{ "ok": true }` or `204 No Content`
 
-#### `DELETE /users/{id}/follow`
+### Social Graph
 
-Unfollows a user by user ID.
+#### `POST /follows/{handle}`
+
+Follows a user by handle.
+
+Auth:
+
+- required
+
+Success:
+
+- `200 OK` with `{ "ok": true }` or `204 No Content`
+
+#### `DELETE /follows/{handle}`
+
+Unfollows a user by handle.
 
 Auth:
 
@@ -587,8 +596,7 @@ Success:
 
 Implementation note:
 
-- this route follows by `id`, while `web/src/api/social.ts` follows by `handle`
-- backend should avoid exposing inconsistent semantics long term; see migration notes below
+- the frontend follows by handle to match the existing social route shape and avoid ID/handle drift during backend migration
 
 ### Notifications and Messaging
 
@@ -704,8 +712,8 @@ The current frontend still carries mock-era assumptions. Backend and frontend wo
 3. Keep authenticated social actions normalized.
    The UI gates likes, follows, reposts, and bookmarks on Clerk/profile readiness and passes the Clerk bearer token into the X-style API helpers. Production backend handlers should still enforce auth server-side and never trust frontend gating as authorization.
 
-4. Decide on one identifier strategy for follows and communities.
-   The X-style client uses `/users/{id}/follow` and `/communities/{id}/feed`; the newer social client uses handle- and slug-based routes. The backend should either support both during migration or expose one canonical shape and update the stale client.
+4. Keep identifier strategy deliberate.
+   The X-style client now follows profiles by handle and loads communities by ID. If the backend later changes one of those identifiers, update the contract and client together.
 
 5. Decide on one post creation format.
    The X-style client posts `multipart/form-data` with `content` and optional `media`. If the long-term backend prefers JSON plus separate uploads, keep multipart compatibility until the frontend changes.
@@ -723,7 +731,6 @@ The current frontend still carries mock-era assumptions. Backend and frontend wo
 
 These are not blockers for documenting the current contract, but they are unresolved product/API edges visible in the code:
 
-- no explicit unbookmark endpoint
 - no explicit unrepost endpoint
 - no documented reply-create or quote-create request fields on the X-style client
 - notifications and messaging are read-only in the current UI contract

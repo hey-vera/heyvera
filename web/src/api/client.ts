@@ -245,21 +245,23 @@ export async function updateCurrentUserProfile(token: string, input: UpdateUserP
 }
 
 /** Home / for-you feed */
-export async function getFeed(cursor?: string): Promise<FeedResponse> {
-  if (!API_BASE) return getMockData<FeedResponse>(`/feed${cursor ? `?cursor=${cursor}` : ''}`);
-  return fetchApi<FeedResponse>(`/feed${cursor ? `?cursor=${cursor}` : ''}`);
+export async function getFeed(cursor?: string, token?: string): Promise<FeedResponse> {
+  const path = `/feed${cursor ? `?cursor=${cursor}` : ''}`;
+  if (!API_BASE) return getMockData<FeedResponse>(path);
+  return token ? fetchAuthedApi<FeedResponse>(path, token) : fetchApi<FeedResponse>(path);
 }
 
 /** Following-only feed */
-export async function getFollowingFeed(cursor?: string): Promise<FeedResponse> {
-  if (!API_BASE) return getMockData<FeedResponse>(`/feed/following${cursor ? `?cursor=${cursor}` : ''}`);
-  return fetchApi<FeedResponse>(`/feed/following${cursor ? `?cursor=${cursor}` : ''}`);
+export async function getFollowingFeed(cursor?: string, token?: string): Promise<FeedResponse> {
+  const path = `/feed/following${cursor ? `?cursor=${cursor}` : ''}`;
+  if (!API_BASE) return getMockData<FeedResponse>(path);
+  return token ? fetchAuthedApi<FeedResponse>(path, token) : fetchApi<FeedResponse>(path);
 }
 
 /** Single post by ID */
-export async function getPost(id: string): Promise<Post> {
+export async function getPost(id: string, token?: string): Promise<Post> {
   if (!API_BASE) return getMockData<Post>(`/posts/${id}`);
-  return fetchApi<Post>(`/posts/${id}`);
+  return token ? fetchAuthedApi<Post>(`/posts/${id}`, token) : fetchApi<Post>(`/posts/${id}`);
 }
 
 /** Create a new post */
@@ -316,30 +318,40 @@ export async function bookmarkPost(id: string, token?: string): Promise<void> {
   return fetchAuthedApi<void>(`/posts/${id}/bookmark`, token, { method: 'POST' });
 }
 
+/** Remove a bookmark from a post */
+export async function unbookmarkPost(id: string, token?: string): Promise<void> {
+  if (!API_BASE) return getMockData<void>(`/posts/${id}/bookmark`);
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<void>(`/posts/${id}/bookmark`, token, { method: 'DELETE' });
+}
+
 /** Get notifications for the current user */
-export async function getNotifications(): Promise<Notification[]> {
+export async function getNotifications(token?: string): Promise<Notification[]> {
   if (!API_BASE) return getMockData<Notification[]>('/notifications');
-  return fetchApi<Notification[]>('/notifications');
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<Notification[]>('/notifications', token);
 }
 
 /** Get all conversations */
-export async function getConversations(): Promise<Conversation[]> {
+export async function getConversations(token?: string): Promise<Conversation[]> {
   if (!API_BASE) return getMockData<Conversation[]>('/conversations');
-  return fetchApi<Conversation[]>('/conversations');
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<Conversation[]>('/conversations', token);
 }
 
 /** Get messages in a conversation */
-export async function getMessages(conversationId: string): Promise<Message[]> {
+export async function getMessages(conversationId: string, token?: string): Promise<Message[]> {
   const path = `/conversations/${conversationId}/messages`;
   if (!API_BASE) return getMockData<Message[]>(path);
-  return fetchApi<Message[]>(path);
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<Message[]>(path, token);
 }
 
 /** Full-text search across posts, users, and communities */
-export async function searchAll(query: string): Promise<SearchResults> {
+export async function searchAll(query: string, token?: string): Promise<SearchResults> {
   const path = `/search?q=${encodeURIComponent(query)}`;
   if (!API_BASE) return getMockData<SearchResults>(path);
-  return fetchApi<SearchResults>(path);
+  return token ? fetchAuthedApi<SearchResults>(path, token) : fetchApi<SearchResults>(path);
 }
 
 /** Trending topics */
@@ -349,30 +361,30 @@ export async function getTrending(): Promise<TrendingTopic[]> {
 }
 
 /** User profile by handle */
-export async function getUserProfile(handle: string): Promise<UserProfile> {
+export async function getUserProfile(handle: string, token?: string): Promise<UserProfile> {
   if (!API_BASE) return getMockData<UserProfile>(`/users/${handle}`);
-  return fetchApi<UserProfile>(`/users/${handle}`);
+  return token ? fetchAuthedApi<UserProfile>(`/users/${handle}`, token) : fetchApi<UserProfile>(`/users/${handle}`);
 }
 
 /** Posts for a user profile */
-export async function getProfilePosts(handle: string, cursor?: string): Promise<FeedResponse> {
+export async function getProfilePosts(handle: string, cursor?: string, token?: string): Promise<FeedResponse> {
   const path = `/users/${handle}/posts${cursor ? `?cursor=${cursor}` : ''}`;
   if (!API_BASE) return getMockData<FeedResponse>(path);
-  return fetchApi<FeedResponse>(path);
+  return token ? fetchAuthedApi<FeedResponse>(path, token) : fetchApi<FeedResponse>(path);
 }
 
 /** Follow a user */
-export async function followUser(id: string, token?: string): Promise<void> {
-  if (!API_BASE) return getMockData<void>(`/users/${id}/follow`);
+export async function followUser(handle: string, token?: string): Promise<void> {
+  if (!API_BASE) return getMockData<void>(`/follows/${handle}`);
   if (!token) throw new Error('Auth token required');
-  return fetchAuthedApi<void>(`/users/${id}/follow`, token, { method: 'POST' });
+  return fetchAuthedApi<void>(`/follows/${handle}`, token, { method: 'POST' });
 }
 
 /** Unfollow a user */
-export async function unfollowUser(id: string, token?: string): Promise<void> {
-  if (!API_BASE) return getMockData<void>(`/users/${id}/follow`);
+export async function unfollowUser(handle: string, token?: string): Promise<void> {
+  if (!API_BASE) return getMockData<void>(`/follows/${handle}`);
   if (!token) throw new Error('Auth token required');
-  return fetchAuthedApi<void>(`/users/${id}/follow`, token, { method: 'DELETE' });
+  return fetchAuthedApi<void>(`/follows/${handle}`, token, { method: 'DELETE' });
 }
 
 /** All communities */
@@ -382,8 +394,8 @@ export async function getCommunities(): Promise<Community[]> {
 }
 
 /** Posts in a community */
-export async function getCommunityFeed(id: string, cursor?: string): Promise<FeedResponse> {
+export async function getCommunityFeed(id: string, cursor?: string, token?: string): Promise<FeedResponse> {
   const path = `/communities/${id}/feed${cursor ? `?cursor=${cursor}` : ''}`;
   if (!API_BASE) return getMockData<FeedResponse>(path);
-  return fetchApi<FeedResponse>(path);
+  return token ? fetchAuthedApi<FeedResponse>(path, token) : fetchApi<FeedResponse>(path);
 }

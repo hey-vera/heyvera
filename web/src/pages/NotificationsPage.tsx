@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react';
+import { SignInButton } from '@clerk/clerk-react';
 import { Heart, MessageCircle, Quote, Repeat2, UserPlus } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { getNotifications } from '../api/client';
 import type { Notification } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
+import { useAuth } from '../hooks/useAuth';
 
 const TABS = ['All', 'Verified'] as const;
 type Tab = typeof TABS[number];
@@ -43,6 +45,7 @@ function notificationText(notification: Notification): string {
 }
 
 export function NotificationsPage() {
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('All');
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [loading, setLoading] = useState(true);
@@ -56,7 +59,13 @@ export function NotificationsPage() {
       setLoading(true);
       setError(null);
       try {
-        const items = await getNotifications();
+        if (authEnabled && !isSignedIn) {
+          if (!cancelled) setNotifications([]);
+          return;
+        }
+
+        const token = authEnabled ? await getToken() : null;
+        const items = await getNotifications(token ?? undefined);
         if (!cancelled) setNotifications(items);
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load notifications');
@@ -69,7 +78,7 @@ export function NotificationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [authEnabled, isSignedIn, reloadKey]);
 
   const visibleNotifications =
     activeTab === 'Verified'
@@ -103,11 +112,12 @@ export function NotificationsPage() {
       </div>
 
       {loading && <LoadingState label="Loading notifications" />}
+      {!loading && authEnabled && !isSignedIn && <SignedOutNotificationsPrompt />}
       {!loading && error && <ErrorState detail={error} onRetry={() => setReloadKey((key) => key + 1)} />}
-      {!loading && !error && visibleNotifications.length === 0 && (
+      {!loading && !(authEnabled && !isSignedIn) && !error && visibleNotifications.length === 0 && (
         <EmptyState title="Nothing yet" detail="Likes, reposts, follows, and replies will appear here." />
       )}
-      {!loading && !error && visibleNotifications.map((notification) => {
+      {!loading && !(authEnabled && !isSignedIn) && !error && visibleNotifications.map((notification) => {
         const meta = notificationIcons[notification.type];
         const Icon = meta.icon;
         return (
@@ -144,6 +154,28 @@ export function NotificationsPage() {
           </article>
         );
       })}
+    </div>
+  );
+}
+
+function SignedOutNotificationsPrompt() {
+  return (
+    <div className="px-4 py-10">
+      <div className="mx-auto max-w-sm text-center">
+        <h2 className="text-[20px] font-bold">Sign in to see notifications</h2>
+        <p className="mt-2 text-[15px]" style={{ color: 'var(--text-secondary)' }}>
+          Likes, reposts, follows, and replies from your account will appear here.
+        </p>
+        <SignInButton mode="modal">
+          <button
+            type="button"
+            className="mt-5 rounded-full px-5 py-2 text-[15px] font-bold"
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-primary)' }}
+          >
+            Sign in
+          </button>
+        </SignInButton>
+      </div>
     </div>
   );
 }
