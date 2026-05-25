@@ -57,7 +57,17 @@ cortex.heyvera.org {
 }
 
 api.heyvera.org {
-	reverse_proxy localhost:3001
+	handle /api/* {
+		reverse_proxy localhost:3001
+	}
+
+	handle /v1/* {
+		reverse_proxy localhost:3402
+	}
+
+	handle {
+		respond "Not found" 404
+	}
 
 	header {
 		X-Content-Type-Options nosniff
