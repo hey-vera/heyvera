@@ -1654,6 +1654,31 @@ impl Database {
         ).is_ok()
     }
 
+    pub fn record_cortex_task_event(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        task_id: &str,
+        event_type: &str,
+        payload: &serde_json::Value,
+    ) {
+        let conn = self.conn.lock().unwrap();
+        insert_operations_event(
+            &conn,
+            Some(user_id),
+            Some(group_id),
+            None,
+            Some(task_id),
+            None,
+            None,
+            None,
+            event_type,
+            "task",
+            task_id,
+            payload,
+        );
+    }
+
     pub fn get_cortex_task_projection(
         &self,
         user_id: &str,

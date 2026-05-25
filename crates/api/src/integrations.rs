@@ -401,6 +401,37 @@ pub async fn get_group_task_projection(
     Ok(Json(projection))
 }
 
+pub async fn patch_group_task(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path((group_id, task_id)): Path<(String, String)>,
+    Json(patch): Json<serde_json::Value>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let db = db_ref(&state)?;
+    let current = db
+        .get_group_task_state(&user.user_id, &group_id)
+        .and_then(|value| normalize_task_state(&group_id, &value).ok())
+        .unwrap_or_else(|| empty_task_state(&group_id));
+    let (next_state, event_type, event_payload) = apply_task_patch(&group_id, &task_id, &current, &patch)
+        .map_err(|error| {
+            let status = if error == "task not found" {
+                StatusCode::NOT_FOUND
+            } else {
+                StatusCode::BAD_REQUEST
+            };
+            (status, Json(ErrorResponse { error }))
+        })?;
+    let saved = db.upsert_group_task_state(&user.user_id, &group_id, &next_state);
+    db.record_cortex_task_event(
+        &user.user_id,
+        &group_id,
+        &task_id,
+        &event_type,
+        &event_payload,
+    );
+    Ok(Json(saved))
+}
+
 pub async fn get_group_operations_summary(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
@@ -697,6 +728,138 @@ fn normalize_task_state(
         "activity": normalized_activity?,
         "updatedAt": optional_string(object.get("updatedAt"), 64)?.unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
     }))
+}
+
+fn apply_task_patch(
+    group_id: &str,
+    task_id: &str,
+    state: &serde_json::Value,
+    patch: &serde_json::Value,
+) -> Result<(serde_json::Value, String, serde_json::Value), String> {
+    const ALLOWED_FIELDS: &[&str] = &[
+        "title",
+        "description",
+        "status",
+        "assigneeId",
+        "repo",
+        "priority",
+        "projectChatConversationId",
+        "projectChatLaunchedAt",
+        "latestRunId",
+        "latestRunStatus",
+        "latestRunSyncedAt",
+        "latestRunStepSummary",
+    ];
+
+    let patch_object = patch
+        .as_object()
+        .ok_or_else(|| "task patch must be an object".to_string())?;
+    if patch_object.is_empty() {
+        return Err("task patch must include at least one field".to_string());
+    }
+    for key in patch_object.keys() {
+        if !ALLOWED_FIELDS.contains(&key.as_str()) {
+            return Err(format!("task patch field {key} is not allowed"));
+        }
+    }
+
+    let mut next_state = state.clone();
+    let tasks = next_state
+        .get_mut("tasks")
+        .and_then(|value| value.as_array_mut())
+        .ok_or_else(|| "task state requires a tasks array".to_string())?;
+    let task = tasks
+        .iter_mut()
+        .find(|task| task.get("id").and_then(|value| value.as_str()) == Some(task_id))
+        .ok_or_else(|| "task not found".to_string())?;
+    let previous_task = task.clone();
+    let task_object = task
+        .as_object_mut()
+        .ok_or_else(|| "task must be an object".to_string())?;
+    for (key, value) in patch_object {
+        task_object.insert(key.clone(), value.clone());
+    }
+    let updated_at = chrono::Utc::now().to_rfc3339();
+    task_object.insert("updatedAt".to_string(), serde_json::Value::String(updated_at.clone()));
+
+    let event_type = if patch_object.contains_key("status") {
+        "task.status_changed"
+    } else if patch_object.contains_key("assigneeId") {
+        "task.assigned"
+    } else if patch_object.contains_key("projectChatConversationId")
+        || patch_object.contains_key("projectChatLaunchedAt")
+    {
+        "task.linked"
+    } else {
+        "task.updated"
+    }
+    .to_string();
+
+    let task_title = task_object
+        .get("title")
+        .and_then(|value| value.as_str())
+        .unwrap_or("Task");
+    let activity_kind = if event_type == "task.status_changed" {
+        "status"
+    } else if event_type == "task.assigned" {
+        "assigned"
+    } else if event_type == "task.linked" {
+        "linked"
+    } else {
+        "note"
+    };
+    let activity_summary = if event_type == "task.status_changed" {
+        format!(
+            "{task_title} moved to {}.",
+            task_object
+                .get("status")
+                .and_then(|value| value.as_str())
+                .unwrap_or("updated")
+        )
+    } else if event_type == "task.assigned" {
+        format!("{task_title} assignment updated.")
+    } else if event_type == "task.linked" {
+        format!("{task_title} linked to Project Chat.")
+    } else {
+        format!("{task_title} updated.")
+    };
+
+    let activity = next_state
+        .get_mut("activity")
+        .and_then(|value| value.as_array_mut())
+        .ok_or_else(|| "task state requires an activity array".to_string())?;
+    activity.insert(
+        0,
+        serde_json::json!({
+            "id": Uuid::new_v4().to_string(),
+            "groupId": group_id,
+            "taskId": task_id,
+            "kind": activity_kind,
+            "actor": "Cortex",
+            "summary": activity_summary,
+            "createdAt": updated_at,
+        }),
+    );
+    activity.truncate(500);
+    next_state["updatedAt"] = serde_json::Value::String(chrono::Utc::now().to_rfc3339());
+
+    let normalized = normalize_task_state(group_id, &next_state)?;
+    let next_task = normalized
+        .get("tasks")
+        .and_then(|value| value.as_array())
+        .and_then(|tasks| tasks.iter().find(|task| task.get("id").and_then(|value| value.as_str()) == Some(task_id)))
+        .cloned()
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    Ok((
+        normalized,
+        event_type,
+        serde_json::json!({
+            "patch": patch,
+            "previous": previous_task,
+            "next": next_task,
+        }),
+    ))
 }
 
 fn normalize_task(
@@ -1074,5 +1237,42 @@ mod tests {
 
         let error = normalize_task_state("group-1", &state).unwrap_err();
         assert!(error.contains("exceeds 250 tasks"));
+    }
+
+    #[test]
+    fn apply_task_patch_updates_one_task_and_adds_activity() {
+        let state = normalize_task_state("group-1", &valid_task_state()).unwrap();
+        let (next, event_type, payload) = apply_task_patch(
+            "group-1",
+            "task-1",
+            &state,
+            &serde_json::json!({
+                "status": "done",
+                "priority": "urgent"
+            }),
+        )
+        .unwrap();
+
+        assert_eq!(event_type, "task.status_changed");
+        assert_eq!(next["tasks"][0]["status"], "done");
+        assert_eq!(next["tasks"][0]["priority"], "urgent");
+        assert_eq!(next["activity"][0]["kind"], "status");
+        assert_eq!(next["activity"][0]["taskId"], "task-1");
+        assert_eq!(payload["previous"]["status"], "in-progress");
+        assert_eq!(payload["next"]["status"], "done");
+    }
+
+    #[test]
+    fn apply_task_patch_rejects_unknown_fields() {
+        let state = normalize_task_state("group-1", &valid_task_state()).unwrap();
+        let error = apply_task_patch(
+            "group-1",
+            "task-1",
+            &state,
+            &serde_json::json!({ "groupId": "other-group" }),
+        )
+        .unwrap_err();
+
+        assert!(error.contains("not allowed"));
     }
 }
