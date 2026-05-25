@@ -143,6 +143,7 @@ The first implementation should be read-only inspection plus verification, not m
 
 4. Unified deploy status endpoint.
    - Return frontend/backend deploy state for the operations room.
+   - Report backend and Cloudflare Pages commit alignment separately from asset drift, because a split deploy can be healthy when both surfaces are intentionally released independently.
 
 5. Operations event integration.
    - Record deploy inspection and verification events.

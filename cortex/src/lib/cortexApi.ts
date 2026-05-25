@@ -232,6 +232,16 @@ export interface DeploymentStatus {
   status: 'match' | 'drift' | 'unknown';
   service: string;
   observed_at: string;
+  commits: {
+    status: 'match' | 'mismatch' | 'unknown';
+    backend_commit: string | null;
+    backend_commit_short: string | null;
+    frontend_commit: string | null;
+    frontend_commit_short: string | null;
+    backend_branch: string | null;
+    frontend_branch: string | null;
+    branch_match: boolean | null;
+  };
   backend: {
     service: string;
     version: string;
