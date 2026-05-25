@@ -1,9 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
-const env = (import.meta as unknown as { env?: Record<string, string> }).env;
-const API_BASE = env?.VITE_API_URL ? `${env.VITE_API_URL}/v1/social` : "/v1/social";
-
 const RECHECK_INTERVAL_MS = 30_000; // 30 seconds
+const PROBE_PATH = "/feed?limit=1";
+
+type FallbackEnv = {
+  [key: string]: string | boolean | undefined;
+};
 
 export type FallbackState = {
   /** `true` = backend unreachable, `false` = backend healthy, `null` = probe in flight */
@@ -13,6 +15,36 @@ export type FallbackState = {
   /** `true` while a periodic re-check fetch is in flight */
   isRechecking: boolean;
 };
+
+function trimTrailingSlashes(value: string): string {
+  return value.replace(/\/+$/, "");
+}
+
+export function getFallbackProbeUrl(env: FallbackEnv): string | null {
+  const rawApiBase = env["VITE_API_URL"];
+  const apiBase = typeof rawApiBase === "string" ? rawApiBase.trim() : "";
+  if (!apiBase) return null;
+  return `${trimTrailingSlashes(apiBase)}${PROBE_PATH}`;
+}
+
+export function isJsonContentType(contentType: string | null): boolean {
+  if (!contentType) return false;
+  return contentType.toLowerCase().includes("application/json");
+}
+
+export async function isHealthyFallbackResponse(
+  response: Pick<Response, "ok" | "headers" | "json">,
+): Promise<boolean> {
+  if (!response.ok) return false;
+  if (!isJsonContentType(response.headers.get("content-type"))) return false;
+
+  try {
+    await response.json();
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
  * Probes the API on mount, then re-checks every 30 seconds.
@@ -29,6 +61,7 @@ export function useFallbackDetector(): FallbackState {
   const [isFallback, setIsFallback] = useState<boolean | null>(null);
   const [recoveryCount, setRecoveryCount] = useState(0);
   const [isRechecking, setIsRechecking] = useState(false);
+  const probeUrl = getFallbackProbeUrl(import.meta.env);
 
   // Track the last known fallback value across intervals without
   // triggering re-renders (avoids stale closures in the interval callback).
@@ -36,12 +69,20 @@ export function useFallbackDetector(): FallbackState {
   const isInitialProbeRef = useRef(true);
 
   const probe = useCallback(() => {
+    if (!probeUrl) {
+      lastFallbackRef.current = false;
+      isInitialProbeRef.current = false;
+      setIsFallback(false);
+      setIsRechecking(false);
+      return;
+    }
+
     const isInitial = isInitialProbeRef.current;
     if (!isInitial) setIsRechecking(true);
 
-    fetch(`${API_BASE}/feed/home?limit=1`)
-      .then((res) => {
-        const down = !res.ok;
+    fetch(probeUrl)
+      .then(async (res) => {
+        const down = !(await isHealthyFallbackResponse(res));
         const wasDown = lastFallbackRef.current === true;
 
         lastFallbackRef.current = down;
@@ -60,16 +101,17 @@ export function useFallbackDetector(): FallbackState {
         isInitialProbeRef.current = false;
         setIsRechecking(false);
       });
-  }, []);
+  }, [probeUrl]);
 
   useEffect(() => {
     // Initial probe
     probe();
 
     // Periodic re-check
+    if (!probeUrl) return;
     const id = setInterval(probe, RECHECK_INTERVAL_MS);
     return () => clearInterval(id);
-  }, [probe]);
+  }, [probe, probeUrl]);
 
   return { isFallback, recoveryCount, isRechecking };
 }
