@@ -51,11 +51,11 @@ jobs:
           ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" \
             "cd /home/${DEPLOY_USER}/claw-net && git fetch origin '${{ inputs.branch }}' && git checkout '${{ inputs.branch }}' && git reset --hard 'origin/${{ inputs.branch }}' && DEPLOY_USER='${DEPLOY_USER}' GIT_BRANCH='${{ inputs.branch }}' AUTO_SWITCH_BRANCH=1 bash scripts/deploy.sh"
 
-      - name: Verify deploy info
+      - name: Verify production APIs
         env:
           DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
           TAILSCALE_HOST: ${{ vars.TAILSCALE_HOST }}
         run: |
           test -n "$TAILSCALE_HOST"
           ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" \
-            "curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors http://localhost:3001/api/deploy-info"
+            "curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors http://localhost:3402/v1/health && curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors http://localhost:3001/api/deploy-info"
