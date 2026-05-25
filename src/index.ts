@@ -20,6 +20,7 @@ import { economyRouter } from './routes/economy';
 import { authnRouter } from './routes/authn';
 import { ceremonyRouter } from './routes/ceremony';
 import { socialRouter } from './routes/social';
+import { heyveraV1Router } from './routes/heyvera-v1';
 import { initSomaHeart } from './core/soma-heart';
 
 const app = new Hono();
@@ -75,6 +76,7 @@ app.get('/', (c) => c.json({
 app.use('/v1/orchestrate', checkApiKey);
 app.use('/v1/orchestrate', rotationShadowCheck);
 
+app.route('/v1', heyveraV1Router);
 app.route('/v1', apiRouter);
 app.route('/v1/oauth', oauthRouter);
 app.route('/v1/auth', authRouter);
