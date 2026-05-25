@@ -223,6 +223,39 @@ export async function getHealth() {
   return requestJson('/api/health');
 }
 
+export interface FrontendAssets {
+  js: string | null;
+  css: string | null;
+}
+
+export interface DeploymentStatus {
+  status: 'match' | 'drift' | 'unknown';
+  service: string;
+  observed_at: string;
+  backend: {
+    service: string;
+    version: string;
+    commit: string | null;
+    commit_short: string | null;
+    branch: string | null;
+    deployed_at: string | null;
+  };
+  frontend: {
+    public_url: string;
+    local_root: string;
+    expected_assets: FrontendAssets;
+    live_assets: FrontendAssets | null;
+    status: 'match' | 'drift' | 'unknown';
+    drift: boolean;
+    checked_at: string;
+    error: string | null;
+  };
+}
+
+export async function getDeploymentStatus(): Promise<DeploymentStatus> {
+  return requestJson<DeploymentStatus>('/api/deployment/status');
+}
+
 export async function getCortexState(): Promise<CortexState> {
   return requestJson<CortexState>('/api/cortex/state');
 }

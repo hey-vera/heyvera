@@ -97,6 +97,8 @@ git reset --hard "$GIT_REMOTE/$TARGET_BRANCH"
 DEPLOY_COMMIT="$(git rev-parse HEAD)"
 DEPLOY_COMMIT_SHORT="$(git rev-parse --short HEAD)"
 DEPLOY_TIMESTAMP="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+export DEPLOY_COMMIT DEPLOY_COMMIT_SHORT DEPLOY_TIMESTAMP
+export GITHUB_SHA="${GITHUB_SHA:-$DEPLOY_COMMIT}"
 echo "[git] Deploying ${TARGET_BRANCH} @ ${DEPLOY_COMMIT_SHORT}"
 
 DEPLOY_META_FILE="$REPO_DIR/deploy-meta.json"

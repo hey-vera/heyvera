@@ -1,5 +1,5 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CreditCard, ExternalLink, Loader2, Menu, Search, LayoutGrid } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CreditCard, ExternalLink, Loader2, Menu, Search, LayoutGrid } from 'lucide-react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 import TrialBanner from './components/billing/TrialBanner';
 import GroupSidebar from './components/groups/GroupSidebar';
@@ -18,11 +18,13 @@ import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import {
   CortexApiError,
   getAdminStats,
+  getDeploymentStatus,
   getUserRouting,
   listConversations,
   setAuthTokenGetter,
   type BillingAccessState,
   type ConversationSummary,
+  type DeploymentStatus,
 } from './lib/cortexApi';
 import {
   createTeamGroup,
@@ -223,6 +225,7 @@ function CortexShell() {
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
   const [paletteConversations, setPaletteConversations] = useState<ConversationSummary[]>([]);
   const [taskState, setTaskState] = useState<TaskManagerState | null>(null);
+  const [deploymentStatus, setDeploymentStatus] = useState<DeploymentStatus | null>(null);
   const [isAdmin, setIsAdmin] = useState(false);
   const [personalTaskManagerOpen, setPersonalTaskManagerOpen] = useState(false);
   const [taskManagerSwitcherOpen, setTaskManagerSwitcherOpen] = useState(false);
@@ -239,6 +242,24 @@ function CortexShell() {
   useEffect(() => {
     if (getToken) setAuthTokenGetter(getToken);
   }, [getToken]);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refreshDeploymentStatus() {
+      try {
+        const status = await getDeploymentStatus();
+        if (!cancelled) setDeploymentStatus(status);
+      } catch {
+        if (!cancelled) setDeploymentStatus(null);
+      }
+    }
+    void refreshDeploymentStatus();
+    const interval = window.setInterval(refreshDeploymentStatus, 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, []);
 
   useEffect(() => {
     setTaskState(readTaskManagerState(activeGroup, userId ?? 'local'));
@@ -677,6 +698,23 @@ function CortexShell() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            {deploymentStatus?.frontend.drift ? (
+              <span
+                className="hidden items-center gap-1.5 rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-0.5 text-[11px] text-amber-100 md:inline-flex"
+                title={`Live asset ${deploymentStatus.frontend.live_assets?.js ?? 'unknown'} differs from expected ${deploymentStatus.frontend.expected_assets.js ?? 'unknown'}`}
+              >
+                <AlertTriangle className="h-3.5 w-3.5" />
+                Deploy drift
+              </span>
+            ) : deploymentStatus?.status === 'match' ? (
+              <span
+                className="hidden items-center gap-1.5 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-0.5 text-[11px] text-emerald-100 md:inline-flex"
+                title={deploymentStatus.backend.commit_short ? `Live commit ${deploymentStatus.backend.commit_short}` : 'Deployment surfaces match'}
+              >
+                <CheckCircle2 className="h-3.5 w-3.5" />
+                Deployed
+              </span>
+            ) : null}
             {isStreaming && (
               <span className="flex items-center gap-1.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-200">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-300 animate-pulse" />

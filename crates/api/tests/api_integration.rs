@@ -14,7 +14,7 @@ async fn test_app() -> (axum::Router, tempfile::TempDir) {
     std::fs::create_dir_all(workspace.join(".cortex")).unwrap();
 
     let ledger_path = workspace.join(".cortex/ledger.jsonl");
-    let state = AppState::new(ledger_path, workspace, None);
+    let state = AppState::new(ledger_path, workspace, None).await;
 
     // Start the scheduler so run creation works
     let scheduler_tx = scheduler::spawn_scheduler(state.clone());
@@ -51,6 +51,31 @@ async fn test_health() {
     let json = body_json(resp).await;
     assert_eq!(json["status"], "ok");
     assert_eq!(json["service"], "cortex");
+}
+
+#[tokio::test]
+async fn test_deployment_status() {
+    let (app, _tmp) = test_app().await;
+
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/deployment/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let json = body_json(resp).await;
+    assert!(json["status"].is_string());
+    assert_eq!(json["service"], "cortex");
+    assert!(json["backend"].is_object());
+    assert_eq!(json["backend"]["service"], "cortex");
+    assert!(json["frontend"].is_object());
+    assert!(json["frontend"]["expected_assets"].is_object());
 }
 
 // ─── Route Task ──────────────────────────────────────────────────────────────
