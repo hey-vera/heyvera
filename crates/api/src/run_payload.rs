@@ -342,6 +342,7 @@ mod tests {
             )],
             &[],
         );
+        db.register_worker("worker_1", "user_1");
         let lease_gen = db.lease_step("step_a", "worker_1", 99_999).unwrap();
         db.record_attempt(
             "step_a",
