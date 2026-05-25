@@ -75,12 +75,18 @@ jobs:
             "caddy validate --config /tmp/Caddyfile.new && sudo -n cp /tmp/Caddyfile.new /etc/caddy/Caddyfile && sudo -n systemctl reload caddy && echo '[caddy] Reloaded' || echo '[caddy] sudo unavailable — Caddyfile not updated, reload manually'"
 
       - name: Smoke frontend
+        env:
+          DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
+          TAILSCALE_HOST: ${{ vars.TAILSCALE_HOST }}
         run: |
-          curl --retry 5 --retry-delay 2 --retry-all-errors -fsSI https://heyvera.org/ \
+          ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" <<'EOF'
+          set -euo pipefail
+          curl --resolve heyvera.org:443:127.0.0.1 -k -fsSI https://heyvera.org/ \
             | grep -qi '^content-type: text/html'
-          ASSET=$(curl --retry 5 --retry-delay 2 --retry-all-errors -fsS https://heyvera.org/ \
+          ASSET=$(curl --resolve heyvera.org:443:127.0.0.1 -k -fsS https://heyvera.org/ \
             | grep -o '/assets/[^"]*\.js' \
             | head -n 1)
           test -n "$ASSET"
-          curl --retry 5 --retry-delay 2 --retry-all-errors -fsSI "https://heyvera.org${ASSET}" \
+          curl --resolve heyvera.org:443:127.0.0.1 -k -fsSI "https://heyvera.org${ASSET}" \
             | grep -qi '^content-type: application/javascript'
+          EOF
