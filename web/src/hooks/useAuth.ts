@@ -13,6 +13,7 @@ export function useAuth() {
       authEnabled: true,
       isSignedIn: isSignedIn ?? false,
       getToken,
+      userId: user?.id ?? null,
       viewerLabel,
     };
   } catch {
@@ -21,6 +22,7 @@ export function useAuth() {
       authEnabled: false,
       isSignedIn: false,
       getToken: async () => null as string | null,
+      userId: null,
       viewerLabel: null,
     };
   }

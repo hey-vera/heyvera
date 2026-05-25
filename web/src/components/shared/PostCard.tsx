@@ -1,21 +1,35 @@
-import { useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   BarChart3,
   Bookmark,
+  Copy,
   Heart,
+  Link,
+  LogIn,
   MessageCircle,
+  Quote,
   Repeat2,
   Share,
+  UserRound,
+  X,
 } from 'lucide-react';
+import { SignInButton } from '@clerk/clerk-react';
+import { useNavigate } from 'react-router-dom';
+import { getCurrentUserProfile } from '../../api/client';
 import type { Post } from '../../api/types';
+import { useAuth } from '../../hooks/useAuth';
 
 interface PostCardProps {
   post: Post;
-  onLike?: (id: string, liked: boolean) => void;
-  onRepost?: (id: string, reposted: boolean) => void;
-  onBookmark?: (id: string, bookmarked: boolean) => void;
+  onLike?: (id: string, liked: boolean, token: string) => void;
+  onRepost?: (id: string, reposted: boolean, token: string) => void;
+  onBookmark?: (id: string, bookmarked: boolean, token: string) => void;
 }
+
+type AuthPrompt = 'signin' | 'profile' | 'unconfigured' | 'error' | null;
+
+const clerkConfigured = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
 
 function relativeTime(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -37,35 +51,153 @@ function formatCount(n: number): string {
 }
 
 export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) {
+  const navigate = useNavigate();
+  const { authEnabled, isSignedIn, getToken, userId } = useAuth();
   const [liked, setLiked] = useState(post.liked);
   const [reposted, setReposted] = useState(post.reposted);
   const [bookmarked, setBookmarked] = useState(post.bookmarked);
   const [likeCount, setLikeCount] = useState(post.like_count);
   const [repostCount, setRepostCount] = useState(post.repost_count);
+  const [likeAnimating, setLikeAnimating] = useState(false);
+  const [openMenu, setOpenMenu] = useState<'repost' | 'share' | null>(null);
+  const [authPrompt, setAuthPrompt] = useState<AuthPrompt>(null);
+  const [authMessage, setAuthMessage] = useState<string | null>(null);
+  const [checkingAuth, setCheckingAuth] = useState(false);
+  const [hasProfile, setHasProfile] = useState<boolean | null>(null);
+  const likeTimerRef = useRef<number | null>(null);
 
-  const toggleLike = () => {
+  useEffect(() => {
+    return () => {
+      if (likeTimerRef.current != null) {
+        window.clearTimeout(likeTimerRef.current);
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    setHasProfile(null);
+    setAuthPrompt(null);
+    setAuthMessage(null);
+  }, [authEnabled, isSignedIn, userId]);
+
+  const ensureCanMutate = async (): Promise<string | null> => {
+    setAuthMessage(null);
+
+    if (!authEnabled || !clerkConfigured) {
+      setAuthPrompt('unconfigured');
+      return null;
+    }
+
+    if (!isSignedIn) {
+      setAuthPrompt('signin');
+      return null;
+    }
+
+    const token = await getToken();
+    if (!token) {
+      setAuthPrompt('signin');
+      return null;
+    }
+
+    if (hasProfile === true) return token;
+    if (hasProfile === false) {
+      setAuthPrompt('profile');
+      return null;
+    }
+
+    setCheckingAuth(true);
+    try {
+      const profile = await getCurrentUserProfile(token);
+      const ready = Boolean(profile);
+      setHasProfile(ready);
+
+      if (!ready) {
+        setAuthPrompt('profile');
+        return null;
+      }
+
+      setAuthPrompt(null);
+      return token;
+    } catch (err) {
+      setAuthPrompt('error');
+      setAuthMessage(err instanceof Error ? err.message : 'Unable to verify your profile.');
+      return null;
+    } finally {
+      setCheckingAuth(false);
+    }
+  };
+
+  const toggleLike = async () => {
+    const token = await ensureCanMutate();
+    if (!token) return;
     const nextLiked = !liked;
     setLiked(nextLiked);
     setLikeCount((count) => Math.max(0, nextLiked ? count + 1 : count - 1));
-    onLike?.(post.id, nextLiked);
+    if (nextLiked) {
+      setLikeAnimating(true);
+      if (likeTimerRef.current != null) {
+        window.clearTimeout(likeTimerRef.current);
+      }
+      likeTimerRef.current = window.setTimeout(() => setLikeAnimating(false), 180);
+    }
+    onLike?.(post.id, nextLiked, token);
   };
 
-  const toggleRepost = () => {
+  const toggleRepost = async () => {
+    const token = await ensureCanMutate();
+    if (!token) {
+      setOpenMenu(null);
+      return;
+    }
     const nextReposted = !reposted;
     setReposted(nextReposted);
     setRepostCount((count) => Math.max(0, nextReposted ? count + 1 : count - 1));
-    onRepost?.(post.id, nextReposted);
+    setOpenMenu(null);
+    onRepost?.(post.id, nextReposted, token);
   };
 
-  const toggleBookmark = () => {
+  const toggleBookmark = async () => {
+    const token = await ensureCanMutate();
+    if (!token) return;
     const nextBookmarked = !bookmarked;
     setBookmarked(nextBookmarked);
-    onBookmark?.(post.id, nextBookmarked);
+    onBookmark?.(post.id, nextBookmarked, token);
+  };
+
+  const gateReply = async () => {
+    const token = await ensureCanMutate();
+    if (!token) return;
+    navigate(`/post/${post.id}?compose=reply`);
+  };
+
+  const gateQuote = async () => {
+    setOpenMenu(null);
+    const token = await ensureCanMutate();
+    if (!token) return;
+    navigate(`/post/${post.id}?compose=quote`);
+  };
+
+  const copyPostLink = () => {
+    setOpenMenu(null);
+    if (typeof window === 'undefined' || !navigator.clipboard) return;
+    const postUrl = new URL(`/post/${post.id}`, window.location.origin).toString();
+    void navigator.clipboard.writeText(postUrl);
+  };
+
+  const sharePost = () => {
+    setOpenMenu(null);
+    if (typeof window === 'undefined' || !navigator.share) return;
+    const postUrl = new URL(`/post/${post.id}`, window.location.origin).toString();
+    void navigator.share({
+      title: `${post.author.display_name} on HeyVera`,
+      text: post.content,
+      url: postUrl,
+    });
   };
 
   return (
     <article
-      className="flex cursor-pointer gap-3 border-b px-4 py-3 transition-colors hover:bg-white/[0.03]"
+      className="relative flex cursor-pointer gap-3 border-b px-4 py-3 transition-colors hover:bg-white/[0.03]"
       style={{ borderColor: 'var(--border-primary)' }}
     >
       {/* Avatar */}
@@ -140,15 +272,21 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
             label="Reply"
             count={post.reply_count}
             color="reply"
+            onClick={gateReply}
           />
-          <ActionButton
+          <DropdownAction
             icon={Repeat2}
             label="Repost"
             count={repostCount}
             active={reposted}
             color="repost"
-            onClick={toggleRepost}
-          />
+            open={openMenu === 'repost'}
+            onToggle={() => setOpenMenu((menu) => (menu === 'repost' ? null : 'repost'))}
+            onClose={() => setOpenMenu(null)}
+          >
+            <MenuItem icon={Repeat2} label={reposted ? 'Undo repost' : 'Repost'} onClick={toggleRepost} />
+            <MenuItem icon={Quote} label="Quote" onClick={gateQuote} />
+          </DropdownAction>
           <ActionButton
             icon={Heart}
             label="Like"
@@ -156,6 +294,7 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
             active={liked}
             color="like"
             onClick={toggleLike}
+            animate={likeAnimating}
           />
           <ActionButton
             icon={BarChart3}
@@ -170,14 +309,130 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
             color="reply"
             onClick={toggleBookmark}
           />
-          <ActionButton
+          <DropdownAction
             icon={Share}
             label="Share"
             color="reply"
-          />
+            open={openMenu === 'share'}
+            onToggle={() => setOpenMenu((menu) => (menu === 'share' ? null : 'share'))}
+            onClose={() => setOpenMenu(null)}
+          >
+            <MenuItem icon={Copy} label="Copy link" onClick={copyPostLink} />
+            <MenuItem icon={Link} label="Share" onClick={sharePost} />
+          </DropdownAction>
         </div>
       </div>
+      {authPrompt && (
+        <SocialAuthPrompt
+          prompt={authPrompt}
+          message={authMessage}
+          checking={checkingAuth}
+          onClose={() => setAuthPrompt(null)}
+        />
+      )}
     </article>
+  );
+}
+
+function SocialAuthPrompt({
+  prompt,
+  message,
+  checking,
+  onClose,
+}: {
+  prompt: Exclude<AuthPrompt, null>;
+  message: string | null;
+  checking: boolean;
+  onClose: () => void;
+}) {
+  const profileHref = '/profile';
+  const title =
+    prompt === 'profile'
+      ? 'Create your Vera profile'
+      : prompt === 'unconfigured'
+        ? 'Sign-in is not configured'
+        : prompt === 'error'
+          ? 'Could not verify profile'
+          : 'Sign in to keep going';
+  const body =
+    prompt === 'profile'
+      ? 'Create a profile before replying, reposting, liking, or bookmarking.'
+      : prompt === 'unconfigured'
+        ? 'Sign-in is unavailable in this environment. Open your profile when auth is configured.'
+        : prompt === 'error'
+          ? (message ?? 'Try again after your account and profile state load.')
+          : 'Use your account to reply, repost, like, or bookmark.';
+
+  return (
+    <div
+      className="fixed inset-x-3 bottom-20 z-30 rounded-2xl border p-4 shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-3 sm:top-3 sm:w-[min(20rem,calc(100%-1.5rem))]"
+      style={{
+        backgroundColor: 'var(--bg-elevated)',
+        borderColor: 'var(--border-primary)',
+        color: 'var(--text-primary)',
+      }}
+      onClick={(e) => e.stopPropagation()}
+      role="dialog"
+      aria-modal="false"
+      aria-label={title}
+    >
+      <div className="flex items-start gap-3">
+        <div
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+          style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--accent)' }}
+          aria-hidden="true"
+        >
+          {prompt === 'profile' ? <UserRound size={18} /> : <LogIn size={18} />}
+        </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h2 className="text-[15px] font-bold leading-5">{title}</h2>
+              <p className="mt-1 text-[13px] leading-5" style={{ color: 'var(--text-secondary)' }}>
+                {checking ? 'Checking your profile...' : body}
+              </p>
+            </div>
+            <button
+              type="button"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+              aria-label="Close"
+              onClick={onClose}
+            >
+              <X size={16} />
+            </button>
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {prompt === 'signin' && clerkConfigured ? (
+              <SignInButton mode="modal">
+                <button
+                  type="button"
+                  className="rounded-full px-4 py-2 text-[13px] font-bold transition-opacity hover:opacity-90"
+                  style={{ backgroundColor: 'var(--text-primary)', color: 'var(--bg-primary)' }}
+                >
+                  Sign in
+                </button>
+              </SignInButton>
+            ) : (
+              <a
+                href={profileHref}
+                className="rounded-full px-4 py-2 text-[13px] font-bold transition-opacity hover:opacity-90"
+                style={{ backgroundColor: 'var(--text-primary)', color: 'var(--bg-primary)' }}
+              >
+                Go to profile
+              </a>
+            )}
+            <button
+              type="button"
+              className="rounded-full border px-4 py-2 text-[13px] font-bold transition-colors hover:bg-white/[0.06]"
+              style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+              onClick={onClose}
+            >
+              Not now
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -188,6 +443,7 @@ function ActionButton({
   active,
   color,
   onClick,
+  animate,
 }: {
   icon: LucideIcon;
   label: string;
@@ -195,6 +451,7 @@ function ActionButton({
   active?: boolean;
   color: 'reply' | 'repost' | 'like';
   onClick?: () => void;
+  animate?: boolean;
 }) {
   const Icon = icon;
   const activeColor =
@@ -216,13 +473,107 @@ function ActionButton({
         e.stopPropagation();
         onClick?.();
       }}
-      className="group flex items-center gap-1 rounded-full p-2 text-[13px] transition-colors hover:bg-[color:color-mix(in_srgb,var(--action-color)_10%,transparent)] hover:text-[var(--action-color)]"
+      className="group flex items-center gap-1 rounded-full p-2 text-[13px] transition-colors duration-150 hover:bg-[color:color-mix(in_srgb,var(--action-color)_10%,transparent)] hover:text-[var(--action-color)] focus-visible:bg-[color:color-mix(in_srgb,var(--action-color)_10%,transparent)] focus-visible:text-[var(--action-color)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--action-color)]"
       style={style}
     >
-      <Icon size={18} strokeWidth={2} fill={active && color === 'like' ? 'currentColor' : 'none'} />
+      <span
+        className={`relative flex h-[18px] w-[18px] items-center justify-center transition-transform duration-150 ${animate ? 'scale-125' : 'scale-100'}`}
+      >
+        {animate && (
+          <span className="absolute inset-0 rounded-full bg-[var(--color-like)] opacity-20 transition-opacity duration-150" />
+        )}
+        <Icon size={18} strokeWidth={2} fill={active && color === 'like' ? 'currentColor' : 'none'} />
+      </span>
       {count != null && count > 0 && (
-        <span>{formatCount(count)}</span>
+        <span className="min-w-[1ch] transition-colors duration-150">{formatCount(count)}</span>
       )}
+    </button>
+  );
+}
+
+function DropdownAction({
+  icon,
+  label,
+  count,
+  active,
+  color,
+  open,
+  onToggle,
+  onClose,
+  children,
+}: {
+  icon: LucideIcon;
+  label: string;
+  count?: number;
+  active?: boolean;
+  color: 'reply' | 'repost' | 'like';
+  open: boolean;
+  onToggle: () => void;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="relative"
+      onBlur={(e) => {
+        if (!(e.relatedTarget instanceof Node) || !e.currentTarget.contains(e.relatedTarget)) {
+          onClose();
+        }
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') {
+          e.stopPropagation();
+          onClose();
+        }
+      }}
+    >
+      <ActionButton
+        icon={icon}
+        label={label}
+        count={count}
+        active={active}
+        color={color}
+        onClick={onToggle}
+      />
+      {open && (
+        <div
+          className="absolute left-0 z-20 mt-1 min-w-40 overflow-hidden rounded-lg border py-1 shadow-xl"
+          style={{
+            backgroundColor: 'var(--bg-elevated)',
+            borderColor: 'var(--border-primary)',
+            color: 'var(--text-primary)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({
+  icon,
+  label,
+  onClick,
+}: {
+  icon: LucideIcon;
+  label: string;
+  onClick: () => void;
+}) {
+  const Icon = icon;
+
+  return (
+    <button
+      type="button"
+      className="flex w-full items-center gap-3 px-4 py-2 text-left text-[15px] transition-colors duration-150 hover:bg-white/[0.06] focus-visible:bg-white/[0.06] focus-visible:outline-none"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+    >
+      <Icon size={18} strokeWidth={2} />
+      <span>{label}</span>
     </button>
   );
 }
