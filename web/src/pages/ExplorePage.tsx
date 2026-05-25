@@ -37,7 +37,7 @@ const EMPTY_SEARCH_RESULTS: SearchState = {
 };
 
 export function ExplorePage() {
-  const { authEnabled, isSignedIn, getToken } = useAuth();
+  const { authEnabled, isSignedIn } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('For you');
   const [query, setQuery] = useState('');
   const [trending, setTrending] = useState<TrendingItem[]>([]);

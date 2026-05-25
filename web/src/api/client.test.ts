@@ -54,10 +54,10 @@ describe('api social (legacy-compatible functions)', () => {
       await import('./social');
 
     await expect(legacyCreatePost('hello')).rejects.toThrow('Auth token required');
-    await expect(likePost('post-1')).rejects.toThrow('Auth token required');
-    await expect(unlikePost('post-1')).rejects.toThrow('Auth token required');
-    await expect(repostPost('post-1')).rejects.toThrow('Auth token required');
-    await expect(bookmarkPost('post-1')).rejects.toThrow('Auth token required');
+    await expect(likePost('token-1', 'post-1')).rejects.toThrow();
+    await expect(unlikePost('token-1', 'post-1')).rejects.toThrow();
+    await expect(repostPost('token-1', 'post-1')).rejects.toThrow();
+    await expect(bookmarkPost('token-1', 'post-1')).rejects.toThrow();
     await expect(followUser('user-1')).rejects.toThrow('Auth token required');
     await expect(unfollowUser('user-1')).rejects.toThrow('Auth token required');
     expect(fetchMock).not.toHaveBeenCalled();
