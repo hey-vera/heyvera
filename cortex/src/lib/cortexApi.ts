@@ -1027,6 +1027,25 @@ export interface GroupOperationsAttentionItem {
   updated_at?: string | null;
 }
 
+export interface GroupOperationsResourceLease {
+  id: string;
+  group_id?: string | null;
+  task_id?: string | null;
+  run_id: string;
+  step_id?: string | null;
+  holder_type: string;
+  resource_type: string;
+  repo_key: string;
+  resource_key: string;
+  mode: string;
+  lease_gen: number;
+  acquired_at: number;
+  expires_at: number;
+  seconds_until_expiry: number;
+  reason?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
 export interface GroupOperationsSummary {
   group_id: string;
   scope: 'group';
@@ -1067,6 +1086,12 @@ export interface GroupOperationsSummary {
     pending: number;
     approved: number;
     rejected: number;
+  };
+  resource_leases?: {
+    active: number;
+    by_type: Record<string, number>;
+    by_mode: Record<string, number>;
+    leases: GroupOperationsResourceLease[];
   };
   attention: GroupOperationsAttentionItem[];
   recent_events: RunOperationEvent[];
