@@ -7,7 +7,7 @@ import type {
   TaskPriority,
   TaskStatus,
 } from '../types';
-import { getGroupTaskManagerState, updateGroupTaskManagerState } from './cortexApi';
+import { getGroupTaskManagerState, patchGroupTaskManagerTask, updateGroupTaskManagerState } from './cortexApi';
 import type { CortexGroup } from './groups';
 
 const STORAGE_PREFIX = 'cortex:task-manager';
@@ -171,6 +171,13 @@ function writeState(groupId: string, state: TaskManagerState) {
   } catch {
     // Local state is a bridge until the group task API lands.
   }
+}
+
+function broadcastTaskState(groupId: string) {
+  if (typeof BroadcastChannel === 'undefined') return;
+  const channel = new BroadcastChannel(CHANNEL_NAME);
+  channel.postMessage({ groupId });
+  channel.close();
 }
 
 function findMember(members: TaskMember[], name: string): TaskMember | null {
@@ -456,12 +463,30 @@ export function useTaskManager(group: CortexGroup, userId: string) {
     void updateGroupTaskManagerState(group.id, next).catch(() => {
       // Keep local state as the source of truth when the API is unavailable.
     });
-    if (typeof BroadcastChannel !== 'undefined') {
-      const channel = new BroadcastChannel(CHANNEL_NAME);
-      channel.postMessage({ groupId: group.id });
-      channel.close();
-    }
+    broadcastTaskState(group.id);
   }, [group.id]);
+
+  const publishTaskPatch = useCallback((
+    taskId: string,
+    patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority' | 'projectChatConversationId' | 'projectChatLaunchedAt' | 'latestRunId' | 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>>,
+    optimisticState: TaskManagerState,
+  ) => {
+    setState(optimisticState);
+    writeState(group.id, optimisticState);
+    broadcastTaskState(group.id);
+    void patchGroupTaskManagerTask(group.id, taskId, patch)
+      .then((remoteState) => {
+        const next = mergeDefaultMembers(remoteState, group, userId);
+        setState(next);
+        writeState(group.id, next);
+        broadcastTaskState(group.id);
+      })
+      .catch(() => {
+        void updateGroupTaskManagerState(group.id, optimisticState).catch(() => {
+          // Keep local state as the source of truth when the API is unavailable.
+        });
+      });
+  }, [group, userId]);
 
   const applyTextCommand = useCallback((text: string, actor = 'You') => {
     const actions = parseTaskCommand(text, state);
@@ -512,7 +537,7 @@ export function useTaskManager(group: CortexGroup, userId: string) {
       : patch.status
         ? `${nextTask.title} moved to ${formatTaskStatus(patch.status)}.`
         : `${nextTask.title} updated.`;
-    publish({
+    publishTaskPatch(taskId, patch, {
       ...state,
       tasks: state.tasks.map((task) => task.id === taskId ? nextTask : task),
       members: state.members.map((member) => {
@@ -535,20 +560,20 @@ export function useTaskManager(group: CortexGroup, userId: string) {
       }, ...state.activity].slice(0, 80),
       updatedAt: timestamp,
     });
-  }, [group.id, publish, state]);
+  }, [group.id, publishTaskPatch, state]);
 
   const updateTaskRunSnapshot = useCallback((taskId: string, snapshot: Pick<TaskManagerTask, 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>) => {
     const previous = state.tasks.find((task) => task.id === taskId);
     if (!previous) return;
     const timestamp = nowIso();
-    publish({
+    publishTaskPatch(taskId, snapshot, {
       ...state,
       tasks: state.tasks.map((task) => task.id === taskId
         ? { ...task, ...snapshot, updatedAt: timestamp }
         : task),
       updatedAt: timestamp,
     });
-  }, [publish, state]);
+  }, [publishTaskPatch, state]);
 
   const launchTaskInProjectChat = useCallback((taskId: string, conversationId: string | null) => {
     const timestamp = nowIso();
@@ -561,7 +586,12 @@ export function useTaskManager(group: CortexGroup, userId: string) {
       projectChatLaunchedAt: timestamp,
       updatedAt: timestamp,
     };
-    publish({
+    const patch = {
+      status: nextTask.status,
+      projectChatConversationId: nextTask.projectChatConversationId,
+      projectChatLaunchedAt: nextTask.projectChatLaunchedAt,
+    };
+    publishTaskPatch(taskId, patch, {
       ...state,
       tasks: state.tasks.map((task) => task.id === taskId ? nextTask : task),
       members: state.members.map((member) => {
@@ -584,7 +614,7 @@ export function useTaskManager(group: CortexGroup, userId: string) {
       updatedAt: timestamp,
     });
     return nextTask;
-  }, [group.id, publish, state]);
+  }, [group.id, publishTaskPatch, state]);
 
   const resetTasks = useCallback(() => {
     publish(emptyState(group, userId));
