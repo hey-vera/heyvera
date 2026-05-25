@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse};
-use axum::Json;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -19,7 +19,9 @@ fn db_ref(state: &AppState) -> ApiResult<&crate::db::Database> {
     state.db.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: "database not available".into() }),
+            Json(ErrorResponse {
+                error: "database not available".into(),
+            }),
         )
     })
 }
@@ -65,11 +67,14 @@ pub async fn slack_oauth_start(
     let client_id = std::env::var("SLACK_CLIENT_ID").map_err(|_| {
         (
             StatusCode::PRECONDITION_FAILED,
-            Json(ErrorResponse { error: "Slack OAuth is not configured".into() }),
+            Json(ErrorResponse {
+                error: "Slack OAuth is not configured".into(),
+            }),
         )
     })?;
-    let redirect_uri = std::env::var("SLACK_REDIRECT_URI")
-        .unwrap_or_else(|_| "http://localhost:3402/api/integrations/slack/oauth/callback".to_string());
+    let redirect_uri = std::env::var("SLACK_REDIRECT_URI").unwrap_or_else(|_| {
+        "http://localhost:3402/api/integrations/slack/oauth/callback".to_string()
+    });
     let scopes = "channels:read,groups:read,users:read,chat:write,commands,app_mentions:read";
     let oauth_state = Uuid::new_v4().to_string();
     db_ref(&state)?.store_oauth_state(
@@ -85,7 +90,10 @@ pub async fn slack_oauth_start(
         url_encode(&oauth_state),
         url_encode(&redirect_uri),
     );
-    Ok(Json(OAuthStartResponse { auth_url, state: oauth_state }))
+    Ok(Json(OAuthStartResponse {
+        auth_url,
+        state: oauth_state,
+    }))
 }
 
 #[derive(Deserialize)]
@@ -117,25 +125,41 @@ pub async fn slack_oauth_callback(
     if let Some(error) = query.error {
         return (
             StatusCode::BAD_REQUEST,
-            Html(format!("<p>Slack authorization failed: {}</p>", html_escape(&error))),
+            Html(format!(
+                "<p>Slack authorization failed: {}</p>",
+                html_escape(&error)
+            )),
         );
     }
     let Some(code) = query.code else {
-        return (StatusCode::BAD_REQUEST, Html("<p>Missing Slack OAuth code.</p>".to_string()));
+        return (
+            StatusCode::BAD_REQUEST,
+            Html("<p>Missing Slack OAuth code.</p>".to_string()),
+        );
     };
     let Some(oauth_state) = query.state else {
-        return (StatusCode::BAD_REQUEST, Html("<p>Missing Slack OAuth state.</p>".to_string()));
+        return (
+            StatusCode::BAD_REQUEST,
+            Html("<p>Missing Slack OAuth state.</p>".to_string()),
+        );
     };
     let Ok(db) = db_ref(&state) else {
-        return (StatusCode::INTERNAL_SERVER_ERROR, Html("<p>Database unavailable.</p>".to_string()));
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Html("<p>Database unavailable.</p>".to_string()),
+        );
     };
     let Some((user_id, redirect_after)) = db.consume_oauth_state("slack", &oauth_state) else {
-        return (StatusCode::BAD_REQUEST, Html("<p>Expired Slack OAuth state.</p>".to_string()));
+        return (
+            StatusCode::BAD_REQUEST,
+            Html("<p>Expired Slack OAuth state.</p>".to_string()),
+        );
     };
     let client_id = std::env::var("SLACK_CLIENT_ID").unwrap_or_default();
     let client_secret = std::env::var("SLACK_CLIENT_SECRET").unwrap_or_default();
-    let redirect_uri = std::env::var("SLACK_REDIRECT_URI")
-        .unwrap_or_else(|_| "http://localhost:3402/api/integrations/slack/oauth/callback".to_string());
+    let redirect_uri = std::env::var("SLACK_REDIRECT_URI").unwrap_or_else(|_| {
+        "http://localhost:3402/api/integrations/slack/oauth/callback".to_string()
+    });
     let client = reqwest::Client::new();
     let access_response = client
         .post("https://slack.com/api/oauth.v2.access")
@@ -150,10 +174,16 @@ pub async fn slack_oauth_callback(
         .and_then(|res| res.error_for_status());
 
     let Ok(access_response) = access_response else {
-        return (StatusCode::BAD_GATEWAY, Html("<p>Slack token exchange failed.</p>".to_string()));
+        return (
+            StatusCode::BAD_GATEWAY,
+            Html("<p>Slack token exchange failed.</p>".to_string()),
+        );
     };
     let Ok(access) = access_response.json::<SlackOauthAccess>().await else {
-        return (StatusCode::BAD_GATEWAY, Html("<p>Slack token response was invalid.</p>".to_string()));
+        return (
+            StatusCode::BAD_GATEWAY,
+            Html("<p>Slack token response was invalid.</p>".to_string()),
+        );
     };
     if !access.ok {
         return (
@@ -165,8 +195,12 @@ pub async fn slack_oauth_callback(
         );
     }
 
-    let team = access.team.unwrap_or(SlackTeam { id: "unknown".into(), name: "Slack workspace".into() });
-    let scopes = access.scope
+    let team = access.team.unwrap_or(SlackTeam {
+        id: "unknown".into(),
+        name: "Slack workspace".into(),
+    });
+    let scopes = access
+        .scope
         .unwrap_or_default()
         .split(',')
         .filter(|scope| !scope.is_empty())
@@ -184,7 +218,8 @@ pub async fn slack_oauth_callback(
         &serde_json::json!({ "team_id": team.id, "team_name": team.name }),
     );
 
-    let target = redirect_after.unwrap_or_else(|| "/groups/personal/tasks?settings=integrations".to_string());
+    let target = redirect_after
+        .unwrap_or_else(|| "/groups/personal/tasks?settings=integrations".to_string());
     (
         StatusCode::OK,
         Html(format!(
@@ -226,8 +261,18 @@ pub async fn slack_channels(
     let db = db_ref(&state)?;
     let Some(token) = db.get_integration_token(&user.user_id, "slack") else {
         return Ok(Json(vec![
-            SlackChannel { id: "CDEV".into(), name: "dev".into(), is_private: false, member_count: 8 },
-            SlackChannel { id: "COPS".into(), name: "ops".into(), is_private: false, member_count: 4 },
+            SlackChannel {
+                id: "CDEV".into(),
+                name: "dev".into(),
+                is_private: false,
+                member_count: 8,
+            },
+            SlackChannel {
+                id: "COPS".into(),
+                name: "ops".into(),
+                is_private: false,
+                member_count: 4,
+            },
         ]));
     };
     let url = "https://slack.com/api/conversations.list?types=public_channel,private_channel&exclude_archived=true&limit=200";
@@ -241,16 +286,28 @@ pub async fn slack_channels(
         .await
         .map_err(api_error)?;
     if !res.ok {
-        return Err((StatusCode::BAD_GATEWAY, Json(ErrorResponse {
-            error: format!("Slack channel fetch failed: {}", res.error.unwrap_or_else(|| "unknown_error".into())),
-        })));
+        return Err((
+            StatusCode::BAD_GATEWAY,
+            Json(ErrorResponse {
+                error: format!(
+                    "Slack channel fetch failed: {}",
+                    res.error.unwrap_or_else(|| "unknown_error".into())
+                ),
+            }),
+        ));
     }
-    Ok(Json(res.channels.unwrap_or_default().into_iter().map(|channel| SlackChannel {
-        id: channel.id,
-        name: channel.name,
-        is_private: channel.is_private,
-        member_count: channel.num_members.unwrap_or(0),
-    }).collect()))
+    Ok(Json(
+        res.channels
+            .unwrap_or_default()
+            .into_iter()
+            .map(|channel| SlackChannel {
+                id: channel.id,
+                name: channel.name,
+                is_private: channel.is_private,
+                member_count: channel.num_members.unwrap_or(0),
+            })
+            .collect(),
+    ))
 }
 
 #[derive(Deserialize)]
@@ -318,7 +375,11 @@ pub async fn get_group_tasks(
     }
 
     let db = db_ref(&state)?;
-    Ok(Json(db.get_group_task_state(&user.user_id, &group_id).unwrap_or_else(|| empty_task_state(&group_id))))
+    let state = db
+        .get_group_task_state(&user.user_id, &group_id)
+        .and_then(|value| normalize_task_state(&group_id, &value).ok())
+        .unwrap_or_else(|| empty_task_state(&group_id));
+    Ok(Json(state))
 }
 
 pub async fn update_group_tasks(
@@ -328,14 +389,16 @@ pub async fn update_group_tasks(
     Json(state_json): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let db = db_ref(&state)?;
-    let saved = db.upsert_group_task_state(&user.user_id, &group_id, &state_json);
+    let normalized = normalize_task_state(&group_id, &state_json)
+        .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
+    let saved = db.upsert_group_task_state(&user.user_id, &group_id, &normalized);
     db.record_integration_event(
         &user.user_id,
         "cortex",
         Some(&group_id),
         "task_state_updated",
         "queued",
-        &state_json,
+        &normalized,
     );
     Ok(Json(saved))
 }
@@ -355,13 +418,21 @@ pub async fn slack_command(
     body: String,
 ) -> impl IntoResponse {
     if !verify_slack_signature(&headers, &body).unwrap_or(true) {
-        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "invalid signature" })));
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "invalid signature" })),
+        );
     }
     let form = parse_slack_form(&body);
     let user_id = form.team_id.clone().unwrap_or_else(|| "slack".into());
-    let group_id = form.channel_id.as_ref().map(|id| format!("slack-{}", id.to_lowercase()));
+    let group_id = form
+        .channel_id
+        .as_ref()
+        .map(|id| format!("slack-{}", id.to_lowercase()));
     if let (Ok(db), Some(group_id), Some(text)) = (db_ref(&state), group_id, form.text.clone()) {
-        let task_state = db.get_group_task_state(&user_id, &group_id).unwrap_or_else(|| empty_task_state(&group_id));
+        let task_state = db
+            .get_group_task_state(&user_id, &group_id)
+            .unwrap_or_else(|| empty_task_state(&group_id));
         db.record_integration_event(
             &user_id,
             "slack",
@@ -376,10 +447,13 @@ pub async fn slack_command(
             }),
         );
     }
-    (StatusCode::OK, Json(serde_json::json!({
-        "response_type": "ephemeral",
-        "text": "Cortex captured that task and queued it for the mapped task manager."
-    })))
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "response_type": "ephemeral",
+            "text": "Cortex captured that task and queued it for the mapped task manager."
+        })),
+    )
 }
 
 pub async fn slack_events(
@@ -388,17 +462,36 @@ pub async fn slack_events(
     body: String,
 ) -> impl IntoResponse {
     if !verify_slack_signature(&headers, &body).unwrap_or(true) {
-        return (StatusCode::UNAUTHORIZED, Json(serde_json::json!({ "error": "invalid signature" })));
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({ "error": "invalid signature" })),
+        );
     }
-    let payload: serde_json::Value = serde_json::from_str(&body).unwrap_or_else(|_| serde_json::json!({}));
+    let payload: serde_json::Value =
+        serde_json::from_str(&body).unwrap_or_else(|_| serde_json::json!({}));
     if payload.get("type").and_then(|v| v.as_str()) == Some("url_verification") {
-        return (StatusCode::OK, Json(serde_json::json!({ "challenge": payload.get("challenge").cloned().unwrap_or_default() })));
+        return (
+            StatusCode::OK,
+            Json(
+                serde_json::json!({ "challenge": payload.get("challenge").cloned().unwrap_or_default() }),
+            ),
+        );
     }
-    let team_id = payload.get("team_id").and_then(|v| v.as_str()).unwrap_or("slack");
+    let team_id = payload
+        .get("team_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("slack");
     let channel_id = payload.pointer("/event/channel").and_then(|v| v.as_str());
     let group_id = channel_id.map(|id| format!("slack-{}", id.to_lowercase()));
     if let Ok(db) = db_ref(&state) {
-        db.record_integration_event(team_id, "slack", group_id.as_deref(), "event_callback", "queued", &payload);
+        db.record_integration_event(
+            team_id,
+            "slack",
+            group_id.as_deref(),
+            "event_callback",
+            "queued",
+            &payload,
+        );
     }
     (StatusCode::OK, Json(serde_json::json!({ "ok": true })))
 }
@@ -421,15 +514,29 @@ pub async fn replit_workspaces(
         "replit",
         Some("account"),
         "Replit",
-        if std::env::var("REPLIT_API_TOKEN").is_ok() { "connected" } else { "needs_config" },
+        if std::env::var("REPLIT_API_TOKEN").is_ok() {
+            "connected"
+        } else {
+            "needs_config"
+        },
         &["read:repls".to_string(), "write:tasks".to_string()],
         std::env::var("REPLIT_API_TOKEN").ok().as_deref(),
         None,
         &serde_json::json!({ "container_strategy": "replit-containers" }),
     );
     Ok(Json(vec![
-        ReplitWorkspace { id: "repl-main".into(), title: "Main workspace".into(), language: "Node.js".into(), url: None },
-        ReplitWorkspace { id: "repl-worker".into(), title: "Worker sandbox".into(), language: "Rust".into(), url: None },
+        ReplitWorkspace {
+            id: "repl-main".into(),
+            title: "Main workspace".into(),
+            language: "Node.js".into(),
+            url: None,
+        },
+        ReplitWorkspace {
+            id: "repl-worker".into(),
+            title: "Worker sandbox".into(),
+            language: "Rust".into(),
+            url: None,
+        },
     ]))
 }
 
@@ -471,7 +578,10 @@ pub async fn import_replit_workspace(
             "language": req.language,
         }),
     );
-    let conversation = db.create_conversation(&user.user_id, Some(&format!("Replit import: {}", req.title)));
+    let conversation = db.create_conversation(
+        &user.user_id,
+        Some(&format!("Replit import: {}", req.title)),
+    );
     db.add_message(
         &conversation.id,
         "assistant",
@@ -479,7 +589,10 @@ pub async fn import_replit_workspace(
         Some("replit"),
         Some("workspace-import"),
     );
-    Ok(Json(ImportGroupsResponse { groups: vec![group], mappings: vec![mapping] }))
+    Ok(Json(ImportGroupsResponse {
+        groups: vec![group],
+        mappings: vec![mapping],
+    }))
 }
 
 fn empty_task_state(group_id: &str) -> serde_json::Value {
@@ -498,10 +611,239 @@ fn empty_task_state(group_id: &str) -> serde_json::Value {
     })
 }
 
+fn normalize_task_state(
+    group_id: &str,
+    value: &serde_json::Value,
+) -> Result<serde_json::Value, String> {
+    const MAX_TASKS: usize = 250;
+    const MAX_MEMBERS: usize = 100;
+    const MAX_ACTIVITY: usize = 500;
+
+    let object = value
+        .as_object()
+        .ok_or_else(|| "task state must be an object".to_string())?;
+    let tasks = object
+        .get("tasks")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| "task state requires a tasks array".to_string())?;
+    let members = object
+        .get("members")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| "task state requires a members array".to_string())?;
+    let activity = object
+        .get("activity")
+        .and_then(|value| value.as_array())
+        .ok_or_else(|| "task state requires an activity array".to_string())?;
+
+    if tasks.len() > MAX_TASKS {
+        return Err(format!("task state exceeds {MAX_TASKS} tasks"));
+    }
+    if members.len() > MAX_MEMBERS {
+        return Err(format!("task state exceeds {MAX_MEMBERS} members"));
+    }
+    if activity.len() > MAX_ACTIVITY {
+        return Err(format!(
+            "task state exceeds {MAX_ACTIVITY} activity entries"
+        ));
+    }
+
+    let normalized_tasks: Result<Vec<_>, _> = tasks
+        .iter()
+        .enumerate()
+        .map(|(index, task)| normalize_task(group_id, task, index))
+        .collect();
+    let normalized_members: Result<Vec<_>, _> = members
+        .iter()
+        .enumerate()
+        .map(|(index, member)| normalize_member(member, index))
+        .collect();
+    let normalized_activity: Result<Vec<_>, _> = activity
+        .iter()
+        .enumerate()
+        .map(|(index, entry)| normalize_activity(group_id, entry, index))
+        .collect();
+
+    Ok(serde_json::json!({
+        "tasks": normalized_tasks?,
+        "members": normalized_members?,
+        "activity": normalized_activity?,
+        "updatedAt": optional_string(object.get("updatedAt"), 64)?.unwrap_or_else(|| chrono::Utc::now().to_rfc3339()),
+    }))
+}
+
+fn normalize_task(
+    group_id: &str,
+    value: &serde_json::Value,
+    index: usize,
+) -> Result<serde_json::Value, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| format!("task {index} must be an object"))?;
+    let task_group_id =
+        required_string(object.get("groupId"), 256, &format!("task {index} groupId"))?;
+    if task_group_id != group_id {
+        return Err(format!("task {index} groupId does not match route group"));
+    }
+    let status = required_string(object.get("status"), 32, &format!("task {index} status"))?;
+    if !matches!(
+        status.as_str(),
+        "created" | "assigned" | "in-progress" | "done"
+    ) {
+        return Err(format!("task {index} has invalid status"));
+    }
+    let priority = required_string(
+        object.get("priority"),
+        32,
+        &format!("task {index} priority"),
+    )?;
+    if !matches!(priority.as_str(), "normal" | "high" | "urgent") {
+        return Err(format!("task {index} has invalid priority"));
+    }
+
+    Ok(serde_json::json!({
+        "id": required_string(object.get("id"), 256, &format!("task {index} id"))?,
+        "groupId": task_group_id,
+        "title": required_string(object.get("title"), 256, &format!("task {index} title"))?,
+        "description": optional_string(object.get("description"), 4096)?,
+        "status": status,
+        "assigneeId": optional_string(object.get("assigneeId"), 256)?,
+        "repo": optional_string(object.get("repo"), 512)?,
+        "priority": priority,
+        "createdAt": required_string(object.get("createdAt"), 64, &format!("task {index} createdAt"))?,
+        "updatedAt": required_string(object.get("updatedAt"), 64, &format!("task {index} updatedAt"))?,
+        "createdBy": required_string(object.get("createdBy"), 256, &format!("task {index} createdBy"))?,
+        "sourceMessageId": optional_string(object.get("sourceMessageId"), 256)?,
+        "projectChatConversationId": optional_string(object.get("projectChatConversationId"), 256)?,
+        "projectChatLaunchedAt": optional_string(object.get("projectChatLaunchedAt"), 64)?,
+        "latestRunId": optional_string(object.get("latestRunId"), 256)?,
+        "latestRunStatus": optional_string(object.get("latestRunStatus"), 64)?,
+        "latestRunSyncedAt": optional_string(object.get("latestRunSyncedAt"), 64)?,
+        "latestRunStepSummary": normalize_step_summary(object.get("latestRunStepSummary"), index)?,
+    }))
+}
+
+fn normalize_member(value: &serde_json::Value, index: usize) -> Result<serde_json::Value, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| format!("member {index} must be an object"))?;
+    let status = required_string(object.get("status"), 32, &format!("member {index} status"))?;
+    if !matches!(status.as_str(), "online" | "working" | "away") {
+        return Err(format!("member {index} has invalid status"));
+    }
+
+    Ok(serde_json::json!({
+        "id": required_string(object.get("id"), 256, &format!("member {index} id"))?,
+        "name": required_string(object.get("name"), 256, &format!("member {index} name"))?,
+        "initials": required_string(object.get("initials"), 16, &format!("member {index} initials"))?,
+        "status": status,
+        "currentTaskId": optional_string(object.get("currentTaskId"), 256)?,
+        "color": required_string(object.get("color"), 32, &format!("member {index} color"))?,
+    }))
+}
+
+fn normalize_activity(
+    group_id: &str,
+    value: &serde_json::Value,
+    index: usize,
+) -> Result<serde_json::Value, String> {
+    let object = value
+        .as_object()
+        .ok_or_else(|| format!("activity {index} must be an object"))?;
+    let activity_group_id = required_string(
+        object.get("groupId"),
+        256,
+        &format!("activity {index} groupId"),
+    )?;
+    if activity_group_id != group_id {
+        return Err(format!(
+            "activity {index} groupId does not match route group"
+        ));
+    }
+    let kind = required_string(object.get("kind"), 32, &format!("activity {index} kind"))?;
+    if !matches!(
+        kind.as_str(),
+        "created" | "assigned" | "status" | "handoff" | "linked" | "note"
+    ) {
+        return Err(format!("activity {index} has invalid kind"));
+    }
+
+    Ok(serde_json::json!({
+        "id": required_string(object.get("id"), 256, &format!("activity {index} id"))?,
+        "groupId": activity_group_id,
+        "taskId": optional_string(object.get("taskId"), 256)?,
+        "kind": kind,
+        "actor": required_string(object.get("actor"), 256, &format!("activity {index} actor"))?,
+        "summary": required_string(object.get("summary"), 1024, &format!("activity {index} summary"))?,
+        "createdAt": required_string(object.get("createdAt"), 64, &format!("activity {index} createdAt"))?,
+    }))
+}
+
+fn normalize_step_summary(
+    value: Option<&serde_json::Value>,
+    task_index: usize,
+) -> Result<serde_json::Value, String> {
+    let Some(value) = value else {
+        return Ok(serde_json::Value::Null);
+    };
+    if value.is_null() {
+        return Ok(serde_json::Value::Null);
+    }
+    let object = value
+        .as_object()
+        .ok_or_else(|| format!("task {task_index} latestRunStepSummary must be an object"))?;
+    Ok(serde_json::json!({
+        "total": required_count(object.get("total"), &format!("task {task_index} total"))?,
+        "active": required_count(object.get("active"), &format!("task {task_index} active"))?,
+        "done": required_count(object.get("done"), &format!("task {task_index} done"))?,
+        "failed": required_count(object.get("failed"), &format!("task {task_index} failed"))?,
+    }))
+}
+
+fn required_count(value: Option<&serde_json::Value>, label: &str) -> Result<u64, String> {
+    let count = value
+        .and_then(|value| value.as_u64())
+        .ok_or_else(|| format!("{label} must be a non-negative integer"))?;
+    if count > 10_000 {
+        return Err(format!("{label} is too large"));
+    }
+    Ok(count)
+}
+
+fn required_string(
+    value: Option<&serde_json::Value>,
+    max_len: usize,
+    label: &str,
+) -> Result<String, String> {
+    optional_string(value, max_len)?
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| format!("{label} is required"))
+}
+
+fn optional_string(
+    value: Option<&serde_json::Value>,
+    max_len: usize,
+) -> Result<Option<String>, String> {
+    let Some(value) = value else {
+        return Ok(None);
+    };
+    if value.is_null() {
+        return Ok(None);
+    }
+    let string = value
+        .as_str()
+        .ok_or_else(|| "expected string or null".to_string())?;
+    if string.len() > max_len {
+        return Err(format!("string exceeds {max_len} characters"));
+    }
+    Ok(Some(string.to_string()))
+}
+
 fn api_error(err: reqwest::Error) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::BAD_GATEWAY,
-        Json(ErrorResponse { error: format!("upstream integration request failed: {err}") }),
+        Json(ErrorResponse {
+            error: format!("upstream integration request failed: {err}"),
+        }),
     )
 }
 
@@ -520,7 +862,10 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
-    a.iter().zip(b.iter()).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
+    a.iter()
+        .zip(b.iter())
+        .fold(0u8, |acc, (x, y)| acc | (x ^ y))
+        == 0
 }
 
 fn url_encode(value: &str) -> String {
@@ -545,7 +890,13 @@ fn html_escape(value: &str) -> String {
 fn slug(value: &str) -> String {
     value
         .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c.to_ascii_lowercase() } else { '-' })
+        .map(|c| {
+            if c.is_ascii_alphanumeric() {
+                c.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
         .collect::<String>()
         .trim_matches('-')
         .to_string()
@@ -602,4 +953,98 @@ fn percent_decode(value: &str) -> String {
         }
     }
     String::from_utf8_lossy(&out).to_string()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn valid_task_state() -> serde_json::Value {
+        serde_json::json!({
+            "tasks": [{
+                "id": "task-1",
+                "groupId": "group-1",
+                "title": "Ship the operation queue",
+                "description": "Make the live map useful",
+                "status": "in-progress",
+                "assigneeId": "user-1",
+                "repo": "hey-vera/heyvera",
+                "priority": "high",
+                "createdAt": "2026-05-25T00:00:00Z",
+                "updatedAt": "2026-05-25T00:01:00Z",
+                "createdBy": "You",
+                "sourceMessageId": "message-1",
+                "projectChatConversationId": "conversation-1",
+                "projectChatLaunchedAt": "2026-05-25T00:02:00Z",
+                "latestRunId": "run-1",
+                "latestRunStatus": "running",
+                "latestRunSyncedAt": "2026-05-25T00:03:00Z",
+                "latestRunStepSummary": {
+                    "total": 4,
+                    "active": 1,
+                    "done": 2,
+                    "failed": 1
+                },
+                "ignored": "field"
+            }],
+            "members": [{
+                "id": "user-1",
+                "name": "You",
+                "initials": "Y",
+                "status": "working",
+                "currentTaskId": "task-1",
+                "color": "#9cc7b8",
+                "ignored": "field"
+            }],
+            "activity": [{
+                "id": "activity-1",
+                "groupId": "group-1",
+                "taskId": "task-1",
+                "kind": "linked",
+                "actor": "You",
+                "summary": "Opened in Project Chat.",
+                "createdAt": "2026-05-25T00:02:00Z",
+                "ignored": "field"
+            }],
+            "updatedAt": "2026-05-25T00:03:00Z",
+            "ignored": "field"
+        })
+    }
+
+    #[test]
+    fn normalize_task_state_accepts_known_shape_and_strips_unknown_fields() {
+        let normalized = normalize_task_state("group-1", &valid_task_state()).unwrap();
+
+        assert_eq!(normalized["tasks"][0]["id"], "task-1");
+        assert_eq!(normalized["tasks"][0]["latestRunStepSummary"]["failed"], 1);
+        assert!(normalized["tasks"][0].get("ignored").is_none());
+        assert!(normalized.get("ignored").is_none());
+    }
+
+    #[test]
+    fn normalize_task_state_rejects_cross_group_task() {
+        let mut state = valid_task_state();
+        state["tasks"][0]["groupId"] = serde_json::json!("other-group");
+
+        let error = normalize_task_state("group-1", &state).unwrap_err();
+        assert!(error.contains("groupId does not match"));
+    }
+
+    #[test]
+    fn normalize_task_state_rejects_invalid_status() {
+        let mut state = valid_task_state();
+        state["tasks"][0]["status"] = serde_json::json!("paused");
+
+        let error = normalize_task_state("group-1", &state).unwrap_err();
+        assert!(error.contains("invalid status"));
+    }
+
+    #[test]
+    fn normalize_task_state_rejects_oversized_task_sets() {
+        let mut state = valid_task_state();
+        state["tasks"] = serde_json::Value::Array(vec![state["tasks"][0].clone(); 251]);
+
+        let error = normalize_task_state("group-1", &state).unwrap_err();
+        assert!(error.contains("exceeds 250 tasks"));
+    }
 }
