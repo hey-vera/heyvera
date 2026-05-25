@@ -54,11 +54,14 @@ type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing';
 function deploymentBadgeTitle(status: DeploymentStatus): string {
   const backend = status.commits.backend_commit_short ?? status.backend.commit_short ?? 'unknown';
   const frontend = status.commits.frontend_commit_short ?? 'unknown';
+  const workflow = status.github_actions.run_id
+    ? `; Deploy Production #${status.github_actions.run_number ?? status.github_actions.run_id} ${status.github_actions.conclusion ?? status.github_actions.run_status ?? 'unknown'}`
+    : '';
   if (status.commits.status === 'mismatch') {
-    return `Backend ${backend}; Cloudflare Pages ${frontend}`;
+    return `Backend ${backend}; Cloudflare Pages ${frontend}${workflow}`;
   }
   if (status.commits.status === 'match') {
-    return `Backend and Cloudflare Pages commit ${backend}`;
+    return `Backend and Cloudflare Pages commit ${backend}${workflow}`;
   }
   return status.backend.commit_short ? `Live commit ${status.backend.commit_short}` : 'Deployment surfaces match';
 }
