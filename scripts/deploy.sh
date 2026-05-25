@@ -241,13 +241,21 @@ else
 fi
 
 echo "[clawnet] Checking Node/Hono API service..."
-if [ "${CLAWNET_INSTALL_SERVICE:-0}" = "1" ] && [ "$SUDO_AVAILABLE" = "1" ]; then
-  CLAWNET_USER="$DEPLOY_USER" \
-    DEPLOY_USER="$DEPLOY_USER" \
-    CLAWNET_SERVICE="$CLAWNET_SERVICE" \
-    CLAWNET_PORT="$PORT" \
-    CLAWNET_ENV="$CLAWNET_ENV_FILE" \
-    bash "$REPO_DIR/scripts/clawnet-install-service.sh"
+if [ -f "/etc/systemd/system/${CLAWNET_SERVICE}.service" ] && [ "$SUDO_AVAILABLE" = "1" ]; then
+  sudo systemctl restart "$CLAWNET_SERVICE"
+  echo "[clawnet] Restarted $CLAWNET_SERVICE"
+elif [ "${CLAWNET_INSTALL_SERVICE:-0}" = "1" ] && [ "$SUDO_AVAILABLE" = "1" ]; then
+  if [ -f "/etc/systemd/system/${CLAWNET_SERVICE}.service" ]; then
+    sudo systemctl restart "$CLAWNET_SERVICE"
+  else
+    sudo env \
+      CLAWNET_USER="$DEPLOY_USER" \
+      DEPLOY_USER="$DEPLOY_USER" \
+      CLAWNET_SERVICE="$CLAWNET_SERVICE" \
+      CLAWNET_PORT="$PORT" \
+      CLAWNET_ENV="$CLAWNET_ENV_FILE" \
+      bash "$REPO_DIR/scripts/clawnet-install-service.sh"
+  fi
   echo "[clawnet] Restarted $CLAWNET_SERVICE"
 elif curl -sf "http://localhost:${PORT}/v1/health" >/dev/null 2>&1; then
   echo "[clawnet] Existing service is healthy on port ${PORT}; installer skipped"

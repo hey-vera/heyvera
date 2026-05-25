@@ -13,6 +13,12 @@ CLAWNET_WORKSPACE="${CLAWNET_WORKSPACE:-/home/$CLAWNET_USER/claw-net}"
 CLAWNET_ENV="${CLAWNET_ENV:-/etc/claw-net/claw-net.env}"
 NODE_BIN="${NODE_BIN:-$(command -v node || true)}"
 
+if [ "${EUID:-$(id -u)}" -eq 0 ]; then
+  SUDO=()
+else
+  SUDO=(sudo)
+fi
+
 if [ -z "$NODE_BIN" ]; then
   echo "[clawnet] ERROR: node not found on PATH"
   exit 1
@@ -23,9 +29,9 @@ if [ ! -d "$CLAWNET_WORKSPACE" ]; then
   exit 1
 fi
 
-sudo mkdir -p "$(dirname "$CLAWNET_ENV")"
+"${SUDO[@]}" mkdir -p "$(dirname "$CLAWNET_ENV")"
 if [ ! -f "$CLAWNET_ENV" ]; then
-  cat <<ENVEOF | sudo tee "$CLAWNET_ENV" >/dev/null
+  cat <<ENVEOF | "${SUDO[@]}" tee "$CLAWNET_ENV" >/dev/null
 PORT=$CLAWNET_PORT
 NODE_ENV=production
 DB_PATH=./data/orchestrator.db
@@ -38,15 +44,15 @@ LOG_LEVEL=info
 # CLERK_SECRET_KEY=
 # CLAWNET_HEART_SECRET=
 ENVEOF
-  sudo chmod 600 "$CLAWNET_ENV"
-  sudo chown root:root "$CLAWNET_ENV"
+  "${SUDO[@]}" chmod 600 "$CLAWNET_ENV"
+  "${SUDO[@]}" chown root:root "$CLAWNET_ENV"
   echo "[clawnet] Created env file at $CLAWNET_ENV - fill in production secrets if needed"
 fi
 
-sudo mkdir -p "$CLAWNET_WORKSPACE/data"
-sudo chown -R "$CLAWNET_USER:$CLAWNET_USER" "$CLAWNET_WORKSPACE/data"
+"${SUDO[@]}" mkdir -p "$CLAWNET_WORKSPACE/data"
+"${SUDO[@]}" chown -R "$CLAWNET_USER:$CLAWNET_USER" "$CLAWNET_WORKSPACE/data"
 
-cat <<EOF | sudo tee "/etc/systemd/system/${CLAWNET_SERVICE}.service" >/dev/null
+cat <<EOF | "${SUDO[@]}" tee "/etc/systemd/system/${CLAWNET_SERVICE}.service" >/dev/null
 [Unit]
 Description=ClawNet Node API on ${CLAWNET_PORT}
 After=network-online.target
@@ -70,9 +76,9 @@ NoNewPrivileges=true
 WantedBy=multi-user.target
 EOF
 
-sudo systemctl daemon-reload
-sudo systemctl enable "$CLAWNET_SERVICE"
-sudo systemctl restart "$CLAWNET_SERVICE"
+"${SUDO[@]}" systemctl daemon-reload
+"${SUDO[@]}" systemctl enable "$CLAWNET_SERVICE"
+"${SUDO[@]}" systemctl restart "$CLAWNET_SERVICE"
 
 echo "[clawnet] Service installed and started on port $CLAWNET_PORT"
 echo "[clawnet] Check status: sudo systemctl status $CLAWNET_SERVICE"
