@@ -5,7 +5,10 @@ DEPLOY_USER="${DEPLOY_USER:-guardian}"
 REPO_DIR="${REPO_DIR:-/home/${DEPLOY_USER}/claw-net}"
 WWW_DIR="${WWW_DIR:-/var/www/claw-net}"
 EXTERNAL_ENV_FILE="${EXTERNAL_ENV_FILE:-/etc/cortex/cortex.env}"
+CLAWNET_ENV_FILE="${CLAWNET_ENV_FILE:-/etc/claw-net/claw-net.env}"
+CLAWNET_SERVICE="${CLAWNET_SERVICE:-claw-net-node}"
 PORT="${PORT:-3402}"
+CORTEX_HEALTH_PORT="${CORTEX_HEALTH_PORT:-3001}"
 MAX_WAIT="${MAX_WAIT:-45}"
 ALLOW_DIRTY="${ALLOW_DIRTY:-0}"
 AUTO_SWITCH_BRANCH="${AUTO_SWITCH_BRANCH:-0}"
@@ -67,6 +70,13 @@ else
   echo "[env] External env file not found, falling back to repo-local .env"
 fi
 
+if [ -f "$CLAWNET_ENV_FILE" ]; then
+  export CLAWNET_ENV_FILE
+  echo "[env] Found ClawNet env file: $CLAWNET_ENV_FILE"
+else
+  echo "[env] ClawNet env file not found yet: $CLAWNET_ENV_FILE"
+fi
+
 # Source VITE_* vars so frontend builds pick them up
 if [ -f "$ENV_FILE" ]; then
   set -a
@@ -112,6 +122,10 @@ cat > "$DEPLOY_META_FILE" <<EOF
 }
 EOF
 echo "[meta] Wrote deploy metadata to ${DEPLOY_META_FILE}"
+
+echo "[clawnet] Building Node/Hono API..."
+npm ci
+npm run build
 
 echo "[site] Syncing site/ to $WWW_DIR"
 if [ -d "$REPO_DIR/site" ]; then
@@ -226,6 +240,22 @@ else
   echo "[caddy] No Caddyfile found - skipping"
 fi
 
+echo "[clawnet] Restarting Node/Hono API service..."
+if [ "$SUDO_AVAILABLE" = "1" ]; then
+  CLAWNET_USER="$DEPLOY_USER" \
+    DEPLOY_USER="$DEPLOY_USER" \
+    CLAWNET_SERVICE="$CLAWNET_SERVICE" \
+    CLAWNET_PORT="$PORT" \
+    CLAWNET_ENV="$CLAWNET_ENV_FILE" \
+    bash "$REPO_DIR/scripts/clawnet-install-service.sh"
+  echo "[clawnet] Restarted $CLAWNET_SERVICE"
+elif [ "${CLAWNET_SERVICE_REQUIRED:-1}" = "1" ]; then
+  echo "[clawnet] ERROR: passwordless sudo unavailable; cannot install/restart required ClawNet service"
+  exit 1
+else
+  echo "[clawnet] WARNING: passwordless sudo unavailable; skipped ClawNet service restart"
+fi
+
 # Docker compose is for legacy Node.js orchestrator. Skip if cortex systemd service is active.
 if systemctl is-active cortex >/dev/null 2>&1; then
   echo "[docker] Skipping — cortex runs as native systemd service"
@@ -234,33 +264,47 @@ else
   docker compose up --build -d --remove-orphans
 fi
 
-echo -n "[health] Waiting for startup"
-HEALTHY=false
-HEALTH_PORT="${CORTEX_PORT:-$PORT}"
+echo -n "[health] Waiting for ClawNet startup"
+CLAWNET_HEALTHY=false
 for i in $(seq 1 "$MAX_WAIT"); do
   sleep 1
   echo -n "."
-  if curl -sf "http://localhost:${HEALTH_PORT}/api/health" >/dev/null 2>&1; then
-    HEALTHY=true
+  if curl -sf "http://localhost:${PORT}/v1/health" >/dev/null 2>&1; then
+    CLAWNET_HEALTHY=true
     break
-  fi
-  if systemctl is-active cortex >/dev/null 2>&1; then
-    : # native service — just keep waiting
-  elif ! docker compose ps --status running | grep -q orchestrator 2>/dev/null; then
-    echo ""
-    echo "[fail] No running service found. Recent logs:"
-    docker compose logs --tail 60 orchestrator 2>/dev/null || journalctl -u cortex --no-pager -n 30
-    exit 1
   fi
 done
 echo ""
 
-if $HEALTHY; then
-  echo "[done] Cortex deployed — healthy on port ${HEALTH_PORT}"
-  echo "       Commit: ${DEPLOY_COMMIT_SHORT} (${TARGET_BRANCH})"
-  echo "       Logs: sudo journalctl -u cortex -f"
-else
-  echo "[fail] Health check failed after ${MAX_WAIT}s. Recent logs:"
-  journalctl -u cortex --no-pager -n 30 2>/dev/null || docker compose logs --tail 60 orchestrator 2>/dev/null
+if ! $CLAWNET_HEALTHY; then
+  echo "[fail] ClawNet health check failed after ${MAX_WAIT}s. Recent logs:"
+  journalctl -u "$CLAWNET_SERVICE" --no-pager -n 40 2>/dev/null || true
   exit 1
 fi
+
+if systemctl is-active cortex >/dev/null 2>&1; then
+  echo -n "[health] Checking Cortex"
+  CORTEX_HEALTHY=false
+  for i in $(seq 1 "$MAX_WAIT"); do
+    sleep 1
+    echo -n "."
+    if curl -sf "http://localhost:${CORTEX_HEALTH_PORT}/api/health" >/dev/null 2>&1; then
+      CORTEX_HEALTHY=true
+      break
+    fi
+  done
+  echo ""
+
+  if ! $CORTEX_HEALTHY; then
+    echo "[fail] Cortex health check failed after ${MAX_WAIT}s. Recent logs:"
+    journalctl -u cortex --no-pager -n 40 2>/dev/null || true
+    exit 1
+  fi
+else
+  echo "[health] Cortex service is not active; skipping Cortex health check"
+fi
+
+echo "[done] ClawNet deployed — healthy on port ${PORT}"
+echo "       Cortex checked on port ${CORTEX_HEALTH_PORT} when active"
+echo "       Commit: ${DEPLOY_COMMIT_SHORT} (${TARGET_BRANCH})"
+echo "       Logs: sudo journalctl -u ${CLAWNET_SERVICE} -f"
