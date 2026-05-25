@@ -1679,6 +1679,30 @@ impl Database {
         );
     }
 
+    pub fn record_cortex_task_manager_event(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        event_type: &str,
+        payload: &serde_json::Value,
+    ) {
+        let conn = self.conn.lock().unwrap();
+        insert_operations_event(
+            &conn,
+            Some(user_id),
+            Some(group_id),
+            None,
+            None,
+            None,
+            None,
+            None,
+            event_type,
+            "task_manager",
+            group_id,
+            payload,
+        );
+    }
+
     pub fn get_cortex_task_projection(
         &self,
         user_id: &str,

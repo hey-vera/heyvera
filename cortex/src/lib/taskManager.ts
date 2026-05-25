@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   TaskActivity,
+  TaskCommandAction,
   TaskManagerState,
   TaskManagerTask,
   TaskMember,
@@ -8,6 +9,7 @@ import type {
   TaskStatus,
 } from '../types';
 import {
+  applyGroupTaskManagerActions,
   createGroupTaskManagerTask,
   getGroupTaskManagerState,
   patchGroupTaskManagerTask,
@@ -227,14 +229,7 @@ export function buildTaskSummary(state: TaskManagerState) {
   return { open, inProgress, done, total: state.tasks.length };
 }
 
-export interface ParsedTaskAction {
-  type: 'task' | 'status' | 'handoff' | 'note';
-  title: string;
-  assigneeId?: string | null;
-  status?: TaskStatus;
-  targetTaskId?: string;
-  summary: string;
-}
+export type ParsedTaskAction = TaskCommandAction;
 
 export function parseTaskCommand(text: string, state: TaskManagerState): ParsedTaskAction[] {
   const trimmed = text.trim();
@@ -511,12 +506,34 @@ export function useTaskManager(group: CortexGroup, userId: string) {
       });
   }, [group, userId]);
 
+  const publishTaskActions = useCallback((
+    actions: ParsedTaskAction[],
+    actor: string,
+    optimisticState: TaskManagerState,
+  ) => {
+    setState(optimisticState);
+    writeState(group.id, optimisticState);
+    broadcastTaskState(group.id);
+    void applyGroupTaskManagerActions(group.id, actions, actor)
+      .then((remoteState) => {
+        const next = mergeDefaultMembers(remoteState, group, userId);
+        setState(next);
+        writeState(group.id, next);
+        broadcastTaskState(group.id);
+      })
+      .catch(() => {
+        void updateGroupTaskManagerState(group.id, optimisticState).catch(() => {
+          // Keep local state as the source of truth when the API is unavailable.
+        });
+      });
+  }, [group, userId]);
+
   const applyTextCommand = useCallback((text: string, actor = 'You') => {
     const actions = parseTaskCommand(text, state);
     if (actions.length === 0) return [];
-    publish(applyActions(group.id, state, actions, actor));
+    publishTaskActions(actions, actor, applyActions(group.id, state, actions, actor));
     return actions;
-  }, [group.id, publish, state]);
+  }, [group.id, publishTaskActions, state]);
 
   const createTask = useCallback((title: string, assigneeId?: string | null, repo?: string | null) => {
     const timestamp = nowIso();

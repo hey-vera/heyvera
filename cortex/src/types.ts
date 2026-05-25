@@ -291,3 +291,12 @@ export interface TaskManagerState {
   activity: TaskActivity[];
   updatedAt: string;
 }
+
+export interface TaskCommandAction {
+  type: 'task' | 'status' | 'handoff' | 'note';
+  title: string;
+  assigneeId?: string | null;
+  status?: TaskStatus;
+  targetTaskId?: string;
+  summary: string;
+}
