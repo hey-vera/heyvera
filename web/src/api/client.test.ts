@@ -8,7 +8,7 @@ function mockFetch(): FetchMock {
   return fetchMock;
 }
 
-describe('api client', () => {
+describe('api social (legacy-compatible functions)', () => {
   beforeEach(() => {
     vi.unstubAllEnvs();
     vi.resetModules();
@@ -25,7 +25,7 @@ describe('api client', () => {
       json: vi.fn().mockResolvedValue({ posts: [], next_cursor: null }),
     });
 
-    const { getFeed } = await import('./client');
+    const { getFeed } = await import('./social');
     await getFeed();
 
     expect(fetchMock).toHaveBeenCalledWith('/v1/feed', undefined);
@@ -41,7 +41,7 @@ describe('api client', () => {
       json: vi.fn().mockRejectedValue(new SyntaxError('Unexpected token < in JSON at position 0')),
     });
 
-    const { getFeed } = await import('./client');
+    const { getFeed } = await import('./social');
 
     await expect(getFeed()).rejects.toThrow('Unexpected token < in JSON at position 0');
     expect(fetchMock).toHaveBeenCalledWith('/v1/feed', undefined);
@@ -50,10 +50,10 @@ describe('api client', () => {
   it('blocks signed-out mutations when real API mode is enabled', async () => {
     vi.stubEnv('VITE_API_URL', '/v1');
     const fetchMock = mockFetch();
-    const { bookmarkPost, createPost, followUser, likePost, repostPost, unlikePost, unfollowUser } =
-      await import('./client');
+    const { bookmarkPost, legacyCreatePost, followUser, likePost, repostPost, unlikePost, unfollowUser } =
+      await import('./social');
 
-    await expect(createPost('hello')).rejects.toThrow('Auth token required');
+    await expect(legacyCreatePost('hello')).rejects.toThrow('Auth token required');
     await expect(likePost('post-1')).rejects.toThrow('Auth token required');
     await expect(unlikePost('post-1')).rejects.toThrow('Auth token required');
     await expect(repostPost('post-1')).rejects.toThrow('Auth token required');

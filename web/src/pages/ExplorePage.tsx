@@ -1,13 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
 import {
-  getTrending,
-  searchAll,
-} from '../api/client';
-import {
   bookmarkPost,
+  getTrending,
   likePost,
   repostPost,
+  searchAll,
   unbookmarkPost,
   unlikePost,
 } from '../api/social';

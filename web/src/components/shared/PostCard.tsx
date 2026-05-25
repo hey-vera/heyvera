@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
-import { getCurrentUserProfile } from '../../api/client';
+import { fetchMyProfile } from '../../api/social';
 import type { Post } from '../../api/types';
 import { useAuth } from '../../hooks/useAuth';
 
@@ -107,18 +107,17 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
 
     setCheckingAuth(true);
     try {
-      const profile = await getCurrentUserProfile(token);
-      const ready = Boolean(profile);
-      setHasProfile(ready);
-
-      if (!ready) {
-        setAuthPrompt('profile');
-        return null;
-      }
-
+      await fetchMyProfile(token);
+      setHasProfile(true);
       setAuthPrompt(null);
       return token;
     } catch (err) {
+      const msg = err instanceof Error ? err.message.toLowerCase() : '';
+      if (msg.includes('404') || msg.includes('not found')) {
+        setHasProfile(false);
+        setAuthPrompt('profile');
+        return null;
+      }
       setAuthPrompt('error');
       setAuthMessage(err instanceof Error ? err.message : 'Unable to verify your profile.');
       return null;

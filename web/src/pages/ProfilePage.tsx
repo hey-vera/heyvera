@@ -3,25 +3,50 @@ import { ArrowLeft, CalendarDays, Link as LinkIcon, MapPin } from 'lucide-react'
 import { SignInButton } from '@clerk/clerk-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  createUserProfile,
-  followUser,
-  getCurrentUserProfile,
-  getProfilePosts,
-  getUserProfile,
-  unfollowUser,
-  updateCurrentUserProfile,
-} from '../api/client';
-import {
   bookmarkPost,
+  createProfile,
+  fetchFollowStatus,
+  fetchMyProfile,
+  fetchProfile,
+  fetchProfileFeed,
+  fetchProfileStats,
+  followProfile,
   likePost,
   repostPost,
   unbookmarkPost,
+  unfollowProfile,
   unlikePost,
+  updateProfile,
 } from '../api/social';
-import type { CreateUserProfileInput, Post, UpdateUserProfileInput, UserProfile } from '../api/types';
+import type { FeedPost, Profile, ProfileStats } from '../api/social';
+import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
+
+/** Map a real FeedPost from the /v1/social API into the legacy Post shape that PostCard expects. */
+function feedPostToLegacyPost(fp: FeedPost): Post {
+  return {
+    id: fp.id,
+    content: fp.body,
+    created_at: fp.createdAt,
+    author: {
+      id: fp.author.profileId,
+      display_name: fp.author.displayName,
+      handle: fp.author.handle,
+      avatar_url: '',
+      verified: false,
+    },
+    reply_count: 0,
+    repost_count: 0,
+    like_count: 0,
+    view_count: 0,
+    bookmarked: false,
+    liked: false,
+    reposted: false,
+    reply_to: fp.replyToPostId ?? undefined,
+  };
+}
 
 const TABS = ['Posts', 'Replies', 'Media', 'Likes'] as const;
 type Tab = typeof TABS[number];
@@ -61,7 +86,8 @@ export function ProfilePage() {
   const { authEnabled, isSignedIn, getToken, viewerLabel } = useAuth();
   const ownProfile = !handle;
   const [activeTab, setActiveTab] = useState<Tab>('Posts');
-  const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [stats, setStats] = useState<ProfileStats | null>(null);
   const [posts, setPosts] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +113,7 @@ export function ProfilePage() {
           if (!authEnabled || !isSignedIn) {
             if (!cancelled) {
               setProfile(null);
+              setStats(null);
               setPosts([]);
               setIsFollowing(false);
             }
@@ -96,34 +123,54 @@ export function ProfilePage() {
           const token = await getToken();
           if (!token) throw new Error('Sign in again to load your profile.');
 
-          const nextProfile = await getCurrentUserProfile(token);
-          if (!nextProfile) {
+          let nextProfile: Profile;
+          try {
+            const res = await fetchMyProfile(token);
+            nextProfile = res.profile;
+          } catch {
+            // 404 means profile not created yet
             if (!cancelled) {
               setProfile(null);
+              setStats(null);
               setPosts([]);
               setIsFollowing(false);
             }
             return;
           }
 
-          const feed = await getProfilePosts(nextProfile.handle, undefined, token);
+          const [feedRes, statsRes] = await Promise.all([
+            fetchProfileFeed(nextProfile.handle),
+            fetchProfileStats(nextProfile.handle),
+          ]);
           if (!cancelled) {
             setProfile(nextProfile);
-            setPosts(feed.posts);
+            setStats(statsRes.stats);
+            setPosts(feedRes.feed.map(feedPostToLegacyPost));
             setIsFollowing(false);
           }
           return;
         }
 
         const token = authEnabled && isSignedIn ? await getToken() : null;
-        const [nextProfile, feed] = await Promise.all([
-          getUserProfile(handle, token ?? undefined),
-          getProfilePosts(handle, undefined, token ?? undefined),
+        const [profileRes, feedRes, statsRes] = await Promise.all([
+          fetchProfile(handle),
+          fetchProfileFeed(handle),
+          fetchProfileStats(handle),
         ]);
+        let following = false;
+        if (token) {
+          try {
+            const followRes = await fetchFollowStatus(token, handle);
+            following = followRes.following;
+          } catch {
+            // ignore — treat as not following
+          }
+        }
         if (!cancelled) {
-          setProfile(nextProfile);
-          setPosts(feed.posts);
-          setIsFollowing(nextProfile.is_following);
+          setProfile(profileRes.profile);
+          setStats(statsRes.stats);
+          setPosts(feedRes.feed.map(feedPostToLegacyPost));
+          setIsFollowing(following);
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load profile');
@@ -138,7 +185,7 @@ export function ProfilePage() {
     };
   }, [authEnabled, handle, isSignedIn, ownProfile, reloadKey]);
 
-  const handleCreateProfile = async (input: CreateUserProfileInput) => {
+  const handleCreateProfile = async (input: { handle: string; displayName: string; bio?: string }) => {
     if (creating) return;
     setCreating(true);
     setCreateError(null);
@@ -147,11 +194,12 @@ export function ProfilePage() {
       const token = await getToken();
       if (!token) throw new Error('Sign in again to create your profile.');
 
-      const nextProfile = await createUserProfile(token, input);
+      const res = await createProfile(token, input);
+      const nextProfile = res.profile;
       let nextPosts: Post[] = [];
       try {
-        const feed = await getProfilePosts(nextProfile.handle, undefined, token);
-        nextPosts = feed.posts;
+        const feedRes = await fetchProfileFeed(nextProfile.handle);
+        nextPosts = feedRes.feed.map(feedPostToLegacyPost);
       } catch {
         nextPosts = [];
       }
@@ -167,7 +215,14 @@ export function ProfilePage() {
     }
   };
 
-  const handleUpdateProfile = async (input: UpdateUserProfileInput) => {
+  const handleUpdateProfile = async (input: {
+    displayName?: string;
+    bio?: string;
+    avatarUrl?: string;
+    bannerUrl?: string;
+    location?: string;
+    websiteUrl?: string;
+  }) => {
     if (savingEdit) return;
     setSavingEdit(true);
     setEditError(null);
@@ -176,8 +231,8 @@ export function ProfilePage() {
       const token = await getToken();
       if (!token) throw new Error('Sign in again to update your profile.');
 
-      const nextProfile = await updateCurrentUserProfile(token, input);
-      setProfile(nextProfile);
+      const res = await updateProfile(token, input);
+      setProfile(res.profile);
       setEditOpen(false);
     } catch (err) {
       setEditError(err instanceof Error ? err.message : 'Unable to update profile');
@@ -205,10 +260,13 @@ export function ProfilePage() {
       const token = await getToken();
       if (!token) throw new Error('Sign in again to follow profiles.');
 
-      const viewerProfile = await getCurrentUserProfile(token);
-      if (!viewerProfile) throw new Error('Create your profile before following people.');
+      try {
+        await fetchMyProfile(token);
+      } catch {
+        throw new Error('Create your profile before following people.');
+      }
 
-      await (nextFollowing ? followUser(profile.handle, token) : unfollowUser(profile.handle, token));
+      await (nextFollowing ? followProfile(token, profile.handle) : unfollowProfile(token, profile.handle));
     } catch (err) {
       setIsFollowing(previousFollowing);
       setFollowError(err instanceof Error ? err.message : 'Unable to update follow state.');
@@ -296,22 +354,22 @@ export function ProfilePage() {
           <ArrowLeft className="h-5 w-5" aria-hidden="true" />
         </button>
         <div>
-          <h1 className="text-[20px] font-bold leading-tight">{profile.display_name}</h1>
-          <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>{profile.post_count} posts</p>
+          <h1 className="text-[20px] font-bold leading-tight">{profile.displayName}</h1>
+          <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>{stats?.postCount ?? 0} posts</p>
         </div>
       </div>
 
       <div className="relative">
-        {profile.banner_url ? (
-          <img src={profile.banner_url} alt="" className="h-[200px] w-full object-cover" />
+        {profile.bannerUrl ? (
+          <img src={profile.bannerUrl} alt="" className="h-[200px] w-full object-cover" />
         ) : (
           <div className="h-[200px] w-full" style={{ backgroundColor: 'var(--border-primary)' }} />
         )}
 
         <div className="absolute -bottom-16 left-4">
           <img
-            src={profile.avatar_url}
-            alt={profile.display_name}
+            src={profile.avatarUrl ?? ''}
+            alt={profile.displayName}
             className="h-[134px] w-[134px] rounded-full border-4 border-black object-cover"
             style={{ backgroundColor: 'var(--border-primary)' }}
           />
@@ -336,8 +394,7 @@ export function ProfilePage() {
 
       <section className="mt-20 px-4 pb-4">
         <h2 className="text-[23px] font-bold leading-tight">
-          {profile.display_name}
-          {profile.verified && <span className="ml-1 text-[15px]" style={{ color: 'var(--accent)' }}>✓</span>}
+          {profile.displayName}
         </h2>
         <p className="text-[15px]" style={{ color: 'var(--text-secondary)' }}>@{profile.handle}</p>
 
@@ -350,25 +407,25 @@ export function ProfilePage() {
               {profile.location}
             </span>
           )}
-          {profile.website && (
-            <a href={profile.website} className="flex items-center gap-1 hover:underline" style={{ color: 'var(--accent)' }}>
+          {profile.websiteUrl && (
+            <a href={profile.websiteUrl} className="flex items-center gap-1 hover:underline" style={{ color: 'var(--accent)' }}>
               <LinkIcon className="h-4 w-4" aria-hidden="true" />
-              {profile.website.replace(/^https?:\/\//, '')}
+              {profile.websiteUrl.replace(/^https?:\/\//, '')}
             </a>
           )}
           <span className="flex items-center gap-1">
             <CalendarDays className="h-4 w-4" aria-hidden="true" />
-            Joined {formatJoinedDate(profile.joined_at)}
+            Joined {formatJoinedDate(profile.createdAt)}
           </span>
         </div>
 
         <div className="mt-3 flex gap-5">
           <button type="button" className="flex gap-1 text-[15px] transition-colors hover:underline">
-            <span className="font-bold">{formatCount(profile.following_count)}</span>
+            <span className="font-bold">{formatCount(stats?.followingCount ?? 0)}</span>
             <span style={{ color: 'var(--text-secondary)' }}>Following</span>
           </button>
           <button type="button" className="flex gap-1 text-[15px] transition-colors hover:underline">
-            <span className="font-bold">{formatCount(profile.follower_count)}</span>
+            <span className="font-bold">{formatCount(stats?.followerCount ?? 0)}</span>
             <span style={{ color: 'var(--text-secondary)' }}>Followers</span>
           </button>
         </div>
@@ -469,7 +526,7 @@ type ProfileSetupFormProps = {
   creating: boolean;
   error: string | null;
   defaultDisplayName: string;
-  onSubmit: (input: CreateUserProfileInput) => void;
+  onSubmit: (input: { handle: string; displayName: string; bio?: string }) => void;
 };
 
 function ProfileSetupForm({ creating, error, defaultDisplayName, onSubmit }: ProfileSetupFormProps) {
@@ -494,7 +551,7 @@ function ProfileSetupForm({ creating, error, defaultDisplayName, onSubmit }: Pro
           if (!canSubmit) return;
           onSubmit({
             handle: cleanHandle,
-            display_name: cleanDisplayName,
+            displayName: cleanDisplayName,
             bio: bio.trim() || undefined,
           });
         }}
@@ -571,20 +628,27 @@ function ProfileSetupForm({ creating, error, defaultDisplayName, onSubmit }: Pro
 }
 
 type EditProfileModalProps = {
-  profile: UserProfile;
+  profile: Profile;
   saving: boolean;
   error: string | null;
   onClose: () => void;
-  onSubmit: (input: UpdateUserProfileInput) => void;
+  onSubmit: (input: {
+    displayName?: string;
+    bio?: string;
+    avatarUrl?: string;
+    bannerUrl?: string;
+    location?: string;
+    websiteUrl?: string;
+  }) => void;
 };
 
 function EditProfileModal({ profile, saving, error, onClose, onSubmit }: EditProfileModalProps) {
-  const [displayName, setDisplayName] = useState(profile.display_name);
+  const [displayName, setDisplayName] = useState(profile.displayName);
   const [bio, setBio] = useState(profile.bio);
   const [location, setLocation] = useState(profile.location ?? '');
-  const [website, setWebsite] = useState(profile.website ?? '');
-  const [avatarUrl, setAvatarUrl] = useState(profile.avatar_url ?? '');
-  const [bannerUrl, setBannerUrl] = useState(profile.banner_url ?? '');
+  const [website, setWebsite] = useState(profile.websiteUrl ?? '');
+  const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl ?? '');
+  const [bannerUrl, setBannerUrl] = useState(profile.bannerUrl ?? '');
 
   const cleanDisplayName = displayName.trim();
   const canSave = cleanDisplayName.length > 0 && !saving;
@@ -603,12 +667,12 @@ function EditProfileModal({ profile, saving, error, onClose, onSubmit }: EditPro
           event.preventDefault();
           if (!canSave) return;
           onSubmit({
-            display_name: cleanDisplayName,
+            displayName: cleanDisplayName,
             bio: bio.trim(),
             location: location.trim() || undefined,
-            website: website.trim() || undefined,
-            avatar_url: avatarUrl.trim() || undefined,
-            banner_url: bannerUrl.trim() || undefined,
+            websiteUrl: website.trim() || undefined,
+            avatarUrl: avatarUrl.trim() || undefined,
+            bannerUrl: bannerUrl.trim() || undefined,
           });
         }}
       >

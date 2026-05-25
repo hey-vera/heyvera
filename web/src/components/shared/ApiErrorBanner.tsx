@@ -51,7 +51,7 @@ export function ApiErrorBanner({ isRechecking = false, isFallback = true }: ApiE
       <span className="api-error-banner-text">
         {isRechecking
           ? "Reconnecting…"
-          : "Backend unavailable — showing preview data"}
+          : "Backend unavailable — some features may not load"}
       </span>
       <button
         type="button"

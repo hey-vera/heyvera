@@ -4,6 +4,10 @@ import tailwindcss from "@tailwindcss/vite";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
+  // `server` config is dev-only (vite dev / vite preview).
+  // The proxy here rewrites /v1/* → localhost:3402 so you can run the frontend
+  // without setting VITE_API_URL locally. It has no effect on production builds
+  // served from Cloudflare Pages.
   server: {
     host: "0.0.0.0",
     port: 5001,

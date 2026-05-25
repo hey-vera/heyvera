@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import { Heart, MessageCircle, Quote, Repeat2, UserPlus } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { getNotifications } from '../api/client';
+import { getNotifications } from '../api/social';
 import type { Notification } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';
