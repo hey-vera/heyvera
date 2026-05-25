@@ -48,14 +48,11 @@ jobs:
           TAILSCALE_HOST: ${{ vars.TAILSCALE_HOST }}
         run: |
           test -n "$TAILSCALE_HOST"
+          TARGET=/var/www/heyvera
 
-          # Ensure target dir exists — try sudo first, fall back to home dir
+          # Caddy serves /var/www/heyvera, so fail rather than deploying elsewhere.
           ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" \
-            "sudo -n mkdir -p /var/www/heyvera && sudo -n chown -R ${DEPLOY_USER}:${DEPLOY_USER} /var/www/heyvera || mkdir -p \$HOME/www/heyvera"
-
-          # Determine actual target path
-          TARGET=$(ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" \
-            "[ -d /var/www/heyvera ] && echo /var/www/heyvera || echo \$HOME/www/heyvera")
+            "sudo -n mkdir -p ${TARGET} && sudo -n chown -R ${DEPLOY_USER}:${DEPLOY_USER} ${TARGET}"
 
           echo "Deploying to ${TARGET}"
 
@@ -75,3 +72,14 @@ jobs:
 
           ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" \
             "caddy validate --config /tmp/Caddyfile.new && sudo -n cp /tmp/Caddyfile.new /etc/caddy/Caddyfile && sudo -n systemctl reload caddy && echo '[caddy] Reloaded' || echo '[caddy] sudo unavailable — Caddyfile not updated, reload manually'"
+
+      - name: Smoke frontend
+        run: |
+          curl --retry 5 --retry-delay 2 --retry-all-errors -fsSI https://heyvera.org/ \
+            | grep -qi '^content-type: text/html'
+          ASSET=$(curl --retry 5 --retry-delay 2 --retry-all-errors -fsS https://heyvera.org/ \
+            | grep -o '/assets/[^"]*\.js' \
+            | head -n 1)
+          test -n "$ASSET"
+          curl --retry 5 --retry-delay 2 --retry-all-errors -fsSI "https://heyvera.org${ASSET}" \
+            | grep -qi '^content-type: application/javascript'
