@@ -1,10 +1,17 @@
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use axum::Json;
+use axum::extract::State;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+
+use crate::state::AppState;
+
+static RECORDED_DEPLOY_EVENTS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -157,8 +164,10 @@ pub struct DeployStatusResponse {
     pub commits: DeploymentCommitStatus,
 }
 
-pub async fn deploy_status() -> Json<DeployStatusResponse> {
-    Json(build_deploy_status().await)
+pub async fn deploy_status(State(state): State<Arc<AppState>>) -> Json<DeployStatusResponse> {
+    let status = build_deploy_status().await;
+    record_deploy_inspected_event(&state, &status);
+    Json(status)
 }
 
 async fn build_deploy_status() -> DeployStatusResponse {
@@ -248,6 +257,85 @@ fn build_commit_status(
 
 fn short_commit(commit: &str) -> String {
     commit.chars().take(7).collect()
+}
+
+fn record_deploy_inspected_event(state: &AppState, status: &DeployStatusResponse) {
+    let Some(db) = &state.db else {
+        return;
+    };
+    let fingerprint = deployment_event_fingerprint(status);
+    let recorded = RECORDED_DEPLOY_EVENTS.get_or_init(|| Mutex::new(HashSet::new()));
+    {
+        let mut recorded = recorded.lock().unwrap();
+        if !recorded.insert(fingerprint) {
+            return;
+        }
+    }
+
+    db.record_deployment_event(
+        "deploy.inspected",
+        "cortex-production",
+        &deployment_event_payload(status),
+    );
+}
+
+fn deployment_event_fingerprint(status: &DeployStatusResponse) -> String {
+    format!(
+        "{}:{}:{}:{}:{}",
+        status.status_string(),
+        status.backend.commit.as_deref().unwrap_or("unknown"),
+        status
+            .frontend
+            .cloudflare_pages
+            .deployment_id
+            .as_deref()
+            .unwrap_or("unknown"),
+        status
+            .github_actions
+            .run_id
+            .map(|id| id.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
+        status
+            .frontend
+            .live_assets
+            .as_ref()
+            .and_then(|assets| assets.js.as_deref())
+            .unwrap_or("unknown"),
+    )
+}
+
+fn deployment_event_payload(status: &DeployStatusResponse) -> serde_json::Value {
+    serde_json::json!({
+        "service": status.service,
+        "status": status.status.clone(),
+        "backend": {
+            "commit": status.backend.commit.clone(),
+            "commit_short": status.backend.commit_short.clone(),
+            "branch": status.backend.branch.clone(),
+            "deployed_at": status.backend.deployed_at.clone(),
+        },
+        "frontend": {
+            "status": status.frontend.status.clone(),
+            "drift": status.frontend.drift,
+            "expected_source": status.frontend.expected_source.clone(),
+            "expected_assets": status.frontend.expected_assets.clone(),
+            "live_assets": status.frontend.live_assets.clone(),
+            "cloudflare_pages": status.frontend.cloudflare_pages.clone(),
+        },
+        "commits": status.commits.clone(),
+        "github_actions": status.github_actions.clone(),
+        "observed_at": status.observed_at.clone(),
+    })
+}
+
+impl DeployStatusResponse {
+    fn status_string(&self) -> &'static str {
+        match self.status {
+            DeploySurfaceStatus::Match => "match",
+            DeploySurfaceStatus::Drift => "drift",
+            DeploySurfaceStatus::Unknown => "unknown",
+        }
+    }
 }
 
 async fn build_frontend_status() -> FrontendDeployStatus {
@@ -1121,6 +1209,71 @@ mod tests {
         assert_eq!(commits.branch_match, Some(true));
     }
 
+    #[test]
+    fn deployment_event_fingerprint_changes_for_new_release_evidence() {
+        let first = test_deploy_response(
+            "abc123456789",
+            "deployment-123",
+            Some(42),
+            "/assets/index-a.js",
+        );
+        let same = test_deploy_response(
+            "abc123456789",
+            "deployment-123",
+            Some(42),
+            "/assets/index-a.js",
+        );
+        let next_run = test_deploy_response(
+            "abc123456789",
+            "deployment-123",
+            Some(43),
+            "/assets/index-a.js",
+        );
+        let next_asset = test_deploy_response(
+            "abc123456789",
+            "deployment-123",
+            Some(42),
+            "/assets/index-b.js",
+        );
+
+        assert_eq!(
+            deployment_event_fingerprint(&first),
+            deployment_event_fingerprint(&same)
+        );
+        assert_ne!(
+            deployment_event_fingerprint(&first),
+            deployment_event_fingerprint(&next_run)
+        );
+        assert_ne!(
+            deployment_event_fingerprint(&first),
+            deployment_event_fingerprint(&next_asset)
+        );
+    }
+
+    #[test]
+    fn deployment_event_payload_contains_release_evidence() {
+        let response = test_deploy_response(
+            "afb8c255913910d0d84e5a126dca3ac9bed0015e",
+            "deployment-123",
+            Some(26414597373),
+            "/assets/index-Bu3uhHyL.js",
+        );
+
+        let payload = deployment_event_payload(&response);
+
+        assert_eq!(payload["status"], "match");
+        assert_eq!(
+            payload["backend"]["commit"],
+            "afb8c255913910d0d84e5a126dca3ac9bed0015e"
+        );
+        assert_eq!(
+            payload["frontend"]["cloudflare_pages"]["deployment_id"],
+            "deployment-123"
+        );
+        assert_eq!(payload["github_actions"]["run_id"], 26414597373i64);
+        assert_eq!(payload["commits"]["status"], "match");
+    }
+
     fn test_backend(commit: Option<&str>, branch: Option<&str>) -> BackendDeployStatus {
         BackendDeployStatus {
             service: "cortex",
@@ -1160,6 +1313,58 @@ mod tests {
                 url: Some("https://deployment.cortex.pages.dev".to_string()),
                 error: None,
             },
+        }
+    }
+
+    fn test_deploy_response(
+        commit: &str,
+        cloudflare_deployment_id: &str,
+        run_id: Option<i64>,
+        live_js: &str,
+    ) -> DeployStatusResponse {
+        let backend = test_backend(Some(commit), Some("main"));
+        let mut frontend = test_frontend(Some(commit), Some("main"));
+        frontend.live_assets = Some(FrontendAssets {
+            js: Some(live_js.to_string()),
+            css: Some("/assets/index-test.css".to_string()),
+        });
+        frontend.cloudflare_pages.deployment_id = Some(cloudflare_deployment_id.to_string());
+        let commits = build_commit_status(&backend, &frontend);
+        DeployStatusResponse {
+            status: DeploySurfaceStatus::Match,
+            service: "cortex",
+            observed_at: "2026-05-25T00:00:00Z".to_string(),
+            generated_at: "2026-05-25T00:00:00Z".to_string(),
+            backend,
+            frontend,
+            github_actions: GitHubActionsStatus {
+                configured: false,
+                source: "deploy_meta".to_string(),
+                owner: "hey-vera".to_string(),
+                repo: "heyvera".to_string(),
+                workflow: "Deploy Production".to_string(),
+                workflow_id: None,
+                workflow_name: None,
+                workflow_path: None,
+                branch: "main".to_string(),
+                status: DeploySurfaceStatus::Match,
+                run_id,
+                run_number: run_id,
+                run_attempt: Some(1),
+                run_status: Some("completed".to_string()),
+                conclusion: Some("success".to_string()),
+                event: Some("workflow_dispatch".to_string()),
+                head_branch: Some("main".to_string()),
+                head_sha: Some(commit.to_string()),
+                head_sha_short: Some(short_commit(commit)),
+                html_url: run_id
+                    .map(|id| format!("https://github.com/hey-vera/heyvera/actions/runs/{id}")),
+                created_at: None,
+                updated_at: None,
+                run_started_at: None,
+                error: None,
+            },
+            commits,
         }
     }
 }
