@@ -196,6 +196,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/integrations/replit/workspaces", get(integrations::replit_workspaces))
         .route("/api/integrations/replit/import", post(integrations::import_replit_workspace))
         .route("/api/groups/{group_id}/tasks", get(integrations::get_group_tasks))
+        .route("/api/groups/{group_id}/tasks", post(integrations::create_group_task))
         .route("/api/groups/{group_id}/tasks", put(integrations::update_group_tasks))
         .route("/api/groups/{group_id}/tasks/{task_id}", patch(integrations::patch_group_task))
         .route("/api/groups/{group_id}/tasks/{task_id}/projection", get(integrations::get_group_task_projection))
