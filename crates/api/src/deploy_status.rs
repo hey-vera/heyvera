@@ -4,6 +4,7 @@ use std::time::Duration;
 use axum::Json;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -44,11 +45,26 @@ pub struct BackendDeployStatus {
 pub struct FrontendDeployStatus {
     pub public_url: String,
     pub local_root: String,
+    pub expected_source: String,
     pub expected_assets: FrontendAssets,
     pub live_assets: Option<FrontendAssets>,
     pub status: DeploySurfaceStatus,
     pub drift: bool,
     pub checked_at: String,
+    pub error: Option<String>,
+    pub cloudflare_pages: CloudflarePagesStatus,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct CloudflarePagesStatus {
+    pub configured: bool,
+    pub project: String,
+    pub status: DeploySurfaceStatus,
+    pub deployment_id: Option<String>,
+    pub environment: Option<String>,
+    pub branch: Option<String>,
+    pub commit: Option<String>,
+    pub url: Option<String>,
     pub error: Option<String>,
 }
 
@@ -111,8 +127,9 @@ async fn build_frontend_status() -> FrontendDeployStatus {
     let public_url = std::env::var("CORTEX_FRONTEND_PUBLIC_URL")
         .unwrap_or_else(|_| "https://cortex.heyvera.org/".to_string());
     let local_root = frontend_root();
-    let expected_assets = read_frontend_assets(&local_root);
     let checked_at = Utc::now().to_rfc3339();
+    let cloudflare_pages = inspect_cloudflare_pages().await;
+    let (expected_source, expected_assets) = expected_frontend_assets(&cloudflare_pages, &local_root).await;
 
     let live_result = if should_check_live_frontend() {
         fetch_live_assets(&public_url).await
@@ -140,12 +157,14 @@ async fn build_frontend_status() -> FrontendDeployStatus {
     FrontendDeployStatus {
         public_url,
         local_root: local_root.display().to_string(),
+        expected_source,
         expected_assets,
         live_assets,
         status,
         drift,
         checked_at,
         error,
+        cloudflare_pages,
     }
 }
 
@@ -173,6 +192,175 @@ fn frontend_root() -> PathBuf {
 fn read_frontend_assets(root: &Path) -> FrontendAssets {
     let html = std::fs::read_to_string(root.join("index.html")).unwrap_or_default();
     parse_frontend_assets(&html)
+}
+
+async fn expected_frontend_assets(
+    cloudflare_pages: &CloudflarePagesStatus,
+    local_root: &Path,
+) -> (String, FrontendAssets) {
+    if let Some(url) = cloudflare_pages.url.as_deref() {
+        if let Ok(assets) = fetch_live_assets(url).await {
+            return ("cloudflare_pages".to_string(), assets);
+        }
+    }
+    (
+        "vps_static_fallback".to_string(),
+        read_frontend_assets(local_root),
+    )
+}
+
+async fn inspect_cloudflare_pages() -> CloudflarePagesStatus {
+    let project = std::env::var("CLOUDFLARE_PAGES_PROJECT")
+        .or_else(|_| std::env::var("CF_PAGES_PROJECT"))
+        .unwrap_or_else(|_| "cortex".to_string());
+    let account_id = std::env::var("CLOUDFLARE_ACCOUNT_ID")
+        .or_else(|_| std::env::var("CF_ACCOUNT_ID"))
+        .ok();
+    let api_token = std::env::var("CLOUDFLARE_API_TOKEN")
+        .or_else(|_| std::env::var("CF_API_TOKEN"))
+        .ok();
+
+    let (Some(account_id), Some(api_token)) = (account_id, api_token) else {
+        return CloudflarePagesStatus {
+            configured: false,
+            project,
+            status: DeploySurfaceStatus::Unknown,
+            deployment_id: None,
+            environment: None,
+            branch: None,
+            commit: None,
+            url: None,
+            error: Some("Cloudflare Pages read credentials are not configured".to_string()),
+        };
+    };
+
+    let url = format!(
+        "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}",
+        account_id,
+        project
+    );
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(5))
+        .user_agent("cortex-deploy-status/0.1")
+        .build()
+    {
+        Ok(client) => client,
+        Err(err) => {
+            return CloudflarePagesStatus {
+                configured: true,
+                project,
+                status: DeploySurfaceStatus::Unknown,
+                deployment_id: None,
+                environment: None,
+                branch: None,
+                commit: None,
+                url: None,
+                error: Some(err.to_string()),
+            };
+        }
+    };
+
+    let response = client
+        .get(url)
+        .bearer_auth(api_token)
+        .send()
+        .await
+        .and_then(|res| res.error_for_status());
+
+    let body = match response {
+        Ok(res) => match res.json::<Value>().await {
+            Ok(body) => body,
+            Err(err) => {
+                return cloudflare_error_status(project, true, redact_cloudflare_error(err, &account_id));
+            }
+        },
+        Err(err) => return cloudflare_error_status(project, true, redact_cloudflare_error(err, &account_id)),
+    };
+
+    let deployment = body
+        .pointer("/result/canonical_deployment")
+        .or_else(|| body.pointer("/result/latest_deployment"));
+
+    match deployment {
+        Some(deployment) => CloudflarePagesStatus {
+            configured: true,
+            project,
+            status: deployment_status_from_json(deployment),
+            deployment_id: json_string(deployment, &["id"]),
+            environment: json_string(deployment, &["environment"]),
+            branch: deployment_branch(deployment),
+            commit: deployment_commit(deployment),
+            url: json_string(deployment, &["url"]),
+            error: None,
+        },
+        None => CloudflarePagesStatus {
+            configured: true,
+            project,
+            status: DeploySurfaceStatus::Unknown,
+            deployment_id: None,
+            environment: None,
+            branch: None,
+            commit: None,
+            url: None,
+            error: Some("Cloudflare Pages project response did not include a deployment".to_string()),
+        },
+    }
+}
+
+fn cloudflare_error_status(
+    project: String,
+    configured: bool,
+    error: String,
+) -> CloudflarePagesStatus {
+    CloudflarePagesStatus {
+        configured,
+        project,
+        status: DeploySurfaceStatus::Unknown,
+        deployment_id: None,
+        environment: None,
+        branch: None,
+        commit: None,
+        url: None,
+        error: Some(error),
+    }
+}
+
+fn redact_cloudflare_error(err: reqwest::Error, account_id: &str) -> String {
+    err.to_string().replace(account_id, "[cloudflare-account]")
+}
+
+fn deployment_status_from_json(deployment: &Value) -> DeploySurfaceStatus {
+    match json_string(deployment, &["latest_stage", "status"])
+        .or_else(|| json_string(deployment, &["stages", "0", "status"]))
+        .as_deref()
+    {
+        Some("success") => DeploySurfaceStatus::Match,
+        Some(_) => DeploySurfaceStatus::Unknown,
+        None => DeploySurfaceStatus::Unknown,
+    }
+}
+
+fn deployment_branch(deployment: &Value) -> Option<String> {
+    json_string(deployment, &["deployment_trigger", "metadata", "branch"])
+        .or_else(|| json_string(deployment, &["source", "config", "branch"]))
+}
+
+fn deployment_commit(deployment: &Value) -> Option<String> {
+    json_string(deployment, &["deployment_trigger", "metadata", "commit_hash"])
+        .or_else(|| json_string(deployment, &["source", "config", "commit_hash"]))
+        .or_else(|| json_string(deployment, &["source", "config", "commit"]))
+}
+
+fn json_string(value: &Value, path: &[&str]) -> Option<String> {
+    let mut current = value;
+    for segment in path {
+        if let Ok(index) = segment.parse::<usize>() {
+            current = current.get(index)?;
+        } else {
+            current = current.get(*segment)?;
+        }
+    }
+    current.as_str().map(ToString::to_string)
 }
 
 async fn fetch_live_assets(public_url: &str) -> Result<FrontendAssets, String> {
@@ -231,5 +419,29 @@ mod tests {
 
         assert_eq!(assets.js.as_deref(), Some("/assets/index-8M8EThK7.js"));
         assert_eq!(assets.css.as_deref(), Some("/assets/index-DCTLbVzF.css"));
+    }
+
+    #[test]
+    fn parses_cloudflare_pages_deployment_metadata() {
+        let deployment = serde_json::json!({
+            "id": "deployment-123",
+            "environment": "production",
+            "url": "https://deployment.cortex.pages.dev",
+            "latest_stage": { "status": "success" },
+            "deployment_trigger": {
+                "metadata": {
+                    "branch": "main",
+                    "commit_hash": "abc123"
+                }
+            }
+        });
+
+        assert_eq!(
+            deployment_status_from_json(&deployment),
+            DeploySurfaceStatus::Match
+        );
+        assert_eq!(deployment_branch(&deployment).as_deref(), Some("main"));
+        assert_eq!(deployment_commit(&deployment).as_deref(), Some("abc123"));
+        assert_eq!(json_string(&deployment, &["id"]).as_deref(), Some("deployment-123"));
     }
 }

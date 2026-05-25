@@ -243,12 +243,24 @@ export interface DeploymentStatus {
   frontend: {
     public_url: string;
     local_root: string;
+    expected_source: string;
     expected_assets: FrontendAssets;
     live_assets: FrontendAssets | null;
     status: 'match' | 'drift' | 'unknown';
     drift: boolean;
     checked_at: string;
     error: string | null;
+    cloudflare_pages: {
+      configured: boolean;
+      project: string;
+      status: 'match' | 'drift' | 'unknown';
+      deployment_id: string | null;
+      environment: string | null;
+      branch: string | null;
+      commit: string | null;
+      url: string | null;
+      error: string | null;
+    };
   };
 }
 
