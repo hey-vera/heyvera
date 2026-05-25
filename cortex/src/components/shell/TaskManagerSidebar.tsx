@@ -280,6 +280,7 @@ export default function TaskManagerSidebar({
             <TaskBoard
               tasks={taskManager.state.tasks}
               members={taskManager.state.members}
+              groupId={group.id}
               compact
               showBackendSignals
               selectedTaskId={selectedTask?.id ?? null}

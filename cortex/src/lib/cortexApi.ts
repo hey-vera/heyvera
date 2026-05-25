@@ -857,6 +857,55 @@ export interface TaskProjection {
   events: RunOperationEvent[];
 }
 
+export interface GroupOperationsAttentionItem {
+  kind: string;
+  task_id?: string | null;
+  run_id?: string | null;
+  step_id?: string | null;
+  title?: string | null;
+  status?: string | null;
+  priority?: string | null;
+  created_at?: number | null;
+  updated_at?: string | null;
+}
+
+export interface GroupOperationsSummary {
+  group_id: string;
+  scope: 'group';
+  generated_at: number;
+  tasks: {
+    total: number;
+    open: number;
+    active: number;
+    done_raw: number;
+    urgent: number;
+    unassigned: number;
+    without_run: number;
+    by_status: Record<string, number>;
+    completion: {
+      gated_done_available: boolean;
+      raw_done: number;
+    };
+  };
+  runs: {
+    total: number;
+    active: number;
+    failed: number;
+    succeeded: number;
+    latest_run_id?: string | null;
+  };
+  steps: {
+    total: number;
+    active: number;
+    failed: number;
+    orphaned: number;
+    verified_pass: number;
+    verified_fail: number;
+  };
+  attention: GroupOperationsAttentionItem[];
+  recent_events: RunOperationEvent[];
+}
+
 export interface RunListItem {
   id: string;
   goal: string;
@@ -917,6 +966,12 @@ export async function getRunEvents(runId: string, limit = 200): Promise<RunEvent
 export async function getTaskProjection(groupId: string, taskId: string): Promise<TaskProjection> {
   return requestJson<TaskProjection>(
     `/api/groups/${encodeURIComponent(groupId)}/tasks/${encodeURIComponent(taskId)}/projection`,
+  );
+}
+
+export async function getGroupOperationsSummary(groupId: string): Promise<GroupOperationsSummary> {
+  return requestJson<GroupOperationsSummary>(
+    `/api/groups/${encodeURIComponent(groupId)}/operations/summary`,
   );
 }
 
