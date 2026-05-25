@@ -15,6 +15,14 @@ pub enum DeploySurfaceStatus {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CommitAlignmentStatus {
+    Match,
+    Mismatch,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct FrontendAssets {
     pub js: Option<String>,
     pub css: Option<String>,
@@ -69,6 +77,18 @@ pub struct CloudflarePagesStatus {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct DeploymentCommitStatus {
+    pub status: CommitAlignmentStatus,
+    pub backend_commit: Option<String>,
+    pub backend_commit_short: Option<String>,
+    pub frontend_commit: Option<String>,
+    pub frontend_commit_short: Option<String>,
+    pub backend_branch: Option<String>,
+    pub frontend_branch: Option<String>,
+    pub branch_match: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct DeployStatusResponse {
     pub status: DeploySurfaceStatus,
     pub service: &'static str,
@@ -76,6 +96,7 @@ pub struct DeployStatusResponse {
     pub generated_at: String,
     pub backend: BackendDeployStatus,
     pub frontend: FrontendDeployStatus,
+    pub commits: DeploymentCommitStatus,
 }
 
 pub async fn deploy_status() -> Json<DeployStatusResponse> {
@@ -105,6 +126,7 @@ async fn build_deploy_status() -> DeployStatusResponse {
     };
 
     let frontend = build_frontend_status().await;
+    let commits = build_commit_status(&backend, &frontend);
     let status = if frontend.status == DeploySurfaceStatus::Drift {
         DeploySurfaceStatus::Drift
     } else if backend.commit.is_none() || frontend.status == DeploySurfaceStatus::Unknown {
@@ -120,7 +142,47 @@ async fn build_deploy_status() -> DeployStatusResponse {
         generated_at,
         backend,
         frontend,
+        commits,
     }
+}
+
+fn build_commit_status(
+    backend: &BackendDeployStatus,
+    frontend: &FrontendDeployStatus,
+) -> DeploymentCommitStatus {
+    let backend_commit = backend.commit.clone();
+    let frontend_commit = frontend.cloudflare_pages.commit.clone();
+    let status = match (backend_commit.as_deref(), frontend_commit.as_deref()) {
+        (Some(backend_commit), Some(frontend_commit)) if backend_commit == frontend_commit => {
+            CommitAlignmentStatus::Match
+        }
+        (Some(_), Some(_)) => CommitAlignmentStatus::Mismatch,
+        _ => CommitAlignmentStatus::Unknown,
+    };
+    let backend_branch = backend.branch.clone();
+    let frontend_branch = frontend.cloudflare_pages.branch.clone();
+    let branch_match = match (backend_branch.as_deref(), frontend_branch.as_deref()) {
+        (Some(backend_branch), Some(frontend_branch)) => Some(backend_branch == frontend_branch),
+        _ => None,
+    };
+
+    DeploymentCommitStatus {
+        status,
+        backend_commit_short: backend
+            .commit_short
+            .clone()
+            .or_else(|| backend_commit.as_deref().map(short_commit)),
+        frontend_commit_short: frontend_commit.as_deref().map(short_commit),
+        backend_commit,
+        frontend_commit,
+        backend_branch,
+        frontend_branch,
+        branch_match,
+    }
+}
+
+fn short_commit(commit: &str) -> String {
+    commit.chars().take(7).collect()
 }
 
 async fn build_frontend_status() -> FrontendDeployStatus {
@@ -129,7 +191,8 @@ async fn build_frontend_status() -> FrontendDeployStatus {
     let local_root = frontend_root();
     let checked_at = Utc::now().to_rfc3339();
     let cloudflare_pages = inspect_cloudflare_pages().await;
-    let (expected_source, expected_assets) = expected_frontend_assets(&cloudflare_pages, &local_root).await;
+    let (expected_source, expected_assets) =
+        expected_frontend_assets(&cloudflare_pages, &local_root).await;
 
     let live_result = if should_check_live_frontend() {
         fetch_live_assets(&public_url).await
@@ -236,8 +299,7 @@ async fn inspect_cloudflare_pages() -> CloudflarePagesStatus {
 
     let url = format!(
         "https://api.cloudflare.com/client/v4/accounts/{}/pages/projects/{}",
-        account_id,
-        project
+        account_id, project
     );
     let client = match reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
@@ -271,10 +333,20 @@ async fn inspect_cloudflare_pages() -> CloudflarePagesStatus {
         Ok(res) => match res.json::<Value>().await {
             Ok(body) => body,
             Err(err) => {
-                return cloudflare_error_status(project, true, redact_cloudflare_error(err, &account_id));
+                return cloudflare_error_status(
+                    project,
+                    true,
+                    redact_cloudflare_error(err, &account_id),
+                );
             }
         },
-        Err(err) => return cloudflare_error_status(project, true, redact_cloudflare_error(err, &account_id)),
+        Err(err) => {
+            return cloudflare_error_status(
+                project,
+                true,
+                redact_cloudflare_error(err, &account_id),
+            );
+        }
     };
 
     let deployment = body
@@ -302,7 +374,9 @@ async fn inspect_cloudflare_pages() -> CloudflarePagesStatus {
             branch: None,
             commit: None,
             url: None,
-            error: Some("Cloudflare Pages project response did not include a deployment".to_string()),
+            error: Some(
+                "Cloudflare Pages project response did not include a deployment".to_string(),
+            ),
         },
     }
 }
@@ -346,9 +420,12 @@ fn deployment_branch(deployment: &Value) -> Option<String> {
 }
 
 fn deployment_commit(deployment: &Value) -> Option<String> {
-    json_string(deployment, &["deployment_trigger", "metadata", "commit_hash"])
-        .or_else(|| json_string(deployment, &["source", "config", "commit_hash"]))
-        .or_else(|| json_string(deployment, &["source", "config", "commit"]))
+    json_string(
+        deployment,
+        &["deployment_trigger", "metadata", "commit_hash"],
+    )
+    .or_else(|| json_string(deployment, &["source", "config", "commit_hash"]))
+    .or_else(|| json_string(deployment, &["source", "config", "commit"]))
 }
 
 fn json_string(value: &Value, path: &[&str]) -> Option<String> {
@@ -442,6 +519,86 @@ mod tests {
         );
         assert_eq!(deployment_branch(&deployment).as_deref(), Some("main"));
         assert_eq!(deployment_commit(&deployment).as_deref(), Some("abc123"));
-        assert_eq!(json_string(&deployment, &["id"]).as_deref(), Some("deployment-123"));
+        assert_eq!(
+            json_string(&deployment, &["id"]).as_deref(),
+            Some("deployment-123")
+        );
+    }
+
+    #[test]
+    fn commit_alignment_matches_equal_commits() {
+        let backend = test_backend(Some("abc123456789"), Some("main"));
+        let frontend = test_frontend(Some("abc123456789"), Some("main"));
+
+        let commits = build_commit_status(&backend, &frontend);
+
+        assert_eq!(commits.status, CommitAlignmentStatus::Match);
+        assert_eq!(commits.backend_commit_short.as_deref(), Some("abc1234"));
+        assert_eq!(commits.frontend_commit_short.as_deref(), Some("abc1234"));
+        assert_eq!(commits.branch_match, Some(true));
+    }
+
+    #[test]
+    fn commit_alignment_reports_mismatched_commits() {
+        let backend = test_backend(Some("abc123456789"), Some("main"));
+        let frontend = test_frontend(Some("def987654321"), Some("main"));
+
+        let commits = build_commit_status(&backend, &frontend);
+
+        assert_eq!(commits.status, CommitAlignmentStatus::Mismatch);
+        assert_eq!(commits.branch_match, Some(true));
+    }
+
+    #[test]
+    fn commit_alignment_is_unknown_when_a_surface_is_missing_commit() {
+        let backend = test_backend(Some("abc123456789"), Some("main"));
+        let frontend = test_frontend(None, Some("main"));
+
+        let commits = build_commit_status(&backend, &frontend);
+
+        assert_eq!(commits.status, CommitAlignmentStatus::Unknown);
+        assert_eq!(commits.branch_match, Some(true));
+    }
+
+    fn test_backend(commit: Option<&str>, branch: Option<&str>) -> BackendDeployStatus {
+        BackendDeployStatus {
+            service: "cortex",
+            version: "0.1.0",
+            commit: commit.map(ToString::to_string),
+            commit_short: None,
+            branch: branch.map(ToString::to_string),
+            deployed_at: None,
+        }
+    }
+
+    fn test_frontend(commit: Option<&str>, branch: Option<&str>) -> FrontendDeployStatus {
+        FrontendDeployStatus {
+            public_url: "https://cortex.heyvera.org/".to_string(),
+            local_root: "/var/www/cortex".to_string(),
+            expected_source: "cloudflare_pages".to_string(),
+            expected_assets: FrontendAssets {
+                js: Some("/assets/index-test.js".to_string()),
+                css: Some("/assets/index-test.css".to_string()),
+            },
+            live_assets: Some(FrontendAssets {
+                js: Some("/assets/index-test.js".to_string()),
+                css: Some("/assets/index-test.css".to_string()),
+            }),
+            status: DeploySurfaceStatus::Match,
+            drift: false,
+            checked_at: "2026-05-25T00:00:00Z".to_string(),
+            error: None,
+            cloudflare_pages: CloudflarePagesStatus {
+                configured: true,
+                project: "cortex".to_string(),
+                status: DeploySurfaceStatus::Match,
+                deployment_id: Some("deployment-123".to_string()),
+                environment: Some("production".to_string()),
+                branch: branch.map(ToString::to_string),
+                commit: commit.map(ToString::to_string),
+                url: Some("https://deployment.cortex.pages.dev".to_string()),
+                error: None,
+            },
+        }
     }
 }

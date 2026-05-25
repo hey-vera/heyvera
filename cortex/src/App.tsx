@@ -51,6 +51,18 @@ const RUN_PROFILE_STORAGE_KEY = 'cortex:run-profile';
 const FREE_TIER_ACCESS_STATES = new Set<BillingAccessState>(['needs_checkout', 'needs_phone', 'cancelled']);
 type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing';
 
+function deploymentBadgeTitle(status: DeploymentStatus): string {
+  const backend = status.commits.backend_commit_short ?? status.backend.commit_short ?? 'unknown';
+  const frontend = status.commits.frontend_commit_short ?? 'unknown';
+  if (status.commits.status === 'mismatch') {
+    return `Backend ${backend}; Cloudflare Pages ${frontend}`;
+  }
+  if (status.commits.status === 'match') {
+    return `Backend and Cloudflare Pages commit ${backend}`;
+  }
+  return status.backend.commit_short ? `Live commit ${status.backend.commit_short}` : 'Deployment surfaces match';
+}
+
 function isSessionControls(value: unknown): value is ChatSessionControls {
   if (!value || typeof value !== 'object') return false;
   const candidate = value as Partial<ChatSessionControls>;
@@ -709,7 +721,7 @@ function CortexShell() {
             ) : deploymentStatus?.status === 'match' ? (
               <span
                 className="hidden items-center gap-1.5 rounded-full border border-emerald-300/20 bg-emerald-300/10 px-2 py-0.5 text-[11px] text-emerald-100 md:inline-flex"
-                title={deploymentStatus.backend.commit_short ? `Live commit ${deploymentStatus.backend.commit_short}` : 'Deployment surfaces match'}
+                title={deploymentBadgeTitle(deploymentStatus)}
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 Deployed
