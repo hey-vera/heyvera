@@ -482,6 +482,33 @@ const MIGRATIONS: Migration[] = [
           ON social_longform(profile_id);
         CREATE INDEX IF NOT EXISTS idx_social_longform_created
           ON social_longform(created_at);
+
+        CREATE TABLE IF NOT EXISTS social_likes (
+          profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+          post_id TEXT NOT NULL REFERENCES social_posts(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (profile_id, post_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_likes_post
+          ON social_likes(post_id);
+
+        CREATE TABLE IF NOT EXISTS social_bookmarks (
+          profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+          post_id TEXT NOT NULL REFERENCES social_posts(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (profile_id, post_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_bookmarks_post
+          ON social_bookmarks(post_id);
+
+        CREATE TABLE IF NOT EXISTS social_reposts (
+          profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+          post_id TEXT NOT NULL REFERENCES social_posts(id),
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          PRIMARY KEY (profile_id, post_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_reposts_post
+          ON social_reposts(post_id);
       `);
     },
   },

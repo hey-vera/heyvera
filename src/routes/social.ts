@@ -26,6 +26,15 @@ import {
   listFollowing,
   listSocialLongform,
   insertSocialLongform,
+  socialPostExists,
+  insertSocialLike,
+  deleteSocialLike,
+  insertSocialBookmark,
+  deleteSocialBookmark,
+  insertSocialRepost,
+  deleteSocialRepost,
+  getPostInteractionCounts,
+  getPostInteractionState,
   type SocialProfileRow,
   type SocialProfileSummaryRow,
   type SocialLinkedAgentRow,
@@ -88,7 +97,17 @@ function linkedAgentToApi(a: SocialLinkedAgentRow, clerkUserId: string) {
   };
 }
 
-function postToApi(r: SocialPostWithAuthorRow) {
+function postToApi(
+  r: SocialPostWithAuthorRow,
+  interactions?: {
+    liked: boolean;
+    bookmarked: boolean;
+    reposted: boolean;
+    likeCount: number;
+    bookmarkCount: number;
+    repostCount: number;
+  },
+) {
   return {
     id: r.id,
     body: r.body,
@@ -111,7 +130,31 @@ function postToApi(r: SocialPostWithAuthorRow) {
           agentSlug: r.agent_slug!,
         }
       : null,
+    ...(interactions
+      ? {
+          liked: interactions.liked,
+          bookmarked: interactions.bookmarked,
+          reposted: interactions.reposted,
+          likeCount: interactions.likeCount,
+          bookmarkCount: interactions.bookmarkCount,
+          repostCount: interactions.repostCount,
+        }
+      : {}),
   };
+}
+
+/** Build interaction data for a post, optionally including viewer state. */
+function getInteractionsForPost(postId: string, viewerProfileId?: string) {
+  const counts = getPostInteractionCounts(postId);
+  const state = viewerProfileId
+    ? getPostInteractionState(viewerProfileId, postId)
+    : { liked: false, bookmarked: false, reposted: false };
+  return { ...state, ...counts };
+}
+
+/** Map a list of posts enriched with interaction data. */
+function postsWithInteractions(posts: SocialPostWithAuthorRow[], viewerProfileId?: string) {
+  return posts.map((p) => postToApi(p, getInteractionsForPost(p.id, viewerProfileId)));
 }
 
 function communityToApi(c: SocialCommunityWithCreatorRow) {
@@ -282,7 +325,7 @@ socialRouter.get('/feed/home', (c) => {
   const filter = c.req.query('filter');
   const posts = listFeedPosts(limit, cursor, filter);
   return c.json({
-    feed: posts.map(postToApi),
+    feed: postsWithInteractions(posts),
     pageInfo: { limit, nextCursor: posts.length === limit ? String(cursor + limit) : null },
   });
 });
@@ -300,7 +343,7 @@ socialRouter.get('/feed/profile/:handle', (c) => {
   const posts = listFeedPostsByHandle(handle, limit, cursor);
   return c.json({
     profile: profileToApi(profile),
-    feed: posts.map(postToApi),
+    feed: postsWithInteractions(posts),
     pageInfo: { limit, nextCursor: posts.length === limit ? String(cursor + limit) : null },
   });
 });
@@ -318,7 +361,7 @@ socialRouter.get('/feed/community/:slug', (c) => {
   const posts = listCommunityFeedPosts(community.id, limit, cursor);
   return c.json({
     community: communityToApi(community),
-    feed: posts.map(postToApi),
+    feed: postsWithInteractions(posts),
     pageInfo: { limit, nextCursor: posts.length === limit ? String(cursor + limit) : null },
   });
 });
@@ -465,7 +508,97 @@ socialRouter.post('/posts', requireSocialAuth, async (c) => {
     replyToPostId: body.replyToPostId ?? null,
     quotePostId: body.quotePostId ?? null,
   });
-  return c.json({ ok: true, post: postToApi(post) }, 201);
+  return c.json({ ok: true, post: postToApi(post, getInteractionsForPost(post.id, profile.id)) }, 201);
+});
+
+// ─── Authenticated: like / unlike ────────────────────────────────────────────
+
+socialRouter.post('/posts/:id/like', requireSocialAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const postId = c.req.param('id');
+  const profile = findSocialProfileByClerkId(clerkUserId);
+  if (!profile) {
+    return c.json({ error: 'No profile found — create a profile first', code: 'NOT_FOUND' }, 404);
+  }
+  if (!socialPostExists(postId)) {
+    return c.json({ error: 'Post not found', code: 'NOT_FOUND' }, 404);
+  }
+  insertSocialLike(profile.id, postId);
+  return c.json({ ok: true });
+});
+
+socialRouter.delete('/posts/:id/like', requireSocialAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const postId = c.req.param('id');
+  const profile = findSocialProfileByClerkId(clerkUserId);
+  if (!profile) {
+    return c.json({ error: 'No profile found — create a profile first', code: 'NOT_FOUND' }, 404);
+  }
+  if (!socialPostExists(postId)) {
+    return c.json({ error: 'Post not found', code: 'NOT_FOUND' }, 404);
+  }
+  deleteSocialLike(profile.id, postId);
+  return c.json({ ok: true });
+});
+
+// ─── Authenticated: bookmark / unbookmark ───────────────────────────────────
+
+socialRouter.post('/posts/:id/bookmark', requireSocialAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const postId = c.req.param('id');
+  const profile = findSocialProfileByClerkId(clerkUserId);
+  if (!profile) {
+    return c.json({ error: 'No profile found — create a profile first', code: 'NOT_FOUND' }, 404);
+  }
+  if (!socialPostExists(postId)) {
+    return c.json({ error: 'Post not found', code: 'NOT_FOUND' }, 404);
+  }
+  insertSocialBookmark(profile.id, postId);
+  return c.json({ ok: true });
+});
+
+socialRouter.delete('/posts/:id/bookmark', requireSocialAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const postId = c.req.param('id');
+  const profile = findSocialProfileByClerkId(clerkUserId);
+  if (!profile) {
+    return c.json({ error: 'No profile found — create a profile first', code: 'NOT_FOUND' }, 404);
+  }
+  if (!socialPostExists(postId)) {
+    return c.json({ error: 'Post not found', code: 'NOT_FOUND' }, 404);
+  }
+  deleteSocialBookmark(profile.id, postId);
+  return c.json({ ok: true });
+});
+
+// ─── Authenticated: repost / unrepost ───────────────────────────────────────
+
+socialRouter.post('/posts/:id/repost', requireSocialAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const postId = c.req.param('id');
+  const profile = findSocialProfileByClerkId(clerkUserId);
+  if (!profile) {
+    return c.json({ error: 'No profile found — create a profile first', code: 'NOT_FOUND' }, 404);
+  }
+  if (!socialPostExists(postId)) {
+    return c.json({ error: 'Post not found', code: 'NOT_FOUND' }, 404);
+  }
+  insertSocialRepost(profile.id, postId);
+  return c.json({ ok: true });
+});
+
+socialRouter.delete('/posts/:id/repost', requireSocialAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const postId = c.req.param('id');
+  const profile = findSocialProfileByClerkId(clerkUserId);
+  if (!profile) {
+    return c.json({ error: 'No profile found — create a profile first', code: 'NOT_FOUND' }, 404);
+  }
+  if (!socialPostExists(postId)) {
+    return c.json({ error: 'Post not found', code: 'NOT_FOUND' }, 404);
+  }
+  deleteSocialRepost(profile.id, postId);
+  return c.json({ ok: true });
 });
 
 // ─── Authenticated: follow status ────────────────────────────────────────────

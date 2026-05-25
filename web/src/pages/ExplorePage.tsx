@@ -1,14 +1,16 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
 import {
-  bookmarkPost,
   getTrending,
+  searchAll,
+} from '../api/client';
+import {
+  bookmarkPost,
   likePost,
   repostPost,
-  searchAll,
   unbookmarkPost,
   unlikePost,
-} from '../api/client';
+} from '../api/social';
 import type { Community, SearchResults, TrendingTopic, UserSummary } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
@@ -168,9 +170,9 @@ export function ExplorePage() {
                 <PostCard
                   key={post.id}
                   post={post}
-                  onLike={(id, liked, token) => void (liked ? likePost(id, token) : unlikePost(id, token))}
-                  onRepost={(id, _reposted, token) => void repostPost(id, token)}
-                  onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(id, token) : unbookmarkPost(id, token))}
+                  onLike={(id, liked, token) => void (liked ? likePost(token, id) : unlikePost(token, id))}
+                  onRepost={(id, _reposted, token) => void repostPost(token, id)}
+                  onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id))}
                 />
               ))}
             </section>

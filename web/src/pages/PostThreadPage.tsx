@@ -2,14 +2,16 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  bookmarkPost,
   getFeed,
   getPost,
+} from '../api/client';
+import {
+  bookmarkPost,
   likePost,
   repostPost,
   unbookmarkPost,
   unlikePost,
-} from '../api/client';
+} from '../api/social';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
@@ -160,13 +162,13 @@ function ConnectorLine({ className }: ConnectorLineProps) {
 }
 
 function handleLike(postId: string, liked: boolean, token: string) {
-  void (liked ? likePost(postId, token) : unlikePost(postId, token));
+  void (liked ? likePost(token, postId) : unlikePost(token, postId));
 }
 
 function handleRepost(postId: string, _reposted: boolean, token: string) {
-  void repostPost(postId, token);
+  void repostPost(token, postId);
 }
 
 function handleBookmark(postId: string, bookmarked: boolean, token: string) {
-  void (bookmarked ? bookmarkPost(postId, token) : unbookmarkPost(postId, token));
+  void (bookmarked ? bookmarkPost(token, postId) : unbookmarkPost(token, postId));
 }

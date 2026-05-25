@@ -3,19 +3,21 @@ import { ArrowLeft, CalendarDays, Link as LinkIcon, MapPin } from 'lucide-react'
 import { SignInButton } from '@clerk/clerk-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
-  bookmarkPost,
   createUserProfile,
   followUser,
   getCurrentUserProfile,
   getProfilePosts,
   getUserProfile,
+  unfollowUser,
+  updateCurrentUserProfile,
+} from '../api/client';
+import {
+  bookmarkPost,
   likePost,
   repostPost,
   unbookmarkPost,
-  unfollowUser,
   unlikePost,
-  updateCurrentUserProfile,
-} from '../api/client';
+} from '../api/social';
 import type { CreateUserProfileInput, Post, UpdateUserProfileInput, UserProfile } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
@@ -227,7 +229,7 @@ export function ProfilePage() {
           : post,
       ),
     );
-    void (liked ? likePost(id, token) : unlikePost(id, token));
+    void (liked ? likePost(token, id) : unlikePost(token, id));
   };
 
   const handleRepost = (id: string, reposted: boolean, token: string) => {
@@ -242,14 +244,14 @@ export function ProfilePage() {
           : post,
       ),
     );
-    void repostPost(id, token);
+    void repostPost(token, id);
   };
 
   const handleBookmark = (id: string, bookmarked: boolean, token: string) => {
     setPosts((currentPosts) =>
       currentPosts.map((post) => (post.id === id ? { ...post, bookmarked } : post)),
     );
-    void (bookmarked ? bookmarkPost(id, token) : unbookmarkPost(id, token));
+    void (bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id));
   };
 
   if (loading) {

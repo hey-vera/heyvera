@@ -173,12 +173,6 @@ async function apiAuthFetch<T>(
 
 // ─── Public endpoints ────────────────────────────────────────────────────────
 
-export async function fetchProfile(handle: string): Promise<{
-  profile: Profile;
-}> {
-  return apiFetch(`/profiles/${handle}`);
-}
-
 export async function fetchProfileWithLinkedAgents(handle: string): Promise<{
   profile: Profile;
   linkedAgents: LinkedAgent[];
@@ -361,17 +355,47 @@ export async function createLongform(
   return apiAuthFetch("/longform", { method: "POST", token, body: data });
 }
 
-export async function linkAgent(
+// ─── Post interactions ──────────────────────────────────────────────────────
+
+export async function likePost(
   token: string,
-  data: {
-    agentName: string;
-    agentSlug: string;
-    agentKey: string;
-    agentType: string;
-    visibility?: string;
-    proofState?: string;
-    isPrimary?: boolean;
-  },
-): Promise<{ ok: true; linkedAgent: LinkedAgent }> {
-  return apiAuthFetch("/linked-agents", { method: "POST", token, body: data });
+  postId: string,
+): Promise<{ ok: true }> {
+  return apiAuthFetch(`/posts/${postId}/like`, { method: "POST", token });
 }
+
+export async function unlikePost(
+  token: string,
+  postId: string,
+): Promise<{ ok: true }> {
+  return apiAuthFetch(`/posts/${postId}/like`, { method: "DELETE", token });
+}
+
+export async function bookmarkPost(
+  token: string,
+  postId: string,
+): Promise<{ ok: true }> {
+  return apiAuthFetch(`/posts/${postId}/bookmark`, { method: "POST", token });
+}
+
+export async function unbookmarkPost(
+  token: string,
+  postId: string,
+): Promise<{ ok: true }> {
+  return apiAuthFetch(`/posts/${postId}/bookmark`, { method: "DELETE", token });
+}
+
+export async function repostPost(
+  token: string,
+  postId: string,
+): Promise<{ ok: true }> {
+  return apiAuthFetch(`/posts/${postId}/repost`, { method: "POST", token });
+}
+
+export async function unrepostPost(
+  token: string,
+  postId: string,
+): Promise<{ ok: true }> {
+  return apiAuthFetch(`/posts/${postId}/repost`, { method: "DELETE", token });
+}
+

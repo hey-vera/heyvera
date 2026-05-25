@@ -478,6 +478,81 @@ export function listFollowing(
   `).all(profileId, limit, offset) as SocialProfileSummaryRow[];
 }
 
+// ─── Post interaction queries ────────────────────────────────────────────────
+
+export function socialPostExists(postId: string): boolean {
+  return getDb()
+    .prepare('SELECT 1 FROM social_posts WHERE id = ?')
+    .get(postId) !== undefined;
+}
+
+export function insertSocialLike(profileId: string, postId: string): void {
+  getDb().prepare(`
+    INSERT OR IGNORE INTO social_likes (profile_id, post_id) VALUES (?, ?)
+  `).run(profileId, postId);
+}
+
+export function deleteSocialLike(profileId: string, postId: string): void {
+  getDb()
+    .prepare('DELETE FROM social_likes WHERE profile_id = ? AND post_id = ?')
+    .run(profileId, postId);
+}
+
+export function insertSocialBookmark(profileId: string, postId: string): void {
+  getDb().prepare(`
+    INSERT OR IGNORE INTO social_bookmarks (profile_id, post_id) VALUES (?, ?)
+  `).run(profileId, postId);
+}
+
+export function deleteSocialBookmark(profileId: string, postId: string): void {
+  getDb()
+    .prepare('DELETE FROM social_bookmarks WHERE profile_id = ? AND post_id = ?')
+    .run(profileId, postId);
+}
+
+export function insertSocialRepost(profileId: string, postId: string): void {
+  getDb().prepare(`
+    INSERT OR IGNORE INTO social_reposts (profile_id, post_id) VALUES (?, ?)
+  `).run(profileId, postId);
+}
+
+export function deleteSocialRepost(profileId: string, postId: string): void {
+  getDb()
+    .prepare('DELETE FROM social_reposts WHERE profile_id = ? AND post_id = ?')
+    .run(profileId, postId);
+}
+
+export function getPostInteractionCounts(postId: string): {
+  likeCount: number;
+  bookmarkCount: number;
+  repostCount: number;
+} {
+  const db = getDb();
+  const count = (sql: string): number =>
+    (db.prepare(sql).get(postId) as { cnt: number }).cnt;
+  return {
+    likeCount: count('SELECT COUNT(*) AS cnt FROM social_likes WHERE post_id = ?'),
+    bookmarkCount: count('SELECT COUNT(*) AS cnt FROM social_bookmarks WHERE post_id = ?'),
+    repostCount: count('SELECT COUNT(*) AS cnt FROM social_reposts WHERE post_id = ?'),
+  };
+}
+
+export function getPostInteractionState(profileId: string, postId: string): {
+  liked: boolean;
+  bookmarked: boolean;
+  reposted: boolean;
+} {
+  const db = getDb();
+  const has = (table: string): boolean =>
+    db.prepare(`SELECT 1 FROM ${table} WHERE profile_id = ? AND post_id = ?`)
+      .get(profileId, postId) !== undefined;
+  return {
+    liked: has('social_likes'),
+    bookmarked: has('social_bookmarks'),
+    reposted: has('social_reposts'),
+  };
+}
+
 // ─── Longform queries ────────────────────────────────────────────────────────
 
 export function listSocialLongform(limit: number, offset: number): SocialLongformWithAuthorRow[] {
