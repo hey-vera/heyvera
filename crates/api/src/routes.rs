@@ -166,6 +166,49 @@ pub async fn create_run(
     }
     let file_paths = crate::validate::sanitize_file_paths(&req.file_paths)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
+
+    if req.task_id.is_some() && req.group_id.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "group_id is required when task_id is provided".into(),
+            }),
+        ));
+    }
+
+    if req.task_id.is_some() || req.conversation_id.is_some() {
+        let db = state.db.as_ref().ok_or_else(|| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "database not available".into(),
+                }),
+            )
+        })?;
+
+        if let (Some(task_id), Some(group_id)) = (req.task_id.as_deref(), req.group_id.as_deref()) {
+            if !db.cortex_task_exists(&user.user_id, group_id, task_id) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "task_id is not known for this group".into(),
+                    }),
+                ));
+            }
+        }
+
+        if let Some(conversation_id) = req.conversation_id.as_deref() {
+            if !db.conversation_exists(&user.user_id, conversation_id) {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: "conversation_id is not owned by this user".into(),
+                    }),
+                ));
+            }
+        }
+    }
+
     let scheduler_tx = state.scheduler_tx.read().await;
     let tx = scheduler_tx.as_ref().ok_or_else(|| {
         (

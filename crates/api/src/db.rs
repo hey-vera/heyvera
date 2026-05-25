@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -204,7 +204,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 19;
+const SCHEMA_VERSION: i64 = 20;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -273,6 +273,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 19 {
         migrate_v19(conn);
+    }
+    if current < 20 {
+        migrate_v20(conn);
     }
 }
 
@@ -985,6 +988,68 @@ fn migrate_v19(conn: &Connection) {
     tracing::info!("applied migration v19: task-aware run metadata");
 }
 
+fn migrate_v20(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS cortex_tasks (
+            id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            group_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            priority TEXT,
+            conversation_id TEXT,
+            latest_run_id TEXT,
+            source_json TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            version INTEGER NOT NULL DEFAULT 1,
+            PRIMARY KEY (user_id, group_id, id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_cortex_tasks_group_status
+            ON cortex_tasks(user_id, group_id, status, updated_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_cortex_tasks_latest_run
+            ON cortex_tasks(user_id, latest_run_id);
+
+        CREATE TABLE IF NOT EXISTS cortex_task_chats (
+            user_id TEXT NOT NULL,
+            group_id TEXT NOT NULL,
+            task_id TEXT NOT NULL,
+            conversation_id TEXT NOT NULL,
+            attached_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (user_id, group_id, task_id, conversation_id)
+        );"
+    ).expect("migration v20 failed");
+
+    let task_states = {
+        let mut stmt = conn
+            .prepare("SELECT user_id, group_id, state_json FROM group_task_state")
+            .expect("failed to prepare task state backfill");
+        stmt.query_map([], |row| {
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,
+            ))
+        })
+        .expect("failed to query task state backfill")
+        .filter_map(|row| row.ok())
+        .collect::<Vec<_>>()
+    };
+
+    for (user_id, group_id, raw) in task_states {
+        if let Ok(state) = serde_json::from_str::<serde_json::Value>(&raw) {
+            index_group_task_state(conn, &user_id, &group_id, &state);
+        }
+    }
+
+    conn.execute("UPDATE schema_version SET version = 20", [])
+        .expect("failed to mark migration v20");
+
+    tracing::info!("applied migration v20: cortex task shadow index");
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CortexGroup {
     pub id: String,
@@ -1026,6 +1091,140 @@ pub struct IntegrationMapping {
 }
 
 // --- Database implementation ---
+
+fn json_text<'a>(object: &'a serde_json::Map<String, serde_json::Value>, key: &str) -> Option<&'a str> {
+    object.get(key).and_then(|value| value.as_str())
+}
+
+fn index_group_task_state(
+    conn: &Connection,
+    user_id: &str,
+    group_id: &str,
+    state: &serde_json::Value,
+) {
+    let Some(tasks) = state.get("tasks").and_then(|value| value.as_array()) else {
+        conn.execute(
+            "DELETE FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2",
+            params![user_id, group_id],
+        ).ok();
+        return;
+    };
+
+    let mut seen_ids = HashSet::new();
+    for task in tasks {
+        let Some(object) = task.as_object() else {
+            continue;
+        };
+        let Some(id) = json_text(object, "id") else {
+            continue;
+        };
+        let Some(title) = json_text(object, "title") else {
+            continue;
+        };
+        let Some(status) = json_text(object, "status") else {
+            continue;
+        };
+        if json_text(object, "groupId") != Some(group_id) {
+            continue;
+        }
+
+        seen_ids.insert(id.to_string());
+        let priority = json_text(object, "priority");
+        let conversation_id = json_text(object, "projectChatConversationId");
+        let latest_run_id = json_text(object, "latestRunId");
+        let source_json = serde_json::to_string(task).unwrap_or_else(|_| "{}".to_string());
+
+        conn.execute(
+            "INSERT INTO cortex_tasks (
+                id, user_id, group_id, title, status, priority, conversation_id,
+                latest_run_id, source_json, created_at, updated_at, version
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, datetime('now'), datetime('now'), 1)
+             ON CONFLICT(user_id, group_id, id) DO UPDATE SET
+                title = excluded.title,
+                status = excluded.status,
+                priority = excluded.priority,
+                conversation_id = excluded.conversation_id,
+                latest_run_id = excluded.latest_run_id,
+                source_json = excluded.source_json,
+                updated_at = datetime('now'),
+                version = cortex_tasks.version + 1",
+            params![
+                id,
+                user_id,
+                group_id,
+                title,
+                status,
+                priority,
+                conversation_id,
+                latest_run_id,
+                source_json
+            ],
+        ).ok();
+
+        if let Some(conversation_id) = conversation_id {
+            conn.execute(
+                "INSERT OR IGNORE INTO cortex_task_chats (
+                    user_id, group_id, task_id, conversation_id, attached_at
+                 )
+                 VALUES (?1, ?2, ?3, ?4, datetime('now'))",
+                params![user_id, group_id, id, conversation_id],
+            ).ok();
+        }
+    }
+
+    let existing_ids = {
+        let mut stmt = match conn.prepare("SELECT id FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2") {
+            Ok(stmt) => stmt,
+            Err(_) => return,
+        };
+        stmt.query_map(params![user_id, group_id], |row| row.get::<_, String>(0))
+            .map(|rows| rows.filter_map(|row| row.ok()).collect::<Vec<_>>())
+            .unwrap_or_default()
+    };
+
+    for existing_id in existing_ids {
+        if !seen_ids.contains(&existing_id) {
+            conn.execute(
+                "DELETE FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2 AND id = ?3",
+                params![user_id, group_id, existing_id],
+            ).ok();
+        }
+    }
+}
+
+fn attach_run_to_cortex_task(
+    conn: &Connection,
+    user_id: &str,
+    group_id: Option<&str>,
+    task_id: Option<&str>,
+    conversation_id: Option<&str>,
+    run_id: &str,
+) {
+    let (Some(group_id), Some(task_id)) = (group_id, task_id) else {
+        return;
+    };
+
+    conn.execute(
+        "UPDATE cortex_tasks
+         SET latest_run_id = ?1,
+             conversation_id = COALESCE(?2, conversation_id),
+             updated_at = datetime('now'),
+             version = version + 1
+         WHERE user_id = ?3 AND group_id = ?4 AND id = ?5",
+        params![run_id, conversation_id, user_id, group_id, task_id],
+    ).ok();
+
+    if let Some(conversation_id) = conversation_id {
+        conn.execute(
+            "INSERT OR IGNORE INTO cortex_task_chats (
+                user_id, group_id, task_id, conversation_id, attached_at
+             )
+             VALUES (?1, ?2, ?3, ?4, datetime('now'))",
+            params![user_id, group_id, task_id, conversation_id],
+        ).ok();
+    }
+}
 
 fn insert_operations_event(
     conn: &Connection,
@@ -1387,7 +1586,26 @@ impl Database {
                 updated_at = datetime('now')",
             params![group_id, user_id, raw],
         ).expect("failed to upsert group task state");
+        index_group_task_state(&conn, user_id, group_id, state);
         state.clone()
+    }
+
+    pub fn cortex_task_exists(&self, user_id: &str, group_id: &str, task_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2 AND id = ?3",
+            params![user_id, group_id, task_id],
+            |_| Ok(()),
+        ).is_ok()
+    }
+
+    pub fn conversation_exists(&self, user_id: &str, conversation_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM conversations WHERE user_id = ?1 AND id = ?2",
+            params![user_id, conversation_id],
+            |_| Ok(()),
+        ).is_ok()
     }
 
     // --- Integrations ---
@@ -1681,6 +1899,7 @@ impl Database {
              VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
             params![id, user_id, goal, profile, file_paths_json, task_id, group_id, conversation_id, now],
         ).expect("failed to create run");
+        attach_run_to_cortex_task(&conn, user_id, group_id, task_id, conversation_id, &id);
         insert_operations_event(
             &conn,
             Some(user_id),
@@ -1736,6 +1955,7 @@ impl Database {
              VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
             params![run_id, user_id, goal, profile, file_paths_json, task_id, group_id, conversation_id, now],
         ).expect("failed to create run in batch");
+        attach_run_to_cortex_task(&conn, user_id, group_id, task_id, conversation_id, &run_id);
         insert_operations_event(
             &conn,
             Some(user_id),
@@ -4298,5 +4518,83 @@ impl Database {
         .filter_map(|r| r.ok())
         .collect()
     }
+}
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_db() -> Database {
+        let dir = tempfile::tempdir().unwrap().keep();
+        Database::open(&dir.join("cortex.sqlite"))
+    }
+
+    fn task_state(task_id: &str, title: &str) -> serde_json::Value {
+        serde_json::json!({
+            "tasks": [{
+                "id": task_id,
+                "groupId": "group-1",
+                "title": title,
+                "status": "created",
+                "priority": "normal",
+                "createdAt": "2026-05-25T00:00:00Z",
+                "updatedAt": "2026-05-25T00:00:00Z",
+                "createdBy": "You"
+            }],
+            "members": [],
+            "activity": [],
+            "updatedAt": "2026-05-25T00:00:00Z"
+        })
+    }
+
+    #[test]
+    fn upsert_group_task_state_indexes_and_reconciles_cortex_tasks() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "First task"));
+
+        assert!(db.cortex_task_exists("user-1", "group-1", "task-1"));
+
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-2", "Second task"));
+
+        assert!(!db.cortex_task_exists("user-1", "group-1", "task-1"));
+        assert!(db.cortex_task_exists("user-1", "group-1", "task-2"));
+    }
+
+    #[test]
+    fn create_run_with_metadata_updates_cortex_task_latest_run() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "First task"));
+        let conversation = db.create_conversation("user-1", Some("Project Chat"));
+
+        let run_id = db.create_run_with_metadata(
+            "user-1",
+            "Ship task",
+            "auto",
+            &[],
+            Some("task-1"),
+            Some("group-1"),
+            Some(&conversation.id),
+        );
+
+        let conn = db.conn.lock().unwrap();
+        let (latest_run_id, conversation_id): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT latest_run_id, conversation_id FROM cortex_tasks
+                 WHERE user_id = ?1 AND group_id = ?2 AND id = ?3",
+                params!["user-1", "group-1", "task-1"],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(latest_run_id.as_deref(), Some(run_id.as_str()));
+        assert_eq!(conversation_id.as_deref(), Some(conversation.id.as_str()));
+
+        assert!(conn
+            .query_row(
+                "SELECT 1 FROM cortex_task_chats
+                 WHERE user_id = ?1 AND group_id = ?2 AND task_id = ?3 AND conversation_id = ?4",
+                params!["user-1", "group-1", "task-1", conversation.id],
+                |_| Ok(())
+            )
+            .is_ok());
+    }
 }
