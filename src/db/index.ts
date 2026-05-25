@@ -257,3 +257,17 @@ export {
   type TrendingTopicRow,
   type NotificationRow,
 } from './social';
+
+// ─── Pulse layer ────────────────────────────────────────────────────────────
+
+export {
+  createPulseDraft,
+  listPulseDrafts,
+  getPulseDraft,
+  approvePulseDraft,
+  rejectPulseDraft,
+  publishPulseDraft,
+  getPulseDraftAuditLog,
+  type PulseDraftRow,
+  type PulseAuditLogRow,
+} from './pulse';

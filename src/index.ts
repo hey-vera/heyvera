@@ -20,6 +20,7 @@ import { economyRouter } from './routes/economy';
 import { authnRouter } from './routes/authn';
 import { ceremonyRouter } from './routes/ceremony';
 import { socialRouter } from './routes/social';
+import { pulseRouter } from './routes/pulse';
 import { initSomaHeart } from './core/soma-heart';
 
 const app = new Hono();
@@ -88,6 +89,9 @@ app.route('/api/ceremony', ceremonyRouter);
 
 // Vera Socials layer
 app.route('/v1/social', socialRouter);
+
+// Pulse — agent-assisted publishing control layer
+app.route('/v1/pulse', pulseRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
