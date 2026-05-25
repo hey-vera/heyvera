@@ -56,6 +56,19 @@ jobs:
       - name: Build web
         run: npm run build
 
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Install Rust 1.85.0
+        run: |
+          rustup toolchain install 1.85.0 --profile minimal
+          rustup default 1.85.0
+
+      - name: Test Rust workspace
+        run: cargo test --workspace --all-targets --locked
+
   runtime-floor:
     # Proves the built CJS artifact can load soma-heart (ESM-only) via
     # `require(esm)` under the declared minimum Node runtime. Pinned
