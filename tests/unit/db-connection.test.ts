@@ -113,7 +113,7 @@ describe('db/connection', () => {
         .all() as { version: number }[];
       // Still exactly the same rows — the migrations are skipped because
       // all versions are already applied.
-      expect(secondRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 197, 198, 199, 200, 201]);
+      expect(secondRows.map((r) => r.version)).toEqual([1, 2, 3, 4, 197, 198, 199, 200, 201, 202]);
     } finally {
       closeDb();
       fs.rmSync(tmpDir, { recursive: true, force: true });
