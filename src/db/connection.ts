@@ -512,6 +512,42 @@ const MIGRATIONS: Migration[] = [
       `);
     },
   },
+  {
+    version: 202,
+    description: 'pulse — draft-and-approve pipeline for agent-assisted posts',
+    up: (db) => {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS pulse_drafts (
+          id TEXT PRIMARY KEY,
+          profile_id TEXT NOT NULL,
+          body TEXT NOT NULL,
+          visibility TEXT NOT NULL DEFAULT 'public',
+          author_mode TEXT NOT NULL DEFAULT 'agent',
+          linked_agent_id TEXT,
+          status TEXT NOT NULL DEFAULT 'pending',
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (profile_id) REFERENCES social_profiles(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_pulse_drafts_profile
+          ON pulse_drafts(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_pulse_drafts_status
+          ON pulse_drafts(status);
+
+        CREATE TABLE IF NOT EXISTS pulse_audit_log (
+          id TEXT PRIMARY KEY,
+          draft_id TEXT NOT NULL,
+          action TEXT NOT NULL,
+          actor_profile_id TEXT NOT NULL,
+          details TEXT,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')),
+          FOREIGN KEY (draft_id) REFERENCES pulse_drafts(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_pulse_audit_log_draft
+          ON pulse_audit_log(draft_id);
+      `);
+    },
+  },
 ];
 
 /**
