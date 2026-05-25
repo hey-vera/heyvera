@@ -158,6 +158,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/deploy-info", get(routes::deploy_info))
         .route("/api/deploy-status", get(deploy_status::deploy_status))
         .route("/api/deployment/status", get(deploy_status::deploy_status))
+        .route("/api/deployment/events", get(deploy_status::deployment_events))
         .route("/api/auth/status", get(auth::auth_status))
         // Soma identity (public — lets clients discover Cortex's DID)
         .route("/api/soma/identity", get(soma_identity))

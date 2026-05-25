@@ -1934,6 +1934,45 @@ impl Database {
         }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
+    pub fn list_deployment_operations_events(&self, limit: usize) -> Vec<OperationsEvent> {
+        let conn = self.conn.lock().unwrap();
+        let limit = limit.clamp(1, 100) as i64;
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, created_at, actor_user_id, scope_id, project_id, task_id, run_id,
+                    step_id, attempt_id, event_type, entity_type, entity_id, payload_json
+             FROM operations_events
+             WHERE scope_id = ?1
+                AND entity_type = ?2
+             ORDER BY created_at DESC, id DESC
+             LIMIT ?3",
+            )
+            .unwrap();
+
+        stmt.query_map(params!["cortex", "deployment", limit], |row| {
+            let payload_json: String = row.get(12)?;
+            Ok(OperationsEvent {
+                id: row.get(0)?,
+                created_at: row.get(1)?,
+                actor_user_id: row.get(2)?,
+                scope_id: row.get(3)?,
+                project_id: row.get(4)?,
+                task_id: row.get(5)?,
+                run_id: row.get(6)?,
+                step_id: row.get(7)?,
+                attempt_id: row.get(8)?,
+                event_type: row.get(9)?,
+                entity_type: row.get(10)?,
+                entity_id: row.get(11)?,
+                payload: serde_json::from_str(&payload_json)
+                    .unwrap_or_else(|_| serde_json::json!({})),
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
     pub fn get_run_binding(&self, run_id: &str) -> Option<(Option<String>, Option<String>, Option<String>)> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
@@ -6234,6 +6273,35 @@ mod tests {
             reason: Some("test".to_string()),
             metadata: serde_json::json!({}),
         }
+    }
+
+    #[test]
+    fn list_deployment_operations_events_returns_cortex_deployments() {
+        let db = test_db();
+        db.record_deployment_event(
+            "deploy.inspected",
+            "first",
+            &serde_json::json!({ "commit": "abc1234" }),
+        );
+        db.record_deployment_event(
+            "deploy.verified",
+            "second",
+            &serde_json::json!({ "commit": "def5678" }),
+        );
+
+        let events = db.list_deployment_operations_events(10);
+
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().all(|event| event.entity_type == "deployment"));
+        assert!(events
+            .iter()
+            .all(|event| event.scope_id.as_deref() == Some("cortex")));
+        assert!(events
+            .iter()
+            .any(|event| event.entity_id == "first" && event.payload["commit"] == "abc1234"));
+        assert!(events
+            .iter()
+            .any(|event| event.entity_id == "second" && event.payload["commit"] == "def5678"));
     }
 
     fn test_step(id: &str) -> (String, String, String, Option<String>, String, String, String, i64) {

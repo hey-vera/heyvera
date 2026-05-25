@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
 use axum::Json;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -164,10 +164,40 @@ pub struct DeployStatusResponse {
     pub commits: DeploymentCommitStatus,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+pub struct DeploymentEventsQuery {
+    #[serde(default = "default_deployment_events_limit")]
+    pub limit: usize,
+}
+
+fn default_deployment_events_limit() -> usize {
+    25
+}
+
 pub async fn deploy_status(State(state): State<Arc<AppState>>) -> Json<DeployStatusResponse> {
     let status = build_deploy_status().await;
     record_deploy_inspected_event(&state, &status);
     Json(status)
+}
+
+pub async fn deployment_events(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<DeploymentEventsQuery>,
+) -> Json<Value> {
+    let limit = query.limit.clamp(1, 100);
+    let events = state
+        .db
+        .as_ref()
+        .map(|db| db.list_deployment_operations_events(limit))
+        .unwrap_or_default();
+
+    Json(serde_json::json!({
+        "scope_id": "cortex",
+        "entity_type": "deployment",
+        "generated_at": Utc::now().to_rfc3339(),
+        "limit": limit,
+        "events": events,
+    }))
 }
 
 async fn build_deploy_status() -> DeployStatusResponse {
