@@ -9,12 +9,13 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type DragEvent } from 'react';
 import type { TaskManagerTask, TaskMember, TaskPriority, TaskStatus } from '../../types';
-import { getTaskProjection, type TaskProjection } from '../../lib/cortexApi';
+import { getGroupOperationsSummary, type GroupOperationsSummary } from '../../lib/cortexApi';
 import { formatTaskStatus } from '../../lib/taskManager';
 
 interface TaskBoardProps {
   tasks: TaskManagerTask[];
   members: TaskMember[];
+  groupId?: string;
   compact?: boolean;
   showBackendSignals?: boolean;
   selectedTaskId?: string | null;
@@ -42,13 +43,24 @@ const PRIORITY_STYLE: Record<TaskPriority, string> = {
 };
 
 interface TaskBackendSignal {
-  runCount: number;
-  chatCount: number;
+  attentionCount: number;
   eventCount: number;
-  latestRunId?: string | null;
+  latestAttentionKind?: string | null;
+  latestAttentionStatus?: string | null;
   latestRunStatus?: string | null;
   latestEventAt?: number | null;
   tone: 'quiet' | 'attached' | 'active' | 'stale' | 'failed';
+}
+
+interface BoardBackendSummary {
+  open: number;
+  active: number;
+  rawDone: number;
+  attention: number;
+  failedRuns: number;
+  failedSteps: number;
+  orphanedSteps: number;
+  gatedDoneAvailable: boolean;
 }
 
 function formatAge(timestamp: string) {
@@ -77,32 +89,98 @@ function statusTone(status?: string | null): TaskBackendSignal['tone'] {
   return 'attached';
 }
 
-function backendSignalFromProjection(projection: TaskProjection): TaskBackendSignal {
-  const latestRun = projection.runs[0] ?? null;
-  const latestEvent = projection.events[0] ?? null;
-  let tone = statusTone(latestRun?.status);
-  const latestEventAt = latestEvent?.created_at ?? null;
-  const quietMs = latestEventAt ? Date.now() - latestEventAt : null;
+function formatAttentionKind(kind?: string | null) {
+  if (!kind) return 'Backend signal';
+  return kind.replaceAll('_', ' ');
+}
+
+function backendSignalsFromSummary(summary: GroupOperationsSummary): Record<string, TaskBackendSignal> {
+  const signals: Record<string, TaskBackendSignal> = {};
+
+  for (const event of summary.recent_events) {
+    if (!event.task_id) continue;
+    const signal = signals[event.task_id] ?? {
+      attentionCount: 0,
+      eventCount: 0,
+      latestAttentionKind: null,
+      latestAttentionStatus: null,
+      latestRunStatus: null,
+      latestEventAt: null,
+      tone: 'attached' as const,
+    };
+    signal.eventCount += 1;
+    signal.latestEventAt = Math.max(signal.latestEventAt ?? 0, event.created_at);
+    signals[event.task_id] = signal;
+  }
+
+  for (const item of summary.attention) {
+    if (!item.task_id) continue;
+    const signal = signals[item.task_id] ?? {
+      attentionCount: 0,
+      eventCount: 0,
+      latestAttentionKind: null,
+      latestAttentionStatus: null,
+      latestRunStatus: null,
+      latestEventAt: null,
+      tone: 'attached' as const,
+    };
+    signal.attentionCount += 1;
+    signal.latestAttentionKind ??= item.kind;
+    signal.latestAttentionStatus ??= item.status ?? null;
+    if (item.status) signal.latestRunStatus ??= item.status;
+    signal.latestEventAt = Math.max(signal.latestEventAt ?? 0, item.created_at ?? 0) || signal.latestEventAt;
+    signal.tone = item.kind.includes('failed') || item.kind.includes('orphaned') ? 'failed' : 'active';
+    signals[item.task_id] = signal;
+  }
+
+  for (const signal of Object.values(signals)) {
+    const quietMs = signal.latestEventAt ? Date.now() - signal.latestEventAt : null;
+    if (signal.tone === 'active' && quietMs !== null && quietMs > 5 * 60 * 1000) {
+      signal.tone = 'stale';
+    }
+    if (signal.attentionCount === 0 && signal.eventCount === 0) {
+      signal.tone = 'quiet';
+    }
+  }
+
+  return signals;
+}
+
+function backendSignalFromTask(task: TaskManagerTask): TaskBackendSignal | null {
+  if (!task.latestRunId && !task.latestRunStatus) return null;
+  let tone = statusTone(task.latestRunStatus);
+  const quietMs = task.latestRunSyncedAt ? Date.now() - new Date(task.latestRunSyncedAt).getTime() : null;
   if (tone === 'active' && quietMs !== null && quietMs > 5 * 60 * 1000) {
     tone = 'stale';
   }
-  if (projection.runs.length === 0 && projection.chats.length === 0) {
-    tone = 'quiet';
-  }
   return {
-    runCount: projection.runs.length,
-    chatCount: projection.chats.length,
-    eventCount: projection.events.length,
-    latestRunId: projection.task.latest_run_id ?? latestRun?.id ?? null,
-    latestRunStatus: latestRun?.status ?? null,
-    latestEventAt,
+    attentionCount: 0,
+    eventCount: 0,
+    latestAttentionKind: null,
+    latestAttentionStatus: null,
+    latestRunStatus: task.latestRunStatus ?? null,
+    latestEventAt: task.latestRunSyncedAt ? new Date(task.latestRunSyncedAt).getTime() : null,
     tone,
+  };
+}
+
+function boardSummaryFromOperations(summary: GroupOperationsSummary): BoardBackendSummary {
+  return {
+    open: summary.tasks.open,
+    active: summary.tasks.active + summary.runs.active,
+    rawDone: summary.tasks.done_raw,
+    attention: summary.attention.length,
+    failedRuns: summary.runs.failed,
+    failedSteps: summary.steps.failed,
+    orphanedSteps: summary.steps.orphaned,
+    gatedDoneAvailable: summary.tasks.completion.gated_done_available,
   };
 }
 
 function backendSignalLabel(signal: TaskBackendSignal) {
   if (signal.tone === 'failed') return 'Needs attention';
   if (signal.tone === 'stale') return 'Stale';
+  if (signal.latestAttentionKind) return formatAttentionKind(signal.latestAttentionKind);
   if (signal.tone === 'active') return formatRunStatus(signal.latestRunStatus);
   if (signal.tone === 'attached') return 'Attached';
   return 'No backend work';
@@ -203,9 +281,7 @@ function TaskCard({
                 {backendSignalLabel(backendSignal)}
               </span>
               <span className="min-w-0 truncate text-[10px] text-[var(--muted)]">
-                {backendSignal.runCount} run{backendSignal.runCount === 1 ? '' : 's'}
-                {' · '}
-                {backendSignal.chatCount} chat{backendSignal.chatCount === 1 ? '' : 's'}
+                {backendSignal.attentionCount} attention
                 {' · '}
                 {backendSignal.eventCount} event{backendSignal.eventCount === 1 ? '' : 's'}
               </span>
@@ -385,6 +461,7 @@ function DropColumn({
 export default function TaskBoard({
   tasks,
   members,
+  groupId,
   compact = false,
   showBackendSignals = false,
   selectedTaskId,
@@ -395,38 +472,54 @@ export default function TaskBoard({
   const hasTasks = tasks.length > 0;
   const visibleStatuses = compact ? STATUSES.filter((status) => status !== 'done') : STATUSES;
   const [backendSignals, setBackendSignals] = useState<Record<string, TaskBackendSignal>>({});
-  const projectionTaskKeys = useMemo(() => {
+  const [boardSummary, setBoardSummary] = useState<BoardBackendSummary | null>(null);
+  const summaryGroupIds = useMemo(() => {
     if (!showBackendSignals) return [];
-    const selected = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
-    const candidates = tasks
-      .filter((task) => task.status !== 'done')
-      .slice(0, 12);
-    const byId = new Map<string, TaskManagerTask>();
-    for (const task of candidates) byId.set(task.id, task);
-    if (selected) byId.set(selected.id, selected);
-    return Array.from(byId.values()).map((task) => `${task.groupId}:${task.id}`);
-  }, [selectedTaskId, showBackendSignals, tasks]);
+    if (groupId) return [groupId];
+    return Array.from(new Set(tasks.map((task) => task.groupId))).sort();
+  }, [groupId, showBackendSignals, tasks]);
 
   useEffect(() => {
-    if (!showBackendSignals || projectionTaskKeys.length === 0) {
+    if (!showBackendSignals || summaryGroupIds.length === 0) {
       setBackendSignals({});
+      setBoardSummary(null);
       return undefined;
     }
     let cancelled = false;
     const loadSignals = async () => {
       const nextSignals: Record<string, TaskBackendSignal> = {};
-      await Promise.all(projectionTaskKeys.map(async (key) => {
-        const separatorIndex = key.indexOf(':');
-        const groupId = key.slice(0, separatorIndex);
-        const taskId = key.slice(separatorIndex + 1);
+      let nextBoardSummary: BoardBackendSummary | null = null;
+      await Promise.all(summaryGroupIds.map(async (groupId) => {
         try {
-          const projection = await getTaskProjection(groupId, taskId);
-          nextSignals[taskId] = backendSignalFromProjection(projection);
+          const summary = await getGroupOperationsSummary(groupId);
+          Object.assign(nextSignals, backendSignalsFromSummary(summary));
+          if (!nextBoardSummary) {
+            nextBoardSummary = boardSummaryFromOperations(summary);
+          } else {
+            nextBoardSummary = {
+              open: nextBoardSummary.open + summary.tasks.open,
+              active: nextBoardSummary.active + summary.tasks.active + summary.runs.active,
+              rawDone: nextBoardSummary.rawDone + summary.tasks.done_raw,
+              attention: nextBoardSummary.attention + summary.attention.length,
+              failedRuns: nextBoardSummary.failedRuns + summary.runs.failed,
+              failedSteps: nextBoardSummary.failedSteps + summary.steps.failed,
+              orphanedSteps: nextBoardSummary.orphanedSteps + summary.steps.orphaned,
+              gatedDoneAvailable: nextBoardSummary.gatedDoneAvailable && summary.tasks.completion.gated_done_available,
+            };
+          }
         } catch {
-          // Projection gaps stay quiet on the map; the inspector shows the detailed error.
+          // Summary gaps stay quiet on the map; the inspector shows detailed projection errors.
         }
       }));
-      if (!cancelled) setBackendSignals(nextSignals);
+      for (const task of tasks) {
+        if (nextSignals[task.id]) continue;
+        const taskSignal = backendSignalFromTask(task);
+        if (taskSignal) nextSignals[task.id] = taskSignal;
+      }
+      if (!cancelled) {
+        setBackendSignals(nextSignals);
+        setBoardSummary(nextBoardSummary);
+      }
     };
 
     void loadSignals();
@@ -437,7 +530,7 @@ export default function TaskBoard({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [projectionTaskKeys, showBackendSignals]);
+  }, [showBackendSignals, summaryGroupIds, tasks]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -450,22 +543,49 @@ export default function TaskBoard({
           </p>
         </div>
       ) : (
-        <div className={compact ? 'grid gap-3' : 'grid min-h-0 flex-1 gap-3 xl:grid-cols-4'}>
-          {visibleStatuses.map((status) => (
-            <DropColumn
-              key={status}
-              status={status}
-              tasks={tasks.filter((task) => task.status === status)}
-              members={members}
-              compact={compact}
-              selectedTaskId={selectedTaskId}
-              onUpdateTask={onUpdateTask}
-              onSelectTask={onSelectTask}
-              onLaunchTask={onLaunchTask}
-              backendSignals={backendSignals}
-            />
-          ))}
-        </div>
+        <>
+          {showBackendSignals && boardSummary && (
+            <div className="mb-3 grid gap-2 sm:grid-cols-4">
+              <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
+                <p className="text-[10px] uppercase text-[var(--muted)]">Queue</p>
+                <p className="mt-0.5 text-sm font-semibold text-white">{boardSummary.open} open · {boardSummary.active} active</p>
+              </div>
+              <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
+                <p className="text-[10px] uppercase text-[var(--muted)]">Completion</p>
+                <p className="mt-0.5 text-sm font-semibold text-white">
+                  {boardSummary.rawDone} raw done
+                  {!boardSummary.gatedDoneAvailable ? ' · ungated' : ''}
+                </p>
+              </div>
+              <div className="rounded-lg border border-red-300/15 bg-red-400/[0.06] px-3 py-2">
+                <p className="text-[10px] uppercase text-[var(--muted)]">Attention</p>
+                <p className="mt-0.5 text-sm font-semibold text-white">{boardSummary.attention} signal{boardSummary.attention === 1 ? '' : 's'}</p>
+              </div>
+              <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
+                <p className="text-[10px] uppercase text-[var(--muted)]">Execution</p>
+                <p className="mt-0.5 text-sm font-semibold text-white">
+                  {boardSummary.failedRuns} run fail · {boardSummary.failedSteps + boardSummary.orphanedSteps} step issue
+                </p>
+              </div>
+            </div>
+          )}
+          <div className={compact ? 'grid gap-3' : 'grid min-h-0 flex-1 gap-3 xl:grid-cols-4'}>
+            {visibleStatuses.map((status) => (
+              <DropColumn
+                key={status}
+                status={status}
+                tasks={tasks.filter((task) => task.status === status)}
+                members={members}
+                compact={compact}
+                selectedTaskId={selectedTaskId}
+                onUpdateTask={onUpdateTask}
+                onSelectTask={onSelectTask}
+                onLaunchTask={onLaunchTask}
+                backendSignals={backendSignals}
+              />
+            ))}
+          </div>
+        </>
       )}
     </div>
   );
