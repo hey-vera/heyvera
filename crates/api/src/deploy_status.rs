@@ -37,6 +37,28 @@ pub struct DeployMeta {
     pub commit_short: Option<String>,
     #[serde(rename = "deployedAt")]
     pub deployed_at: Option<String>,
+    #[serde(rename = "githubActions")]
+    pub github_actions: Option<GitHubActionsDeployMeta>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GitHubActionsDeployMeta {
+    pub workflow: Option<String>,
+    #[serde(rename = "runId")]
+    pub run_id: Option<String>,
+    #[serde(rename = "runNumber")]
+    pub run_number: Option<String>,
+    #[serde(rename = "runAttempt")]
+    pub run_attempt: Option<String>,
+    pub event: Option<String>,
+    pub repository: Option<String>,
+    pub actor: Option<String>,
+    #[serde(rename = "headBranch")]
+    pub head_branch: Option<String>,
+    #[serde(rename = "headSha")]
+    pub head_sha: Option<String>,
+    #[serde(rename = "htmlUrl")]
+    pub html_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -79,6 +101,7 @@ pub struct CloudflarePagesStatus {
 #[derive(Debug, Clone, Serialize)]
 pub struct GitHubActionsStatus {
     pub configured: bool,
+    pub source: String,
     pub owner: String,
     pub repo: String,
     pub workflow: String,
@@ -141,6 +164,7 @@ pub async fn deploy_status() -> Json<DeployStatusResponse> {
 async fn build_deploy_status() -> DeployStatusResponse {
     let generated_at = Utc::now().to_rfc3339();
     let meta = read_deploy_meta();
+    let github_actions_meta = meta.as_ref().and_then(|m| m.github_actions.clone());
     let backend = BackendDeployStatus {
         service: "cortex",
         version: env!("CARGO_PKG_VERSION"),
@@ -157,11 +181,15 @@ async fn build_deploy_status() -> DeployStatusResponse {
             .or_else(|| meta.as_ref().and_then(|m| m.branch.clone())),
         deployed_at: std::env::var("DEPLOY_TIMESTAMP")
             .ok()
-            .or_else(|| meta.and_then(|m| m.deployed_at)),
+            .or_else(|| meta.as_ref().and_then(|m| m.deployed_at.clone())),
     };
 
     let frontend = build_frontend_status().await;
-    let github_actions = inspect_github_actions(backend.branch.as_deref().unwrap_or("main")).await;
+    let github_actions = inspect_github_actions(
+        backend.branch.as_deref().unwrap_or("main"),
+        github_actions_meta.as_ref(),
+    )
+    .await;
     let commits = build_commit_status(&backend, &frontend);
     let status = if frontend.status == DeploySurfaceStatus::Drift {
         DeploySurfaceStatus::Drift
@@ -418,7 +446,10 @@ async fn inspect_cloudflare_pages() -> CloudflarePagesStatus {
     }
 }
 
-async fn inspect_github_actions(branch: &str) -> GitHubActionsStatus {
+async fn inspect_github_actions(
+    branch: &str,
+    deploy_meta: Option<&GitHubActionsDeployMeta>,
+) -> GitHubActionsStatus {
     let (owner, repo) = github_repo();
     let workflow =
         std::env::var("GITHUB_DEPLOY_WORKFLOW").unwrap_or_else(|_| "Deploy Production".to_string());
@@ -428,8 +459,12 @@ async fn inspect_github_actions(branch: &str) -> GitHubActionsStatus {
         .ok();
 
     let Some(api_token) = api_token else {
+        if let Some(deploy_meta) = deploy_meta {
+            return github_status_from_deploy_meta(owner, repo, workflow, branch, deploy_meta);
+        }
         return GitHubActionsStatus {
             configured: false,
+            source: "not_configured".to_string(),
             owner,
             repo,
             workflow,
@@ -503,6 +538,7 @@ async fn inspect_github_actions(branch: &str) -> GitHubActionsStatus {
         Some(run) => github_status_from_run(owner, repo, workflow, resolved_workflow, branch, run),
         None => GitHubActionsStatus {
             configured: true,
+            source: "github_api".to_string(),
             owner,
             repo,
             workflow,
@@ -531,10 +567,17 @@ async fn inspect_github_actions(branch: &str) -> GitHubActionsStatus {
 
 fn github_repo() -> (String, String) {
     let raw = std::env::var("GITHUB_REPOSITORY").unwrap_or_else(|_| "hey-vera/heyvera".to_string());
+    parse_owner_repo(&raw).unwrap_or(("hey-vera".to_string(), "heyvera".to_string()))
+}
+
+fn parse_owner_repo(raw: &str) -> Option<(String, String)> {
     let mut parts = raw.splitn(2, '/');
-    let owner = parts.next().unwrap_or("hey-vera").to_string();
-    let repo = parts.next().unwrap_or("heyvera").to_string();
-    (owner, repo)
+    let owner = parts.next()?.trim();
+    let repo = parts.next()?.trim();
+    if owner.is_empty() || repo.is_empty() {
+        return None;
+    }
+    Some((owner.to_string(), repo.to_string()))
 }
 
 async fn resolve_github_workflow(
@@ -608,6 +651,7 @@ fn github_status_from_run(
 
     GitHubActionsStatus {
         configured: true,
+        source: "github_api".to_string(),
         owner,
         repo,
         workflow,
@@ -633,6 +677,76 @@ fn github_status_from_run(
     }
 }
 
+fn github_status_from_deploy_meta(
+    fallback_owner: String,
+    fallback_repo: String,
+    fallback_workflow: String,
+    fallback_branch: String,
+    deploy_meta: &GitHubActionsDeployMeta,
+) -> GitHubActionsStatus {
+    let (owner, repo) = deploy_meta
+        .repository
+        .as_deref()
+        .and_then(parse_owner_repo)
+        .unwrap_or((fallback_owner, fallback_repo));
+    let workflow = non_empty_string(deploy_meta.workflow.clone()).unwrap_or(fallback_workflow);
+    let head_branch =
+        non_empty_string(deploy_meta.head_branch.clone()).or(Some(fallback_branch.clone()));
+    let head_sha = non_empty_string(deploy_meta.head_sha.clone());
+    let run_id = deploy_meta.run_id.as_deref().and_then(parse_optional_i64);
+    let run_number = deploy_meta
+        .run_number
+        .as_deref()
+        .and_then(parse_optional_i64);
+    let run_attempt = deploy_meta
+        .run_attempt
+        .as_deref()
+        .and_then(parse_optional_i64);
+    let html_url = non_empty_string(deploy_meta.html_url.clone());
+
+    GitHubActionsStatus {
+        configured: false,
+        source: "deploy_meta".to_string(),
+        owner,
+        repo,
+        workflow,
+        workflow_id: None,
+        workflow_name: None,
+        workflow_path: None,
+        branch: fallback_branch,
+        status: if run_id.is_some() {
+            DeploySurfaceStatus::Match
+        } else {
+            DeploySurfaceStatus::Unknown
+        },
+        run_id,
+        run_number,
+        run_attempt,
+        run_status: if run_id.is_some() {
+            Some("completed".to_string())
+        } else {
+            None
+        },
+        conclusion: if run_id.is_some() {
+            Some("success".to_string())
+        } else {
+            None
+        },
+        event: non_empty_string(deploy_meta.event.clone()),
+        head_branch,
+        head_sha_short: head_sha.as_deref().map(short_commit),
+        head_sha,
+        html_url,
+        created_at: None,
+        updated_at: None,
+        run_started_at: None,
+        error: Some(
+            "GitHub Actions read token is not configured; using deploy metadata fallback"
+                .to_string(),
+        ),
+    }
+}
+
 fn github_error_status(
     owner: String,
     repo: String,
@@ -643,6 +757,12 @@ fn github_error_status(
 ) -> GitHubActionsStatus {
     GitHubActionsStatus {
         configured,
+        source: if configured {
+            "error"
+        } else {
+            "not_configured"
+        }
+        .to_string(),
         owner,
         repo,
         workflow,
@@ -737,6 +857,25 @@ fn json_i64(value: &Value, path: &[&str]) -> Option<i64> {
         }
     }
     current.as_i64()
+}
+
+fn parse_optional_i64(value: &str) -> Option<i64> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        None
+    } else {
+        trimmed.parse::<i64>().ok()
+    }
+}
+
+fn non_empty_string(value: Option<String>) -> Option<String> {
+    value.and_then(|value| {
+        if value.trim().is_empty() {
+            None
+        } else {
+            Some(value)
+        }
+    })
 }
 
 async fn fetch_live_assets(public_url: &str) -> Result<FrontendAssets, String> {
@@ -892,6 +1031,51 @@ mod tests {
 
         assert_eq!(status.status, DeploySurfaceStatus::Unknown);
         assert_eq!(status.conclusion.as_deref(), Some("failure"));
+    }
+
+    #[test]
+    fn github_actions_can_fall_back_to_deploy_metadata_without_token() {
+        let deploy_meta = GitHubActionsDeployMeta {
+            workflow: Some("Deploy Production".to_string()),
+            run_id: Some("26414165500".to_string()),
+            run_number: Some("78".to_string()),
+            run_attempt: Some("1".to_string()),
+            event: Some("workflow_dispatch".to_string()),
+            repository: Some("hey-vera/heyvera".to_string()),
+            actor: Some("1xmint".to_string()),
+            head_branch: Some("main".to_string()),
+            head_sha: Some("07bab45d044ea4e73ab6e83532101c76490cb102".to_string()),
+            html_url: Some(
+                "https://github.com/hey-vera/heyvera/actions/runs/26414165500".to_string(),
+            ),
+        };
+
+        let status = github_status_from_deploy_meta(
+            "fallback".to_string(),
+            "repo".to_string(),
+            "Fallback Workflow".to_string(),
+            "main".to_string(),
+            &deploy_meta,
+        );
+
+        assert_eq!(status.configured, false);
+        assert_eq!(status.source, "deploy_meta");
+        assert_eq!(status.owner, "hey-vera");
+        assert_eq!(status.repo, "heyvera");
+        assert_eq!(status.status, DeploySurfaceStatus::Match);
+        assert_eq!(status.run_id, Some(26414165500));
+        assert_eq!(status.run_number, Some(78));
+        assert_eq!(status.run_attempt, Some(1));
+        assert_eq!(status.run_status.as_deref(), Some("completed"));
+        assert_eq!(status.conclusion.as_deref(), Some("success"));
+        assert_eq!(status.head_sha_short.as_deref(), Some("07bab45"));
+        assert!(
+            status
+                .error
+                .as_deref()
+                .unwrap_or_default()
+                .contains("deploy metadata fallback")
+        );
     }
 
     fn test_resolved_workflow() -> ResolvedGitHubWorkflow {

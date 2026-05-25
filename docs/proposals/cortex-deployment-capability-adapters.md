@@ -141,6 +141,7 @@ The first implementation should be read-only inspection plus verification, not m
 3. GitHub Actions read adapter.
    - Inspect latest `Deploy Production` run, head SHA, conclusion, and deploy-info verification result.
    - Initial runtime inspection should be read-only and default to `not configured` unless a GitHub read token is available through `GITHUB_TOKEN` or `GH_TOKEN`.
+   - Production deploys should also persist the triggering GitHub Actions run metadata into deploy metadata so Cortex can explain the current release even before an API token is configured.
    - The adapter should report workflow status separately from frontend asset drift; a failed latest workflow is release evidence, not proof that the currently served bundle is stale.
 
 4. Unified deploy status endpoint.

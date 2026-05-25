@@ -274,6 +274,7 @@ export interface DeploymentStatus {
   };
   github_actions: {
     configured: boolean;
+    source: string;
     owner: string;
     repo: string;
     workflow: string;
