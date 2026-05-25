@@ -503,6 +503,7 @@ Notes:
 
 - if media upload is supported, return normalized `media[]` attachments in the `Post`
 - current X-style frontend does not yet pass `reply_to` or `quote_post` on create, but the read contract already supports both
+- the current Rust scaffold keeps a typed normalized create-post DTO only as an internal seam; the live handler still needs a multipart adapter before this endpoint can be wired
 
 #### `POST /posts/{id}/like`
 

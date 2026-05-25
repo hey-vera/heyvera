@@ -43,7 +43,7 @@ Status: ready next / in progress
 - [ ] Proposal is reviewed and accepted by maintainers.
 - [ ] ADR is reviewed, accepted, and confirmed against current repo ownership.
 - [ ] API contract is reconciled with `web/src/api/client.ts` before backend implementation starts.
-- [ ] Open contract gaps are resolved or explicitly deferred: unbookmark, unrepost, reply create, quote create, notification writes, settings persistence.
+- [ ] Open contract gaps are resolved or explicitly deferred: unrepost, reply create, quote create, notification writes, settings persistence.
 
 ## Phase 2 - Rust Backend Foundation
 
@@ -120,8 +120,8 @@ Status: not implemented
 - [ ] `DELETE /posts/:id/repost`
 - [ ] `POST /posts/:id/bookmark`
 - [ ] `DELETE /posts/:id/bookmark`
-- [ ] `POST /users/:id/follow`
-- [ ] `DELETE /users/:id/follow`
+- [ ] `POST /follows/:handle`
+- [ ] `DELETE /follows/:handle`
 - [ ] `GET /notifications`
 - [ ] `GET /conversations`
 - [ ] `GET /conversations/:id/messages`

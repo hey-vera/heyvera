@@ -5,7 +5,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{json, Value};
 
 use crate::clerk::ClerkUser;
 use crate::state::AppState;
@@ -71,6 +71,8 @@ pub struct UpdateProfileRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct CreatePostRequest {
+    // The live frontend sends multipart form data. This typed body is the
+    // normalized post-create shape after the future multipart adapter parses it.
     #[serde(flatten)]
     pub payload: CreatePostInput,
 }

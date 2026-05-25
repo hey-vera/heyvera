@@ -209,7 +209,7 @@ Do not start Slice E/F handler work until A/B/C have agreed interfaces.
 - Postgres target and migration policy must be explicit.
 - Clerk production app settings and callback URLs need verification.
 - Backend auth must define how missing profile differs from missing account.
-- API contract currently has open gaps for unbookmark, unrepost, reply create, and quote create.
+- API contract currently has open gaps for unrepost, reply create, quote create, notification writes, and settings persistence.
 - Production observability backend is not selected.
 - Postgres backup/restore plan is not yet proven.
 
