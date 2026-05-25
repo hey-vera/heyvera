@@ -16,3 +16,7 @@ Suggested naming:
 
 - `ADR-0001-repo-boundaries.md`
 - `ADR-0002-deploy-via-github-actions.md`
+
+## Current ADRs
+
+- `ADR-0007-heyvera-production-backend-foundation.md` - chooses the Rust/Axum/sqlx/Postgres/Redis/Clerk/OpenTelemetry modular-monolith foundation for HeyVera's production backend.
