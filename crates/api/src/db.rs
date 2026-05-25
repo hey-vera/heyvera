@@ -1298,14 +1298,46 @@ fn insert_operations_event(
     }
 }
 
-fn step_event_context(conn: &Connection, step_id: &str) -> Option<(String, String)> {
+struct OperationEventContext {
+    run_id: String,
+    user_id: String,
+    group_id: Option<String>,
+    task_id: Option<String>,
+}
+
+fn run_event_context(conn: &Connection, run_id: &str) -> Option<OperationEventContext> {
     conn.query_row(
-        "SELECT s.run_id, r.user_id
+        "SELECT id, user_id, group_id, task_id
+         FROM runs
+         WHERE id = ?1",
+        params![run_id],
+        |row| {
+            Ok(OperationEventContext {
+                run_id: row.get(0)?,
+                user_id: row.get(1)?,
+                group_id: row.get(2)?,
+                task_id: row.get(3)?,
+            })
+        },
+    )
+    .ok()
+}
+
+fn step_event_context(conn: &Connection, step_id: &str) -> Option<OperationEventContext> {
+    conn.query_row(
+        "SELECT s.run_id, r.user_id, r.group_id, r.task_id
          FROM steps s
          JOIN runs r ON r.id = s.run_id
          WHERE s.id = ?1",
         params![step_id],
-        |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        |row| {
+            Ok(OperationEventContext {
+                run_id: row.get(0)?,
+                user_id: row.get(1)?,
+                group_id: row.get(2)?,
+                task_id: row.get(3)?,
+            })
+        },
     )
     .ok()
 }
@@ -2538,17 +2570,13 @@ impl Database {
             params![status, failure_reason, finished, now, run_id],
         ).unwrap_or(0);
         if rows > 0 {
-            let actor_user_id = conn
-                .query_row("SELECT user_id FROM runs WHERE id = ?1", params![run_id], |row| {
-                    row.get::<_, String>(0)
-                })
-                .ok();
+            let context = run_event_context(&conn, run_id);
             insert_operations_event(
                 &conn,
-                actor_user_id.as_deref(),
+                context.as_ref().map(|context| context.user_id.as_str()),
+                context.as_ref().and_then(|context| context.group_id.as_deref()),
                 None,
-                None,
-                None,
+                context.as_ref().and_then(|context| context.task_id.as_deref()),
                 Some(run_id),
                 None,
                 None,
@@ -2583,17 +2611,13 @@ impl Database {
              VALUES (?1, ?2, ?3, 'modify', 'pending', ?4, ?5, ?6, ?7, ?7)",
             params![id, run_id, kind, tier, risk, objective, now],
         ).expect("failed to create step");
-        let actor_user_id = conn
-            .query_row("SELECT user_id FROM runs WHERE id = ?1", params![run_id], |row| {
-                row.get::<_, String>(0)
-            })
-            .ok();
+        let context = run_event_context(&conn, run_id);
         insert_operations_event(
             &conn,
-            actor_user_id.as_deref(),
+            context.as_ref().map(|context| context.user_id.as_str()),
+            context.as_ref().and_then(|context| context.group_id.as_deref()),
             None,
-            None,
-            None,
+            context.as_ref().and_then(|context| context.task_id.as_deref()),
             Some(run_id),
             Some(&id),
             None,
@@ -2707,11 +2731,11 @@ impl Database {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
-                context.as_ref().map(|(_, user_id)| user_id.as_str()),
+                context.as_ref().map(|context| context.user_id.as_str()),
+                context.as_ref().and_then(|context| context.group_id.as_deref()),
                 None,
-                None,
-                None,
-                context.as_ref().map(|(run_id, _)| run_id.as_str()),
+                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
                 "step.leased",
@@ -2740,11 +2764,11 @@ impl Database {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
-                context.as_ref().map(|(_, user_id)| user_id.as_str()),
+                context.as_ref().map(|context| context.user_id.as_str()),
+                context.as_ref().and_then(|context| context.group_id.as_deref()),
                 None,
-                None,
-                None,
-                context.as_ref().map(|(run_id, _)| run_id.as_str()),
+                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
                 "step.started",
@@ -2780,11 +2804,11 @@ impl Database {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
-                context.as_ref().map(|(_, user_id)| user_id.as_str()),
+                context.as_ref().map(|context| context.user_id.as_str()),
+                context.as_ref().and_then(|context| context.group_id.as_deref()),
                 None,
-                None,
-                None,
-                context.as_ref().map(|(run_id, _)| run_id.as_str()),
+                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
                 "step.completed",
@@ -2815,11 +2839,11 @@ impl Database {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
-                context.as_ref().map(|(_, user_id)| user_id.as_str()),
+                context.as_ref().map(|context| context.user_id.as_str()),
+                context.as_ref().and_then(|context| context.group_id.as_deref()),
                 None,
-                None,
-                None,
-                context.as_ref().map(|(run_id, _)| run_id.as_str()),
+                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
                 "step.failed",
@@ -2847,11 +2871,11 @@ impl Database {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
-                context.as_ref().map(|(_, user_id)| user_id.as_str()),
+                context.as_ref().map(|context| context.user_id.as_str()),
+                context.as_ref().and_then(|context| context.group_id.as_deref()),
                 None,
-                None,
-                None,
-                context.as_ref().map(|(run_id, _)| run_id.as_str()),
+                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
                 "step.failed",
@@ -2879,11 +2903,11 @@ impl Database {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
-                context.as_ref().map(|(_, user_id)| user_id.as_str()),
+                context.as_ref().map(|context| context.user_id.as_str()),
+                context.as_ref().and_then(|context| context.group_id.as_deref()),
                 None,
-                None,
-                None,
-                context.as_ref().map(|(run_id, _)| run_id.as_str()),
+                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
                 "step.cancelled",
@@ -3665,10 +3689,10 @@ impl Database {
         let context = step_event_context(&conn, step_id);
         insert_operations_event(
             &conn,
-            context.as_ref().map(|(_, user_id)| user_id.as_str()),
+            context.as_ref().map(|context| context.user_id.as_str()),
+            context.as_ref().and_then(|context| context.group_id.as_deref()),
             None,
-            None,
-            None,
+            context.as_ref().and_then(|context| context.task_id.as_deref()),
             Some(run_id),
             Some(step_id),
             None,
@@ -5139,6 +5163,8 @@ mod tests {
             None,
         );
         assert!(db.update_run_status(&run_id, "failed", Some("test failure")));
+        let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Wire summary");
+        assert!(db.fail_unleased_step(&step_id, "test step failure", Some("test")));
 
         let other_run_id = db.create_run_with_metadata(
             "user-2",
@@ -5164,6 +5190,8 @@ mod tests {
         assert_eq!(summary["runs"]["total"], 1);
         assert_eq!(summary["runs"]["failed"], 1);
         assert_eq!(summary["runs"]["latest_run_id"], run_id);
+        assert_eq!(summary["steps"]["total"], 1);
+        assert_eq!(summary["steps"]["failed"], 1);
         assert!(summary["attention"]
             .as_array()
             .unwrap()
@@ -5181,5 +5209,22 @@ mod tests {
             .unwrap()
             .iter()
             .all(|event| event["actor_user_id"] == "user-1"));
+        assert!(summary["recent_events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["event_type"] == "run.status_changed"
+                && event["scope_id"] == "group-1"
+                && event["task_id"] == "task-active"
+                && event["run_id"] == run_id));
+        assert!(summary["recent_events"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["event_type"] == "step.failed"
+                && event["scope_id"] == "group-1"
+                && event["task_id"] == "task-active"
+                && event["run_id"] == run_id
+                && event["step_id"] == step_id));
     }
 }
