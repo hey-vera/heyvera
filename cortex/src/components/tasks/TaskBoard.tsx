@@ -61,6 +61,8 @@ interface BoardBackendSummary {
   failedSteps: number;
   orphanedSteps: number;
   gatedDoneAvailable: boolean;
+  gatedDone: number;
+  doneWithoutEvidence: number;
 }
 
 function formatAge(timestamp: string) {
@@ -174,6 +176,8 @@ function boardSummaryFromOperations(summary: GroupOperationsSummary): BoardBacke
     failedSteps: summary.steps.failed,
     orphanedSteps: summary.steps.orphaned,
     gatedDoneAvailable: summary.tasks.completion.gated_done_available,
+    gatedDone: summary.tasks.completion.gated_done ?? 0,
+    doneWithoutEvidence: summary.tasks.completion.done_without_evidence ?? 0,
   };
 }
 
@@ -505,6 +509,9 @@ export default function TaskBoard({
               failedSteps: nextBoardSummary.failedSteps + summary.steps.failed,
               orphanedSteps: nextBoardSummary.orphanedSteps + summary.steps.orphaned,
               gatedDoneAvailable: nextBoardSummary.gatedDoneAvailable && summary.tasks.completion.gated_done_available,
+              gatedDone: nextBoardSummary.gatedDone + (summary.tasks.completion.gated_done ?? 0),
+              doneWithoutEvidence: nextBoardSummary.doneWithoutEvidence
+                + (summary.tasks.completion.done_without_evidence ?? 0),
             };
           }
         } catch {
@@ -553,9 +560,15 @@ export default function TaskBoard({
               <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
                 <p className="text-[10px] uppercase text-[var(--muted)]">Completion</p>
                 <p className="mt-0.5 text-sm font-semibold text-white">
-                  {boardSummary.rawDone} raw done
-                  {!boardSummary.gatedDoneAvailable ? ' · ungated' : ''}
+                  {boardSummary.gatedDoneAvailable
+                    ? `${boardSummary.gatedDone}/${boardSummary.rawDone} verified`
+                    : `${boardSummary.rawDone} raw done · ungated`}
                 </p>
+                {boardSummary.doneWithoutEvidence > 0 && (
+                  <p className="mt-0.5 text-[10px] text-amber-100">
+                    {boardSummary.doneWithoutEvidence} need evidence
+                  </p>
+                )}
               </div>
               <div className="rounded-lg border border-red-300/15 bg-red-400/[0.06] px-3 py-2">
                 <p className="text-[10px] uppercase text-[var(--muted)]">Attention</p>

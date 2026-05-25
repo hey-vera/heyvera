@@ -1298,6 +1298,116 @@ fn insert_operations_event(
     }
 }
 
+struct CortexCompletionGate {
+    gated_done: bool,
+    reason: &'static str,
+    run_id: Option<String>,
+    run_status: Option<String>,
+    total_steps: i64,
+    verified_pass_steps: i64,
+    failed_steps: i64,
+    unverified_steps: i64,
+}
+
+impl CortexCompletionGate {
+    fn to_json(&self, raw_done: bool) -> serde_json::Value {
+        serde_json::json!({
+            "gated_done": self.gated_done,
+            "raw_done": raw_done,
+            "reason": self.reason,
+            "run_id": self.run_id,
+            "run_status": self.run_status,
+            "steps": {
+                "total": self.total_steps,
+                "verified_pass": self.verified_pass_steps,
+                "failed": self.failed_steps,
+                "unverified": self.unverified_steps,
+            },
+        })
+    }
+}
+
+fn cortex_completion_gate(
+    conn: &Connection,
+    user_id: &str,
+    group_id: &str,
+    task_id: &str,
+    latest_run_id: Option<&str>,
+) -> CortexCompletionGate {
+    let run: Option<(String, String)> = if let Some(run_id) = latest_run_id {
+        conn.query_row(
+            "SELECT id, status FROM runs
+             WHERE id = ?1 AND user_id = ?2 AND group_id = ?3 AND task_id = ?4",
+            params![run_id, user_id, group_id, task_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok()
+    } else {
+        conn.query_row(
+            "SELECT id, status FROM runs
+             WHERE user_id = ?1 AND group_id = ?2 AND task_id = ?3
+             ORDER BY created_at DESC, id DESC
+             LIMIT 1",
+            params![user_id, group_id, task_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .ok()
+    };
+
+    let Some((run_id, run_status)) = run else {
+        return CortexCompletionGate {
+            gated_done: false,
+            reason: "no_run",
+            run_id: None,
+            run_status: None,
+            total_steps: 0,
+            verified_pass_steps: 0,
+            failed_steps: 0,
+            unverified_steps: 0,
+        };
+    };
+
+    let (total_steps, verified_pass_steps, failed_steps, unverified_steps): (i64, i64, i64, i64) =
+        conn.query_row(
+            "SELECT
+                COUNT(*),
+                COALESCE(SUM(CASE WHEN verification_status = 'verified_pass' THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE WHEN status IN ('failed', 'orphaned') THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE
+                    WHEN verification_status IS NULL OR verification_status != 'verified_pass' THEN 1
+                    ELSE 0
+                END), 0)
+             FROM steps
+             WHERE run_id = ?1",
+            params![run_id],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
+        )
+        .unwrap_or((0, 0, 0, 0));
+
+    let reason = if !matches!(run_status.as_str(), "succeeded" | "recovered") {
+        "run_not_successful"
+    } else if total_steps == 0 {
+        "no_steps"
+    } else if failed_steps > 0 {
+        "failed_steps"
+    } else if unverified_steps > 0 {
+        "unverified_steps"
+    } else {
+        "passed"
+    };
+
+    CortexCompletionGate {
+        gated_done: reason == "passed",
+        reason,
+        run_id: Some(run_id),
+        run_status: Some(run_status),
+        total_steps,
+        verified_pass_steps,
+        failed_steps,
+        unverified_steps,
+    }
+}
+
 struct OperationEventContext {
     run_id: String,
     user_id: String,
@@ -1757,6 +1867,14 @@ impl Database {
             )
             .ok()?;
         let source = serde_json::from_str(&source_json).unwrap_or_else(|_| serde_json::json!({}));
+        let completion_gate = cortex_completion_gate(
+            &conn,
+            user_id,
+            group_id,
+            task_id,
+            latest_run_id.as_deref(),
+        );
+        let completion = completion_gate.to_json(status == "done");
 
         let mut runs_stmt = conn
             .prepare(
@@ -1862,6 +1980,7 @@ impl Database {
                 "created_at": created_at,
                 "updated_at": updated_at,
                 "version": version,
+                "completion": completion,
             },
             "runs": runs,
             "chats": chats,
@@ -1908,6 +2027,8 @@ impl Database {
         let mut task_urgent = 0;
         let mut task_unassigned = 0;
         let mut task_without_run = 0;
+        let mut task_gated_done = 0;
+        let mut task_done_without_evidence = 0;
         let mut attention: Vec<serde_json::Value> = Vec::new();
 
         for (task_id, title, status, priority, latest_run_id, source_json, updated_at) in &task_rows {
@@ -1917,6 +2038,31 @@ impl Database {
                 "in-progress" => task_active += 1,
                 "done" => task_done += 1,
                 _ => {}
+            }
+            if status == "done" {
+                let gate = cortex_completion_gate(
+                    &conn,
+                    user_id,
+                    group_id,
+                    task_id,
+                    latest_run_id.as_deref(),
+                );
+                if gate.gated_done {
+                    task_gated_done += 1;
+                } else {
+                    task_done_without_evidence += 1;
+                    if attention.len() < 10 {
+                        attention.push(serde_json::json!({
+                            "kind": "done_without_evidence",
+                            "task_id": task_id,
+                            "title": title,
+                            "status": status,
+                            "run_id": gate.run_id,
+                            "reason": gate.reason,
+                            "updated_at": updated_at,
+                        }));
+                    }
+                }
             }
             if priority == "urgent" {
                 task_urgent += 1;
@@ -2114,8 +2260,10 @@ impl Database {
                     "done": task_done,
                 },
                 "completion": {
-                    "gated_done_available": false,
+                    "gated_done_available": true,
                     "raw_done": task_done,
+                    "gated_done": task_gated_done,
+                    "done_without_evidence": task_done_without_evidence,
                 },
             },
             "runs": {
@@ -5235,7 +5383,9 @@ mod tests {
         assert_eq!(summary["tasks"]["active"], 1);
         assert_eq!(summary["tasks"]["urgent"], 1);
         assert_eq!(summary["tasks"]["without_run"], 1);
-        assert_eq!(summary["tasks"]["completion"]["gated_done_available"], false);
+        assert_eq!(summary["tasks"]["completion"]["gated_done_available"], true);
+        assert_eq!(summary["tasks"]["completion"]["gated_done"], 0);
+        assert_eq!(summary["tasks"]["completion"]["done_without_evidence"], 0);
         assert_eq!(summary["runs"]["total"], 1);
         assert_eq!(summary["runs"]["failed"], 1);
         assert_eq!(summary["runs"]["latest_run_id"], run_id);
@@ -5275,5 +5425,118 @@ mod tests {
                 && event["task_id"] == "task-active"
                 && event["run_id"] == run_id
                 && event["step_id"] == step_id));
+    }
+
+    #[test]
+    fn get_cortex_task_projection_reports_evidence_gated_completion() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state_with_tasks(serde_json::json!([
+            {
+                "id": "task-1",
+                "groupId": "group-1",
+                "title": "Verified task",
+                "status": "done",
+                "priority": "normal",
+                "assigneeId": "user-1",
+                "createdAt": "2026-05-25T00:00:00Z",
+                "updatedAt": "2026-05-25T00:00:00Z",
+                "createdBy": "You"
+            }
+        ])));
+        let run_id = db.create_run_with_metadata(
+            "user-1",
+            "Ship verified task",
+            "auto",
+            &[],
+            Some("task-1"),
+            Some("group-1"),
+            None,
+        );
+        let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE steps
+                 SET status = 'succeeded', verification_status = 'verified_pass'
+                 WHERE id = ?1",
+                params![step_id],
+            )
+            .unwrap();
+        }
+        assert!(db.update_run_status(&run_id, "succeeded", None));
+
+        let projection = db
+            .get_cortex_task_projection("user-1", "group-1", "task-1", 100)
+            .expect("task projection");
+
+        assert_eq!(projection["task"]["completion"]["raw_done"], true);
+        assert_eq!(projection["task"]["completion"]["gated_done"], true);
+        assert_eq!(projection["task"]["completion"]["reason"], "passed");
+        assert_eq!(projection["task"]["completion"]["run_id"], run_id);
+        assert_eq!(projection["task"]["completion"]["steps"]["verified_pass"], 1);
+    }
+
+    #[test]
+    fn get_group_operations_summary_counts_evidence_gated_done() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state_with_tasks(serde_json::json!([
+            {
+                "id": "task-verified",
+                "groupId": "group-1",
+                "title": "Verified done task",
+                "status": "done",
+                "priority": "normal",
+                "assigneeId": "user-1",
+                "createdAt": "2026-05-25T00:00:00Z",
+                "updatedAt": "2026-05-25T00:00:00Z",
+                "createdBy": "You"
+            },
+            {
+                "id": "task-raw",
+                "groupId": "group-1",
+                "title": "Raw done task",
+                "status": "done",
+                "priority": "normal",
+                "assigneeId": "user-1",
+                "createdAt": "2026-05-25T00:00:00Z",
+                "updatedAt": "2026-05-25T00:00:00Z",
+                "createdBy": "You"
+            }
+        ])));
+        let run_id = db.create_run_with_metadata(
+            "user-1",
+            "Ship verified done task",
+            "auto",
+            &[],
+            Some("task-verified"),
+            Some("group-1"),
+            None,
+        );
+        let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE steps
+                 SET status = 'succeeded', verification_status = 'verified_pass'
+                 WHERE id = ?1",
+                params![step_id],
+            )
+            .unwrap();
+        }
+        assert!(db.update_run_status(&run_id, "succeeded", None));
+
+        let summary = db.get_group_operations_summary("user-1", "group-1", 25);
+
+        assert_eq!(summary["tasks"]["done_raw"], 2);
+        assert_eq!(summary["tasks"]["completion"]["gated_done_available"], true);
+        assert_eq!(summary["tasks"]["completion"]["gated_done"], 1);
+        assert_eq!(summary["tasks"]["completion"]["done_without_evidence"], 1);
+        assert!(summary["attention"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["kind"] == "done_without_evidence"
+                && item["task_id"] == "task-raw"
+                && item["reason"] == "no_run"));
     }
 }
