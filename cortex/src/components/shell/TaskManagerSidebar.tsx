@@ -1,10 +1,19 @@
 import { useCallback, useState, useEffect } from 'react';
-import { ExternalLink, MessageSquareText, PanelRightClose, PanelRightOpen, LayoutGrid } from 'lucide-react';
+import {
+  AlertTriangle,
+  Database,
+  ExternalLink,
+  LayoutGrid,
+  MessageSquareText,
+  PanelRightClose,
+  PanelRightOpen,
+  RefreshCw,
+} from 'lucide-react';
 import TaskManagerChat from '../tasks/TaskManagerChat';
 import TaskBoard from '../tasks/TaskBoard';
 import TaskInspector from '../tasks/TaskInspector';
 import { openDetachedPanel } from '../../lib/shell/windowManager';
-import { useTaskManager } from '../../lib/taskManager';
+import { useTaskManager, type TaskManagerSyncState } from '../../lib/taskManager';
 import { CortexApiError, createRun, repoKeyFromLabel } from '../../lib/cortexApi';
 import type { CortexGroup } from '../../lib/groups';
 import type {
@@ -36,6 +45,35 @@ interface TaskManagerSidebarProps {
 
 type SidebarView = 'chat' | 'map';
 
+function syncStatusCopy(sync: TaskManagerSyncState) {
+  if (sync.phase === 'synced') {
+    return {
+      label: 'Backend truth',
+      detail: sync.lastBackendWriteAt
+        ? `Last write ${new Date(sync.lastBackendWriteAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+        : sync.lastBackendReadAt
+          ? `Loaded ${new Date(sync.lastBackendReadAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+          : 'Synced with backend',
+      tone: 'border-emerald-400/20 bg-emerald-400/8 text-emerald-100',
+      icon: Database,
+    };
+  }
+  if (sync.phase === 'syncing' || sync.phase === 'loading') {
+    return {
+      label: sync.phase === 'syncing' ? 'Syncing' : 'Loading truth',
+      detail: 'Checking backend state',
+      tone: 'border-sky-400/20 bg-sky-400/8 text-sky-100',
+      icon: RefreshCw,
+    };
+  }
+  return {
+    label: 'Local fallback',
+    detail: sync.lastError ?? 'Backend task state is unavailable',
+    tone: 'border-amber-400/20 bg-amber-400/8 text-amber-100',
+    icon: AlertTriangle,
+  };
+}
+
 export default function TaskManagerSidebar({
   group,
   userId,
@@ -64,6 +102,8 @@ export default function TaskManagerSidebar({
   const selectedTask = taskManager.state.tasks.find((task) => task.id === selectedTaskId)
     ?? taskManager.state.tasks[0]
     ?? null;
+  const syncStatus = syncStatusCopy(taskManager.sync);
+  const SyncIcon = syncStatus.icon;
 
   // Handle group switching with visual feedback
   useEffect(() => {
@@ -243,6 +283,25 @@ export default function TaskManagerSidebar({
             <LayoutGrid className="h-3.5 w-3.5" />
             Live Map
           </button>
+        </div>
+
+        <div className={`mt-3 flex items-center gap-2 rounded-lg border px-3 py-2 ${syncStatus.tone}`}>
+          <SyncIcon className={`h-3.5 w-3.5 shrink-0 ${taskManager.sync.phase === 'loading' || taskManager.sync.phase === 'syncing' ? 'animate-spin' : ''}`} />
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] font-semibold">{syncStatus.label}</div>
+            <div className="truncate text-[10px] opacity-80">{syncStatus.detail}</div>
+          </div>
+          {taskManager.sync.phase === 'local' && (
+            <button
+              type="button"
+              onClick={() => void taskManager.refreshBackendState()}
+              className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-white/5 transition hover:bg-white/10"
+              aria-label="Retry backend task sync"
+              title="Retry backend task sync"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
       </div>
 

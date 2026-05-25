@@ -414,6 +414,8 @@ pub async fn create_group_task(
         .unwrap_or_else(|| empty_task_state(&group_id));
     let (next_state, task_id, event_payload) = apply_task_create(&group_id, &current, &task)
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
+    require_evidence_for_done_transitions(db, &user.user_id, &group_id, &current, &next_state)
+        .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
     let saved = db.upsert_group_task_state(&user.user_id, &group_id, &next_state);
     db.record_cortex_task_event(
         &user.user_id,
@@ -437,6 +439,8 @@ pub async fn apply_group_task_actions(
         .and_then(|value| normalize_task_state(&group_id, &value).ok())
         .unwrap_or_else(|| empty_task_state(&group_id));
     let (next_state, events) = apply_task_actions(&group_id, &current, &request)
+        .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
+    require_evidence_for_done_transitions(db, &user.user_id, &group_id, &current, &next_state)
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
     let saved = db.upsert_group_task_state(&user.user_id, &group_id, &next_state);
     for event in events {
@@ -480,6 +484,8 @@ pub async fn patch_group_task(
             };
             (status, Json(ErrorResponse { error }))
         })?;
+    require_evidence_for_done_transitions(db, &user.user_id, &group_id, &current, &next_state)
+        .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
     let saved = db.upsert_group_task_state(&user.user_id, &group_id, &next_state);
     db.record_cortex_task_event(
         &user.user_id,
@@ -623,7 +629,13 @@ pub async fn update_group_tasks(
     Json(state_json): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let db = db_ref(&state)?;
+    let current = db
+        .get_group_task_state(&user.user_id, &group_id)
+        .and_then(|value| normalize_task_state(&group_id, &value).ok())
+        .unwrap_or_else(|| empty_task_state(&group_id));
     let normalized = normalize_task_state(&group_id, &state_json)
+        .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
+    require_evidence_for_done_transitions(db, &user.user_id, &group_id, &current, &normalized)
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
     let saved = db.upsert_group_task_state(&user.user_id, &group_id, &normalized);
     db.record_integration_event(
@@ -843,6 +855,49 @@ fn empty_task_state(group_id: &str) -> serde_json::Value {
         }],
         "updatedAt": chrono::Utc::now().to_rfc3339()
     })
+}
+
+fn task_status<'a>(state: &'a serde_json::Value, task_id: &str) -> Option<&'a str> {
+    state
+        .get("tasks")
+        .and_then(|value| value.as_array())
+        .and_then(|tasks| {
+            tasks.iter().find(|task| {
+                task.get("id").and_then(|value| value.as_str()) == Some(task_id)
+            })
+        })
+        .and_then(|task| task.get("status"))
+        .and_then(|value| value.as_str())
+}
+
+fn require_evidence_for_done_transitions(
+    db: &crate::db::Database,
+    user_id: &str,
+    group_id: &str,
+    current: &serde_json::Value,
+    next: &serde_json::Value,
+) -> Result<(), String> {
+    let Some(tasks) = next.get("tasks").and_then(|value| value.as_array()) else {
+        return Err("task state requires a tasks array".to_string());
+    };
+
+    for task in tasks {
+        let task_id = task
+            .get("id")
+            .and_then(|value| value.as_str())
+            .ok_or_else(|| "task id is required".to_string())?;
+        let next_status = task.get("status").and_then(|value| value.as_str());
+        if next_status != Some("done") || task_status(current, task_id) == Some("done") {
+            continue;
+        }
+        if !db.cortex_task_has_evidence_backed_completion(user_id, group_id, task_id) {
+            return Err(format!(
+                "task {task_id} cannot be marked done until Cortex has a successful verified run"
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn normalize_task_state(
@@ -1774,6 +1829,66 @@ mod tests {
         assert_eq!(next["activity"][0]["taskId"], "task-1");
         assert_eq!(payload["previous"]["status"], "in-progress");
         assert_eq!(payload["next"]["status"], "done");
+    }
+
+    #[test]
+    fn done_transition_requires_evidence_backed_completion() {
+        let dir = tempfile::tempdir().unwrap().keep();
+        let db = crate::db::Database::open(&dir.join("cortex.sqlite"));
+        let current = normalize_task_state("group-1", &valid_task_state()).unwrap();
+        db.upsert_group_task_state("user-1", "group-1", &current);
+        let (next, _, _) = apply_task_patch(
+            "group-1",
+            "task-1",
+            &current,
+            &serde_json::json!({ "status": "done" }),
+        )
+        .unwrap();
+
+        let error =
+            require_evidence_for_done_transitions(&db, "user-1", "group-1", &current, &next)
+                .unwrap_err();
+
+        assert!(error.contains("successful verified run"));
+    }
+
+    #[test]
+    fn done_transition_accepts_verified_completion() {
+        let dir = tempfile::tempdir().unwrap().keep();
+        let db = crate::db::Database::open(&dir.join("cortex.sqlite"));
+        let current = normalize_task_state("group-1", &valid_task_state()).unwrap();
+        db.upsert_group_task_state("user-1", "group-1", &current);
+        let run_id = db.create_run_with_metadata(
+            "user-1",
+            "Ship verified task",
+            "auto",
+            &[],
+            Some("task-1"),
+            Some("group-1"),
+            None,
+        );
+        let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
+        db.record_verifier_report(
+            &step_id,
+            &run_id,
+            1,
+            None,
+            "test",
+            "verified",
+            "pass",
+            "{}",
+        );
+        assert!(db.update_run_status(&run_id, "succeeded", None));
+        let (next, _, _) = apply_task_patch(
+            "group-1",
+            "task-1",
+            &current,
+            &serde_json::json!({ "status": "done" }),
+        )
+        .unwrap();
+
+        require_evidence_for_done_transitions(&db, "user-1", "group-1", &current, &next)
+            .unwrap();
     }
 
     #[test]
