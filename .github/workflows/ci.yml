@@ -53,8 +53,24 @@ jobs:
       - name: Install web dependencies
         run: npm ci
 
+      - name: Install Playwright browser
+        run: npx playwright install --with-deps chromium
+
       - name: Build web
         run: npm run build
+
+      - name: Responsive regression tests
+        run: npm run test:responsive
+
+      - name: Upload responsive screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-responsive-regression
+          path: |
+            web/test-results
+            web/playwright-report
+          if-no-files-found: ignore
 
   rust:
     runs-on: ubuntu-latest

@@ -1,0 +1,31 @@
+name: HeyVera Launch Smoke
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Smoke gate mode
+        required: true
+        default: pre-proxy
+        type: choice
+        options:
+          - pre-proxy
+          - post-proxy
+
+permissions:
+  contents: read
+
+concurrency:
+  group: heyvera-launch-smoke
+  cancel-in-progress: false
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Run public HeyVera smoke gate
+        env:
+          HEYVERA_SMOKE_MODE: ${{ inputs.mode }}
+        run: bash scripts/heyvera-launch-smoke.sh
