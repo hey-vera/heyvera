@@ -165,10 +165,10 @@ All data loading goes through this client. When `VITE_API_URL` is empty, returns
 - `getFeed(cursor?)` → FeedResponse
 - `getFollowingFeed(cursor?)` → FeedResponse
 - `getPost(id)` → Post
-- `createPost(content, media?, token?)` → Post (passes bearer auth when token is provided)
-- `likePost(id)` / `unlikePost(id)`
-- `repostPost(id)`
-- `bookmarkPost(id)`
+- `createPost(content, media?, token?)` → Post (mock mode works without token; real backend mode requires bearer auth)
+- `likePost(id, token?)` / `unlikePost(id, token?)` (mock mode works without token; real backend mode requires bearer auth)
+- `repostPost(id, token?)` (mock mode works without token; real backend mode requires bearer auth)
+- `bookmarkPost(id, token?)` (mock mode works without token; real backend mode requires bearer auth)
 - `getNotifications()` → Notification[]
 - `getConversations()` → Conversation[]
 - `getMessages(conversationId)` → Message[]
@@ -176,7 +176,7 @@ All data loading goes through this client. When `VITE_API_URL` is empty, returns
 - `getTrending()` → TrendingTopic[]
 - `getUserProfile(handle)` → UserProfile
 - `getProfilePosts(handle)` → FeedResponse
-- `followUser(id)` / `unfollowUser(id)`
+- `followUser(id, token?)` / `unfollowUser(id, token?)` (mock mode works without token; real backend mode requires bearer auth)
 - `getCommunities()` → Community[]
 - `getCommunityFeed(id)` → FeedResponse
 - `getCurrentUserProfile(token)` → UserProfile | null (`GET /me/profile`, `Authorization: Bearer <token>`, mock returns localStorage profile or null)

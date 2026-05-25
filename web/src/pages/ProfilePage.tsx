@@ -180,14 +180,19 @@ export function ProfilePage() {
     }
   };
 
-  const toggleFollow = () => {
+  const toggleFollow = async () => {
     if (!profile) return;
     const nextFollowing = !isFollowing;
     setIsFollowing(nextFollowing);
-    void (nextFollowing ? followUser(profile.id) : unfollowUser(profile.id));
+    const token = await getToken();
+    if (!token) {
+      setIsFollowing(!nextFollowing);
+      return;
+    }
+    void (nextFollowing ? followUser(profile.id, token) : unfollowUser(profile.id, token));
   };
 
-  const handleLike = (id: string, liked: boolean) => {
+  const handleLike = (id: string, liked: boolean, token: string) => {
     setPosts((currentPosts) =>
       currentPosts.map((post) =>
         post.id === id
@@ -199,10 +204,10 @@ export function ProfilePage() {
           : post,
       ),
     );
-    void (liked ? likePost(id) : unlikePost(id));
+    void (liked ? likePost(id, token) : unlikePost(id, token));
   };
 
-  const handleRepost = (id: string, reposted: boolean) => {
+  const handleRepost = (id: string, reposted: boolean, token: string) => {
     setPosts((currentPosts) =>
       currentPosts.map((post) =>
         post.id === id
@@ -214,14 +219,14 @@ export function ProfilePage() {
           : post,
       ),
     );
-    void repostPost(id);
+    void repostPost(id, token);
   };
 
-  const handleBookmark = (id: string, bookmarked: boolean) => {
+  const handleBookmark = (id: string, bookmarked: boolean, token: string) => {
     setPosts((currentPosts) =>
       currentPosts.map((post) => (post.id === id ? { ...post, bookmarked } : post)),
     );
-    void bookmarkPost(id);
+    void bookmarkPost(id, token);
   };
 
   if (loading) {

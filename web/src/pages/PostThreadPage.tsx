@@ -152,14 +152,14 @@ function ConnectorLine({ className }: ConnectorLineProps) {
   );
 }
 
-function handleLike(postId: string, liked: boolean) {
-  void (liked ? likePost(postId) : unlikePost(postId));
+function handleLike(postId: string, liked: boolean, token: string) {
+  void (liked ? likePost(postId, token) : unlikePost(postId, token));
 }
 
-function handleRepost(postId: string) {
-  void repostPost(postId);
+function handleRepost(postId: string, _reposted: boolean, token: string) {
+  void repostPost(postId, token);
 }
 
-function handleBookmark(postId: string) {
-  void bookmarkPost(postId);
+function handleBookmark(postId: string, _bookmarked: boolean, token: string) {
+  void bookmarkPost(postId, token);
 }

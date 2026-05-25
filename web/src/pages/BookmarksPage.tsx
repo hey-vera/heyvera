@@ -118,7 +118,7 @@ export function BookmarksPage() {
   const activeFolderLabel = BOOKMARK_FOLDERS.find((folder) => folder.id === activeFolder)?.label ?? 'Bookmarks';
   const trimmedQuery = query.trim();
 
-  const handleLike = (id: string, liked: boolean) => {
+  const handleLike = (id: string, liked: boolean, token: string) => {
     setPosts((currentPosts) =>
       currentPosts.map((post) =>
         post.id === id
@@ -130,10 +130,10 @@ export function BookmarksPage() {
           : post,
       ),
     );
-    void (liked ? likePost(id) : unlikePost(id));
+    void (liked ? likePost(id, token) : unlikePost(id, token));
   };
 
-  const handleRepost = (id: string, reposted: boolean) => {
+  const handleRepost = (id: string, reposted: boolean, token: string) => {
     setPosts((currentPosts) =>
       currentPosts.map((post) =>
         post.id === id
@@ -145,16 +145,16 @@ export function BookmarksPage() {
           : post,
       ),
     );
-    void repostPost(id);
+    void repostPost(id, token);
   };
 
-  const handleBookmark = (id: string, bookmarked: boolean) => {
+  const handleBookmark = (id: string, bookmarked: boolean, token: string) => {
     setPosts((currentPosts) =>
       bookmarked
         ? currentPosts.map((post) => (post.id === id ? { ...post, bookmarked } : post))
         : currentPosts.filter((post) => post.id !== id),
     );
-    void bookmarkPost(id);
+    void bookmarkPost(id, token);
   };
 
   return (

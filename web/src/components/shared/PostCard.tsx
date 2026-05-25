@@ -21,9 +21,9 @@ import { useAuth } from '../../hooks/useAuth';
 
 interface PostCardProps {
   post: Post;
-  onLike?: (id: string, liked: boolean) => void;
-  onRepost?: (id: string, reposted: boolean) => void;
-  onBookmark?: (id: string, bookmarked: boolean) => void;
+  onLike?: (id: string, liked: boolean, token: string) => void;
+  onRepost?: (id: string, reposted: boolean, token: string) => void;
+  onBookmark?: (id: string, bookmarked: boolean, token: string) => void;
 }
 
 type AuthPrompt = 'signin' | 'profile' | 'unconfigured' | 'error' | null;
@@ -72,55 +72,56 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
     };
   }, []);
 
-  const ensureCanMutate = async () => {
+  const ensureCanMutate = async (): Promise<string | null> => {
     setAuthMessage(null);
 
     if (!authEnabled || !clerkConfigured) {
       setAuthPrompt('unconfigured');
-      return false;
+      return null;
     }
 
     if (!isSignedIn) {
       setAuthPrompt('signin');
-      return false;
+      return null;
     }
 
-    if (hasProfile === true) return true;
+    const token = await getToken();
+    if (!token) {
+      setAuthPrompt('signin');
+      return null;
+    }
+
+    if (hasProfile === true) return token;
     if (hasProfile === false) {
       setAuthPrompt('profile');
-      return false;
+      return null;
     }
 
     setCheckingAuth(true);
     try {
-      const token = await getToken();
-      if (!token) {
-        setAuthPrompt('signin');
-        return false;
-      }
-
       const profile = await getCurrentUserProfile(token);
       const ready = Boolean(profile);
       setHasProfile(ready);
 
       if (!ready) {
         setAuthPrompt('profile');
-        return false;
+        return null;
       }
 
       setAuthPrompt(null);
-      return true;
+      return token;
     } catch (err) {
       setAuthPrompt('error');
       setAuthMessage(err instanceof Error ? err.message : 'Unable to verify your profile.');
-      return false;
+      return null;
     } finally {
       setCheckingAuth(false);
     }
   };
 
   const toggleLike = async () => {
-    if (!(await ensureCanMutate())) return;
+    const token = await ensureCanMutate();
+    if (!token) return;
     const nextLiked = !liked;
     setLiked(nextLiked);
     setLikeCount((count) => Math.max(0, nextLiked ? count + 1 : count - 1));
@@ -131,11 +132,12 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
       }
       likeTimerRef.current = window.setTimeout(() => setLikeAnimating(false), 180);
     }
-    onLike?.(post.id, nextLiked);
+    onLike?.(post.id, nextLiked, token);
   };
 
   const toggleRepost = async () => {
-    if (!(await ensureCanMutate())) {
+    const token = await ensureCanMutate();
+    if (!token) {
       setOpenMenu(null);
       return;
     }
@@ -143,14 +145,15 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
     setReposted(nextReposted);
     setRepostCount((count) => Math.max(0, nextReposted ? count + 1 : count - 1));
     setOpenMenu(null);
-    onRepost?.(post.id, nextReposted);
+    onRepost?.(post.id, nextReposted, token);
   };
 
   const toggleBookmark = async () => {
-    if (!(await ensureCanMutate())) return;
+    const token = await ensureCanMutate();
+    if (!token) return;
     const nextBookmarked = !bookmarked;
     setBookmarked(nextBookmarked);
-    onBookmark?.(post.id, nextBookmarked);
+    onBookmark?.(post.id, nextBookmarked, token);
   };
 
   const gateReply = () => {

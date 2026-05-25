@@ -48,6 +48,7 @@ function jsonHeaders(headers?: HeadersInit): Headers {
 async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(`${API_BASE}${path}`, init);
   if (!res.ok) throw new Error(`API ${res.status}`);
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -60,6 +61,7 @@ async function fetchAuthedApi<T>(path: string, token: string, init?: RequestInit
     headers,
   });
   if (!res.ok) throw new Error(`API ${res.status}`);
+  if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
 }
 
@@ -227,9 +229,9 @@ export async function createUserProfile(token: string, input: CreateUserProfileI
 
 /** Update the signed-in viewer's profile */
 export async function updateCurrentUserProfile(token: string, input: UpdateUserProfileInput): Promise<UserProfile> {
+  const updates = compactUpdateUserProfileInput(input);
   if (!API_BASE) {
     await delay(100);
-    const updates = compactUpdateUserProfileInput(input);
     const existing = getMockViewerProfile();
     const profile = existing ? { ...existing, ...updates } : buildMockViewerProfileFromUpdate(updates);
     setMockViewerProfile(profile);
@@ -238,7 +240,7 @@ export async function updateCurrentUserProfile(token: string, input: UpdateUserP
   return fetchAuthedApi<UserProfile>('/me/profile', token, {
     method: 'PATCH',
     headers: jsonHeaders(),
-    body: JSON.stringify(input),
+    body: JSON.stringify(updates),
   });
 }
 
@@ -282,34 +284,36 @@ export async function createPost(content: string, media?: File[], token?: string
   const form = new FormData();
   form.append('content', content);
   if (media) media.forEach(f => form.append('media', f));
-  if (token) {
-    return fetchAuthedApi<Post>('/posts', token, { method: 'POST', body: form });
-  }
-  return fetchApi<Post>('/posts', { method: 'POST', body: form });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<Post>('/posts', token, { method: 'POST', body: form });
 }
 
 /** Like a post */
-export async function likePost(id: string): Promise<void> {
+export async function likePost(id: string, token?: string): Promise<void> {
   if (!API_BASE) return getMockData<void>(`/posts/${id}/like`);
-  return fetchApi<void>(`/posts/${id}/like`, { method: 'POST' });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<void>(`/posts/${id}/like`, token, { method: 'POST' });
 }
 
 /** Unlike a post */
-export async function unlikePost(id: string): Promise<void> {
+export async function unlikePost(id: string, token?: string): Promise<void> {
   if (!API_BASE) return getMockData<void>(`/posts/${id}/like`);
-  return fetchApi<void>(`/posts/${id}/like`, { method: 'DELETE' });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<void>(`/posts/${id}/like`, token, { method: 'DELETE' });
 }
 
 /** Repost */
-export async function repostPost(id: string): Promise<void> {
+export async function repostPost(id: string, token?: string): Promise<void> {
   if (!API_BASE) return getMockData<void>(`/posts/${id}/repost`);
-  return fetchApi<void>(`/posts/${id}/repost`, { method: 'POST' });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<void>(`/posts/${id}/repost`, token, { method: 'POST' });
 }
 
 /** Bookmark a post */
-export async function bookmarkPost(id: string): Promise<void> {
+export async function bookmarkPost(id: string, token?: string): Promise<void> {
   if (!API_BASE) return getMockData<void>(`/posts/${id}/bookmark`);
-  return fetchApi<void>(`/posts/${id}/bookmark`, { method: 'POST' });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<void>(`/posts/${id}/bookmark`, token, { method: 'POST' });
 }
 
 /** Get notifications for the current user */
@@ -358,15 +362,17 @@ export async function getProfilePosts(handle: string, cursor?: string): Promise<
 }
 
 /** Follow a user */
-export async function followUser(id: string): Promise<void> {
+export async function followUser(id: string, token?: string): Promise<void> {
   if (!API_BASE) return getMockData<void>(`/users/${id}/follow`);
-  return fetchApi<void>(`/users/${id}/follow`, { method: 'POST' });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<void>(`/users/${id}/follow`, token, { method: 'POST' });
 }
 
 /** Unfollow a user */
-export async function unfollowUser(id: string): Promise<void> {
+export async function unfollowUser(id: string, token?: string): Promise<void> {
   if (!API_BASE) return getMockData<void>(`/users/${id}/follow`);
-  return fetchApi<void>(`/users/${id}/follow`, { method: 'DELETE' });
+  if (!token) throw new Error('Auth token required');
+  return fetchAuthedApi<void>(`/users/${id}/follow`, token, { method: 'DELETE' });
 }
 
 /** All communities */

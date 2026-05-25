@@ -64,7 +64,7 @@ Frontend-authenticated endpoints today:
 - `PATCH /me/profile`
 - `POST /posts` when creating as a signed-in viewer
 
-The current UI also assumes authenticated social actions for real production behavior even though some helper functions do not yet pass a token:
+The current UI assumes authenticated social actions for real production behavior and the X-style `web/src/api/client.ts` helpers now accept Clerk bearer tokens for these viewer-scoped calls:
 
 - `POST /users/{id}/follow`
 - `DELETE /users/{id}/follow`
@@ -76,7 +76,7 @@ The current UI also assumes authenticated social actions for real production beh
 - `GET /conversations`
 - `GET /conversations/{conversation_id}/messages`
 
-Until the frontend is fully normalized, the backend should treat those actions as viewer-scoped mutations and require authentication.
+The backend should treat those actions as viewer-scoped reads/mutations and require authentication.
 
 ## Response Convention
 
@@ -99,7 +99,7 @@ For action endpoints where the current UI ignores the body, backend responses ma
 - `204 No Content`, or
 - `200 OK` with a small JSON object such as `{ "ok": true }`
 
-Recommendation: prefer `200` with JSON for easier observability and future UI expansion, but keep response parsing compatible with the existing frontend before switching endpoints that currently call `res.json()`.
+Recommendation: prefer `200` with JSON for easier observability and future UI expansion. The X-style API client also tolerates `204 No Content` for void mutation helpers.
 
 ## Error Convention
 
@@ -701,8 +701,8 @@ The current frontend still carries mock-era assumptions. Backend and frontend wo
 2. Keep `GET /me/profile` returning `404` for "profile missing".
    The profile page already relies on that distinction to show the create-profile flow.
 
-3. Normalize authenticated social actions.
-   The UI currently mutates likes, follows, reposts, and bookmarks optimistically and does not consistently attach tokens in every helper. Production wiring should require auth and update the frontend helpers to always send the Clerk bearer token.
+3. Keep authenticated social actions normalized.
+   The UI gates likes, follows, reposts, and bookmarks on Clerk/profile readiness and passes the Clerk bearer token into the X-style API helpers. Production backend handlers should still enforce auth server-side and never trust frontend gating as authorization.
 
 4. Decide on one identifier strategy for follows and communities.
    The X-style client uses `/users/{id}/follow` and `/communities/{id}/feed`; the newer social client uses handle- and slug-based routes. The backend should either support both during migration or expose one canonical shape and update the stale client.
