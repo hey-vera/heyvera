@@ -553,6 +553,143 @@ export function getPostInteractionState(profileId: string, postId: string): {
   };
 }
 
+// ─── Search queries ─────────────────────────────────────────────────────────
+
+export interface SearchProfileRow {
+  id: string;
+  handle: string;
+  display_name: string;
+  avatar_url: string | null;
+  bio: string;
+}
+
+export function searchPosts(query: string, limit: number): SocialPostWithAuthorRow[] {
+  const pattern = `%${query}%`;
+  return getDb().prepare(`
+    SELECT
+      sp.*,
+      p.handle       AS author_handle,
+      p.display_name AS author_display_name,
+      la.agent_name  AS agent_name,
+      la.agent_slug  AS agent_slug
+    FROM social_posts sp
+    JOIN social_profiles p ON p.id = sp.profile_id
+    LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+    WHERE sp.visibility = 'public' AND sp.body LIKE ?
+    ORDER BY sp.created_at DESC
+    LIMIT ?
+  `).all(pattern, limit) as SocialPostWithAuthorRow[];
+}
+
+export function searchProfiles(query: string, limit: number): SearchProfileRow[] {
+  const pattern = `%${query}%`;
+  return getDb().prepare(`
+    SELECT id, handle, display_name, avatar_url, bio
+    FROM social_profiles
+    WHERE handle LIKE ? OR display_name LIKE ?
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(pattern, pattern, limit) as SearchProfileRow[];
+}
+
+// ─── Trending queries ───────────────────────────────────────────────────────
+
+export interface TrendingTopicRow {
+  tag: string;
+  post_count: number;
+}
+
+/**
+ * Extract hashtags from recent posts (last 7 days) and return the top N by frequency.
+ * Uses a CTE that splits post bodies by whitespace and filters words starting with '#'.
+ */
+export function getTrendingHashtags(limit: number): TrendingTopicRow[] {
+  // SQLite doesn't have regex split, so we use a recursive CTE approach.
+  // For v1 simplicity, we extract hashtags by scanning all recent post bodies in JS.
+  const rows = getDb().prepare(`
+    SELECT body FROM social_posts
+    WHERE visibility = 'public'
+      AND created_at >= datetime('now', '-7 days')
+  `).all() as Array<{ body: string }>;
+
+  const counts = new Map<string, number>();
+  for (const row of rows) {
+    const tags = row.body.match(/#[a-zA-Z0-9_]+/g);
+    if (!tags) continue;
+    for (const raw of tags) {
+      const tag = raw.toLowerCase();
+      counts.set(tag, (counts.get(tag) ?? 0) + 1);
+    }
+  }
+
+  return Array.from(counts.entries())
+    .map(([tag, post_count]) => ({ tag, post_count }))
+    .sort((a, b) => b.post_count - a.post_count)
+    .slice(0, limit);
+}
+
+// ─── Notification queries ───────────────────────────────────────────────────
+
+export interface NotificationRow {
+  id: string;
+  type: 'like' | 'follow' | 'repost';
+  actor_handle: string;
+  actor_display_name: string;
+  actor_avatar_url: string | null;
+  post_id: string | null;
+  created_at: string;
+}
+
+export function listNotifications(profileId: string, limit: number): NotificationRow[] {
+  // Union of likes, follows, and reposts targeting the given profile's posts or profile itself.
+  return getDb().prepare(`
+    SELECT
+      'like-' || sl.profile_id || '-' || sl.post_id AS id,
+      'like' AS type,
+      p.handle AS actor_handle,
+      p.display_name AS actor_display_name,
+      p.avatar_url AS actor_avatar_url,
+      sl.post_id AS post_id,
+      sl.created_at AS created_at
+    FROM social_likes sl
+    JOIN social_posts sp ON sp.id = sl.post_id AND sp.profile_id = ?
+    JOIN social_profiles p ON p.id = sl.profile_id
+    WHERE sl.profile_id != ?
+
+    UNION ALL
+
+    SELECT
+      sf.id AS id,
+      'follow' AS type,
+      p.handle AS actor_handle,
+      p.display_name AS actor_display_name,
+      p.avatar_url AS actor_avatar_url,
+      NULL AS post_id,
+      sf.created_at AS created_at
+    FROM social_follows sf
+    JOIN social_profiles p ON p.id = sf.follower_profile_id
+    WHERE sf.following_profile_id = ?
+
+    UNION ALL
+
+    SELECT
+      'repost-' || sr.profile_id || '-' || sr.post_id AS id,
+      'repost' AS type,
+      p.handle AS actor_handle,
+      p.display_name AS actor_display_name,
+      p.avatar_url AS actor_avatar_url,
+      sr.post_id AS post_id,
+      sr.created_at AS created_at
+    FROM social_reposts sr
+    JOIN social_posts sp ON sp.id = sr.post_id AND sp.profile_id = ?
+    JOIN social_profiles p ON p.id = sr.profile_id
+    WHERE sr.profile_id != ?
+
+    ORDER BY created_at DESC
+    LIMIT ?
+  `).all(profileId, profileId, profileId, profileId, profileId, limit) as NotificationRow[];
+}
+
 // ─── Longform queries ────────────────────────────────────────────────────────
 
 export function listSocialLongform(limit: number, offset: number): SocialLongformWithAuthorRow[] {

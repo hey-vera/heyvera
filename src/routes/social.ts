@@ -35,6 +35,10 @@ import {
   deleteSocialRepost,
   getPostInteractionCounts,
   getPostInteractionState,
+  searchPosts,
+  searchProfiles,
+  getTrendingHashtags,
+  listNotifications,
   type SocialProfileRow,
   type SocialProfileSummaryRow,
   type SocialLinkedAgentRow,
@@ -207,6 +211,61 @@ function longformToApi(l: SocialLongformWithAuthorRow) {
       : null,
   };
 }
+
+// ─── Public: search ─────────────────────────────────────────────────────────
+
+socialRouter.get('/search', (c) => {
+  const q = (c.req.query('q') ?? '').trim();
+  const type = c.req.query('type') ?? 'all';
+
+  if (!q) {
+    return c.json({ posts: [], profiles: [] });
+  }
+
+  const posts = type === 'profiles' ? [] : searchPosts(q, 20).map((p) => postToApi(p));
+  const profiles = type === 'posts'
+    ? []
+    : searchProfiles(q, 20).map((p) => ({
+        id: p.id,
+        handle: p.handle,
+        displayName: p.display_name,
+        avatarUrl: p.avatar_url,
+        bio: p.bio,
+      }));
+
+  return c.json({ posts, profiles });
+});
+
+// ─── Public: trending ───────────────────────────────────────────────────────
+
+socialRouter.get('/trending', (c) => {
+  const topics = getTrendingHashtags(10).map((t) => ({
+    tag: t.tag,
+    postCount: t.post_count,
+  }));
+  return c.json({ topics });
+});
+
+// ─── Authenticated: notifications ───────────────────────────────────────────
+
+socialRouter.get('/notifications', requireSocialAuth, (c) => {
+  const clerkUserId = c.get('clerkUserId');
+  const profile = findSocialProfileByClerkId(clerkUserId);
+  if (!profile) {
+    return c.json({ error: 'No profile found', code: 'NOT_FOUND' }, 404);
+  }
+  const rows = listNotifications(profile.id, 50);
+  const notifications = rows.map((r) => ({
+    id: r.id,
+    type: r.type,
+    actorHandle: r.actor_handle,
+    actorDisplayName: r.actor_display_name,
+    actorAvatarUrl: r.actor_avatar_url,
+    postId: r.post_id,
+    createdAt: r.created_at,
+  }));
+  return c.json({ notifications });
+});
 
 // ─── Authenticated: my profile ───────────────────────────────────────────────
 

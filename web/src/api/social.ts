@@ -296,6 +296,44 @@ export async function fetchProfileFollowing(handle: string, limit = 20, cursor =
   return apiFetch(`/profiles/${handle}/following?limit=${limit}&cursor=${cursor}`);
 }
 
+// ─── Public: search ─────────────────────────────────────────────────────────
+
+export async function searchSocial(
+  query: string,
+  type: "all" | "posts" | "profiles" = "all",
+): Promise<{
+  posts: FeedPost[];
+  profiles: Array<{ id: string; handle: string; displayName: string; avatarUrl: string | null; bio: string }>;
+}> {
+  const params = new URLSearchParams({ q: query });
+  if (type !== "all") params.set("type", type);
+  return apiFetch(`/search?${params.toString()}`);
+}
+
+// ─── Public: trending ───────────────────────────────────────────────────────
+
+export async function fetchTrending(): Promise<{
+  topics: Array<{ tag: string; postCount: number }>;
+}> {
+  return apiFetch("/trending");
+}
+
+// ─── Authenticated: notifications ───────────────────────────────────────────
+
+export async function fetchNotifications(token: string): Promise<{
+  notifications: Array<{
+    id: string;
+    type: "like" | "follow" | "repost";
+    actorHandle: string;
+    actorDisplayName: string;
+    actorAvatarUrl: string | null;
+    postId: string | null;
+    createdAt: string;
+  }>;
+}> {
+  return apiAuthFetch("/notifications", { method: "GET", token });
+}
+
 // ─── Authenticated: my profile ─────────────────────────────────────────────
 
 export async function fetchMyProfile(token: string): Promise<{

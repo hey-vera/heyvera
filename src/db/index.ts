@@ -242,6 +242,10 @@ export {
   deleteSocialRepost,
   getPostInteractionCounts,
   getPostInteractionState,
+  searchPosts,
+  searchProfiles,
+  getTrendingHashtags,
+  listNotifications,
   type SocialProfileRow,
   type SocialProfileSummaryRow,
   type SocialLinkedAgentRow,
@@ -249,4 +253,7 @@ export {
   type SocialCommunityWithCreatorRow,
   type SocialCommunityMembershipRow,
   type SocialLongformWithAuthorRow,
+  type SearchProfileRow,
+  type TrendingTopicRow,
+  type NotificationRow,
 } from './social';
