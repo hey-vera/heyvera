@@ -472,6 +472,20 @@ export async function updateGroupTaskManagerState(
   });
 }
 
+export async function patchGroupTaskManagerTask(
+  groupId: string,
+  taskId: string,
+  patch: Partial<TaskManagerState['tasks'][number]>,
+): Promise<TaskManagerState> {
+  return requestJson<TaskManagerState>(
+    `/api/groups/${encodeURIComponent(groupId)}/tasks/${encodeURIComponent(taskId)}`,
+    {
+      method: 'PATCH',
+      body: JSON.stringify(patch),
+    },
+  );
+}
+
 export interface IntegrationConnection {
   id: string;
   provider: 'slack' | 'replit' | string;
