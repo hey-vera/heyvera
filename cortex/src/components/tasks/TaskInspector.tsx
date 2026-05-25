@@ -3,6 +3,7 @@ import {
   CheckCircle2,
   CircleDot,
   Clock3,
+  DatabaseZap,
   GitBranch,
   Loader2,
   MessageSquareText,
@@ -17,9 +18,11 @@ import { formatTaskStatus } from '../../lib/taskManager';
 import {
   getRun,
   getRunEvents,
+  getTaskProjection,
   type RunOperationEvent,
   type RunStep,
   type RunSummary,
+  type TaskProjection,
 } from '../../lib/cortexApi';
 
 interface TaskInspectorProps {
@@ -199,12 +202,19 @@ export default function TaskInspector({
 }: TaskInspectorProps) {
   const [run, setRun] = useState<RunSummary | null>(null);
   const [events, setEvents] = useState<RunOperationEvent[]>([]);
+  const [projection, setProjection] = useState<TaskProjection | null>(null);
   const [isLoadingRun, setIsLoadingRun] = useState(false);
+  const [isLoadingProjection, setIsLoadingProjection] = useState(false);
   const [runLoadError, setRunLoadError] = useState<string | null>(null);
-  const latestRunId = task?.latestRunId ?? null;
+  const [projectionError, setProjectionError] = useState<string | null>(null);
+  const latestRunId = task?.latestRunId
+    ?? projection?.task.latest_run_id
+    ?? projection?.runs[0]?.id
+    ?? null;
   const taskRef = useRef(task);
   const updateRunSnapshotRef = useRef(onUpdateRunSnapshot);
   const isRefreshingRunRef = useRef(false);
+  const isRefreshingProjectionRef = useRef(false);
 
   useEffect(() => {
     taskRef.current = task;
@@ -213,6 +223,35 @@ export default function TaskInspector({
   useEffect(() => {
     updateRunSnapshotRef.current = onUpdateRunSnapshot;
   }, [onUpdateRunSnapshot]);
+
+  const taskGroupId = task?.groupId ?? null;
+  const taskId = task?.id ?? null;
+
+  const refreshTaskProjection = useCallback(async () => {
+    if (!taskGroupId || !taskId) {
+      setProjection(null);
+      setProjectionError(null);
+      return;
+    }
+    if (isRefreshingProjectionRef.current) return;
+    isRefreshingProjectionRef.current = true;
+    setIsLoadingProjection(true);
+    try {
+      const nextProjection = await getTaskProjection(taskGroupId, taskId);
+      setProjection(nextProjection);
+      setProjectionError(null);
+    } catch (error) {
+      setProjection(null);
+      setProjectionError(error instanceof Error ? error.message : 'Could not load task projection.');
+    } finally {
+      isRefreshingProjectionRef.current = false;
+      setIsLoadingProjection(false);
+    }
+  }, [taskGroupId, taskId]);
+
+  useEffect(() => {
+    void refreshTaskProjection();
+  }, [refreshTaskProjection]);
 
   const refreshRunProjection = useCallback(async () => {
     if (!latestRunId) {
@@ -281,6 +320,12 @@ export default function TaskInspector({
 
   const taskActivity = activity.filter((item) => item.taskId === task.id).slice(0, 5);
   const riskSignal = getRiskSignal(task);
+  const projectionRuns = projection?.runs ?? [];
+  const projectionChats = projection?.chats ?? [];
+  const projectionEvents = projection?.events ?? [];
+  const displayedEvents = projectionEvents.length > 0
+    ? projectionEvents.slice(0, 5)
+    : events.slice(-5).reverse();
 
   return (
     <section className="rounded-lg border border-white/8 bg-white/[0.03] p-3">
@@ -361,9 +406,86 @@ export default function TaskInspector({
             {task.latestRunSyncedAt && <p>Synced: {formatDateTime(task.latestRunSyncedAt)}</p>}
           </div>
         </div>
+
+        <div className="rounded-md border border-white/8 bg-black/10 p-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-1.5 text-xs font-medium text-[var(--muted-strong)]">
+              <DatabaseZap className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />
+              <span className="truncate">Backend Projection</span>
+            </div>
+            <button
+              type="button"
+              disabled={isLoadingProjection}
+              onClick={() => void refreshTaskProjection()}
+              className="shrink-0 rounded-md p-1 text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95 disabled:opacity-50"
+              aria-label="Refresh task projection"
+              title="Refresh task projection"
+            >
+              <RefreshCcw className={`h-3.5 w-3.5 ${isLoadingProjection ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
+
+          {projectionError ? (
+            <div className="mt-2 rounded-md border border-amber-300/20 bg-amber-300/10 px-2 py-1.5 text-[11px] leading-4 text-amber-100">
+              {projectionError}
+            </div>
+          ) : projection ? (
+            <div className="mt-2 grid grid-cols-3 gap-1.5">
+              <div className="rounded-md border border-white/8 bg-white/[0.02] px-2 py-1.5">
+                <p className="text-[10px] uppercase text-[var(--muted)]">Runs</p>
+                <p className="mt-0.5 text-sm font-semibold text-white">{projectionRuns.length}</p>
+              </div>
+              <div className="rounded-md border border-white/8 bg-white/[0.02] px-2 py-1.5">
+                <p className="text-[10px] uppercase text-[var(--muted)]">Chats</p>
+                <p className="mt-0.5 text-sm font-semibold text-white">{projectionChats.length}</p>
+              </div>
+              <div className="rounded-md border border-white/8 bg-white/[0.02] px-2 py-1.5">
+                <p className="text-[10px] uppercase text-[var(--muted)]">Events</p>
+                <p className="mt-0.5 text-sm font-semibold text-white">{projectionEvents.length}</p>
+              </div>
+            </div>
+          ) : (
+            <div className="mt-2 rounded-md border border-dashed border-white/10 px-2 py-1.5 text-[11px] text-[var(--muted)]">
+              {isLoadingProjection ? 'Loading task projection.' : 'No backend projection loaded.'}
+            </div>
+          )}
+
+          {projectionChats.length > 0 && (
+            <div className="mt-2 max-h-20 space-y-1.5 overflow-y-auto pr-1">
+              {projectionChats.slice(0, 3).map((chat) => (
+                <div key={chat.id} className="rounded-md border border-white/8 bg-white/[0.02] px-2 py-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[11px] font-medium text-[var(--muted-strong)]">
+                      {chat.title || 'Project Chat'}
+                    </span>
+                    <span className="shrink-0 text-[10px] text-[var(--muted)]">{formatDateTime(chat.attached_at)}</span>
+                  </div>
+                  <p className="mt-0.5 truncate text-[10px] text-[var(--muted)]">{chat.id}</p>
+                </div>
+              ))}
+            </div>
+          )}
+          {projectionRuns.length > 0 && (
+            <div className="mt-2 max-h-24 space-y-1.5 overflow-y-auto pr-1">
+              {projectionRuns.slice(0, 3).map((projectionRun) => (
+                <div key={projectionRun.id} className="rounded-md border border-white/8 bg-white/[0.02] px-2 py-1.5">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="truncate text-[11px] font-medium text-[var(--muted-strong)]">
+                      {projectionRun.goal}
+                    </span>
+                    <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] capitalize ${runStatusTone(projectionRun.status)}`}>
+                      {labelFromStatus(projectionRun.status)}
+                    </span>
+                  </div>
+                  <p className="mt-0.5 truncate text-[10px] text-[var(--muted)]">{projectionRun.id}</p>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
-      {task.latestRunId && (
+      {latestRunId && (
         <div className="mt-3 rounded-md border border-white/8 bg-black/10 p-2.5">
           <div className="flex items-center justify-between gap-2">
             <div className="min-w-0">
@@ -371,7 +493,7 @@ export default function TaskInspector({
                 <PlayCircle className="h-3.5 w-3.5 text-[var(--muted)]" />
                 Linked Run
               </div>
-              <p className="mt-0.5 truncate text-[10px] text-[var(--muted)]">{task.latestRunId}</p>
+              <p className="mt-0.5 truncate text-[10px] text-[var(--muted)]">{latestRunId}</p>
             </div>
             <button
               type="button"
@@ -443,14 +565,14 @@ export default function TaskInspector({
                 </div>
               )}
 
-              {events.length > 0 && (
+              {displayedEvents.length > 0 && (
                 <div>
                   <div className="mb-1.5 flex items-center justify-between">
                     <h3 className="text-[11px] font-medium text-[var(--muted-strong)]">Backend Events</h3>
-                    <span className="text-[10px] text-[var(--muted)]">{events.length}</span>
+                    <span className="text-[10px] text-[var(--muted)]">{displayedEvents.length}</span>
                   </div>
                   <div className="max-h-28 space-y-1.5 overflow-y-auto pr-1">
-                    {events.slice(-5).reverse().map((event) => {
+                    {displayedEvents.map((event) => {
                       const detail = eventDetail(event, run);
                       return (
                         <div key={event.id} className="rounded-md border border-white/8 bg-white/[0.02] px-2 py-1.5">
