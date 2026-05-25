@@ -8,6 +8,7 @@ mod context_flow;
 mod conversations;
 pub mod db;
 pub mod github;
+pub mod heyvera_social;
 mod integrations;
 pub mod mission_control;
 // pub mod memory; // removed for Context-Flow Pipeline deployment

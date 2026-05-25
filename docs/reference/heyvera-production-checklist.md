@@ -13,7 +13,7 @@ Verified against the current repo on 2026-05-25. This checklist is evidence-boun
 
 ## Phase 0 - Frontend Foundation
 
-Status: mostly complete on `feat/cortex-billing-ui`
+Status: staged in frontend PR #219, pending merge to `main` and production QA.
 
 - [x] X-style React/Vite frontend shell exists under `web/`.
 - [x] `web/FRONTEND-SPEC.md` is the frontend source of truth.
@@ -41,7 +41,7 @@ Status: ready next / in progress
 - [x] Frontend-to-backend API contract exists: `docs/reference/heyvera-backend-api-contract.md`.
 - [x] Internal parallel execution plan exists: `internal/active/heyvera-production-development-plan.md`.
 - [ ] Proposal is reviewed and accepted by maintainers.
-- [ ] ADR is reviewed and confirmed against current repo ownership.
+- [ ] ADR is reviewed, accepted, and confirmed against current repo ownership.
 - [ ] API contract is reconciled with `web/src/api/client.ts` before backend implementation starts.
 - [ ] Open contract gaps are resolved or explicitly deferred: unbookmark, unrepost, reply create, quote create, notification writes, settings persistence.
 
@@ -245,8 +245,8 @@ Status: blocked until backend and ops gates pass
 
 ## Current Readout
 
-- Frontend foundation: mostly complete on feature branch, pending real Clerk/E2E production QA.
-- Backend foundation: documented, not implemented.
+- Frontend foundation: staged in PR #219, pending merge to `main`, real Clerk QA, and E2E coverage.
+- Backend foundation: proposed and scaffolded, but not wired to live traffic.
 - Core production blocker: Rust backend vertical slice plus auth/profile/post/feed/social action integration.
 - Later waves: media, messages, search, communities, notifications, payments.
 - Launch: blocked until backend, observability, CI, backups, smoke/load tests, and deploy gates pass on `main`.

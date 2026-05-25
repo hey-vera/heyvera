@@ -1,6 +1,6 @@
 # ADR-0007: HeyVera Production Backend Foundation
 
-Status: accepted
+Status: proposed
 
 ## Context
 
@@ -65,7 +65,7 @@ demands it.
 
 Axum is the standard HTTP framework for the backend.
 
-It is accepted because it fits the Rust runtime choice, works cleanly
+It is proposed because it fits the Rust runtime choice, works cleanly
 with typed request handling and middleware, and supports a production
 service shape without introducing an unusual framework stack.
 
@@ -199,4 +199,3 @@ backend.
 - telemetry instrumentation should be present in the first production
   slices so baseline latency and failure data exist before broader
   rollout
-

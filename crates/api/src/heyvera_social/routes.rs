@@ -5,10 +5,12 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use axum::Json;
 use serde::{Deserialize, Serialize};
-use serde_json::{json, Value};
+use serde_json::Value;
 
 use crate::clerk::ClerkUser;
 use crate::state::AppState;
+
+use super::types::{CreatePostInput, CreateUserProfileInput, UpdateUserProfileInput};
 
 #[derive(Debug, Serialize)]
 struct StubErrorBody {
@@ -58,19 +60,19 @@ fn default_page_size() -> usize {
 #[derive(Debug, Deserialize)]
 pub struct CreateProfileRequest {
     #[serde(flatten)]
-    pub payload: Value,
+    pub payload: CreateUserProfileInput,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateProfileRequest {
     #[serde(flatten)]
-    pub payload: Value,
+    pub payload: UpdateUserProfileInput,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CreatePostRequest {
     #[serde(flatten)]
-    pub payload: Value,
+    pub payload: CreatePostInput,
 }
 
 #[derive(Debug, Serialize)]
