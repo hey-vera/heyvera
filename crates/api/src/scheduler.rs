@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -21,7 +21,7 @@ use cortex_engine::captain::{
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
-use crate::db::Database;
+use crate::db::{Database, ResourceLeaseRequest};
 use crate::mission_control::MissionControlEvent;
 use crate::state::AppState;
 
@@ -54,6 +54,7 @@ async fn scheduler_loop(state: Arc<AppState>, mut rx: mpsc::Receiver<SchedulerEv
             }
             _ = reconcile_interval.tick() => {
                 expire_stale_leases(&state, &mut sched).await;
+                expire_stale_resource_leases(&state).await;
                 expire_grace_periods(&state, &mut sched).await;
                 cleanup_expired_keys(&state);
                 state.rate_limiter.cleanup();
@@ -1425,6 +1426,22 @@ async fn expire_stale_leases(state: &AppState, _sched: &mut SchedulerState) {
     }
 }
 
+async fn expire_stale_resource_leases(state: &AppState) {
+    let db = match &state.db {
+        Some(db) => db,
+        None => return,
+    };
+
+    let expired = db.expire_stale_resource_leases();
+    if !expired.is_empty() {
+        tracing::warn!(
+            "expired {} stale resource leases: {:?}",
+            expired.len(),
+            expired
+        );
+    }
+}
+
 async fn reconcile_ready_steps(state: &AppState, sched: &mut SchedulerState) {
     let db = match &state.db {
         Some(db) => db,
@@ -1458,6 +1475,13 @@ async fn recover_from_db(state: &AppState, sched: &mut SchedulerState) {
     let expired = db.expire_stale_leases();
     if !expired.is_empty() {
         tracing::info!("recovery: expired {} stale leases", expired.len());
+    }
+    let expired_resources = db.expire_stale_resource_leases();
+    if !expired_resources.is_empty() {
+        tracing::info!(
+            "recovery: expired {} stale resource leases",
+            expired_resources.len()
+        );
     }
 
     let active_runs = db.get_active_run_ids();
@@ -1587,6 +1611,64 @@ fn kind_to_intent(kind: StepKind) -> Intent {
 
 // --- Public API for creating runs ---
 
+pub fn build_resource_lease_requests(
+    file_paths: &[String],
+    task_id: Option<&str>,
+    group_id: Option<&str>,
+) -> Vec<ResourceLeaseRequest> {
+    let mut seen = HashSet::new();
+    let mut requests = Vec::new();
+
+    if let (Some(group_id), Some(task_id)) = (group_id, task_id) {
+        let key = format!("{group_id}:{task_id}");
+        if seen.insert(format!("task:{key}")) {
+            requests.push(ResourceLeaseRequest {
+                resource_type: "task".to_string(),
+                repo_key: "default".to_string(),
+                resource_key: key,
+                mode: "exclusive".to_string(),
+                reason: Some("task-bound run".to_string()),
+                metadata: serde_json::json!({
+                    "group_id": group_id,
+                    "task_id": task_id,
+                }),
+            });
+        }
+    }
+
+    if file_paths.is_empty() {
+        if seen.insert("path:.".to_string()) {
+            requests.push(ResourceLeaseRequest {
+                resource_type: "path".to_string(),
+                repo_key: "default".to_string(),
+                resource_key: ".".to_string(),
+                mode: "write".to_string(),
+                reason: Some("repo-wide run without explicit file paths".to_string()),
+                metadata: serde_json::json!({ "repo_wide": true }),
+            });
+        }
+    } else {
+        for path in file_paths {
+            let key = path.trim_matches('/').to_string();
+            if key.is_empty() {
+                continue;
+            }
+            if seen.insert(format!("path:{key}")) {
+                requests.push(ResourceLeaseRequest {
+                    resource_type: "path".to_string(),
+                    repo_key: "default".to_string(),
+                    resource_key: key.clone(),
+                    mode: "write".to_string(),
+                    reason: Some("run file path scope".to_string()),
+                    metadata: serde_json::json!({ "path": key }),
+                });
+            }
+        }
+    }
+
+    requests
+}
+
 pub async fn create_run_from_goal(
     state: &AppState,
     scheduler_tx: &SchedulerTx,
@@ -1648,7 +1730,8 @@ pub async fn create_run_from_goal(
         })
         .collect();
 
-    let run_id = db.create_run_with_steps(
+    let resource_leases = build_resource_lease_requests(file_paths, task_id, group_id);
+    let run_id = db.create_run_with_steps_and_resource_leases(
         user_id,
         goal,
         profile,
@@ -1656,9 +1739,11 @@ pub async fn create_run_from_goal(
         task_id,
         group_id,
         conversation_id,
+        &resource_leases,
         &steps,
         &edges,
-    );
+    )
+    .map_err(|err| err.message())?;
 
     scheduler_tx
         .send(SchedulerEvent::RunCreated {
@@ -1686,6 +1771,38 @@ mod tests {
             format!(r#"{{"scripts":{{{scripts}}}}}"#),
         )
         .unwrap();
+    }
+
+    #[test]
+    fn build_resource_lease_requests_uses_paths_and_task_binding() {
+        let requests = build_resource_lease_requests(
+            &[
+                "src/main.rs".to_string(),
+                "src/main.rs".to_string(),
+                "src/lib.rs".to_string(),
+            ],
+            Some("task-1"),
+            Some("group-1"),
+        );
+
+        assert_eq!(requests.len(), 3);
+        assert_eq!(requests[0].resource_type, "task");
+        assert_eq!(requests[0].resource_key, "group-1:task-1");
+        assert_eq!(requests[0].mode, "exclusive");
+        assert_eq!(requests[1].resource_type, "path");
+        assert_eq!(requests[1].resource_key, "src/main.rs");
+        assert_eq!(requests[1].mode, "write");
+        assert_eq!(requests[2].resource_key, "src/lib.rs");
+    }
+
+    #[test]
+    fn build_resource_lease_requests_uses_repo_wide_path_without_file_paths() {
+        let requests = build_resource_lease_requests(&[], None, None);
+
+        assert_eq!(requests.len(), 1);
+        assert_eq!(requests[0].resource_type, "path");
+        assert_eq!(requests[0].resource_key, ".");
+        assert_eq!(requests[0].metadata["repo_wide"], true);
     }
 
     #[test]

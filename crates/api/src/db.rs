@@ -142,6 +142,75 @@ pub struct RunStepAttemptSnapshot {
     pub error_summary: Option<String>,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct ResourceLease {
+    pub id: String,
+    pub user_id: String,
+    pub group_id: Option<String>,
+    pub task_id: Option<String>,
+    pub run_id: String,
+    pub step_id: Option<String>,
+    pub holder_type: String,
+    pub resource_type: String,
+    pub repo_key: String,
+    pub resource_key: String,
+    pub mode: String,
+    pub status: String,
+    pub lease_gen: i64,
+    pub acquired_at: i64,
+    pub expires_at: i64,
+    pub released_at: Option<i64>,
+    pub reason: Option<String>,
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+pub struct ResourceLeaseConflict {
+    pub lease_id: String,
+    pub run_id: String,
+    pub step_id: Option<String>,
+    pub holder_type: String,
+    pub resource_type: String,
+    pub repo_key: String,
+    pub resource_key: String,
+    pub mode: String,
+    pub expires_at: i64,
+}
+
+impl ResourceLeaseConflict {
+    pub fn message(&self) -> String {
+        format!(
+            "resource conflict: active {} lease on {}:{} held by run {} until {}",
+            self.resource_type, self.repo_key, self.resource_key, self.run_id, self.expires_at
+        )
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ResourceLeaseRequest {
+    pub resource_type: String,
+    pub repo_key: String,
+    pub resource_key: String,
+    pub mode: String,
+    pub reason: Option<String>,
+    pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum CreateRunError {
+    ResourceConflict(ResourceLeaseConflict),
+    Database(String),
+}
+
+impl CreateRunError {
+    pub fn message(&self) -> String {
+        match self {
+            Self::ResourceConflict(conflict) => conflict.message(),
+            Self::Database(message) => message.clone(),
+        }
+    }
+}
+
 // --- Billing types ---
 
 pub struct SubscriptionRecord {
@@ -204,7 +273,8 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 23;
+const SCHEMA_VERSION: i64 = 24;
+const RUN_RESOURCE_LEASE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -285,6 +355,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 23 {
         migrate_v23(conn);
+    }
+    if current < 24 {
+        migrate_v24(conn);
     }
 }
 
@@ -1133,6 +1206,44 @@ fn migrate_v23(conn: &Connection) {
     tracing::info!("applied migration v23: Cortex approval step gates");
 }
 
+fn migrate_v24(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS resource_leases (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            group_id TEXT,
+            task_id TEXT,
+            run_id TEXT NOT NULL,
+            step_id TEXT,
+            holder_type TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            repo_key TEXT NOT NULL DEFAULT 'default',
+            resource_key TEXT NOT NULL,
+            mode TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            lease_gen INTEGER NOT NULL DEFAULT 1,
+            acquired_at INTEGER NOT NULL,
+            expires_at INTEGER NOT NULL,
+            released_at INTEGER,
+            reason TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}'
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_resource_leases_active
+            ON resource_leases(user_id, status, resource_type, repo_key, resource_key, expires_at);
+
+        CREATE INDEX IF NOT EXISTS idx_resource_leases_run
+            ON resource_leases(run_id, status);
+
+        CREATE INDEX IF NOT EXISTS idx_resource_leases_task
+            ON resource_leases(user_id, group_id, task_id, status);
+
+        UPDATE schema_version SET version = 24;"
+    ).expect("migration v24 failed");
+
+    tracing::info!("applied migration v24: Cortex resource leases");
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CortexGroup {
     pub id: String,
@@ -1486,6 +1597,236 @@ fn cortex_completion_gate(
         failed_steps,
         unverified_steps,
     }
+}
+
+fn resource_lease_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ResourceLease> {
+    let metadata_raw: String = row.get(17)?;
+    Ok(ResourceLease {
+        id: row.get(0)?,
+        user_id: row.get(1)?,
+        group_id: row.get(2)?,
+        task_id: row.get(3)?,
+        run_id: row.get(4)?,
+        step_id: row.get(5)?,
+        holder_type: row.get(6)?,
+        resource_type: row.get(7)?,
+        repo_key: row.get(8)?,
+        resource_key: row.get(9)?,
+        mode: row.get(10)?,
+        status: row.get(11)?,
+        lease_gen: row.get(12)?,
+        acquired_at: row.get(13)?,
+        expires_at: row.get(14)?,
+        released_at: row.get(15)?,
+        reason: row.get(16)?,
+        metadata: serde_json::from_str(&metadata_raw).unwrap_or_else(|_| serde_json::json!({})),
+    })
+}
+
+fn resource_conflict_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ResourceLeaseConflict> {
+    Ok(ResourceLeaseConflict {
+        lease_id: row.get(0)?,
+        run_id: row.get(1)?,
+        step_id: row.get(2)?,
+        holder_type: row.get(3)?,
+        resource_type: row.get(4)?,
+        repo_key: row.get(5)?,
+        resource_key: row.get(6)?,
+        mode: row.get(7)?,
+        expires_at: row.get(8)?,
+    })
+}
+
+fn path_keys_overlap(a: &str, b: &str) -> bool {
+    a == "."
+        || b == "."
+        || a == b
+        || a.strip_prefix(b)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+        || b.strip_prefix(a)
+            .is_some_and(|suffix| suffix.starts_with('/'))
+}
+
+fn find_resource_lease_conflict_tx(
+    conn: &Connection,
+    user_id: &str,
+    request: &ResourceLeaseRequest,
+    now: i64,
+) -> Result<Option<ResourceLeaseConflict>, rusqlite::Error> {
+    let mut stmt = conn.prepare(
+        "SELECT id, run_id, step_id, holder_type, resource_type, repo_key, resource_key, mode, expires_at
+         FROM resource_leases
+         WHERE user_id = ?1
+           AND status = 'active'
+           AND expires_at > ?2
+           AND resource_type = ?3
+           AND repo_key = ?4
+           AND mode IN ('write', 'exclusive')
+         ORDER BY acquired_at ASC",
+    )?;
+    let candidates = stmt
+        .query_map(
+            params![user_id, now, request.resource_type, request.repo_key],
+            resource_conflict_from_row,
+        )?
+        .filter_map(|row| row.ok());
+
+    for candidate in candidates {
+        let conflicts = if request.resource_type == "path" {
+            path_keys_overlap(&candidate.resource_key, &request.resource_key)
+        } else {
+            candidate.resource_key == request.resource_key
+        };
+        if conflicts {
+            return Ok(Some(candidate));
+        }
+    }
+
+    Ok(None)
+}
+
+fn acquire_run_resource_leases_tx(
+    conn: &Connection,
+    user_id: &str,
+    group_id: Option<&str>,
+    task_id: Option<&str>,
+    run_id: &str,
+    requests: &[ResourceLeaseRequest],
+    now: i64,
+) -> Result<(), CreateRunError> {
+    let expires_at = now + RUN_RESOURCE_LEASE_TTL_MS;
+
+    conn.execute(
+        "UPDATE resource_leases
+         SET status = 'expired', released_at = ?1
+         WHERE status = 'active' AND expires_at <= ?1",
+        params![now],
+    )
+    .ok();
+
+    for request in requests {
+        if let Some(conflict) = find_resource_lease_conflict_tx(conn, user_id, request, now)
+            .map_err(|err| CreateRunError::Database(err.to_string()))?
+        {
+            return Err(CreateRunError::ResourceConflict(conflict));
+        }
+    }
+
+    for request in requests {
+        let id = Uuid::new_v4().to_string();
+        let metadata_json =
+            serde_json::to_string(&request.metadata).unwrap_or_else(|_| "{}".to_string());
+        conn.execute(
+            "INSERT INTO resource_leases (
+                id, user_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
+                repo_key, resource_key, mode, status, lease_gen, acquired_at, expires_at, reason,
+                metadata_json
+             )
+             VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'run', ?6, ?7, ?8, ?9, 'active', 1, ?10, ?11, ?12, ?13)",
+            params![
+                id,
+                user_id,
+                group_id,
+                task_id,
+                run_id,
+                request.resource_type,
+                request.repo_key,
+                request.resource_key,
+                request.mode,
+                now,
+                expires_at,
+                request.reason,
+                metadata_json,
+            ],
+        )
+        .map_err(|err| CreateRunError::Database(err.to_string()))?;
+
+        insert_operations_event(
+            conn,
+            Some(user_id),
+            group_id,
+            None,
+            task_id,
+            Some(run_id),
+            None,
+            None,
+            "resource_lease.acquired",
+            "resource_lease",
+            &id,
+            &serde_json::json!({
+                "holder_type": "run",
+                "resource_type": request.resource_type,
+                "repo_key": request.repo_key,
+                "resource_key": request.resource_key,
+                "mode": request.mode,
+                "expires_at": expires_at,
+                "reason": request.reason,
+            }),
+        );
+    }
+
+    Ok(())
+}
+
+fn release_resource_leases_for_run_tx(
+    conn: &Connection,
+    run_id: &str,
+    now: i64,
+) -> Vec<ResourceLease> {
+    let leases: Vec<ResourceLease> = conn
+        .prepare(
+            "SELECT id, user_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
+                    repo_key, resource_key, mode, status, lease_gen, acquired_at, expires_at,
+                    released_at, reason, metadata_json
+             FROM resource_leases
+             WHERE run_id = ?1 AND status = 'active'",
+        )
+        .ok()
+        .map(|mut stmt| {
+            stmt.query_map(params![run_id], resource_lease_from_row)
+                .unwrap()
+                .filter_map(|row| row.ok())
+                .collect()
+        })
+        .unwrap_or_default();
+
+    if leases.is_empty() {
+        return leases;
+    }
+
+    conn.execute(
+        "UPDATE resource_leases
+         SET status = 'released', released_at = ?1
+         WHERE run_id = ?2 AND status = 'active'",
+        params![now, run_id],
+    )
+    .ok();
+
+    for lease in &leases {
+        insert_operations_event(
+            conn,
+            Some(&lease.user_id),
+            lease.group_id.as_deref(),
+            None,
+            lease.task_id.as_deref(),
+            Some(run_id),
+            lease.step_id.as_deref(),
+            None,
+            "resource_lease.released",
+            "resource_lease",
+            &lease.id,
+            &serde_json::json!({
+                "holder_type": lease.holder_type,
+                "resource_type": lease.resource_type,
+                "repo_key": lease.repo_key,
+                "resource_key": lease.resource_key,
+                "mode": lease.mode,
+                "released_at": now,
+            }),
+        );
+    }
+
+    leases
 }
 
 struct OperationEventContext {
@@ -3106,6 +3447,34 @@ impl Database {
         steps: &[(String, String, String, Option<String>, String, String, String, i64)], // (id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at)
         edges: &[(String, String, String)], // (step_id, depends_on_id, edge_type)
     ) -> String {
+        self.create_run_with_steps_and_resource_leases(
+            user_id,
+            goal,
+            profile,
+            file_paths,
+            task_id,
+            group_id,
+            conversation_id,
+            &[],
+            steps,
+            edges,
+        )
+        .expect("failed to create run with steps")
+    }
+
+    pub fn create_run_with_steps_and_resource_leases(
+        &self,
+        user_id: &str,
+        goal: &str,
+        profile: &str,
+        file_paths: &[String],
+        task_id: Option<&str>,
+        group_id: Option<&str>,
+        conversation_id: Option<&str>,
+        resource_leases: &[ResourceLeaseRequest],
+        steps: &[(String, String, String, Option<String>, String, String, String, i64)],
+        edges: &[(String, String, String)],
+    ) -> Result<String, CreateRunError> {
         let conn = self.conn.lock().unwrap();
         let run_id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
@@ -3115,7 +3484,21 @@ impl Database {
             serde_json::to_string(file_paths).ok()
         };
 
-        conn.execute("BEGIN", []).ok();
+        conn.execute("BEGIN IMMEDIATE", [])
+            .map_err(|err| CreateRunError::Database(err.to_string()))?;
+
+        if let Err(err) = acquire_run_resource_leases_tx(
+            &conn,
+            user_id,
+            group_id,
+            task_id,
+            &run_id,
+            resource_leases,
+            now,
+        ) {
+            conn.execute("ROLLBACK", []).ok();
+            return Err(err);
+        }
 
         conn.execute(
             "INSERT INTO runs (id, user_id, goal, status, profile, file_paths, task_id, group_id, conversation_id, created_at, updated_at)
@@ -3183,8 +3566,9 @@ impl Database {
             ).ok();
         }
 
-        conn.execute("COMMIT", []).ok();
-        run_id
+        conn.execute("COMMIT", [])
+            .map_err(|err| CreateRunError::Database(err.to_string()))?;
+        Ok(run_id)
     }
 
     /// Record (or update) the branch name associated with a run.
@@ -3266,6 +3650,9 @@ impl Database {
                     "finished_at": finished,
                 }),
             );
+            if finished.is_some() {
+                release_resource_leases_for_run_tx(&conn, run_id, now);
+            }
         }
         rows > 0
     }
@@ -3671,6 +4058,83 @@ impl Database {
         stmt.query_map(params![now], |row| row.get::<_, String>(0))
             .unwrap()
             .filter_map(|r| r.ok())
+            .collect()
+    }
+
+    pub fn expire_stale_resource_leases(&self) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let expired: Vec<ResourceLease> = conn
+            .prepare(
+                "SELECT id, user_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
+                        repo_key, resource_key, mode, status, lease_gen, acquired_at, expires_at,
+                        released_at, reason, metadata_json
+                 FROM resource_leases
+                 WHERE status = 'active' AND expires_at <= ?1",
+            )
+            .ok()
+            .map(|mut stmt| {
+                stmt.query_map(params![now], resource_lease_from_row)
+                    .unwrap()
+                    .filter_map(|row| row.ok())
+                    .collect()
+            })
+            .unwrap_or_default();
+
+        if expired.is_empty() {
+            return Vec::new();
+        }
+
+        conn.execute(
+            "UPDATE resource_leases
+             SET status = 'expired', released_at = ?1
+             WHERE status = 'active' AND expires_at <= ?1",
+            params![now],
+        )
+        .ok();
+
+        for lease in &expired {
+            insert_operations_event(
+                &conn,
+                Some(&lease.user_id),
+                lease.group_id.as_deref(),
+                None,
+                lease.task_id.as_deref(),
+                Some(&lease.run_id),
+                lease.step_id.as_deref(),
+                None,
+                "resource_lease.expired",
+                "resource_lease",
+                &lease.id,
+                &serde_json::json!({
+                    "holder_type": lease.holder_type,
+                    "resource_type": lease.resource_type,
+                    "repo_key": lease.repo_key,
+                    "resource_key": lease.resource_key,
+                    "mode": lease.mode,
+                    "expired_at": now,
+                }),
+            );
+        }
+
+        expired.into_iter().map(|lease| lease.id).collect()
+    }
+
+    pub fn list_active_resource_leases_for_run(&self, run_id: &str) -> Vec<ResourceLease> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, user_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
+                        repo_key, resource_key, mode, status, lease_gen, acquired_at, expires_at,
+                        released_at, reason, metadata_json
+                 FROM resource_leases
+                 WHERE run_id = ?1 AND status = 'active'
+                 ORDER BY resource_type ASC, resource_key ASC",
+            )
+            .unwrap();
+        stmt.query_map(params![run_id], resource_lease_from_row)
+            .unwrap()
+            .filter_map(|row| row.ok())
             .collect()
     }
 
@@ -5723,6 +6187,41 @@ mod tests {
         })
     }
 
+    fn path_lease(path: &str) -> ResourceLeaseRequest {
+        ResourceLeaseRequest {
+            resource_type: "path".to_string(),
+            repo_key: "default".to_string(),
+            resource_key: path.to_string(),
+            mode: "write".to_string(),
+            reason: Some("test".to_string()),
+            metadata: serde_json::json!({}),
+        }
+    }
+
+    fn task_lease(group_id: &str, task_id: &str) -> ResourceLeaseRequest {
+        ResourceLeaseRequest {
+            resource_type: "task".to_string(),
+            repo_key: "default".to_string(),
+            resource_key: format!("{group_id}:{task_id}"),
+            mode: "exclusive".to_string(),
+            reason: Some("test".to_string()),
+            metadata: serde_json::json!({}),
+        }
+    }
+
+    fn test_step(id: &str) -> (String, String, String, Option<String>, String, String, String, i64) {
+        (
+            id.to_string(),
+            "execute".to_string(),
+            "modify".to_string(),
+            None,
+            "standard".to_string(),
+            "low".to_string(),
+            "Apply change".to_string(),
+            Utc::now().timestamp_millis(),
+        )
+    }
+
     #[test]
     fn upsert_group_task_state_indexes_and_reconciles_cortex_tasks() {
         let db = test_db();
@@ -5772,6 +6271,250 @@ mod tests {
                 |_| Ok(())
             )
             .is_ok());
+    }
+
+    #[test]
+    fn create_run_with_steps_acquires_resource_leases_atomically() {
+        let db = test_db();
+        let step = test_step("step-a");
+        let run_id = db
+            .create_run_with_steps_and_resource_leases(
+                "user-1",
+                "Ship path change",
+                "auto",
+                &["src/main.rs".to_string()],
+                None,
+                None,
+                None,
+                &[path_lease("src/main.rs")],
+                &[step],
+                &[],
+            )
+            .expect("run should be created");
+
+        let leases = db.list_active_resource_leases_for_run(&run_id);
+        assert_eq!(leases.len(), 1);
+        assert_eq!(leases[0].resource_type, "path");
+        assert_eq!(leases[0].resource_key, "src/main.rs");
+
+        let conn = db.conn.lock().unwrap();
+        let step_count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM steps WHERE run_id = ?1",
+                params![run_id],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(step_count, 1);
+    }
+
+    #[test]
+    fn create_run_with_steps_rejects_conflicting_active_resource_lease() {
+        let db = test_db();
+        let first = db
+            .create_run_with_steps_and_resource_leases(
+                "user-1",
+                "Ship first path change",
+                "auto",
+                &["src/main.rs".to_string()],
+                None,
+                None,
+                None,
+                &[path_lease("src/main.rs")],
+                &[test_step("step-a")],
+                &[],
+            )
+            .expect("first run");
+
+        let second = db.create_run_with_steps_and_resource_leases(
+            "user-1",
+            "Ship conflicting path change",
+            "auto",
+            &["src/main.rs".to_string()],
+            None,
+            None,
+            None,
+            &[path_lease("src/main.rs")],
+            &[test_step("step-b")],
+            &[],
+        );
+
+        match second {
+            Err(CreateRunError::ResourceConflict(conflict)) => {
+                assert_eq!(conflict.run_id, first);
+                assert_eq!(conflict.resource_key, "src/main.rs");
+            }
+            other => panic!("expected resource conflict, got {other:?}"),
+        }
+
+        let conn = db.conn.lock().unwrap();
+        let leaked_steps: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM steps WHERE id = 'step-b'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(leaked_steps, 0);
+    }
+
+    #[test]
+    fn resource_lease_path_conflicts_include_parent_and_child_paths() {
+        let db = test_db();
+        db.create_run_with_steps_and_resource_leases(
+            "user-1",
+            "Ship directory change",
+            "auto",
+            &["src".to_string()],
+            None,
+            None,
+            None,
+            &[path_lease("src")],
+            &[test_step("step-a")],
+            &[],
+        )
+        .expect("first run");
+
+        let child = db.create_run_with_steps_and_resource_leases(
+            "user-1",
+            "Ship child file change",
+            "auto",
+            &["src/main.rs".to_string()],
+            None,
+            None,
+            None,
+            &[path_lease("src/main.rs")],
+            &[test_step("step-b")],
+            &[],
+        );
+        assert!(matches!(child, Err(CreateRunError::ResourceConflict(_))));
+    }
+
+    #[test]
+    fn terminal_run_status_releases_resource_leases() {
+        let db = test_db();
+        let run_id = db
+            .create_run_with_steps_and_resource_leases(
+                "user-1",
+                "Ship path change",
+                "auto",
+                &["src/main.rs".to_string()],
+                None,
+                None,
+                None,
+                &[path_lease("src/main.rs")],
+                &[test_step("step-a")],
+                &[],
+            )
+            .expect("first run");
+        assert_eq!(db.list_active_resource_leases_for_run(&run_id).len(), 1);
+
+        assert!(db.update_run_status(&run_id, "succeeded", None));
+        assert!(db.list_active_resource_leases_for_run(&run_id).is_empty());
+
+        let second = db.create_run_with_steps_and_resource_leases(
+            "user-1",
+            "Ship later path change",
+            "auto",
+            &["src/main.rs".to_string()],
+            None,
+            None,
+            None,
+            &[path_lease("src/main.rs")],
+            &[test_step("step-b")],
+            &[],
+        );
+        assert!(second.is_ok());
+    }
+
+    #[test]
+    fn expired_resource_lease_can_be_reacquired() {
+        let db = test_db();
+        let run_id = db
+            .create_run_with_steps_and_resource_leases(
+                "user-1",
+                "Ship path change",
+                "auto",
+                &["src/main.rs".to_string()],
+                None,
+                None,
+                None,
+                &[path_lease("src/main.rs")],
+                &[test_step("step-a")],
+                &[],
+            )
+            .expect("first run");
+
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE resource_leases SET expires_at = ?1 WHERE run_id = ?2",
+                params![Utc::now().timestamp_millis() - 1, run_id],
+            )
+            .unwrap();
+        }
+
+        assert_eq!(db.expire_stale_resource_leases().len(), 1);
+
+        let second = db.create_run_with_steps_and_resource_leases(
+            "user-1",
+            "Ship reacquired path change",
+            "auto",
+            &["src/main.rs".to_string()],
+            None,
+            None,
+            None,
+            &[path_lease("src/main.rs")],
+            &[test_step("step-b")],
+            &[],
+        );
+        assert!(second.is_ok());
+    }
+
+    #[test]
+    fn task_resource_lease_blocks_same_task_only() {
+        let db = test_db();
+        db.create_run_with_steps_and_resource_leases(
+            "user-1",
+            "Ship first task",
+            "auto",
+            &["src/a.rs".to_string()],
+            Some("task-1"),
+            Some("group-1"),
+            None,
+            &[task_lease("group-1", "task-1")],
+            &[test_step("step-a")],
+            &[],
+        )
+        .expect("first run");
+
+        let same_task = db.create_run_with_steps_and_resource_leases(
+            "user-1",
+            "Ship same task",
+            "auto",
+            &["src/b.rs".to_string()],
+            Some("task-1"),
+            Some("group-1"),
+            None,
+            &[task_lease("group-1", "task-1")],
+            &[test_step("step-b")],
+            &[],
+        );
+        assert!(matches!(same_task, Err(CreateRunError::ResourceConflict(_))));
+
+        let other_task = db.create_run_with_steps_and_resource_leases(
+            "user-1",
+            "Ship other task",
+            "auto",
+            &["src/c.rs".to_string()],
+            Some("task-2"),
+            Some("group-1"),
+            None,
+            &[task_lease("group-1", "task-2")],
+            &[test_step("step-c")],
+            &[],
+        );
+        assert!(other_task.is_ok());
     }
 
     #[test]
