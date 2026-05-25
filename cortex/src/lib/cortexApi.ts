@@ -472,6 +472,16 @@ export async function updateGroupTaskManagerState(
   });
 }
 
+export async function createGroupTaskManagerTask(
+  groupId: string,
+  task: TaskManagerState['tasks'][number],
+): Promise<TaskManagerState> {
+  return requestJson<TaskManagerState>(`/api/groups/${encodeURIComponent(groupId)}/tasks`, {
+    method: 'POST',
+    body: JSON.stringify(task),
+  });
+}
+
 export async function patchGroupTaskManagerTask(
   groupId: string,
   taskId: string,

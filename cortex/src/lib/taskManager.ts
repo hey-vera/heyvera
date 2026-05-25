@@ -7,7 +7,12 @@ import type {
   TaskPriority,
   TaskStatus,
 } from '../types';
-import { getGroupTaskManagerState, patchGroupTaskManagerTask, updateGroupTaskManagerState } from './cortexApi';
+import {
+  createGroupTaskManagerTask,
+  getGroupTaskManagerState,
+  patchGroupTaskManagerTask,
+  updateGroupTaskManagerState,
+} from './cortexApi';
 import type { CortexGroup } from './groups';
 
 const STORAGE_PREFIX = 'cortex:task-manager';
@@ -488,6 +493,24 @@ export function useTaskManager(group: CortexGroup, userId: string) {
       });
   }, [group, userId]);
 
+  const publishTaskCreate = useCallback((task: TaskManagerTask, optimisticState: TaskManagerState) => {
+    setState(optimisticState);
+    writeState(group.id, optimisticState);
+    broadcastTaskState(group.id);
+    void createGroupTaskManagerTask(group.id, task)
+      .then((remoteState) => {
+        const next = mergeDefaultMembers(remoteState, group, userId);
+        setState(next);
+        writeState(group.id, next);
+        broadcastTaskState(group.id);
+      })
+      .catch(() => {
+        void updateGroupTaskManagerState(group.id, optimisticState).catch(() => {
+          // Keep local state as the source of truth when the API is unavailable.
+        });
+      });
+  }, [group, userId]);
+
   const applyTextCommand = useCallback((text: string, actor = 'You') => {
     const actions = parseTaskCommand(text, state);
     if (actions.length === 0) return [];
@@ -510,7 +533,7 @@ export function useTaskManager(group: CortexGroup, userId: string) {
       updatedAt: timestamp,
       createdBy: 'You',
     };
-    publish({
+    publishTaskCreate(task, {
       ...state,
       tasks: [task, ...state.tasks],
       activity: [{
@@ -524,7 +547,7 @@ export function useTaskManager(group: CortexGroup, userId: string) {
       }, ...state.activity].slice(0, 80),
       updatedAt: timestamp,
     });
-  }, [group.id, publish, state]);
+  }, [group.id, publishTaskCreate, state]);
 
   const updateTask = useCallback((taskId: string, patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority' | 'projectChatConversationId' | 'projectChatLaunchedAt' | 'latestRunId' | 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>>) => {
     const timestamp = nowIso();
