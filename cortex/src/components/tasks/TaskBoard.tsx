@@ -7,14 +7,16 @@ import {
   PlayCircle,
   UserPlus,
 } from 'lucide-react';
-import { useMemo, useState, type DragEvent } from 'react';
+import { useEffect, useMemo, useState, type DragEvent } from 'react';
 import type { TaskManagerTask, TaskMember, TaskPriority, TaskStatus } from '../../types';
+import { getTaskProjection, type TaskProjection } from '../../lib/cortexApi';
 import { formatTaskStatus } from '../../lib/taskManager';
 
 interface TaskBoardProps {
   tasks: TaskManagerTask[];
   members: TaskMember[];
   compact?: boolean;
+  showBackendSignals?: boolean;
   selectedTaskId?: string | null;
   onUpdateTask: (
     taskId: string,
@@ -39,6 +41,16 @@ const PRIORITY_STYLE: Record<TaskPriority, string> = {
   urgent: 'border-red-300/25 bg-red-400/10 text-red-100',
 };
 
+interface TaskBackendSignal {
+  runCount: number;
+  chatCount: number;
+  eventCount: number;
+  latestRunId?: string | null;
+  latestRunStatus?: string | null;
+  latestEventAt?: number | null;
+  tone: 'quiet' | 'attached' | 'active' | 'stale' | 'failed';
+}
+
 function formatAge(timestamp: string) {
   const ageMs = Date.now() - new Date(timestamp).getTime();
   const minutes = Math.max(Math.floor(ageMs / 60000), 0);
@@ -56,6 +68,52 @@ function getMember(members: TaskMember[], memberId?: string | null) {
 
 function formatRunStatus(status?: string | null) {
   return status ? status.replaceAll('_', ' ') : 'run linked';
+}
+
+function statusTone(status?: string | null): TaskBackendSignal['tone'] {
+  if (!status) return 'attached';
+  if (status === 'failed' || status === 'orphaned' || status === 'cancelled') return 'failed';
+  if (status === 'pending' || status === 'ready' || status === 'leased' || status === 'running') return 'active';
+  return 'attached';
+}
+
+function backendSignalFromProjection(projection: TaskProjection): TaskBackendSignal {
+  const latestRun = projection.runs[0] ?? null;
+  const latestEvent = projection.events[0] ?? null;
+  let tone = statusTone(latestRun?.status);
+  const latestEventAt = latestEvent?.created_at ?? null;
+  const quietMs = latestEventAt ? Date.now() - latestEventAt : null;
+  if (tone === 'active' && quietMs !== null && quietMs > 5 * 60 * 1000) {
+    tone = 'stale';
+  }
+  if (projection.runs.length === 0 && projection.chats.length === 0) {
+    tone = 'quiet';
+  }
+  return {
+    runCount: projection.runs.length,
+    chatCount: projection.chats.length,
+    eventCount: projection.events.length,
+    latestRunId: projection.task.latest_run_id ?? latestRun?.id ?? null,
+    latestRunStatus: latestRun?.status ?? null,
+    latestEventAt,
+    tone,
+  };
+}
+
+function backendSignalLabel(signal: TaskBackendSignal) {
+  if (signal.tone === 'failed') return 'Needs attention';
+  if (signal.tone === 'stale') return 'Stale';
+  if (signal.tone === 'active') return formatRunStatus(signal.latestRunStatus);
+  if (signal.tone === 'attached') return 'Attached';
+  return 'No backend work';
+}
+
+function backendSignalStyle(tone: TaskBackendSignal['tone']) {
+  if (tone === 'failed') return 'border-red-300/20 bg-red-400/10 text-red-100';
+  if (tone === 'stale') return 'border-amber-300/20 bg-amber-300/10 text-amber-100';
+  if (tone === 'active') return 'border-emerald-300/20 bg-emerald-400/10 text-emerald-100';
+  if (tone === 'attached') return 'border-sky-300/20 bg-sky-400/10 text-sky-100';
+  return 'border-white/8 bg-white/[0.03] text-[var(--muted)]';
 }
 
 function getRunSnapshotAge(timestamp?: string | null) {
@@ -76,6 +134,7 @@ function TaskCard({
   onUpdateTask,
   onSelectTask,
   onLaunchTask,
+  backendSignal,
 }: {
   task: TaskManagerTask;
   assignee: TaskMember | null;
@@ -84,6 +143,7 @@ function TaskCard({
   onUpdateTask: TaskBoardProps['onUpdateTask'];
   onSelectTask?: TaskBoardProps['onSelectTask'];
   onLaunchTask?: TaskBoardProps['onLaunchTask'];
+  backendSignal?: TaskBackendSignal | null;
 }) {
   const runSnapshotAge = getRunSnapshotAge(task.latestRunSyncedAt);
 
@@ -136,6 +196,20 @@ function TaskCard({
           )}
           {runSnapshotAge?.stale && (
             <p className="mt-1 truncate text-[10px] text-amber-200">Select to refresh backend signal</p>
+          )}
+          {backendSignal && (
+            <div className="mt-2 flex items-center justify-between gap-2 rounded-md border border-white/8 bg-black/10 px-2 py-1.5">
+              <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[9px] capitalize ${backendSignalStyle(backendSignal.tone)}`}>
+                {backendSignalLabel(backendSignal)}
+              </span>
+              <span className="min-w-0 truncate text-[10px] text-[var(--muted)]">
+                {backendSignal.runCount} run{backendSignal.runCount === 1 ? '' : 's'}
+                {' · '}
+                {backendSignal.chatCount} chat{backendSignal.chatCount === 1 ? '' : 's'}
+                {' · '}
+                {backendSignal.eventCount} event{backendSignal.eventCount === 1 ? '' : 's'}
+              </span>
+            </div>
           )}
           <div className="mt-3 flex items-center justify-between gap-2">
             {assignee ? (
@@ -217,6 +291,7 @@ function DropColumn({
   onUpdateTask,
   onSelectTask,
   onLaunchTask,
+  backendSignals,
 }: {
   status: TaskStatus;
   tasks: TaskManagerTask[];
@@ -226,6 +301,7 @@ function DropColumn({
   onUpdateTask: TaskBoardProps['onUpdateTask'];
   onSelectTask?: TaskBoardProps['onSelectTask'];
   onLaunchTask?: TaskBoardProps['onLaunchTask'];
+  backendSignals?: Record<string, TaskBackendSignal>;
 }) {
   const Icon = STATUS_ICON[status];
   const [scrollTop, setScrollTop] = useState(0);
@@ -295,6 +371,7 @@ function DropColumn({
                 onUpdateTask={onUpdateTask}
                 onSelectTask={onSelectTask}
                 onLaunchTask={onLaunchTask}
+                backendSignal={backendSignals?.[task.id] ?? null}
               />
             ))}
             {virtualWindow.bottom > 0 && <div style={{ height: virtualWindow.bottom }} aria-hidden="true" />}
@@ -309,6 +386,7 @@ export default function TaskBoard({
   tasks,
   members,
   compact = false,
+  showBackendSignals = false,
   selectedTaskId,
   onUpdateTask,
   onSelectTask,
@@ -316,6 +394,50 @@ export default function TaskBoard({
 }: TaskBoardProps) {
   const hasTasks = tasks.length > 0;
   const visibleStatuses = compact ? STATUSES.filter((status) => status !== 'done') : STATUSES;
+  const [backendSignals, setBackendSignals] = useState<Record<string, TaskBackendSignal>>({});
+  const projectionTaskKeys = useMemo(() => {
+    if (!showBackendSignals) return [];
+    const selected = selectedTaskId ? tasks.find((task) => task.id === selectedTaskId) : null;
+    const candidates = tasks
+      .filter((task) => task.status !== 'done')
+      .slice(0, 12);
+    const byId = new Map<string, TaskManagerTask>();
+    for (const task of candidates) byId.set(task.id, task);
+    if (selected) byId.set(selected.id, selected);
+    return Array.from(byId.values()).map((task) => `${task.groupId}:${task.id}`);
+  }, [selectedTaskId, showBackendSignals, tasks]);
+
+  useEffect(() => {
+    if (!showBackendSignals || projectionTaskKeys.length === 0) {
+      setBackendSignals({});
+      return undefined;
+    }
+    let cancelled = false;
+    const loadSignals = async () => {
+      const nextSignals: Record<string, TaskBackendSignal> = {};
+      await Promise.all(projectionTaskKeys.map(async (key) => {
+        const separatorIndex = key.indexOf(':');
+        const groupId = key.slice(0, separatorIndex);
+        const taskId = key.slice(separatorIndex + 1);
+        try {
+          const projection = await getTaskProjection(groupId, taskId);
+          nextSignals[taskId] = backendSignalFromProjection(projection);
+        } catch {
+          // Projection gaps stay quiet on the map; the inspector shows the detailed error.
+        }
+      }));
+      if (!cancelled) setBackendSignals(nextSignals);
+    };
+
+    void loadSignals();
+    const interval = window.setInterval(() => {
+      void loadSignals();
+    }, 20000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(interval);
+    };
+  }, [projectionTaskKeys, showBackendSignals]);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -340,6 +462,7 @@ export default function TaskBoard({
               onUpdateTask={onUpdateTask}
               onSelectTask={onSelectTask}
               onLaunchTask={onLaunchTask}
+              backendSignals={backendSignals}
             />
           ))}
         </div>
