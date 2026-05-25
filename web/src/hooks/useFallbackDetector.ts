@@ -70,9 +70,11 @@ export function useFallbackDetector(): FallbackState {
 
   const probe = useCallback(() => {
     if (!probeUrl) {
-      lastFallbackRef.current = false;
+      // No API URL configured — treat as fallback/unavailable so the UI
+      // shows proper empty states instead of silently serving nothing.
+      lastFallbackRef.current = true;
       isInitialProbeRef.current = false;
-      setIsFallback(false);
+      setIsFallback(true);
       setIsRechecking(false);
       return;
     }

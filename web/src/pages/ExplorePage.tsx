@@ -2,14 +2,15 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
 import {
   bookmarkPost,
-  getTrending,
+  feedPostToPost,
+  fetchTrending,
   likePost,
   repostPost,
-  searchAll,
+  searchSocial,
   unbookmarkPost,
   unlikePost,
-} from '../api/client';
-import type { Community, SearchResults, TrendingTopic, UserSummary } from '../api/types';
+} from '../api/social';
+import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
@@ -17,28 +18,30 @@ import { useAuth } from '../hooks/useAuth';
 const TABS = ['For you', 'Trending', 'News', 'Tech', 'AI'] as const;
 type Tab = typeof TABS[number];
 
+type TrendingItem = { tag: string; postCount: number };
+type ProfileItem = { id: string; handle: string; displayName: string; avatarUrl: string | null; bio: string };
+
+interface SearchState {
+  posts: Post[];
+  profiles: ProfileItem[];
+}
+
 function formatCount(count: number): string {
   if (count < 1000) return `${count} posts`;
   return `${(count / 1000).toFixed(count < 10000 ? 1 : 0).replace(/\.0$/, '')}K posts`;
 }
 
-function formatMembers(count: number): string {
-  if (count < 1000) return `${count} members`;
-  return `${(count / 1000).toFixed(count < 10000 ? 1 : 0).replace(/\.0$/, '')}K members`;
-}
-
-const EMPTY_SEARCH_RESULTS: SearchResults = {
+const EMPTY_SEARCH_RESULTS: SearchState = {
   posts: [],
-  users: [],
-  communities: [],
+  profiles: [],
 };
 
 export function ExplorePage() {
-  const { authEnabled, isSignedIn, getToken } = useAuth();
+  const { authEnabled, isSignedIn } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('For you');
   const [query, setQuery] = useState('');
-  const [trending, setTrending] = useState<TrendingTopic[]>([]);
-  const [searchResults, setSearchResults] = useState<SearchResults>(EMPTY_SEARCH_RESULTS);
+  const [trending, setTrending] = useState<TrendingItem[]>([]);
+  const [searchResults, setSearchResults] = useState<SearchState>(EMPTY_SEARCH_RESULTS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -53,12 +56,16 @@ export function ExplorePage() {
       setError(null);
       try {
         if (trimmedQuery) {
-          const token = authEnabled && isSignedIn ? await getToken() : null;
-          const results = await searchAll(trimmedQuery, token ?? undefined);
-          if (!cancelled) setSearchResults(results);
+          const result = await searchSocial(trimmedQuery);
+          if (!cancelled) {
+            setSearchResults({
+              posts: result.posts.map(feedPostToPost),
+              profiles: result.profiles,
+            });
+          }
         } else {
-          const topics = await getTrending();
-          if (!cancelled) setTrending(topics);
+          const result = await fetchTrending();
+          if (!cancelled) setTrending(result.topics);
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load explore data');
@@ -75,8 +82,7 @@ export function ExplorePage() {
 
   const hasSearchResults =
     searchResults.posts.length > 0 ||
-    searchResults.users.length > 0 ||
-    searchResults.communities.length > 0;
+    searchResults.profiles.length > 0;
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
@@ -126,37 +132,29 @@ export function ExplorePage() {
           {trending.length === 0 && <EmptyState title="No trends yet" />}
           {trending.map((item, index) => (
             <button
-              key={item.id}
+              key={item.tag}
               type="button"
               className="w-full px-4 py-3 text-left transition-colors hover:bg-[color:color-mix(in_srgb,var(--text-primary)_5%,transparent)]"
               style={{ borderBottom: index < trending.length - 1 ? '1px solid var(--border-primary)' : undefined }}
             >
-              <p className="mb-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>{item.category}</p>
-              <p className="text-[15px] font-bold leading-tight">{item.name}</p>
-              <p className="mt-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>{formatCount(item.post_count)}</p>
+              <p className="mb-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>Trending</p>
+              <p className="text-[15px] font-bold leading-tight">{item.tag}</p>
+              <p className="mt-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>{formatCount(item.postCount)}</p>
             </button>
           ))}
         </section>
       )}
 
       {!loading && !error && isSearching && !hasSearchResults && (
-        <EmptyState title="No results" detail={`No posts, people, or communities matched "${trimmedQuery}".`} />
+        <EmptyState title="No results" detail={`No posts or people matched "${trimmedQuery}".`} />
       )}
 
       {!loading && !error && isSearching && hasSearchResults && (
         <div>
-          {searchResults.users.length > 0 && (
+          {searchResults.profiles.length > 0 && (
             <SearchSection title="People">
-              {searchResults.users.map((user, index) => (
-                <UserRow key={user.id} user={user} showBorder={index < searchResults.users.length - 1} />
-              ))}
-            </SearchSection>
-          )}
-
-          {searchResults.communities.length > 0 && (
-            <SearchSection title="Communities">
-              {searchResults.communities.map((community, index) => (
-                <CommunityRow key={community.id} community={community} showBorder={index < searchResults.communities.length - 1} />
+              {searchResults.profiles.map((profile, index) => (
+                <UserRow key={profile.id} user={profile} showBorder={index < searchResults.profiles.length - 1} />
               ))}
             </SearchSection>
           )}
@@ -168,9 +166,9 @@ export function ExplorePage() {
                 <PostCard
                   key={post.id}
                   post={post}
-                  onLike={(id, liked, token) => void (liked ? likePost(id, token) : unlikePost(id, token))}
-                  onRepost={(id, _reposted, token) => void repostPost(id, token)}
-                  onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(id, token) : unbookmarkPost(id, token))}
+                  onLike={(id, liked, token) => void (liked ? likePost(token, id) : unlikePost(token, id))}
+                  onRepost={(id, _reposted, token) => void repostPost(token, id)}
+                  onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id))}
                 />
               ))}
             </section>
@@ -190,17 +188,17 @@ function SearchSection({ title, children }: { title: string; children: ReactNode
   );
 }
 
-function UserRow({ user, showBorder }: { user: UserSummary; showBorder: boolean }) {
+function UserRow({ user, showBorder }: { user: { id: string; handle: string; displayName: string; avatarUrl: string | null; bio: string }; showBorder: boolean }) {
   return (
     <button
       type="button"
       className="flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-[color:color-mix(in_srgb,var(--text-primary)_3%,transparent)]"
       style={{ borderBottom: showBorder ? '1px solid var(--border-primary)' : undefined }}
     >
-      {user.avatar_url ? (
+      {user.avatarUrl ? (
         <img
-          src={user.avatar_url}
-          alt={user.display_name}
+          src={user.avatarUrl}
+          alt={user.displayName}
           className="h-10 w-10 shrink-0 rounded-full object-cover"
           style={{ backgroundColor: 'var(--border-primary)' }}
         />
@@ -209,48 +207,15 @@ function UserRow({ user, showBorder }: { user: UserSummary; showBorder: boolean 
           className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm"
           style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
         >
-          {user.display_name.charAt(0)}
+          {user.displayName.charAt(0)}
         </div>
       )}
 
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1 text-[15px] leading-5">
-          <span className="truncate font-bold" style={{ color: 'var(--text-primary)' }}>{user.display_name}</span>
-          {user.verified && <span className="shrink-0 text-xs" style={{ color: 'var(--accent)' }}>✓</span>}
+          <span className="truncate font-bold" style={{ color: 'var(--text-primary)' }}>{user.displayName}</span>
         </div>
         <p className="truncate text-[15px] leading-5" style={{ color: 'var(--text-secondary)' }}>@{user.handle}</p>
-      </div>
-    </button>
-  );
-}
-
-function CommunityRow({ community, showBorder }: { community: Community; showBorder: boolean }) {
-  return (
-    <button
-      type="button"
-      className="flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-[color:color-mix(in_srgb,var(--text-primary)_3%,transparent)]"
-      style={{ borderBottom: showBorder ? '1px solid var(--border-primary)' : undefined }}
-    >
-      {community.banner_url ? (
-        <img
-          src={community.banner_url}
-          alt=""
-          className="h-10 w-10 shrink-0 rounded-md object-cover"
-          style={{ backgroundColor: 'var(--border-primary)' }}
-        />
-      ) : (
-        <div
-          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md text-sm font-bold"
-          style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
-        >
-          {community.name.charAt(0)}
-        </div>
-      )}
-
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-[15px] font-bold leading-5" style={{ color: 'var(--text-primary)' }}>{community.name}</p>
-        <p className="text-[13px] leading-5" style={{ color: 'var(--text-secondary)' }}>{formatMembers(community.member_count)}</p>
-        <p className="mt-0.5 line-clamp-2 text-[13px] leading-snug" style={{ color: 'var(--text-primary)' }}>{community.description}</p>
       </div>
     </button>
   );

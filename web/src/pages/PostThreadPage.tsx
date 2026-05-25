@@ -1,24 +1,14 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import {
-  bookmarkPost,
-  getFeed,
-  getPost,
-  likePost,
-  repostPost,
-  unbookmarkPost,
-  unlikePost,
-} from '../api/client';
+import { bookmarkPost, feedPostToPost, fetchHomeFeed, likePost, repostPost, unbookmarkPost, unlikePost } from '../api/social';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
-import { useAuth } from '../hooks/useAuth';
 
 export function PostThreadPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [post, setPost] = useState<Post | null>(null);
   const [replies, setReplies] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,12 +30,20 @@ export function PostThreadPage() {
       setLoading(true);
       setError(null);
       try {
-        const token = authEnabled && isSignedIn ? await getToken() : null;
-        const [postResponse, feedResponse] = await Promise.all([
-          getPost(id, token ?? undefined),
-          getFeed(undefined, token ?? undefined),
-        ]);
-        const directReplies = feedResponse.posts
+        const response = await fetchHomeFeed(50);
+        const allPosts = response.feed.map(feedPostToPost);
+        const postResponse = allPosts.find((p) => p.id === id) ?? null;
+
+        if (!postResponse) {
+          if (!cancelled) {
+            setPost(null);
+            setReplies([]);
+            setError(null);
+          }
+          return;
+        }
+
+        const directReplies = allPosts
           .filter((feedPost) => feedPost.reply_to === postResponse.id && feedPost.id !== postResponse.id)
           .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
@@ -68,7 +66,7 @@ export function PostThreadPage() {
     return () => {
       cancelled = true;
     };
-  }, [authEnabled, id, isSignedIn, reloadKey]);
+  }, [id, reloadKey]);
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
@@ -160,13 +158,13 @@ function ConnectorLine({ className }: ConnectorLineProps) {
 }
 
 function handleLike(postId: string, liked: boolean, token: string) {
-  void (liked ? likePost(postId, token) : unlikePost(postId, token));
+  void (liked ? likePost(token, postId) : unlikePost(token, postId));
 }
 
 function handleRepost(postId: string, _reposted: boolean, token: string) {
-  void repostPost(postId, token);
+  void repostPost(token, postId);
 }
 
 function handleBookmark(postId: string, bookmarked: boolean, token: string) {
-  void (bookmarked ? bookmarkPost(postId, token) : unbookmarkPost(postId, token));
+  void (bookmarked ? bookmarkPost(token, postId) : unbookmarkPost(token, postId));
 }

@@ -16,19 +16,9 @@ interface RightRailProps {
   suggestions?: SuggestedUser[];
 }
 
-const defaultTrending: TrendingItem[] = [
-  { category: "Technology · Trending", name: "#AIAgents", postCount: 48200 },
-  { category: "World · Trending", name: "HeyVera", postCount: 21500 },
-  { category: "Tech · Trending", name: "#OpenSource", postCount: 15800 },
-  { category: "Design · Trending", name: "Dark Mode", postCount: 9300 },
-  { category: "Science · Trending", name: "#Quantum", postCount: 6100 },
-];
+const defaultTrending: TrendingItem[] = [];
 
-const defaultSuggestions: SuggestedUser[] = [
-  { name: "Vera AI", handle: "@vera", avatar: "V" },
-  { name: "Cortex Dev", handle: "@cortexdev", avatar: "C" },
-  { name: "HeyVera Team", handle: "@heyvera", avatar: "H" },
-];
+const defaultSuggestions: SuggestedUser[] = [];
 
 function formatCount(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1).replace(/\.0$/, "")}K posts`;
@@ -125,6 +115,12 @@ export function RightRail({ trending = defaultTrending, suggestions = defaultSug
           Trending
         </h2>
 
+        {trending.length === 0 && (
+          <p className="px-4 py-3 text-sm" style={{ color: "var(--text-secondary)" }}>
+            No trends yet.
+          </p>
+        )}
+
         {trending.map((item, i) => (
           <button
             key={i}
@@ -143,12 +139,14 @@ export function RightRail({ trending = defaultTrending, suggestions = defaultSug
           </button>
         ))}
 
-        <button
-          className="w-full text-left px-4 py-3 text-sm transition-colors hover:bg-white/5"
-          style={{ color: "var(--accent)" }}
-        >
-          Show more
-        </button>
+        {trending.length > 0 && (
+          <button
+            className="w-full text-left px-4 py-3 text-sm transition-colors hover:bg-white/5"
+            style={{ color: "var(--accent)" }}
+          >
+            Show more
+          </button>
+        )}
       </section>
 
       {/* Who to follow */}
@@ -166,6 +164,12 @@ export function RightRail({ trending = defaultTrending, suggestions = defaultSug
         >
           Who to follow
         </h2>
+
+        {suggestions.length === 0 && (
+          <p className="px-4 py-3 text-sm" style={{ color: "var(--text-secondary)" }}>
+            No suggestions yet.
+          </p>
+        )}
 
         {suggestions.map((user, i) => (
           <div
@@ -211,12 +215,14 @@ export function RightRail({ trending = defaultTrending, suggestions = defaultSug
           </div>
         ))}
 
-        <button
-          className="w-full text-left px-4 py-3 text-sm transition-colors hover:bg-white/5"
-          style={{ color: "var(--accent)" }}
-        >
-          Show more
-        </button>
+        {suggestions.length > 0 && (
+          <button
+            className="w-full text-left px-4 py-3 text-sm transition-colors hover:bg-white/5"
+            style={{ color: "var(--accent)" }}
+          >
+            Show more
+          </button>
+        )}
       </section>
 
       {/* Footer links */}

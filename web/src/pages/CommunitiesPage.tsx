@@ -2,17 +2,17 @@ import { useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import {
   bookmarkPost,
-  getCommunities,
-  getCommunityFeed,
+  fetchCommunities,
+  fetchCommunityFeed,
+  feedPostToPost,
   likePost,
   repostPost,
   unbookmarkPost,
   unlikePost,
-} from '../api/client';
-import type { Community, Post } from '../api/types';
+} from '../api/social';
+import type { Community, Post } from '../api/social';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
-import { useAuth } from '../hooks/useAuth';
 
 const TABS = ['Your Communities', 'Discover'] as const;
 type Tab = typeof TABS[number];
@@ -23,7 +23,7 @@ function formatMembers(count: number): string {
 }
 
 export function CommunitiesPage() {
-  const { authEnabled, isSignedIn, getToken } = useAuth();
+
   const [activeTab, setActiveTab] = useState<Tab>('Your Communities');
   const [communities, setCommunities] = useState<Community[]>([]);
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
@@ -43,10 +43,11 @@ export function CommunitiesPage() {
       setLoading(true);
       setError(null);
       try {
-        const items = await getCommunities();
+        const { communities } = await fetchCommunities();
         if (!cancelled) {
-          setCommunities(items);
-          setJoinedIds(new Set(items.filter((community) => community.is_member).map((community) => community.id)));
+          setCommunities(communities);
+          // Real Community type has no is_member field; joined state is managed locally only.
+          setJoinedIds(new Set());
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load communities');
@@ -72,12 +73,18 @@ export function CommunitiesPage() {
         return;
       }
 
+      const community = communities.find((c) => c.id === selectedCommunityId);
+      if (!community) {
+        setFeedPosts([]);
+        setFeedLoading(false);
+        return;
+      }
+
       setFeedLoading(true);
       setFeedError(null);
       try {
-        const token = authEnabled && isSignedIn ? await getToken() : null;
-        const response = await getCommunityFeed(selectedCommunityId, undefined, token ?? undefined);
-        if (!cancelled) setFeedPosts(response.posts);
+        const { feed } = await fetchCommunityFeed(community.slug);
+        if (!cancelled) setFeedPosts(feed.map(feedPostToPost));
       } catch (err) {
         if (!cancelled) {
           setFeedPosts([]);
@@ -92,7 +99,7 @@ export function CommunitiesPage() {
     return () => {
       cancelled = true;
     };
-  }, [authEnabled, isSignedIn, selectedCommunityId, feedReloadKey]);
+  }, [communities, selectedCommunityId, feedReloadKey]);
 
   const visibleCommunities =
     activeTab === 'Your Communities'
@@ -158,9 +165,9 @@ export function CommunitiesPage() {
               Communities
             </button>
 
-            {selectedCommunity.banner_url ? (
+            {(selectedCommunity as { banner_url?: string }).banner_url ? (
               <img
-                src={selectedCommunity.banner_url}
+                src={(selectedCommunity as { banner_url?: string }).banner_url}
                 alt=""
                 className="h-32 w-full rounded-2xl object-cover"
                 style={{ backgroundColor: 'var(--border-primary)' }}
@@ -172,9 +179,11 @@ export function CommunitiesPage() {
             <div className="mt-4 flex items-start justify-between gap-3">
               <div className="min-w-0">
                 <h2 className="text-[20px] font-bold leading-6">{selectedCommunity.name}</h2>
-                <p className="mt-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-                  {formatMembers(selectedCommunity.member_count)}
-                </p>
+                {(selectedCommunity as { member_count?: number }).member_count !== undefined && (
+                  <p className="mt-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                    {formatMembers((selectedCommunity as { member_count?: number }).member_count!)}
+                  </p>
+                )}
                 <p className="mt-2 text-[15px] leading-5">{selectedCommunity.description}</p>
               </div>
 
@@ -208,9 +217,9 @@ export function CommunitiesPage() {
             <PostCard
               key={post.id}
               post={post}
-              onLike={(id, liked, token) => void (liked ? likePost(id, token) : unlikePost(id, token))}
-              onRepost={(id, _reposted, token) => void repostPost(id, token)}
-              onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(id, token) : unbookmarkPost(id, token))}
+              onLike={(id, liked, token) => void (liked ? likePost(token, id) : unlikePost(token, id))}
+              onRepost={(id, _reposted, token) => void repostPost(token, id)}
+              onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id))}
             />
           ))}
         </section>
@@ -240,15 +249,17 @@ export function CommunitiesPage() {
                 className="cursor-pointer overflow-hidden rounded-2xl border transition-colors hover:bg-white/[0.03]"
                 style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
               >
-                {community.banner_url ? (
-                  <img src={community.banner_url} alt="" className="h-24 w-full object-cover" />
+                {(community as { banner_url?: string }).banner_url ? (
+                  <img src={(community as { banner_url?: string }).banner_url} alt="" className="h-24 w-full object-cover" />
                 ) : (
                   <div className="h-24" style={{ backgroundColor: 'var(--border-primary)' }} />
                 )}
 
                 <div className="p-4">
                   <h3 className="text-[15px] font-bold leading-tight">{community.name}</h3>
-                  <p className="mt-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>{formatMembers(community.member_count)}</p>
+                  {(community as { member_count?: number }).member_count !== undefined && (
+                    <p className="mt-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>{formatMembers((community as { member_count?: number }).member_count!)}</p>
+                  )}
                   <p className="mt-2 text-[13px] leading-snug">{community.description}</p>
 
                   <button
