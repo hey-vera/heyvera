@@ -2224,6 +2224,33 @@ impl Database {
         ).is_ok()
     }
 
+    pub fn cortex_task_has_evidence_backed_completion(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        task_id: &str,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let Some(latest_run_id) = conn
+            .query_row(
+                "SELECT latest_run_id FROM cortex_tasks
+                 WHERE user_id = ?1 AND group_id = ?2 AND id = ?3",
+                params![user_id, group_id, task_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .ok() else {
+                return false;
+            };
+        cortex_completion_gate(
+            &conn,
+            user_id,
+            group_id,
+            task_id,
+            latest_run_id.as_deref(),
+        )
+        .gated_done
+    }
+
     pub fn record_cortex_task_event(
         &self,
         user_id: &str,
@@ -7003,6 +7030,58 @@ mod tests {
         assert_eq!(projection["task"]["completion"]["reason"], "passed");
         assert_eq!(projection["task"]["completion"]["run_id"], run_id);
         assert_eq!(projection["task"]["completion"]["steps"]["verified_pass"], 1);
+    }
+
+    #[test]
+    fn cortex_task_has_evidence_backed_completion_requires_verified_success() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state_with_tasks(serde_json::json!([
+            {
+                "id": "task-1",
+                "groupId": "group-1",
+                "title": "Verified task",
+                "status": "in-progress",
+                "priority": "normal",
+                "assigneeId": "user-1",
+                "createdAt": "2026-05-25T00:00:00Z",
+                "updatedAt": "2026-05-25T00:00:00Z",
+                "createdBy": "You"
+            }
+        ])));
+
+        assert!(!db.cortex_task_has_evidence_backed_completion(
+            "user-1", "group-1", "task-1"
+        ));
+
+        let run_id = db.create_run_with_metadata(
+            "user-1",
+            "Ship verified task",
+            "auto",
+            &[],
+            Some("task-1"),
+            Some("group-1"),
+            None,
+        );
+        let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
+        assert!(db.update_run_status(&run_id, "succeeded", None));
+        assert!(!db.cortex_task_has_evidence_backed_completion(
+            "user-1", "group-1", "task-1"
+        ));
+
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE steps
+                 SET status = 'succeeded', verification_status = 'verified_pass'
+                 WHERE id = ?1",
+                params![step_id],
+            )
+            .unwrap();
+        }
+
+        assert!(db.cortex_task_has_evidence_backed_completion(
+            "user-1", "group-1", "task-1"
+        ));
     }
 
     #[test]
