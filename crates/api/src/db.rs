@@ -3109,6 +3109,78 @@ impl Database {
             }
         }
 
+        let mut leases_stmt = conn
+            .prepare(
+                "SELECT id, user_id, group_id, task_id, run_id, step_id, holder_type,
+                        resource_type, repo_key, resource_key, mode, status, lease_gen,
+                        acquired_at, expires_at, released_at, reason, metadata_json
+                 FROM resource_leases
+                 WHERE user_id = ?1 AND group_id = ?2 AND status = 'active'
+                 ORDER BY acquired_at DESC, id DESC
+                 LIMIT 50",
+            )
+            .unwrap();
+        let active_resource_leases = leases_stmt
+            .query_map(params![user_id, group_id], resource_lease_from_row)
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+        let mut resource_lease_path = 0;
+        let mut resource_lease_task = 0;
+        let mut resource_lease_repo = 0;
+        let mut resource_lease_read = 0;
+        let mut resource_lease_write = 0;
+        let mut resource_lease_exclusive = 0;
+        let active_resource_lease_summaries = active_resource_leases
+            .iter()
+            .map(|lease| {
+                match lease.resource_type.as_str() {
+                    "path" => resource_lease_path += 1,
+                    "task" => resource_lease_task += 1,
+                    "repo" => resource_lease_repo += 1,
+                    _ => {}
+                }
+                match lease.mode.as_str() {
+                    "read" => resource_lease_read += 1,
+                    "write" => resource_lease_write += 1,
+                    "exclusive" => resource_lease_exclusive += 1,
+                    _ => {}
+                }
+                if lease.expires_at <= generated_at && attention.len() < 10 {
+                    attention.push(serde_json::json!({
+                        "kind": "stale_resource_lease",
+                        "lease_id": lease.id,
+                        "task_id": lease.task_id,
+                        "run_id": lease.run_id,
+                        "step_id": lease.step_id,
+                        "resource_type": lease.resource_type,
+                        "repo_key": lease.repo_key,
+                        "resource_key": lease.resource_key,
+                        "mode": lease.mode,
+                        "expires_at": lease.expires_at,
+                    }));
+                }
+                serde_json::json!({
+                    "id": lease.id,
+                    "group_id": lease.group_id,
+                    "task_id": lease.task_id,
+                    "run_id": lease.run_id,
+                    "step_id": lease.step_id,
+                    "holder_type": lease.holder_type,
+                    "resource_type": lease.resource_type,
+                    "repo_key": lease.repo_key,
+                    "resource_key": lease.resource_key,
+                    "mode": lease.mode,
+                    "lease_gen": lease.lease_gen,
+                    "acquired_at": lease.acquired_at,
+                    "expires_at": lease.expires_at,
+                    "seconds_until_expiry": ((lease.expires_at - generated_at).max(0)) / 1000,
+                    "reason": lease.reason,
+                    "metadata": lease.metadata,
+                })
+            })
+            .collect::<Vec<_>>();
+
         let event_limit = event_limit.clamp(1, 100) as i64;
         let mut events_stmt = conn
             .prepare(
@@ -3190,6 +3262,20 @@ impl Database {
                 "pending": approvals_pending,
                 "approved": approvals_approved,
                 "rejected": approvals_rejected,
+            },
+            "resource_leases": {
+                "active": active_resource_leases.len(),
+                "by_type": {
+                    "path": resource_lease_path,
+                    "task": resource_lease_task,
+                    "repo": resource_lease_repo,
+                },
+                "by_mode": {
+                    "read": resource_lease_read,
+                    "write": resource_lease_write,
+                    "exclusive": resource_lease_exclusive,
+                },
+                "leases": active_resource_lease_summaries,
             },
             "attention": attention,
             "recent_events": recent_events,
@@ -6981,6 +7067,44 @@ mod tests {
                 && event["task_id"] == "task-active"
                 && event["run_id"] == run_id
                 && event["step_id"] == step_id));
+    }
+
+    #[test]
+    fn get_group_operations_summary_surfaces_active_resource_leases() {
+        let db = test_db();
+        let run_id = db
+            .create_run_with_steps_and_resource_leases(
+                "user-1",
+                "Ship leased work",
+                "auto",
+                &["src/main.rs".to_string()],
+                Some("task-1"),
+                Some("group-1"),
+                None,
+                &[
+                    path_lease_in_repo("github:hey-vera/heyvera", "src/main.rs"),
+                    task_lease("group-1", "task-1"),
+                ],
+                &[test_step("step-a")],
+                &[],
+            )
+            .expect("leased run");
+
+        let summary = db.get_group_operations_summary("user-1", "group-1", 25);
+
+        assert_eq!(summary["resource_leases"]["active"], 2);
+        assert_eq!(summary["resource_leases"]["by_type"]["path"], 1);
+        assert_eq!(summary["resource_leases"]["by_type"]["task"], 1);
+        assert_eq!(summary["resource_leases"]["by_mode"]["write"], 1);
+        assert_eq!(summary["resource_leases"]["by_mode"]["exclusive"], 1);
+        assert!(summary["resource_leases"]["leases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|lease| lease["run_id"] == run_id
+                && lease["resource_type"] == "path"
+                && lease["repo_key"] == "github:hey-vera/heyvera"
+                && lease["resource_key"] == "src/main.rs"));
     }
 
     #[test]
