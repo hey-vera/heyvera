@@ -234,8 +234,13 @@ pub async fn create_run(
     )
     .await
     .map_err(|e| {
+        let status = if e.starts_with("resource conflict:") {
+            StatusCode::CONFLICT
+        } else {
+            StatusCode::BAD_REQUEST
+        };
         (
-            StatusCode::BAD_REQUEST,
+            status,
             Json(ErrorResponse { error: e }),
         )
     })?;
