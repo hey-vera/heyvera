@@ -240,8 +240,8 @@ else
   echo "[caddy] No Caddyfile found - skipping"
 fi
 
-echo "[clawnet] Restarting Node/Hono API service..."
-if [ "$SUDO_AVAILABLE" = "1" ]; then
+echo "[clawnet] Checking Node/Hono API service..."
+if [ "${CLAWNET_INSTALL_SERVICE:-0}" = "1" ] && [ "$SUDO_AVAILABLE" = "1" ]; then
   CLAWNET_USER="$DEPLOY_USER" \
     DEPLOY_USER="$DEPLOY_USER" \
     CLAWNET_SERVICE="$CLAWNET_SERVICE" \
@@ -249,11 +249,14 @@ if [ "$SUDO_AVAILABLE" = "1" ]; then
     CLAWNET_ENV="$CLAWNET_ENV_FILE" \
     bash "$REPO_DIR/scripts/clawnet-install-service.sh"
   echo "[clawnet] Restarted $CLAWNET_SERVICE"
+elif curl -sf "http://localhost:${PORT}/v1/health" >/dev/null 2>&1; then
+  echo "[clawnet] Existing service is healthy on port ${PORT}; installer skipped"
 elif [ "${CLAWNET_SERVICE_REQUIRED:-1}" = "1" ]; then
-  echo "[clawnet] ERROR: passwordless sudo unavailable; cannot install/restart required ClawNet service"
+  echo "[clawnet] ERROR: ClawNet service is not healthy and installer is disabled or sudo is unavailable"
+  echo "          Set CLAWNET_INSTALL_SERVICE=1 after granting the deploy user service-install sudo permissions."
   exit 1
 else
-  echo "[clawnet] WARNING: passwordless sudo unavailable; skipped ClawNet service restart"
+  echo "[clawnet] WARNING: skipped ClawNet service install/restart"
 fi
 
 # Docker compose is for legacy Node.js orchestrator. Skip if cortex systemd service is active.
