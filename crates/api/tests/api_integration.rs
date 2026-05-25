@@ -14,7 +14,7 @@ async fn test_app() -> (axum::Router, tempfile::TempDir) {
     std::fs::create_dir_all(workspace.join(".cortex")).unwrap();
 
     let ledger_path = workspace.join(".cortex/ledger.jsonl");
-    let state = AppState::new(ledger_path, workspace, None);
+    let state = AppState::new(ledger_path, workspace, None).await;
 
     // Start the scheduler so run creation works
     let scheduler_tx = scheduler::spawn_scheduler(state.clone());
