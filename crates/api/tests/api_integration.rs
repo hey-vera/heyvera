@@ -78,6 +78,42 @@ async fn test_deployment_status() {
     assert!(json["frontend"]["expected_assets"].is_object());
 }
 
+#[tokio::test]
+async fn test_deployment_events_include_status_inspection() {
+    let (app, _tmp) = test_app().await;
+
+    let status_resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .uri("/api/deployment/status")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(status_resp.status(), StatusCode::OK);
+
+    let events_resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/deployment/events?limit=5")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(events_resp.status(), StatusCode::OK);
+
+    let json = body_json(events_resp).await;
+    assert_eq!(json["scope_id"], "cortex");
+    assert_eq!(json["entity_type"], "deployment");
+    assert_eq!(json["limit"], 5);
+    assert_eq!(json["events"][0]["event_type"], "deploy.inspected");
+    assert_eq!(json["events"][0]["entity_type"], "deployment");
+    assert!(json["events"][0]["payload"]["backend"].is_object());
+}
+
 // ─── Route Task ──────────────────────────────────────────────────────────────
 
 #[tokio::test]
