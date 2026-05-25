@@ -815,6 +815,48 @@ export interface RunEventsResponse {
   events: RunOperationEvent[];
 }
 
+export interface TaskProjectionRun {
+  id: string;
+  goal: string;
+  status: string;
+  profile: string;
+  created_at: number;
+  updated_at: number;
+  started_at?: number | null;
+  finished_at?: number | null;
+  heal_attempts?: number;
+  task_id?: string | null;
+  group_id?: string | null;
+  conversation_id?: string | null;
+}
+
+export interface TaskProjectionChat {
+  id: string;
+  title?: string | null;
+  created_at: string;
+  updated_at: string;
+  attached_at: string;
+}
+
+export interface TaskProjection {
+  task: {
+    id: string;
+    group_id: string;
+    title: string;
+    status: string;
+    priority: string;
+    conversation_id?: string | null;
+    latest_run_id?: string | null;
+    source?: Record<string, unknown>;
+    created_at: string;
+    updated_at: string;
+    version: number;
+  };
+  runs: TaskProjectionRun[];
+  chats: TaskProjectionChat[];
+  events: RunOperationEvent[];
+}
+
 export interface RunListItem {
   id: string;
   goal: string;
@@ -870,6 +912,12 @@ export async function getRun(runId: string): Promise<RunSummary> {
 
 export async function getRunEvents(runId: string, limit = 200): Promise<RunEventsResponse> {
   return requestJson<RunEventsResponse>(`/api/runs/${runId}/events?limit=${limit}`);
+}
+
+export async function getTaskProjection(groupId: string, taskId: string): Promise<TaskProjection> {
+  return requestJson<TaskProjection>(
+    `/api/groups/${encodeURIComponent(groupId)}/tasks/${encodeURIComponent(taskId)}/projection`,
+  );
 }
 
 export async function listRuns(limit = 10, offset = 0): Promise<RunListItem[]> {
