@@ -204,7 +204,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 22;
+const SCHEMA_VERSION: i64 = 23;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
@@ -282,6 +282,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 22 {
         migrate_v22(conn);
+    }
+    if current < 23 {
+        migrate_v23(conn);
     }
 }
 
@@ -1108,6 +1111,28 @@ fn migrate_v22(conn: &Connection) {
     tracing::info!("applied migration v22: Cortex approval request ledger");
 }
 
+fn migrate_v23(conn: &Connection) {
+    conn.execute("ALTER TABLE cortex_approval_requests ADD COLUMN step_id TEXT", [])
+        .ok();
+    conn.execute(
+        "ALTER TABLE cortex_approval_requests ADD COLUMN ask_type TEXT NOT NULL DEFAULT 'approval'",
+        [],
+    )
+    .ok();
+
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_cortex_approval_requests_step_status
+            ON cortex_approval_requests(user_id, step_id, status, updated_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_cortex_approval_requests_run_status
+            ON cortex_approval_requests(user_id, run_id, status, updated_at DESC);
+
+        UPDATE schema_version SET version = 23;"
+    ).expect("migration v23 failed");
+
+    tracing::info!("applied migration v23: Cortex approval step gates");
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CortexGroup {
     pub id: String,
@@ -1125,8 +1150,10 @@ pub struct CortexApprovalRequest {
     pub id: String,
     pub group_id: String,
     pub task_id: Option<String>,
+    pub step_id: Option<String>,
     pub conversation_id: Option<String>,
     pub run_id: Option<String>,
+    pub ask_type: String,
     pub status: String,
     pub title: String,
     pub body: String,
@@ -1878,6 +1905,36 @@ impl Database {
         priority: &str,
         requested_by: &str,
     ) -> CortexApprovalRequest {
+        self.create_cortex_approval_request_with_gate(
+            user_id,
+            group_id,
+            task_id,
+            None,
+            conversation_id,
+            run_id,
+            "approval",
+            title,
+            body,
+            priority,
+            requested_by,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn create_cortex_approval_request_with_gate(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        task_id: Option<&str>,
+        step_id: Option<&str>,
+        conversation_id: Option<&str>,
+        run_id: Option<&str>,
+        ask_type: &str,
+        title: &str,
+        body: &str,
+        priority: &str,
+        requested_by: &str,
+    ) -> CortexApprovalRequest {
         let conn = self.conn.lock().unwrap();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
@@ -1885,19 +1942,23 @@ impl Database {
             "high" | "urgent" => priority,
             _ => "normal",
         };
+        let ask_type = ask_type.trim();
+        let ask_type = if ask_type.is_empty() { "approval" } else { ask_type };
         conn.execute(
             "INSERT INTO cortex_approval_requests (
-                id, user_id, group_id, task_id, conversation_id, run_id, status,
+                id, user_id, group_id, task_id, step_id, conversation_id, run_id, ask_type, status,
                 title, body, priority, requested_by, created_at, updated_at
              )
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?8, ?9, ?10, ?11, ?11)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, 'pending', ?9, ?10, ?11, ?12, ?13, ?13)",
             params![
                 id,
                 user_id,
                 group_id,
                 task_id,
+                step_id,
                 conversation_id,
                 run_id,
+                ask_type,
                 title.trim(),
                 body.trim(),
                 normalized_priority,
@@ -1913,13 +1974,14 @@ impl Database {
             None,
             task_id,
             run_id,
-            None,
+            step_id,
             None,
             "approval.requested",
             "approval_request",
             &id,
             &serde_json::json!({
                 "id": id,
+                "ask_type": ask_type,
                 "title": title.trim(),
                 "priority": normalized_priority,
                 "requested_by": requested_by.trim(),
@@ -1928,6 +1990,107 @@ impl Database {
 
         self.approval_request_from_row(&conn, user_id, group_id, &id)
             .expect("approval request should exist after insert")
+    }
+
+    pub fn ensure_cortex_step_approval_request(
+        &self,
+        user_id: &str,
+        step_id: &str,
+        ask_type: &str,
+        title: &str,
+        body: &str,
+        priority: &str,
+        requested_by: &str,
+    ) -> Option<CortexApprovalRequest> {
+        let conn = self.conn.lock().unwrap();
+        if let Some((id, group_id)) = conn.query_row(
+            "SELECT id, group_id FROM cortex_approval_requests
+             WHERE user_id = ?1 AND step_id = ?2 AND ask_type = ?3 AND status = 'pending'
+             ORDER BY updated_at DESC, id DESC
+             LIMIT 1",
+            params![user_id, step_id, ask_type],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        ).ok() {
+            return self.approval_request_from_row(&conn, user_id, &group_id, &id);
+        }
+
+        let context = conn.query_row(
+            "SELECT r.group_id, r.task_id, r.conversation_id, r.id
+             FROM steps s
+             JOIN runs r ON r.id = s.run_id
+             WHERE s.id = ?1 AND r.user_id = ?2",
+            params![step_id, user_id],
+            |row| {
+                Ok((
+                    row.get::<_, Option<String>>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        ).ok()?;
+        let (Some(group_id), task_id, conversation_id, run_id) = context else {
+            return None;
+        };
+        drop(conn);
+
+        Some(self.create_cortex_approval_request_with_gate(
+            user_id,
+            &group_id,
+            task_id.as_deref(),
+            Some(step_id),
+            conversation_id.as_deref(),
+            Some(&run_id),
+            ask_type,
+            title,
+            body,
+            priority,
+            requested_by,
+        ))
+    }
+
+    pub fn has_pending_cortex_step_approval(&self, user_id: &str, step_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM cortex_approval_requests
+             WHERE user_id = ?1 AND step_id = ?2 AND status = 'pending'
+             LIMIT 1",
+            params![user_id, step_id],
+            |_| Ok(()),
+        ).is_ok()
+    }
+
+    pub fn has_approved_cortex_step_approval(
+        &self,
+        user_id: &str,
+        step_id: &str,
+        ask_type: &str,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM cortex_approval_requests
+             WHERE user_id = ?1 AND step_id = ?2 AND ask_type = ?3 AND status = 'approved'
+             LIMIT 1",
+            params![user_id, step_id, ask_type],
+            |_| Ok(()),
+        ).is_ok()
+    }
+
+    pub fn latest_cortex_step_approval_status(
+        &self,
+        user_id: &str,
+        step_id: &str,
+        ask_type: &str,
+    ) -> Option<(String, String)> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, status FROM cortex_approval_requests
+             WHERE user_id = ?1 AND step_id = ?2 AND ask_type = ?3
+             ORDER BY updated_at DESC, id DESC
+             LIMIT 1",
+            params![user_id, step_id, ask_type],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        ).ok()
     }
 
     pub fn list_cortex_approval_requests(
@@ -2003,7 +2166,7 @@ impl Database {
             None,
             request.task_id.as_deref(),
             request.run_id.as_deref(),
-            None,
+            request.step_id.as_deref(),
             None,
             "approval.resolved",
             "approval_request",
@@ -2025,29 +2188,32 @@ impl Database {
         request_id: &str,
     ) -> Option<CortexApprovalRequest> {
         conn.query_row(
-            "SELECT id, group_id, task_id, conversation_id, run_id, status, title, body,
-                    priority, requested_by, decision_json, created_at, updated_at, resolved_at
+            "SELECT id, group_id, task_id, step_id, conversation_id, run_id, ask_type, status,
+                    title, body, priority, requested_by, decision_json, created_at, updated_at,
+                    resolved_at
              FROM cortex_approval_requests
              WHERE user_id = ?1 AND group_id = ?2 AND id = ?3",
             params![user_id, group_id, request_id],
             |row| {
-                let decision_json: Option<String> = row.get(10)?;
+                let decision_json: Option<String> = row.get(12)?;
                 Ok(CortexApprovalRequest {
                     id: row.get(0)?,
                     group_id: row.get(1)?,
                     task_id: row.get(2)?,
-                    conversation_id: row.get(3)?,
-                    run_id: row.get(4)?,
-                    status: row.get(5)?,
-                    title: row.get(6)?,
-                    body: row.get(7)?,
-                    priority: row.get(8)?,
-                    requested_by: row.get(9)?,
+                    step_id: row.get(3)?,
+                    conversation_id: row.get(4)?,
+                    run_id: row.get(5)?,
+                    ask_type: row.get(6)?,
+                    status: row.get(7)?,
+                    title: row.get(8)?,
+                    body: row.get(9)?,
+                    priority: row.get(10)?,
+                    requested_by: row.get(11)?,
                     decision: decision_json
                         .and_then(|raw| serde_json::from_str(&raw).ok()),
-                    created_at: row.get(11)?,
-                    updated_at: row.get(12)?,
-                    resolved_at: row.get(13)?,
+                    created_at: row.get(13)?,
+                    updated_at: row.get(14)?,
+                    resolved_at: row.get(15)?,
                 })
             },
         ).ok()
@@ -3163,6 +3329,10 @@ impl Database {
              WHERE s.run_id = ?1 AND s.status IN ('pending', 'orphaned')
              AND (s.earliest_dispatch_at IS NULL OR s.earliest_dispatch_at <= ?2)
              AND NOT EXISTS (
+                 SELECT 1 FROM cortex_approval_requests ar
+                 WHERE ar.step_id = s.id AND ar.status = 'pending'
+             )
+             AND NOT EXISTS (
                  SELECT 1 FROM step_dependencies sd
                  JOIN steps dep ON dep.id = sd.depends_on_id
                  WHERE sd.step_id = s.id
@@ -3192,6 +3362,10 @@ impl Database {
              WHERE r.status IN ('planning', 'running')
              AND s.status IN ('pending', 'orphaned')
              AND (s.earliest_dispatch_at IS NULL OR s.earliest_dispatch_at <= ?1)
+             AND NOT EXISTS (
+                 SELECT 1 FROM cortex_approval_requests ar
+                 WHERE ar.step_id = s.id AND ar.status = 'pending'
+             )
              AND NOT EXISTS (
                  SELECT 1 FROM step_dependencies sd
                  JOIN steps dep ON dep.id = sd.depends_on_id
@@ -5719,6 +5893,90 @@ mod tests {
             .any(|item| item["kind"] == "approval_pending"
                 && item["approval_id"] == approval.id
                 && item["task_id"] == "task-1"));
+    }
+
+    #[test]
+    fn pending_step_approval_blocks_ready_queries_until_approved() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "First task"));
+        let now = Utc::now().timestamp_millis();
+        let run_id = db.create_run_with_steps(
+            "user-1",
+            "Ship risky task",
+            "auto",
+            &[],
+            Some("task-1"),
+            Some("group-1"),
+            None,
+            &[(
+                "step-risky".to_string(),
+                "execute".to_string(),
+                "ship".to_string(),
+                None,
+                "execute".to_string(),
+                "critical".to_string(),
+                "Deploy production change".to_string(),
+                now,
+            )],
+            &[],
+        );
+        assert!(db.update_run_status(&run_id, "running", None));
+
+        assert_eq!(db.find_ready_steps(&run_id), vec!["step-risky".to_string()]);
+
+        let approval = db
+            .ensure_cortex_step_approval_request(
+                "user-1",
+                "step-risky",
+                "autonomy.dispatch",
+                "Approve risky Cortex dispatch",
+                "Cortex wants to dispatch a critical risk step.",
+                "urgent",
+                "scheduler-risk-gate",
+            )
+            .expect("approval request");
+        assert_eq!(approval.step_id.as_deref(), Some("step-risky"));
+        assert_eq!(approval.ask_type, "autonomy.dispatch");
+        assert!(db.has_pending_cortex_step_approval("user-1", "step-risky"));
+        assert!(db.find_ready_steps(&run_id).is_empty());
+        assert!(db.find_all_ready_steps().is_empty());
+
+        let same_approval = db
+            .ensure_cortex_step_approval_request(
+                "user-1",
+                "step-risky",
+                "autonomy.dispatch",
+                "Approve risky Cortex dispatch",
+                "Cortex wants to dispatch a critical risk step.",
+                "urgent",
+                "scheduler-risk-gate",
+            )
+            .expect("approval request");
+        assert_eq!(same_approval.id, approval.id);
+
+        db.resolve_cortex_approval_request(
+            "user-1",
+            "group-1",
+            &approval.id,
+            "approved",
+            &serde_json::json!({ "approved_by": "user-1" }),
+        )
+        .expect("approval resolves");
+
+        assert!(db.has_approved_cortex_step_approval(
+            "user-1",
+            "step-risky",
+            "autonomy.dispatch"
+        ));
+        assert_eq!(
+            db.latest_cortex_step_approval_status("user-1", "step-risky", "autonomy.dispatch")
+                .map(|(_, status)| status)
+                .as_deref(),
+            Some("approved")
+        );
+        assert!(!db.has_pending_cortex_step_approval("user-1", "step-risky"));
+        assert_eq!(db.find_ready_steps(&run_id), vec!["step-risky".to_string()]);
+        assert_eq!(db.find_all_ready_steps().len(), 1);
     }
 
     #[test]

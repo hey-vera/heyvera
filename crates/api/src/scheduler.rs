@@ -220,16 +220,28 @@ async fn schedule_until_blocked(state: &AppState, sched: &mut SchedulerState) {
             None => break,
         };
 
-        let dispatched = dispatch_step(state, &step).await;
-        if !dispatched {
-            sched.mark_step_done(&step.user_id);
-            sched.enqueue_ready_step(step);
-            break;
+        match dispatch_step(state, &step).await {
+            DispatchOutcome::Dispatched => {}
+            DispatchOutcome::RetryLater => {
+                sched.mark_step_done(&step.user_id);
+                sched.enqueue_ready_step(step);
+                break;
+            }
+            DispatchOutcome::WaitingForApproval => {
+                sched.mark_step_done(&step.user_id);
+                break;
+            }
         }
     }
 }
 
-async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
+enum DispatchOutcome {
+    Dispatched,
+    RetryLater,
+    WaitingForApproval,
+}
+
+async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
     let (worker_id, worker_tx) = match state.find_worker_for_user(&step.user_id).await {
         Some(pair) => pair,
         None => {
@@ -238,13 +250,13 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
                 step.user_id,
                 step.step_id
             );
-            return false;
+            return DispatchOutcome::RetryLater;
         }
     };
 
     let db = match &state.db {
         Some(db) => db,
-        None => return false,
+        None => return DispatchOutcome::RetryLater,
     };
 
     // --- Billing gate check ---
@@ -261,7 +273,7 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
             step.user_id,
             gate.violation
         );
-        return false;
+        return DispatchOutcome::RetryLater;
     }
 
     // --- Build evidence and route through evaluator ---
@@ -307,9 +319,79 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
             .unwrap_or(false);
         let autonomy =
             cortex_core::autonomy::decide_autonomy(confidence.clamp(0.0, 1.0), risk, is_first);
-        if autonomy.requires_user_input() && risk >= RiskLevel::Critical {
+        if autonomy.requires_user_input() && risk.requires_approval() {
+            const ASK_TYPE: &str = "autonomy.dispatch";
+            match db.latest_cortex_step_approval_status(&step.user_id, &step.step_id, ASK_TYPE) {
+                Some((approval_id, status)) if status == "approved" => {
+                    tracing::info!(
+                        "autonomy gate: step {} has approved dispatch approval {}",
+                        step.step_id,
+                        approval_id,
+                    );
+                }
+                Some((approval_id, status)) if matches!(status.as_str(), "rejected" | "cancelled") => {
+                    tracing::warn!(
+                        "autonomy gate: step {} was terminally blocked by approval {} with status {}",
+                        step.step_id,
+                        approval_id,
+                        status,
+                    );
+                    if db.fail_unleased_step(&step.step_id, "approval rejected", Some("ApprovalRejected")) {
+                        state
+                            .emit_scheduler_event(SchedulerEvent::StepFailed {
+                                run_id: step.run_id.clone(),
+                                step_id: step.step_id.clone(),
+                            })
+                            .await;
+                    }
+                    return DispatchOutcome::Dispatched;
+                }
+                Some((approval_id, status)) if status == "pending" => {
+                    tracing::warn!(
+                        "autonomy gate: step {} is waiting for approval {} ({:?} risk, confidence={:.2})",
+                        step.step_id,
+                        approval_id,
+                        risk,
+                        confidence,
+                    );
+                    return DispatchOutcome::WaitingForApproval;
+                }
+                _ => {
+                    let approval = db.ensure_cortex_step_approval_request(
+                        &step.user_id,
+                        &step.step_id,
+                        ASK_TYPE,
+                        "Approve risky Cortex dispatch",
+                        &format!(
+                            "Cortex wants to dispatch a {:?} risk step: {}",
+                            risk, step.objective
+                        ),
+                        if risk >= RiskLevel::Critical { "urgent" } else { "high" },
+                        "scheduler-risk-gate",
+                    );
+                    match approval {
+                        Some(request) => {
+                            tracing::warn!(
+                                "autonomy gate: step {} created approval {} and is waiting ({:?} risk, confidence={:.2})",
+                                step.step_id,
+                                request.id,
+                                risk,
+                                confidence,
+                            );
+                        }
+                        None => {
+                            tracing::warn!(
+                                "autonomy gate: step {} needs approval but is not bound to a Cortex group; dispatch blocked",
+                                step.step_id,
+                            );
+                        }
+                    }
+                    return DispatchOutcome::WaitingForApproval;
+                }
+            }
+        } else if autonomy.requires_user_input() {
             tracing::warn!(
-                "autonomy gate: step {} requires explicit approval ({:?} risk, confidence={:.2})",
+                "autonomy gate: step {} requires explicit approval ({:?} risk, confidence={:.2}) but risk does not require a blocking dispatch gate",
                 step.step_id,
                 risk,
                 confidence,
@@ -350,9 +432,9 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
                     step_id: step.step_id.clone(),
                 })
                 .await;
-            return true;
+            return DispatchOutcome::Dispatched;
         }
-        return false;
+        return DispatchOutcome::RetryLater;
     }
 
     let attempt_id = Uuid::new_v4().to_string();
@@ -364,7 +446,7 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
         Some(g) => g,
         None => {
             tracing::warn!("CAS lease failed for step {} — skipping", step.step_id);
-            return false;
+            return DispatchOutcome::RetryLater;
         }
     };
 
@@ -446,7 +528,7 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
             lease_gen
         );
         db.unlease_step(&step.step_id, lease_gen);
-        return false;
+        return DispatchOutcome::RetryLater;
     }
 
     // Capture values before decision is moved into msg
@@ -506,7 +588,7 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
                 )
                 .await;
 
-            true
+            DispatchOutcome::Dispatched
         }
         Err(_) => {
             tracing::error!(
@@ -515,7 +597,7 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> bool {
                 step.step_id
             );
             db.unlease_step(&step.step_id, lease_gen);
-            false
+            DispatchOutcome::RetryLater
         }
     }
 }
