@@ -244,6 +244,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/groups/{group_id}/tasks", put(integrations::update_group_tasks))
         .route("/api/groups/{group_id}/tasks/actions", post(integrations::apply_group_task_actions))
         .route("/api/groups/{group_id}/tasks/{task_id}", patch(integrations::patch_group_task))
+        .route("/api/groups/{group_id}/tasks/{task_id}/chats", post(integrations::attach_group_task_chat))
         .route("/api/groups/{group_id}/tasks/{task_id}/projection", get(integrations::get_group_task_projection))
         .route("/api/operations/summary", get(integrations::get_personal_operations_summary))
         .route("/api/authority/scopes", get(integrations::list_authority_scopes))

@@ -1580,6 +1580,74 @@ fn index_group_task_state(
     }
 }
 
+fn attach_cortex_task_chat_tx(
+    conn: &Connection,
+    user_id: &str,
+    group_id: &str,
+    task_id: &str,
+    conversation_id: &str,
+    run_id: Option<&str>,
+) -> bool {
+    let now = Utc::now().timestamp_millis();
+    let rows = if let Some(run_id) = run_id {
+        conn.execute(
+            "UPDATE cortex_tasks
+             SET latest_run_id = ?1,
+                 conversation_id = ?2,
+                 updated_at = datetime('now'),
+                 version = version + 1
+             WHERE user_id = ?3 AND group_id = ?4 AND id = ?5",
+            params![run_id, conversation_id, user_id, group_id, task_id],
+        )
+    } else {
+        conn.execute(
+            "UPDATE cortex_tasks
+             SET conversation_id = ?1,
+                 updated_at = datetime('now'),
+                 version = version + 1
+             WHERE user_id = ?2 AND group_id = ?3 AND id = ?4",
+            params![conversation_id, user_id, group_id, task_id],
+        )
+    }
+    .unwrap_or(0);
+    if rows == 0 {
+        return false;
+    }
+
+    conn.execute(
+        "INSERT INTO cortex_task_chats (
+            user_id, group_id, task_id, conversation_id, attached_at
+         )
+         VALUES (?1, ?2, ?3, ?4, datetime('now'))
+         ON CONFLICT(user_id, group_id, task_id, conversation_id) DO UPDATE SET
+            attached_at = datetime('now')",
+        params![user_id, group_id, task_id, conversation_id],
+    )
+    .ok();
+
+    insert_operations_event(
+        conn,
+        Some(user_id),
+        Some(group_id),
+        None,
+        Some(task_id),
+        run_id,
+        None,
+        None,
+        "chat.attached",
+        "chat",
+        conversation_id,
+        &serde_json::json!({
+            "conversation_id": conversation_id,
+            "group_id": group_id,
+            "task_id": task_id,
+            "run_id": run_id,
+            "attached_at": now,
+        }),
+    );
+    true
+}
+
 fn attach_run_to_cortex_task(
     conn: &Connection,
     user_id: &str,
@@ -1592,24 +1660,23 @@ fn attach_run_to_cortex_task(
         return;
     };
 
-    conn.execute(
-        "UPDATE cortex_tasks
-         SET latest_run_id = ?1,
-             conversation_id = COALESCE(?2, conversation_id),
-             updated_at = datetime('now'),
-             version = version + 1
-         WHERE user_id = ?3 AND group_id = ?4 AND id = ?5",
-        params![run_id, conversation_id, user_id, group_id, task_id],
-    )
-    .ok();
-
     if let Some(conversation_id) = conversation_id {
+        attach_cortex_task_chat_tx(
+            conn,
+            user_id,
+            group_id,
+            task_id,
+            conversation_id,
+            Some(run_id),
+        );
+    } else {
         conn.execute(
-            "INSERT OR IGNORE INTO cortex_task_chats (
-                user_id, group_id, task_id, conversation_id, attached_at
-             )
-             VALUES (?1, ?2, ?3, ?4, datetime('now'))",
-            params![user_id, group_id, task_id, conversation_id],
+            "UPDATE cortex_tasks
+             SET latest_run_id = ?1,
+                 updated_at = datetime('now'),
+                 version = version + 1
+             WHERE user_id = ?2 AND group_id = ?3 AND id = ?4",
+            params![run_id, user_id, group_id, task_id],
         )
         .ok();
     }
@@ -3065,6 +3132,17 @@ impl Database {
             group_id,
             payload,
         );
+    }
+
+    pub fn attach_cortex_task_chat(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        task_id: &str,
+        conversation_id: &str,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        attach_cortex_task_chat_tx(&conn, user_id, group_id, task_id, conversation_id, None)
     }
 
     pub fn record_deployment_event(
@@ -8395,6 +8473,42 @@ mod tests {
                 .iter()
                 .any(|event| event["event_type"] == "run.created"
                     && event["run_id"] == run_id
+                    && event["task_id"] == "task-1")
+        );
+        assert!(
+            projection["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|event| event["event_type"] == "chat.attached"
+                    && event["run_id"] == run_id
+                    && event["entity_id"] == conversation.id
+                    && event["task_id"] == "task-1")
+        );
+    }
+
+    #[test]
+    fn attach_cortex_task_chat_updates_projection_and_records_event() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "First task"));
+        let conversation = db.create_conversation("user-1", Some("Durable Project Chat"));
+
+        assert!(db.attach_cortex_task_chat("user-1", "group-1", "task-1", &conversation.id));
+
+        let projection = db
+            .get_cortex_task_projection("user-1", "group-1", "task-1", 100)
+            .expect("task projection");
+
+        assert_eq!(projection["task"]["conversation_id"], conversation.id);
+        assert_eq!(projection["chats"][0]["id"], conversation.id);
+        assert!(
+            projection["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|event| event["event_type"] == "chat.attached"
+                    && event["entity_type"] == "chat"
+                    && event["entity_id"] == conversation.id
                     && event["task_id"] == "task-1")
         );
     }
