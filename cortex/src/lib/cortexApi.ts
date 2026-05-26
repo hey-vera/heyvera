@@ -511,6 +511,18 @@ export interface GitHubRepo {
   html_url: string;
   private: boolean;
   language: string | null;
+  default_branch?: string | null;
+  owner?: {
+    login: string;
+    type: string;
+  } | null;
+  permissions?: {
+    admin?: boolean;
+    maintain?: boolean;
+    push?: boolean;
+    triage?: boolean;
+    pull?: boolean;
+  } | null;
 }
 
 export async function getGitHubStatus(): Promise<GitHubStatus> {
