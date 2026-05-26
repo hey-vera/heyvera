@@ -665,6 +665,38 @@ pub async fn get_run_events(
     })))
 }
 
+pub async fn get_verifier_report(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    axum::extract::Path((run_id, step_id, report_id)): axum::extract::Path<(
+        String,
+        String,
+        String,
+    )>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "database not available".into(),
+            }),
+        )
+    })?;
+
+    let report = db
+        .get_verifier_report_for_run_step(&user.user_id, &run_id, &step_id, &report_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "verifier report not found".into(),
+                }),
+            )
+        })?;
+
+    Ok(Json(report))
+}
+
 pub async fn get_ledger(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
