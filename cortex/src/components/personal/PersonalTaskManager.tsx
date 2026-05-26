@@ -25,6 +25,10 @@ function localPersonalSummary(groups: CortexGroup[], userId: string) {
   }, { open: 0, inProgress: 0, done: 0 });
 }
 
+function countNonApprovalAttention(items: { kind?: string | null }[] | undefined) {
+  return items?.filter((item) => item.kind !== 'approval_pending').length ?? 0;
+}
+
 function usePersonalOperationsSummary() {
   const [summary, setSummary] = useState<PersonalOperationsSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -69,7 +73,8 @@ function GroupOverview({
   const open = operations?.tasks.open ?? localSummary.open;
   const active = operations?.tasks.active ?? localSummary.inProgress;
   const done = operations?.tasks.completion.gated_done ?? operations?.tasks.done_raw ?? localSummary.done;
-  const needsAttention = (operations?.attention.length ?? 0) + (operations?.approvals.pending ?? 0);
+  const needsAttention = countNonApprovalAttention(operations?.attention);
+  const pendingApprovals = operations?.approvals.pending ?? 0;
   const activeLeases = operations?.resource_leases.active ?? 0;
 
   return (
@@ -121,11 +126,16 @@ function GroupOverview({
         </div>
       </div>
 
-      {operations && (needsAttention > 0 || activeLeases > 0 || operations.steps.failed > 0) && (
+      {operations && (needsAttention > 0 || pendingApprovals > 0 || activeLeases > 0 || operations.steps.failed > 0) && (
         <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
           {needsAttention > 0 && (
             <span className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-1 text-amber-200">
               {needsAttention} need attention
+            </span>
+          )}
+          {pendingApprovals > 0 && (
+            <span className="rounded-full border border-sky-300/20 bg-sky-300/10 px-2 py-1 text-sky-200">
+              {pendingApprovals} approval{pendingApprovals === 1 ? '' : 's'}
             </span>
           )}
           {activeLeases > 0 && (
@@ -170,7 +180,8 @@ function MasterOverview({
   const open = operations?.tasks.open ?? fallbackStats.open;
   const active = operations?.tasks.active ?? fallbackStats.inProgress;
   const done = operations?.tasks.completion.gated_done ?? operations?.tasks.done_raw ?? fallbackStats.done;
-  const attention = (operations?.attention.length ?? 0) + (operations?.approvals.pending ?? 0);
+  const attention = countNonApprovalAttention(operations?.attention);
+  const pendingApprovals = operations?.approvals.pending ?? 0;
   const activeLeases = operations?.resource_leases.active ?? 0;
   const failedSteps = operations?.steps.failed ?? 0;
 
@@ -227,6 +238,11 @@ function MasterOverview({
             <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
               <div className="text-xs text-[var(--muted)]">Needs attention</div>
               <div className="mt-1 text-lg font-semibold text-amber-200">{attention}</div>
+              {pendingApprovals > 0 && (
+                <div className="mt-0.5 text-[10px] text-sky-200">
+                  {pendingApprovals} pending approval{pendingApprovals === 1 ? '' : 's'}
+                </div>
+              )}
             </div>
             <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
               <div className="text-xs text-[var(--muted)]">Active leases</div>
