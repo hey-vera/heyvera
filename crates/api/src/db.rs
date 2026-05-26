@@ -380,6 +380,10 @@ fn apply_migrations(conn: &Connection) {
     if current < 31 {
         migrate_v31(conn);
     }
+    // Ensure social tables exist before v32+. Handles version collision where
+    // production DB ran main-branch v26-v31 (non-social) and skipped social table creation.
+    ensure_social_tables(conn);
+
     if current < 32 {
         migrate_v32(conn);
     }
@@ -1675,15 +1679,76 @@ fn migrate_v31(conn: &Connection) {
     tracing::info!("applied migration v31: blocks, mutes, reports tables");
 }
 
+fn ensure_social_tables(conn: &Connection) {
+    let has_social_posts: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='social_posts'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0) > 0;
+
+    if has_social_posts {
+        return;
+    }
+
+    tracing::info!("social tables missing — creating (version collision recovery)");
+
+    // v26 tables
+    migrate_v26(conn);
+    // v27 additions (notifications + community_id column)
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS social_notifications (
+            id TEXT PRIMARY KEY,
+            recipient_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            actor_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            notification_type TEXT NOT NULL,
+            post_id TEXT REFERENCES social_posts(id),
+            read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_notifications_recipient
+            ON social_notifications(recipient_profile_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_social_notifications_read
+            ON social_notifications(recipient_profile_id, read);
+        ALTER TABLE social_posts ADD COLUMN community_id TEXT REFERENCES social_communities(id);
+        CREATE INDEX IF NOT EXISTS idx_social_posts_community ON social_posts(community_id);"
+    ).expect("social tables recovery: v27 additions failed");
+    // v28 media
+    migrate_v28(conn);
+    // v29 webhooks + accounts
+    migrate_v29(conn);
+    // v30 conversations + messages
+    migrate_v30(conn);
+    // v31 blocks/mutes/reports
+    migrate_v31(conn);
+
+    tracing::info!("social tables recovery complete");
+}
+
 fn migrate_v32(conn: &Connection) {
     let version: i64 = conn
         .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
         .unwrap_or(0);
     if version < 32 {
-        conn.execute_batch(
-            "ALTER TABLE social_posts ADD COLUMN deleted_at TEXT DEFAULT NULL;
-             UPDATE schema_version SET version = 32;"
-        ).expect("migration v32 failed");
+        // Check if column already exists (from ensure_social_tables or prior run)
+        let has_deleted_at: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('social_posts') WHERE name='deleted_at'",
+                [],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0) > 0;
+
+        if has_deleted_at {
+            conn.execute_batch("UPDATE schema_version SET version = 32;")
+                .expect("migration v32 version bump failed");
+        } else {
+            conn.execute_batch(
+                "ALTER TABLE social_posts ADD COLUMN deleted_at TEXT DEFAULT NULL;
+                 UPDATE schema_version SET version = 32;"
+            ).expect("migration v32 failed");
+        }
         tracing::info!("applied migration v32: soft-delete for social_posts");
     }
 }
