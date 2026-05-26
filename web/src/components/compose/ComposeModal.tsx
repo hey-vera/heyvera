@@ -20,7 +20,7 @@ type ComposeModalProps = {
 
 type AuthorMode = "person" | "agent";
 type VisibilityMode = "public" | "followers";
-type ComposeMode = "post" | "agent-assist" | "schedule";
+type ComposeMode = "post" | "agent-assist" | "bot-post";
 
 const MAX_CHAR_COUNT = 500;
 const WARNING_CHAR_COUNT = 450;
@@ -55,7 +55,7 @@ export function ComposeModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Pulse/Agent Assist state
+  // Compose modes state
   const [composeMode, setComposeMode] = useState<ComposeMode>("post");
   const [drafts, setDrafts] = useState<PulseDraft[]>([]);
   const [draftsLoading, setDraftsLoading] = useState(false);
@@ -472,27 +472,48 @@ export function ComposeModal({
             </button>
             <button
               type="button"
-              className={`compose-modal-tab ${composeMode === "schedule" ? "compose-modal-tab-active" : ""}`}
+              className={`compose-modal-tab ${composeMode === "bot-post" ? "compose-modal-tab-active" : ""}`}
               onClick={() => {
-                setComposeMode("schedule");
+                setComposeMode("bot-post");
                 setShowDraftManager(false);
                 setError(null);
               }}
-              disabled={submitting || true} // Disabled for now
-              title="Coming soon"
+              disabled={submitting}
+              title="Fully automated agent posting"
             >
-              Schedule
+              Bot Post
             </button>
           </div>
         )}
 
         <div className="compose-modal-body">
-          {/* Schedule Tab - Coming Soon */}
-          {composeMode === "schedule" && (
-            <div className="compose-modal-schedule-stub">
-              <div className="compose-modal-coming-soon">
-                <p>📅 Schedule posting coming soon!</p>
-                <p>This feature will allow you to schedule posts for specific times.</p>
+          {/* Bot Post Tab - Fully Automated */}
+          {composeMode === "bot-post" && (
+            <div className="compose-modal-bot-post">
+              <div className="compose-modal-bot-info">
+                <p>🤖 Let your agent create and post content automatically!</p>
+                <p>Your agent will generate posts based on your topics and style preferences.</p>
+
+                <div className="compose-modal-bot-controls">
+                  <div className="compose-modal-form-group">
+                    <label htmlFor="bot-topic">What should your agent post about?</label>
+                    <input
+                      id="bot-topic"
+                      type="text"
+                      placeholder="e.g., 'Share insights about AI development'"
+                      className="compose-modal-input"
+                      disabled={submitting}
+                    />
+                  </div>
+
+                  <button
+                    type="button"
+                    className="compose-modal-submit"
+                    disabled={submitting}
+                  >
+                    {submitting ? "Generating..." : "Generate & Post"}
+                  </button>
+                </div>
               </div>
             </div>
           )}
