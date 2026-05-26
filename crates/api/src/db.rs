@@ -1762,6 +1762,44 @@ fn attach_run_to_cortex_task(
     }
 }
 
+fn attach_run_to_cortex_task_tx_checked(
+    conn: &Connection,
+    user_id: &str,
+    group_id: Option<&str>,
+    task_id: Option<&str>,
+    conversation_id: Option<&str>,
+    run_id: &str,
+) -> rusqlite::Result<bool> {
+    let (Some(group_id), Some(task_id)) = (group_id, task_id) else {
+        return Ok(false);
+    };
+
+    if let Some(conversation_id) = conversation_id {
+        match attach_cortex_task_chat_tx_checked(
+            conn,
+            user_id,
+            group_id,
+            task_id,
+            conversation_id,
+            Some(run_id),
+        ) {
+            Ok(()) => Ok(true),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+            Err(err) => Err(err),
+        }
+    } else {
+        let rows = conn.execute(
+            "UPDATE cortex_tasks
+             SET latest_run_id = ?1,
+                 updated_at = datetime('now'),
+                 version = version + 1
+             WHERE user_id = ?2 AND group_id = ?3 AND id = ?4",
+            params![run_id, user_id, group_id, task_id],
+        )?;
+        Ok(rows > 0)
+    }
+}
+
 fn insert_operations_event(
     conn: &Connection,
     actor_user_id: Option<&str>,
@@ -4883,7 +4921,7 @@ impl Database {
         group_id: Option<&str>,
         conversation_id: Option<&str>,
     ) -> String {
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
         let file_paths_json = if file_paths.is_empty() {
@@ -4891,14 +4929,18 @@ impl Database {
         } else {
             serde_json::to_string(file_paths).ok()
         };
-        conn.execute(
+        let tx = conn
+            .transaction()
+            .expect("failed to begin create run transaction");
+        tx.execute(
             "INSERT INTO runs (id, user_id, goal, status, profile, file_paths, task_id, group_id, conversation_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
             params![id, user_id, goal, profile, file_paths_json, task_id, group_id, conversation_id, now],
         ).expect("failed to create run");
-        attach_run_to_cortex_task(&conn, user_id, group_id, task_id, conversation_id, &id);
-        insert_operations_event(
-            &conn,
+        attach_run_to_cortex_task_tx_checked(&tx, user_id, group_id, task_id, conversation_id, &id)
+            .expect("failed to attach run to cortex task");
+        try_insert_operations_event(
+            &tx,
             Some(user_id),
             group_id,
             None,
@@ -4917,7 +4959,10 @@ impl Database {
                 "group_id": group_id,
                 "conversation_id": conversation_id,
             }),
-        );
+        )
+        .expect("failed to record run created event");
+        tx.commit()
+            .expect("failed to commit create run transaction");
         id
     }
 
@@ -8501,6 +8546,21 @@ mod tests {
             )
             .is_ok()
         );
+        drop(conn);
+
+        let events = db.list_run_operations_events(&run_id, 25);
+        assert!(events.iter().any(|event| {
+            event.event_type == "run.created"
+                && event.entity_type == "run"
+                && event.entity_id == run_id
+                && event.task_id.as_deref() == Some("task-1")
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "chat.attached"
+                && event.entity_type == "chat"
+                && event.entity_id == conversation.id
+                && event.task_id.as_deref() == Some("task-1")
+        }));
     }
 
     #[test]
