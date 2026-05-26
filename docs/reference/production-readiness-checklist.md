@@ -17,42 +17,54 @@
 - [x] VPS deployment — systemd service, Caddy reverse proxy, GitHub Actions CD
 - [x] Health checks — `/v1/health` returns service status + deploy metadata
 
-## 🔄 In Progress
+## ✅ Completed (Continued)
 
 ### Production Deployment
-- [ ] **Backend deploy** — Deploy main branch with all new social endpoints
-  - Status: Triggered `Deploy Production` workflow with main
-  - ETA: ~3 minutes
-  - Test: `curl https://api.heyvera.org/v1/health` should return latest commit
-
+- [x] **Backend deploy** — Deploy main branch with all social + pulse endpoints  
+  - Status: ✅ Deployed at commit `771184f`
+  - API working: `curl https://api.heyvera.org/v1/social/trending` returns JSON
+  - All endpoints available: search, trending, notifications, pulse drafts
+  
 ### Environment Configuration  
-- [ ] **Clerk production key** — Set `VITE_CLERK_PUBLISHABLE_KEY` in Cloudflare Pages
-  - Location: Cloudflare Dashboard → Pages → heyvera → Settings → Environment variables
-  - Value: Production publishable key from Clerk Dashboard
-  - **Requires Cloudflare dashboard access**
+- [x] **Clerk production key** — Set `VITE_CLERK_PUBLISHABLE_KEY` in Cloudflare Pages
+  - Status: ✅ Set in Cloudflare dashboard
+  - Auth working on heyvera.org production environment
 
-## 🎯 Next Steps
+## 🔄 In Progress
+
+### Frontend API Connectivity
+- [x] **Frontend API fix** — Updated to use absolute API URLs  
+  - Issue: Cloudflare Pages `/v1/*` proxy not working properly
+  - Solution: Frontend now uses `https://api.heyvera.org/v1/*` directly
+  - Status: PR #260 merging, will deploy automatically
+
+## 🎯 Next Steps  
 
 ### End-to-End Testing
 - [ ] **Production flow test** — Full signup → profile → post on heyvera.org
-  - Blocked on: Backend deploy + Clerk key
+  - Ready for testing once frontend deploys with API fixes
   - Test steps: Visit heyvera.org → Sign up → Create profile → Post content
   - Success criteria: All API calls succeed, post appears in feed
 
-### Pulse Agent Features (Phase 1)
-- [ ] **Pulse backend** — Draft/schedule/approve tables + endpoints
-  - Status: Building `src/routes/pulse.ts` + DB tables
-  - Agent: Currently running
-- [ ] **Pulse frontend** — Compose modal tabs, draft management UI  
-  - Blocked on: Pulse backend completion
-  - Features: Post | Agent Assist | Schedule tabs, approval workflow
+### Pulse Agent Features (Phase 1) 
+- [x] **Pulse backend** — Draft/schedule/approve tables + endpoints
+  - Status: ✅ Complete and deployed at `api.heyvera.org/v1/pulse/*`
+  - All endpoints working: create drafts, approve, reject, publish
+- [x] **Pulse frontend** — Compose modal tabs, draft management UI
+  - Status: ✅ Complete integration with 3-tab modal (Post | Agent Assist | Schedule)
+  - Features: Draft creation, approval workflow, one-click publish
+  - Ready for testing once frontend deploys
 
 ## 🚀 Launch Ready When
 
-1. ✅ Backend responds at `api.heyvera.org/v1/health`
-2. ✅ Clerk auth works on `heyvera.org` (production key set)  
-3. ✅ Full signup → profile → post flow works end-to-end
-4. 🔄 Pulse agent-assist basic functionality (optional for initial launch)
+1. ✅ Backend responds at `api.heyvera.org/v1/health` (commit `771184f`)
+2. ✅ Clerk auth works on `heyvera.org` (production key set)
+3. 🔄 Frontend deploys with API connectivity fixes (PR #260)  
+4. ✅ Pulse agent-assist functionality complete (Phase 1)
+5. [ ] Full signup → profile → post flow tested end-to-end
+
+**Status: ~95% ready for launch**  
+Final testing pending frontend deployment with API fixes.
 
 ## Monitoring & Observability
 

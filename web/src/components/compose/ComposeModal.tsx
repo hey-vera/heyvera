@@ -1,6 +1,14 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useAuthContext } from "../../hooks/useAuthContext";
 import { createPost, fetchMyCommunities } from "../../api/social";
+import {
+  createDraft,
+  listDrafts,
+  approveDraft,
+  rejectDraft,
+  publishDraft,
+  type PulseDraft
+} from "../../api/pulse";
 import type { LinkedAgent, Community } from "../../api/social";
 
 type ComposeModalProps = {
@@ -12,6 +20,7 @@ type ComposeModalProps = {
 
 type AuthorMode = "person" | "agent";
 type VisibilityMode = "public" | "followers";
+type ComposeMode = "post" | "agent-assist" | "schedule";
 
 const MAX_CHAR_COUNT = 500;
 const WARNING_CHAR_COUNT = 450;
@@ -46,6 +55,13 @@ export function ComposeModal({
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Pulse/Agent Assist state
+  const [composeMode, setComposeMode] = useState<ComposeMode>("post");
+  const [drafts, setDrafts] = useState<PulseDraft[]>([]);
+  const [draftsLoading, setDraftsLoading] = useState(false);
+  // const [selectedDraft, setSelectedDraft] = useState<PulseDraft | null>(null);
+  const [showDraftManager, setShowDraftManager] = useState(false);
+
   const hasAgents = linkedAgents.length > 0;
   const characterCount = body.length;
   const isNearLimit = characterCount >= WARNING_CHAR_COUNT && characterCount <= MAX_CHAR_COUNT;
@@ -65,6 +81,11 @@ export function ComposeModal({
     setCommunitiesLoading(false);
     setSubmitting(false);
     setError(null);
+    setComposeMode("post");
+    setDrafts([]);
+    setDraftsLoading(false);
+    // setSelectedDraft(null);
+    setShowDraftManager(false);
   }, []);
 
   const handleClose = useCallback(() => {
@@ -135,6 +156,52 @@ export function ComposeModal({
       cancelled = true;
     };
   }, [getToken, isOpen, resetState]);
+
+  // Load drafts when switching to agent-assist mode
+  useEffect(() => {
+    if (!isOpen || composeMode !== "agent-assist") return;
+
+    let cancelled = false;
+
+    async function loadDrafts() {
+      setDraftsLoading(true);
+      setError(null);
+
+      try {
+        const token = await getToken();
+        if (!token) {
+          if (!cancelled) {
+            setDrafts([]);
+          }
+          return;
+        }
+
+        const result = await listDrafts(token);
+        if (!cancelled) {
+          setDrafts(result.drafts);
+        }
+      } catch (err: unknown) {
+        if (!cancelled) {
+          setDrafts([]);
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to load drafts",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setDraftsLoading(false);
+        }
+      }
+    }
+
+    void loadDrafts();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken, isOpen, composeMode]);
 
   useEffect(() => {
     if (!isOpen || !hasAgents) return;
@@ -229,6 +296,26 @@ export function ComposeModal({
         throw new Error("Not authenticated");
       }
 
+      // Handle Agent Assist mode (create draft)
+      if (composeMode === "agent-assist") {
+        const draftPayload = {
+          body: trimmedBody,
+          visibility,
+          authorMode,
+          linkedAgentId: authorMode === "agent" ? selectedAgentId : undefined,
+        };
+
+        await createDraft(token, draftPayload);
+        setBody(""); // Clear form
+        // Reload drafts
+        const result = await listDrafts(token);
+        setDrafts(result.drafts);
+        setShowDraftManager(true); // Switch to draft manager view
+        setSubmitting(false);
+        return;
+      }
+
+      // Handle direct posting (existing logic)
       const payload: {
         body: string;
         visibility: string;
@@ -261,6 +348,7 @@ export function ComposeModal({
     }
   }, [
     authorMode,
+    composeMode,
     getToken,
     handleClose,
     hasAgents,
@@ -274,6 +362,55 @@ export function ComposeModal({
     triggerRefresh,
     visibility,
   ]);
+
+  const handleApproveDraft = useCallback(async (draft: PulseDraft) => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        throw new Error("Not authenticated");
+      }
+
+      await approveDraft(token, draft.id);
+      // Reload drafts
+      const result = await listDrafts(token);
+      setDrafts(result.drafts);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to approve draft");
+    }
+  }, [getToken]);
+
+  const handleRejectDraft = useCallback(async (draft: PulseDraft, reason?: string) => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        throw new Error("Not authenticated");
+      }
+
+      await rejectDraft(token, draft.id, reason);
+      // Reload drafts
+      const result = await listDrafts(token);
+      setDrafts(result.drafts);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to reject draft");
+    }
+  }, [getToken]);
+
+  const handlePublishDraft = useCallback(async (draft: PulseDraft) => {
+    try {
+      const token = await getToken();
+      if (!token) {
+        throw new Error("Not authenticated");
+      }
+
+      await publishDraft(token, draft.id);
+      triggerRefresh();
+      // Reload drafts
+      const result = await listDrafts(token);
+      setDrafts(result.drafts);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Failed to publish draft");
+    }
+  }, [getToken, triggerRefresh]);
 
   if (!isOpen) return null;
 
@@ -293,7 +430,7 @@ export function ComposeModal({
       >
         <div className="compose-modal-header">
           <h2 id="compose-modal-title" className="compose-modal-title">
-            {replyToPostId ? "Reply" : "Compose post"}
+            {replyToPostId ? "Reply" : "Compose"}
           </h2>
           <button
             type="button"
@@ -306,51 +443,197 @@ export function ComposeModal({
           </button>
         </div>
 
-        <div className="compose-modal-body">
-          <textarea
-            ref={textareaRef}
-            className="compose-modal-textarea"
-            placeholder="What is happening?"
-            value={body}
-            onChange={(event) => setBody(event.target.value)}
-            disabled={submitting}
-            rows={6}
-            aria-label="Post body"
-          />
-
-          <div className="compose-modal-row compose-modal-row-author">
-            <span className="compose-modal-label">Author mode</span>
-            <div className="compose-modal-toggle-group" role="group" aria-label="Author mode">
-              <button
-                type="button"
-                className={`compose-modal-toggle${authorMode === "person" ? " compose-modal-toggle-active" : ""}`}
-                onClick={() => {
-                  setAuthorMode("person");
-                  setError(null);
-                }}
-                disabled={submitting}
-              >
-                Person
-              </button>
-              <button
-                type="button"
-                className={`compose-modal-toggle${authorMode === "agent" ? " compose-modal-toggle-active" : ""}`}
-                onClick={() => {
-                  setAuthorMode("agent");
-                  if (!selectedAgentId && linkedAgents[0]) {
-                    setSelectedAgentId(linkedAgents[0].id);
-                  }
-                  setError(null);
-                }}
-                disabled={submitting || !hasAgents}
-                title={hasAgents ? undefined : "Link an agent to post in agent mode"}
-              >
-                Agent
-              </button>
-            </div>
+        {/* Tab Navigation */}
+        {!replyToPostId && (
+          <div className="compose-modal-tabs">
+            <button
+              type="button"
+              className={`compose-modal-tab ${composeMode === "post" ? "compose-modal-tab-active" : ""}`}
+              onClick={() => {
+                setComposeMode("post");
+                setShowDraftManager(false);
+                setError(null);
+              }}
+              disabled={submitting}
+            >
+              Post
+            </button>
+            <button
+              type="button"
+              className={`compose-modal-tab ${composeMode === "agent-assist" ? "compose-modal-tab-active" : ""}`}
+              onClick={() => {
+                setComposeMode("agent-assist");
+                setShowDraftManager(false);
+                setError(null);
+              }}
+              disabled={submitting}
+            >
+              Agent Assist
+            </button>
+            <button
+              type="button"
+              className={`compose-modal-tab ${composeMode === "schedule" ? "compose-modal-tab-active" : ""}`}
+              onClick={() => {
+                setComposeMode("schedule");
+                setShowDraftManager(false);
+                setError(null);
+              }}
+              disabled={submitting || true} // Disabled for now
+              title="Coming soon"
+            >
+              Schedule
+            </button>
           </div>
+        )}
 
-          {authorMode === "agent" && (
+        <div className="compose-modal-body">
+          {/* Schedule Tab - Coming Soon */}
+          {composeMode === "schedule" && (
+            <div className="compose-modal-schedule-stub">
+              <div className="compose-modal-coming-soon">
+                <p>📅 Schedule posting coming soon!</p>
+                <p>This feature will allow you to schedule posts for specific times.</p>
+              </div>
+            </div>
+          )}
+
+          {/* Agent Assist Tab - Draft Manager */}
+          {composeMode === "agent-assist" && showDraftManager && (
+            <div className="compose-modal-draft-manager">
+              <div className="compose-modal-draft-header">
+                <h3>Your Drafts</h3>
+                <button
+                  type="button"
+                  className="compose-modal-new-draft-button"
+                  onClick={() => setShowDraftManager(false)}
+                >
+                  + New Draft
+                </button>
+              </div>
+
+              {draftsLoading && (
+                <p className="compose-modal-status">Loading drafts...</p>
+              )}
+
+              {!draftsLoading && drafts.length === 0 && (
+                <div className="compose-modal-empty-state">
+                  <p>No drafts yet. Create your first agent-assisted post!</p>
+                  <button
+                    type="button"
+                    className="compose-modal-new-draft-button"
+                    onClick={() => setShowDraftManager(false)}
+                  >
+                    Create Draft
+                  </button>
+                </div>
+              )}
+
+              {!draftsLoading && drafts.length > 0 && (
+                <div className="compose-modal-draft-list">
+                  {drafts.map((draft) => (
+                    <div key={draft.id} className="compose-modal-draft-item">
+                      <div className="compose-modal-draft-content">
+                        <p className="compose-modal-draft-body">{draft.body}</p>
+                        <div className="compose-modal-draft-meta">
+                          <span className={`compose-modal-draft-status compose-modal-draft-status-${draft.status}`}>
+                            {draft.status}
+                          </span>
+                          <span className="compose-modal-draft-date">
+                            {new Date(draft.createdAt).toLocaleDateString()}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="compose-modal-draft-actions">
+                        {draft.status === "pending" && (
+                          <>
+                            <button
+                              type="button"
+                              className="compose-modal-draft-action compose-modal-draft-approve"
+                              onClick={() => handleApproveDraft(draft)}
+                            >
+                              ✓ Approve
+                            </button>
+                            <button
+                              type="button"
+                              className="compose-modal-draft-action compose-modal-draft-reject"
+                              onClick={() => handleRejectDraft(draft)}
+                            >
+                              ✗ Reject
+                            </button>
+                          </>
+                        )}
+                        {draft.status === "approved" && (
+                          <button
+                            type="button"
+                            className="compose-modal-draft-action compose-modal-draft-publish"
+                            onClick={() => handlePublishDraft(draft)}
+                          >
+                            📤 Publish
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Post Tab & Agent Assist Draft Composer */}
+          {(composeMode === "post" || (composeMode === "agent-assist" && !showDraftManager)) && (
+            <>
+              <textarea
+                ref={textareaRef}
+                className="compose-modal-textarea"
+                placeholder={
+                  composeMode === "agent-assist"
+                    ? "Describe your post idea for agent assistance..."
+                    : "What is happening?"
+                }
+                value={body}
+                onChange={(event) => setBody(event.target.value)}
+                disabled={submitting}
+                rows={6}
+                aria-label={composeMode === "agent-assist" ? "Draft body" : "Post body"}
+              />
+            </>
+          )}
+
+          {(composeMode === "post" || (composeMode === "agent-assist" && !showDraftManager)) && (
+            <div className="compose-modal-row compose-modal-row-author">
+              <span className="compose-modal-label">Author mode</span>
+              <div className="compose-modal-toggle-group" role="group" aria-label="Author mode">
+                <button
+                  type="button"
+                  className={`compose-modal-toggle${authorMode === "person" ? " compose-modal-toggle-active" : ""}`}
+                  onClick={() => {
+                    setAuthorMode("person");
+                    setError(null);
+                  }}
+                  disabled={submitting}
+                >
+                  Person
+                </button>
+                <button
+                  type="button"
+                  className={`compose-modal-toggle${authorMode === "agent" ? " compose-modal-toggle-active" : ""}`}
+                  onClick={() => {
+                    setAuthorMode("agent");
+                    if (!selectedAgentId && linkedAgents[0]) {
+                      setSelectedAgentId(linkedAgents[0].id);
+                    }
+                    setError(null);
+                  }}
+                  disabled={submitting || !hasAgents}
+                  title={hasAgents ? undefined : "Link an agent to post in agent mode"}
+                >
+                  Agent
+                </button>
+              </div>
+            </div>
+          )}
+
+          {authorMode === "agent" && (composeMode === "post" || (composeMode === "agent-assist" && !showDraftManager)) && (
             <label className="compose-modal-field">
               <span className="compose-modal-label">Linked agent</span>
               <select
@@ -372,86 +655,109 @@ export function ComposeModal({
             </label>
           )}
 
-          <label className="compose-modal-field">
-            <span className="compose-modal-label">Community</span>
-            <select
-              className="compose-modal-select"
-              value={selectedCommunityId}
-              onChange={(event) => setSelectedCommunityId(event.target.value)}
-              disabled={submitting || communitiesLoading}
-              aria-label="Target a community"
-            >
-              <option value="">No community</option>
-              {communities.map((community: Community) => (
-                <option key={community.id} value={community.id}>
-                  {community.name}
-                </option>
-              ))}
-            </select>
-          </label>
+          {(composeMode === "post" || (composeMode === "agent-assist" && !showDraftManager)) && (
+            <label className="compose-modal-field">
+              <span className="compose-modal-label">Community</span>
+              <select
+                className="compose-modal-select"
+                value={selectedCommunityId}
+                onChange={(event) => setSelectedCommunityId(event.target.value)}
+                disabled={submitting || communitiesLoading}
+                aria-label="Target a community"
+              >
+                <option value="">No community</option>
+                {communities.map((community: Community) => (
+                  <option key={community.id} value={community.id}>
+                    {community.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
 
-          <div className="compose-modal-row compose-modal-row-visibility">
-            <span className="compose-modal-label">Visibility</span>
-            <div className="compose-modal-toggle-group" role="group" aria-label="Post visibility">
+          {(composeMode === "post" || (composeMode === "agent-assist" && !showDraftManager)) && (
+            <div className="compose-modal-row compose-modal-row-visibility">
+              <span className="compose-modal-label">Visibility</span>
+              <div className="compose-modal-toggle-group" role="group" aria-label="Post visibility">
+                <button
+                  type="button"
+                  className={`compose-modal-toggle${visibility === "public" ? " compose-modal-toggle-active" : ""}`}
+                  onClick={() => setVisibility("public")}
+                  disabled={submitting}
+                >
+                  Public
+                </button>
+                <button
+                  type="button"
+                  className={`compose-modal-toggle${visibility === "followers" ? " compose-modal-toggle-active" : ""}`}
+                  onClick={() => setVisibility("followers")}
+                  disabled={submitting}
+                >
+                  Followers only
+                </button>
+              </div>
+            </div>
+          )}
+
+          {(composeMode === "post" || (composeMode === "agent-assist" && !showDraftManager)) && (
+            <div className="compose-modal-row compose-modal-row-attachments">
+              <span className="compose-modal-label">Media</span>
               <button
                 type="button"
-                className={`compose-modal-toggle${visibility === "public" ? " compose-modal-toggle-active" : ""}`}
-                onClick={() => setVisibility("public")}
-                disabled={submitting}
+                className="compose-modal-media-button"
+                disabled
+                title="Coming soon"
               >
-                Public
+                Attach media
               </button>
+            </div>
+          )}
+
+          {(composeMode === "post" || (composeMode === "agent-assist" && !showDraftManager)) && (
+            <div className="compose-modal-footer">
+              <div className="compose-modal-footer-meta">
+                <span
+                  className={[
+                    "compose-modal-counter",
+                    isNearLimit ? "compose-modal-counter-warning" : "",
+                    isOverLimit ? "compose-modal-counter-danger" : "",
+                  ].filter(Boolean).join(" ")}
+                  aria-live="polite"
+                >
+                  {characterCount}/{MAX_CHAR_COUNT}
+                </span>
+                {communitiesLoading && (
+                  <span className="compose-modal-status">Loading communities...</span>
+                )}
+                {composeMode === "agent-assist" && !showDraftManager && (
+                  <button
+                    type="button"
+                    className="compose-modal-drafts-link"
+                    onClick={() => setShowDraftManager(true)}
+                  >
+                    View drafts ({drafts.length})
+                  </button>
+                )}
+              </div>
+
               <button
                 type="button"
-                className={`compose-modal-toggle${visibility === "followers" ? " compose-modal-toggle-active" : ""}`}
-                onClick={() => setVisibility("followers")}
-                disabled={submitting}
+                className="compose-modal-submit"
+                onClick={() => {
+                  void handleSubmit();
+                }}
+                disabled={postDisabled}
               >
-                Followers only
+                {submitting
+                  ? composeMode === "agent-assist"
+                    ? "Creating draft..."
+                    : "Posting..."
+                  : composeMode === "agent-assist"
+                  ? "Create Draft"
+                  : "Post"}
               </button>
             </div>
-          </div>
-
-          <div className="compose-modal-row compose-modal-row-attachments">
-            <span className="compose-modal-label">Media</span>
-            <button
-              type="button"
-              className="compose-modal-media-button"
-              disabled
-              title="Coming soon"
-            >
-              Attach media
-            </button>
-          </div>
-
-          <div className="compose-modal-footer">
-            <div className="compose-modal-footer-meta">
-              <span
-                className={[
-                  "compose-modal-counter",
-                  isNearLimit ? "compose-modal-counter-warning" : "",
-                  isOverLimit ? "compose-modal-counter-danger" : "",
-                ].filter(Boolean).join(" ")}
-                aria-live="polite"
-              >
-                {characterCount}/{MAX_CHAR_COUNT}
-              </span>
-              {communitiesLoading && (
-                <span className="compose-modal-status">Loading communities...</span>
-              )}
-            </div>
-
-            <button
-              type="button"
-              className="compose-modal-submit"
-              onClick={() => {
-                void handleSubmit();
-              }}
-              disabled={postDisabled}
-            >
-              {submitting ? "Posting..." : "Post"}
-            </button>
-          </div>
+          )}
 
           {missingAgent && (
             <p className="compose-modal-error">
