@@ -1097,6 +1097,36 @@ export interface GroupOperationsSummary {
   recent_events: RunOperationEvent[];
 }
 
+export interface PersonalOperationsGroupSummary {
+  group_id: string;
+  name: string;
+  kind: string;
+  source: string;
+  accent: string;
+  active: number;
+  tasks: GroupOperationsSummary['tasks'];
+  runs: GroupOperationsSummary['runs'];
+  steps: GroupOperationsSummary['steps'];
+  approvals: NonNullable<GroupOperationsSummary['approvals']>;
+  resource_leases: NonNullable<GroupOperationsSummary['resource_leases']>;
+  attention: GroupOperationsAttentionItem[];
+}
+
+export interface PersonalOperationsSummary {
+  scope: 'personal';
+  generated_at: number;
+  groups_total: number;
+  active_groups: number;
+  tasks: GroupOperationsSummary['tasks'];
+  runs: Omit<GroupOperationsSummary['runs'], 'latest_run_id'>;
+  steps: GroupOperationsSummary['steps'];
+  approvals: NonNullable<GroupOperationsSummary['approvals']>;
+  resource_leases: NonNullable<GroupOperationsSummary['resource_leases']>;
+  attention: GroupOperationsAttentionItem[];
+  recent_events: RunOperationEvent[];
+  groups: PersonalOperationsGroupSummary[];
+}
+
 export interface RunListItem {
   id: string;
   goal: string;
@@ -1184,6 +1214,10 @@ export async function getGroupOperationsSummary(groupId: string): Promise<GroupO
   return requestJson<GroupOperationsSummary>(
     `/api/groups/${encodeURIComponent(groupId)}/operations/summary`,
   );
+}
+
+export async function getPersonalOperationsSummary(): Promise<PersonalOperationsSummary> {
+  return requestJson<PersonalOperationsSummary>('/api/operations/summary');
 }
 
 export async function listGroupApprovals(
