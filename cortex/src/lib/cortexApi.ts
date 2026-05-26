@@ -1098,6 +1098,7 @@ export interface GroupOperationsSummary {
     pending: number;
     approved: number;
     rejected: number;
+    cancelled?: number;
   };
   resource_leases?: {
     active: number;

@@ -3668,6 +3668,7 @@ impl Database {
         let mut approvals_pending = 0;
         let mut approvals_approved = 0;
         let mut approvals_rejected = 0;
+        let mut approvals_cancelled = 0;
         for (approval_id, task_id, run_id, status, title, priority, updated_at) in &approval_rows {
             match status.as_str() {
                 "pending" => {
@@ -3687,6 +3688,7 @@ impl Database {
                 }
                 "approved" => approvals_approved += 1,
                 "rejected" => approvals_rejected += 1,
+                "cancelled" => approvals_cancelled += 1,
                 _ => {}
             }
         }
@@ -3844,6 +3846,7 @@ impl Database {
                 "pending": approvals_pending,
                 "approved": approvals_approved,
                 "rejected": approvals_rejected,
+                "cancelled": approvals_cancelled,
             },
             "resource_leases": {
                 "active": active_resource_leases.len(),
@@ -3904,6 +3907,7 @@ impl Database {
         let mut approvals_pending = 0;
         let mut approvals_approved = 0;
         let mut approvals_rejected = 0;
+        let mut approvals_cancelled = 0;
         let mut resource_leases_active = 0;
         let mut resource_leases_path = 0;
         let mut resource_leases_task = 0;
@@ -3955,6 +3959,7 @@ impl Database {
             approvals_pending += json_i64(&summary, &["approvals", "pending"]);
             approvals_approved += json_i64(&summary, &["approvals", "approved"]);
             approvals_rejected += json_i64(&summary, &["approvals", "rejected"]);
+            approvals_cancelled += json_i64(&summary, &["approvals", "cancelled"]);
             resource_leases_active += json_i64(&summary, &["resource_leases", "active"]);
             resource_leases_path += json_i64(&summary, &["resource_leases", "by_type", "path"]);
             resource_leases_task += json_i64(&summary, &["resource_leases", "by_type", "task"]);
@@ -4042,6 +4047,7 @@ impl Database {
                 "pending": approvals_pending,
                 "approved": approvals_approved,
                 "rejected": approvals_rejected,
+                "cancelled": approvals_cancelled,
             },
             "resource_leases": {
                 "active": resource_leases_active,
@@ -7654,6 +7660,40 @@ mod tests {
 
         let pending = db.list_cortex_approval_requests("user-1", "group-1", Some("pending"), 10);
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn operations_summary_counts_cancelled_approvals() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "First task"));
+
+        let request = db.create_cortex_approval_request(
+            "user-1",
+            "group-1",
+            Some("task-1"),
+            None,
+            None,
+            "Cancel stale ask",
+            "This ask is no longer needed.",
+            "normal",
+            "task-manager",
+        );
+
+        db.resolve_cortex_approval_request(
+            "user-1",
+            "group-1",
+            &request.id,
+            "cancelled",
+            &serde_json::json!({ "source": "test" }),
+        )
+        .expect("approval cancels");
+
+        let group_summary = db.get_group_operations_summary("user-1", "group-1", 25);
+        assert_eq!(group_summary["approvals"]["pending"], 0);
+        assert_eq!(group_summary["approvals"]["cancelled"], 1);
+
+        let personal_summary = db.get_personal_operations_summary("user-1", 25);
+        assert_eq!(personal_summary["approvals"]["cancelled"], 1);
     }
 
     #[test]

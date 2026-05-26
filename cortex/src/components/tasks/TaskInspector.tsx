@@ -400,6 +400,7 @@ export default function TaskInspector({
   const pendingApprovals = projection?.approvals.filter((approval) => approval.status === 'pending') ?? [];
   const approvedApprovals = projection?.approvals.filter((approval) => approval.status === 'approved') ?? [];
   const rejectedApprovals = projection?.approvals.filter((approval) => approval.status === 'rejected') ?? [];
+  const cancelledApprovals = projection?.approvals.filter((approval) => approval.status === 'cancelled') ?? [];
   const primaryPendingApproval = pendingApprovals[0] ?? null;
   const isResolvingPrimaryApproval = Boolean(primaryPendingApproval && resolvingApprovalId === primaryPendingApproval.id);
   const latestAuthorityEvent = projectionEvents.find((event) => eventAuthorityLabel(event));
@@ -522,7 +523,7 @@ export default function TaskInspector({
           </div>
           {projection ? (
             <div className="mt-2 space-y-2">
-              <div className="grid grid-cols-3 gap-1.5">
+              <div className="grid grid-cols-4 gap-1.5">
                 <div className="rounded-md border border-white/8 bg-white/[0.02] px-2 py-1.5">
                   <p className="text-[9px] uppercase text-[var(--muted)]">Pending</p>
                   <p className="text-xs font-semibold text-amber-100">{pendingApprovals.length}</p>
@@ -534,6 +535,10 @@ export default function TaskInspector({
                 <div className="rounded-md border border-white/8 bg-white/[0.02] px-2 py-1.5">
                   <p className="text-[9px] uppercase text-[var(--muted)]">Rejected</p>
                   <p className="text-xs font-semibold text-rose-200">{rejectedApprovals.length}</p>
+                </div>
+                <div className="rounded-md border border-white/8 bg-white/[0.02] px-2 py-1.5">
+                  <p className="text-[9px] uppercase text-[var(--muted)]">Cancelled</p>
+                  <p className="text-xs font-semibold text-[var(--muted-strong)]">{cancelledApprovals.length}</p>
                 </div>
               </div>
               {primaryPendingApproval && (
