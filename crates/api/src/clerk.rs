@@ -106,19 +106,41 @@ impl JwksStampedeGuard {
 }
 
 pub async fn fetch_jwks(clerk_secret_key: &str) -> Result<Vec<JwkKey>, String> {
+    let start = std::time::Instant::now();
     let client = reqwest::Client::new();
     let res = client
         .get("https://api.clerk.com/v1/jwks")
         .bearer_auth(clerk_secret_key)
         .send()
         .await
-        .map_err(|e| format!("JWKS fetch failed: {e}"))?;
+        .map_err(|e| {
+            tracing::warn!(
+                method = "jwks_fetch",
+                duration_ms = start.elapsed().as_millis() as u64,
+                error = %e,
+                "JWKS fetch failed"
+            );
+            format!("JWKS fetch failed: {e}")
+        })?;
 
     if !res.status().is_success() {
-        return Err(format!("JWKS fetch returned {}", res.status()));
+        let status = res.status();
+        tracing::warn!(
+            method = "jwks_fetch",
+            duration_ms = start.elapsed().as_millis() as u64,
+            http_status = status.as_u16(),
+            "JWKS fetch returned non-success status"
+        );
+        return Err(format!("JWKS fetch returned {}", status));
     }
 
     let jwks: JwksResponse = res.json().await.map_err(|e| format!("JWKS parse failed: {e}"))?;
+    tracing::info!(
+        method = "jwks_fetch",
+        duration_ms = start.elapsed().as_millis() as u64,
+        key_count = jwks.keys.len(),
+        "JWKS refresh"
+    );
     Ok(jwks.keys)
 }
 

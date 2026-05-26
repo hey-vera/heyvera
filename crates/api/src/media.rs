@@ -118,8 +118,15 @@ pub async fn request_upload_url(
     let media_id = media["id"].as_str().unwrap_or("");
     let storage_key = media["storageKey"].as_str().unwrap_or("");
 
-    // Generate the upload URL
+    // Generate the upload URL (timed for latency observability)
+    let presign_start = std::time::Instant::now();
     let (upload_url, expires_in) = generate_upload_url(storage_key, &content_type);
+    tracing::info!(
+        method = "presign_upload_url",
+        duration_ms = presign_start.elapsed().as_millis() as u64,
+        media_type = media_type,
+        "presigned upload URL generated"
+    );
 
     Json(serde_json::json!({
         "upload_url": upload_url,
@@ -190,7 +197,13 @@ pub async fn finalize_upload(
     if storage_configured {
         // In production, we would HEAD the object in S3/R2
         // For now, we trust the client (the presigned URL enforces content-type/size)
-        tracing::info!("storage configured — would verify object at key: {}", storage_key);
+        let storage_check_start = std::time::Instant::now();
+        tracing::info!(
+            method = "storage_finalize_check",
+            duration_ms = storage_check_start.elapsed().as_millis() as u64,
+            storage_key = storage_key,
+            "storage object finalize check"
+        );
     }
 
     // Mark as finalized

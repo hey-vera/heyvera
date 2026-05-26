@@ -5,6 +5,35 @@ use tracing_subscriber::EnvFilter;
 use cortex_api::scheduler;
 use cortex_api::state::AppState;
 
+/// Initialize the OpenTelemetry OTLP tracing pipeline.
+/// Returns the tracer provider so it can be shut down on exit.
+#[cfg(feature = "otel")]
+fn init_otel(endpoint: &str) -> Result<opentelemetry_sdk::trace::SdkTracerProvider, Box<dyn std::error::Error>> {
+    use opentelemetry::trace::TracerProvider as _;
+    use opentelemetry_otlp::WithExportConfig;
+    use opentelemetry_sdk::trace::{SdkTracerProvider, Config};
+    use opentelemetry_sdk::Resource;
+    use opentelemetry::KeyValue;
+
+    let exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(endpoint)
+        .build()?;
+
+    let resource = Resource::new(vec![
+        KeyValue::new("service.name", env!("CARGO_PKG_NAME")),
+        KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
+    ]);
+
+    let provider = SdkTracerProvider::builder()
+        .with_batch_exporter(exporter)
+        .with_config(Config::default().with_resource(resource))
+        .build();
+
+    opentelemetry::global::set_tracer_provider(provider.clone());
+    Ok(provider)
+}
+
 async fn shutdown_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
@@ -72,26 +101,67 @@ async fn main() {
 
     #[cfg(not(feature = "sentry-tracking"))]
     {
+        use tracing_subscriber::prelude::*;
+
         let env_filter = EnvFilter::try_from_default_env()
             .unwrap_or_else(|_| "info".parse().unwrap());
         // Use structured JSON logging when CORTEX_JSON_LOGS=true (production default)
         let use_json = std::env::var("CORTEX_JSON_LOGS")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
             .unwrap_or(false);
-        if use_json {
-            tracing_subscriber::fmt()
-                .json()
-                .with_env_filter(env_filter)
-                .init();
+
+        let fmt_layer = if use_json {
+            tracing_subscriber::fmt::layer().json().boxed()
         } else {
-            tracing_subscriber::fmt()
-                .with_env_filter(env_filter)
+            tracing_subscriber::fmt::layer().boxed()
+        };
+
+        // ── OpenTelemetry layer (gated on feature + env var) ─────────────────
+        #[cfg(feature = "otel")]
+        {
+            let otel_endpoint = std::env::var("OTEL_ENDPOINT").ok();
+            if let Some(ref endpoint) = otel_endpoint {
+                match init_otel(endpoint) {
+                    Ok(_provider) => {
+                        let otel_layer = tracing_opentelemetry::layer();
+                        tracing_subscriber::registry()
+                            .with(fmt_layer.with_filter(env_filter))
+                            .with(otel_layer)
+                            .init();
+                        eprintln!("OpenTelemetry tracing enabled → {endpoint}");
+                    }
+                    Err(e) => {
+                        tracing_subscriber::registry()
+                            .with(fmt_layer.with_filter(env_filter))
+                            .init();
+                        eprintln!("OpenTelemetry init failed (continuing without OTel): {e}");
+                    }
+                }
+            } else {
+                tracing_subscriber::registry()
+                    .with(fmt_layer.with_filter(env_filter))
+                    .init();
+            }
+        }
+
+        #[cfg(not(feature = "otel"))]
+        {
+            tracing_subscriber::registry()
+                .with(fmt_layer.with_filter(env_filter))
                 .init();
         }
+
         if std::env::var("SENTRY_DSN").is_ok() {
             tracing::warn!(
                 "SENTRY_DSN is set but the sentry-tracking feature was not compiled in; \
                  rebuild with --features sentry-tracking to enable it"
+            );
+        }
+        if std::env::var("OTEL_ENDPOINT").is_ok() {
+            #[cfg(not(feature = "otel"))]
+            tracing::warn!(
+                "OTEL_ENDPOINT is set but the otel feature was not compiled in; \
+                 rebuild with --features otel to enable it"
             );
         }
     }

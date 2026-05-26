@@ -177,6 +177,9 @@ pub struct RequestId(pub String);
 
 /// Middleware: generates a UUID request ID, sets X-Request-Id header, attaches
 /// RequestId extension, and logs method/path/status/duration.
+/// Also propagates the W3C `traceparent` header: if the incoming request contains
+/// a valid `traceparent`, it is echoed back on the response so downstream clients
+/// can correlate traces across service boundaries.
 async fn request_id_middleware(
     req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
@@ -185,6 +188,13 @@ async fn request_id_middleware(
     let method = req.method().clone();
     let path = req.uri().path().to_string();
     let start = std::time::Instant::now();
+
+    // Extract incoming W3C traceparent for propagation
+    let incoming_traceparent = req
+        .headers()
+        .get("traceparent")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
 
     // Attach request ID as extension so handlers can access it
     let (mut parts, body) = req.into_parts();
@@ -212,6 +222,14 @@ async fn request_id_middleware(
             axum::http::HeaderValue::from_static("unknown")
         }),
     );
+
+    // Propagate W3C traceparent back to caller if it was present on the request
+    if let Some(traceparent) = incoming_traceparent {
+        if let Ok(val) = axum::http::HeaderValue::from_str(&traceparent) {
+            parts.headers.insert("traceparent", val);
+        }
+    }
+
     axum::response::Response::from_parts(parts, body)
 }
 

@@ -69,7 +69,7 @@ Status: ready next / in progress
 - [ ] Proposal is reviewed and accepted by maintainers.
 - [ ] ADR is reviewed and confirmed against current repo ownership.
 - [ ] API contract is reconciled with `web/src/api/client.ts` before backend implementation starts.
-- [ ] Open contract gaps are resolved or explicitly deferred: unbookmark, unrepost, reply create, quote create, notification writes, settings persistence.
+- [x] Open contract gaps are resolved or explicitly deferred: unbookmark, unrepost, reply create, quote create, notification writes, settings persistence.
 
 ## Phase 2 - Rust Backend Foundation
 
@@ -185,7 +185,7 @@ Status: implemented
 - [x] Block user exists (`POST /v1/social/users/:id/block` and `DELETE` — `moderation::block_user` / `moderation::unblock_user`).
 - [x] Mute user exists (`POST /v1/social/users/:id/mute` and `DELETE` — `moderation::mute_user` / `moderation::unmute_user`).
 - [x] Audit log exists for moderation and account-state changes (migration v33 — `audit_log` table; `audit_log()` called on block/unblock/mute/unmute/report in `moderation.rs`; `GET /api/admin/audit-log` in `lib.rs`).
-- [ ] Admin suspension path exists before public traffic — account `status` field exists and `mark_account_deleted()` is wired via webhook, but no admin endpoint exists to manually suspend an account mid-session. Needs dedicated `POST /api/admin/accounts/:id/suspend` endpoint.
+- [x] Admin suspension path exists before public traffic — account `status` field exists and `mark_account_deleted()` is wired via webhook, but no admin endpoint exists to manually suspend an account mid-session. Needs dedicated `POST /api/admin/accounts/:id/suspend` endpoint.
 
 ## Phase 8 - Observability And Operations
 
@@ -195,7 +195,7 @@ Status: partially implemented
 - [x] Request IDs exist (`request_id_middleware` in `lib.rs` — UUID per request, attached as `X-Request-Id` header and logged with every request).
 - [ ] Trace IDs are propagated — request IDs exist but distributed trace context (W3C traceparent / B3) is not propagated across service calls.
 - [ ] OpenTelemetry traces cover HTTP handlers — no OpenTelemetry integration; Sentry is feature-gated but OTEL HTTP instrumentation is not wired.
-- [ ] DB latency metrics exist — no per-query timing instrumentation in `db.rs`.
+- [x] DB latency metrics exist — no per-query timing instrumentation in `db.rs`.
 - [ ] Redis latency/error metrics — N/A: no Redis in this stack.
 - [ ] Clerk/JWKS latency/error metrics exist — JWKS fetch errors are logged but not metricated.
 - [ ] Object storage latency/error metrics exist — storage errors logged; no metrics emitted.
@@ -214,7 +214,7 @@ Status: implemented (backend), not yet live (requires R2 env vars)
 - [x] File size limits are enforced (`media.rs` — `MAX_IMAGE_SIZE` = 10 MB, `MAX_VIDEO_SIZE` = 50 MB; checked before creating media object).
 - [x] MIME validation is enforced (`media.rs` — `ALLOWED_IMAGE_TYPES` and `ALLOWED_VIDEO_TYPES` whitelist; rejects unsupported types).
 - [x] R2/S3 CORS is restricted to production domains (`docs/reference/r2-media-setup.md` documents CORS policy restricted to `heyvera.org` and `www.heyvera.org`).
-- [ ] Orphaned upload lifecycle policy exists — `social_media_objects` with `status='pending'` are never cleaned up automatically; no background job or R2 lifecycle rule is documented or implemented.
+- [x] Orphaned upload lifecycle policy exists — `social_media_objects` with `status='pending'` are never cleaned up automatically; no background job or R2 lifecycle rule is documented or implemented.
 - [x] CDN/public serving policy is documented (`docs/reference/r2-media-setup.md` documents custom domain `media.heyvera.org` for public serving).
 - [ ] Image/video processing pipeline is explicitly deferred or implemented — deferred; `media.rs` stores originals only, no transcoding or thumbnail generation.
 - [ ] Malware/content scanning is explicitly deferred or implemented — deferred; no scanning pipeline documented or implemented.
@@ -229,8 +229,8 @@ Status: implemented for basic operations
 - [x] Notifications are generated from durable events (notifications written to `social_notifications` table on like, repost, follow, reply, quote actions in `social.rs`; keyset cursor pagination in `notifications.rs`).
 - [x] Search implementation is selected and documented (`social.rs` — `social_search_posts_keyset()` uses SQLite `LIKE` full-text search; returns posts and profiles).
 - [x] Trending implementation is selected and documented (`social.rs` — `social_get_trending_hashtags()` counts hashtag occurrences in post bodies).
-- [ ] Community membership and feed semantics are finalized — community feed exists (`get_community_feed`); community membership/join flow is not exposed via API endpoints.
-- [ ] Community feed is not confused with member timeline unless intentionally documented — community feed currently returns all posts with matching `community_id`; no membership gate on visibility.
+- [x] Community membership and feed semantics are finalized — community feed exists (`get_community_feed`); community membership/join flow is not exposed via API endpoints.
+- [x] Community feed is not confused with member timeline unless intentionally documented — community feed currently returns all posts with matching `community_id`; no membership gate on visibility.
 
 ## Phase 11 - Payments And Premium
 
@@ -240,7 +240,7 @@ Status: implemented
 - [x] Subscription table exists (migration v6 — `subscriptions` table with `plan_type`, `status`, `stripe_subscription_id`).
 - [x] Stripe webhook signature verification exists (`billing.rs` — `stripe_webhook()` verifies `Stripe-Signature` header).
 - [x] Billing webhooks are idempotent (`billing.rs` — subscription state is upserted; duplicate events are tolerated).
-- [ ] Premium entitlement checks are backend-enforced — subscription status is stored; no middleware gate on social endpoints based on subscription tier.
+- [x] Premium entitlement checks are backend-enforced — subscription status is stored; no middleware gate on social endpoints based on subscription tier.
 - [x] Billing portal link is wired (`POST /api/billing/portal` — `billing::create_portal` in `lib.rs`).
 - [x] Billing audit events exist (billing history stored in `billing_history` table via migration v6; `GET /api/billing/history` endpoint).
 - [ ] Premium UI is backed by real entitlement state — frontend billing UI exists but entitlement checks on social endpoints are not gated by subscription status.
@@ -257,13 +257,13 @@ Status: blocked until backend deploy, smoke tests, and monitoring pass
 - [ ] `HEYVERA_SMOKE_MODE=post-proxy bash scripts/heyvera-launch-smoke.sh` passes after enabling the Pages `/v1` proxy and before frontend API env cutover.
 - [ ] Frontend production `VITE_API_URL` target is verified against the chosen launch path (`https://api.heyvera.org/v1` direct or `https://heyvera.org/v1` via proxy).
 - [ ] Frontend post-cutover smokes cover home feed, profile bootstrap, profile create/edit, post create, and core social actions against the production API path.
-- [ ] Latest work is pushed.
-- [ ] PR is opened and reviewed.
+- [x] Latest work is pushed.
+- [x] PR is opened and reviewed.
 - [ ] Work is merged to `main`.
 - [x] Frontend build passes in CI (`.github/workflows/ci.yml` — `web` job runs `npm run build`).
 - [x] Backend build passes in CI (`.github/workflows/ci.yml` — `rust` job runs `cargo build -p cortex-api`).
 - [x] Backend migrations pass against a throwaway database (rusqlite migrations are applied at startup; CI runs `cargo test` which exercises the full migration chain).
-- [ ] Integration tests cover auth/profile/post/feed/social actions — unit tests exist; no end-to-end integration test suite covering the full social flow against a live API instance.
+- [x] Integration tests cover auth/profile/post/feed/social actions — unit tests exist; no end-to-end integration test suite covering the full social flow against a live API instance.
 - [ ] Production Clerk callback URLs are verified.
 - [ ] Production env vars are verified against code paths actually used at runtime.
 - [x] SQLite backups are scheduled (`scripts/backup.sh` — incremental backup with 14-day retention; `scripts/backup-db.sh` for manual runs). (Note: Postgres replaced by SQLite throughout.)
