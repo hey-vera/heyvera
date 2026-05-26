@@ -99,6 +99,15 @@ pub struct OperationsEvent {
     pub payload: serde_json::Value,
 }
 
+#[derive(Debug, Clone)]
+pub struct CortexTaskStateEvent {
+    pub task_id: Option<String>,
+    pub event_type: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub payload: serde_json::Value,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StepDependencyEdge {
     pub step_id: String,
@@ -1518,13 +1527,28 @@ fn index_group_task_state(
     group_id: &str,
     state: &serde_json::Value,
 ) {
+    if let Err(err) = index_group_task_state_checked(conn, user_id, group_id, state) {
+        tracing::warn!(
+            user_id = user_id,
+            group_id = group_id,
+            error = %err,
+            "failed to index group task state"
+        );
+    }
+}
+
+fn index_group_task_state_checked(
+    conn: &Connection,
+    user_id: &str,
+    group_id: &str,
+    state: &serde_json::Value,
+) -> rusqlite::Result<()> {
     let Some(tasks) = state.get("tasks").and_then(|value| value.as_array()) else {
         conn.execute(
             "DELETE FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2",
             params![user_id, group_id],
-        )
-        .ok();
-        return;
+        )?;
+        return Ok(());
     };
 
     let mut seen_ids = HashSet::new();
@@ -1577,8 +1601,7 @@ fn index_group_task_state(
                 latest_run_id,
                 source_json
             ],
-        )
-        .ok();
+        )?;
 
         if let Some(conversation_id) = conversation_id {
             conn.execute(
@@ -1587,21 +1610,15 @@ fn index_group_task_state(
                  )
                  VALUES (?1, ?2, ?3, ?4, datetime('now'))",
                 params![user_id, group_id, id, conversation_id],
-            )
-            .ok();
+            )?;
         }
     }
 
     let existing_ids = {
-        let mut stmt = match conn
-            .prepare("SELECT id FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2")
-        {
-            Ok(stmt) => stmt,
-            Err(_) => return,
-        };
-        stmt.query_map(params![user_id, group_id], |row| row.get::<_, String>(0))
-            .map(|rows| rows.filter_map(|row| row.ok()).collect::<Vec<_>>())
-            .unwrap_or_default()
+        let mut stmt =
+            conn.prepare("SELECT id FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2")?;
+        stmt.query_map(params![user_id, group_id], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
     };
 
     for existing_id in existing_ids {
@@ -1609,10 +1626,11 @@ fn index_group_task_state(
             conn.execute(
                 "DELETE FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2 AND id = ?3",
                 params![user_id, group_id, existing_id],
-            )
-            .ok();
+            )?;
         }
     }
+
+    Ok(())
 }
 
 fn attach_cortex_task_chat_tx(
@@ -1623,6 +1641,35 @@ fn attach_cortex_task_chat_tx(
     conversation_id: &str,
     run_id: Option<&str>,
 ) -> bool {
+    if let Err(err) = attach_cortex_task_chat_tx_checked(
+        conn,
+        user_id,
+        group_id,
+        task_id,
+        conversation_id,
+        run_id,
+    ) {
+        tracing::warn!(
+            user_id = user_id,
+            group_id = group_id,
+            task_id = task_id,
+            conversation_id = conversation_id,
+            error = %err,
+            "failed to attach cortex task chat"
+        );
+        return false;
+    }
+    true
+}
+
+fn attach_cortex_task_chat_tx_checked(
+    conn: &Connection,
+    user_id: &str,
+    group_id: &str,
+    task_id: &str,
+    conversation_id: &str,
+    run_id: Option<&str>,
+) -> rusqlite::Result<()> {
     let now = Utc::now().timestamp_millis();
     let rows = if let Some(run_id) = run_id {
         conn.execute(
@@ -1633,7 +1680,7 @@ fn attach_cortex_task_chat_tx(
                  version = version + 1
              WHERE user_id = ?3 AND group_id = ?4 AND id = ?5",
             params![run_id, conversation_id, user_id, group_id, task_id],
-        )
+        )?
     } else {
         conn.execute(
             "UPDATE cortex_tasks
@@ -1642,11 +1689,10 @@ fn attach_cortex_task_chat_tx(
                  version = version + 1
              WHERE user_id = ?2 AND group_id = ?3 AND id = ?4",
             params![conversation_id, user_id, group_id, task_id],
-        )
-    }
-    .unwrap_or(0);
+        )?
+    };
     if rows == 0 {
-        return false;
+        return Err(rusqlite::Error::QueryReturnedNoRows);
     }
 
     conn.execute(
@@ -1657,10 +1703,9 @@ fn attach_cortex_task_chat_tx(
          ON CONFLICT(user_id, group_id, task_id, conversation_id) DO UPDATE SET
             attached_at = datetime('now')",
         params![user_id, group_id, task_id, conversation_id],
-    )
-    .ok();
+    )?;
 
-    insert_operations_event(
+    try_insert_operations_event(
         conn,
         Some(user_id),
         Some(group_id),
@@ -1679,8 +1724,8 @@ fn attach_cortex_task_chat_tx(
             "run_id": run_id,
             "attached_at": now,
         }),
-    );
-    true
+    )?;
+    Ok(())
 }
 
 fn attach_run_to_cortex_task(
@@ -1731,8 +1776,46 @@ fn insert_operations_event(
     entity_id: &str,
     payload: &serde_json::Value,
 ) {
+    if let Err(err) = try_insert_operations_event(
+        conn,
+        actor_user_id,
+        scope_id,
+        project_id,
+        task_id,
+        run_id,
+        step_id,
+        attempt_id,
+        event_type,
+        entity_type,
+        entity_id,
+        payload,
+    ) {
+        tracing::warn!(
+            event_type = event_type,
+            entity_type = entity_type,
+            entity_id = entity_id,
+            error = %err,
+            "failed to record operations event"
+        );
+    }
+}
+
+fn try_insert_operations_event(
+    conn: &Connection,
+    actor_user_id: Option<&str>,
+    scope_id: Option<&str>,
+    project_id: Option<&str>,
+    task_id: Option<&str>,
+    run_id: Option<&str>,
+    step_id: Option<&str>,
+    attempt_id: Option<&str>,
+    event_type: &str,
+    entity_type: &str,
+    entity_id: &str,
+    payload: &serde_json::Value,
+) -> rusqlite::Result<()> {
     let payload_json = serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string());
-    let result = conn.execute(
+    conn.execute(
         "INSERT INTO operations_events (
             id, created_at, actor_user_id, scope_id, project_id, task_id, run_id, step_id,
             attempt_id, event_type, entity_type, entity_id, payload_json
@@ -1753,17 +1836,8 @@ fn insert_operations_event(
             entity_id,
             payload_json,
         ],
-    );
-
-    if let Err(err) = result {
-        tracing::warn!(
-            event_type = event_type,
-            entity_type = entity_type,
-            entity_id = entity_id,
-            error = %err,
-            "failed to record operations event"
-        );
-    }
+    )?;
+    Ok(())
 }
 
 struct CortexCompletionGate {
@@ -3121,6 +3195,67 @@ impl Database {
         .expect("failed to upsert group task state");
         index_group_task_state(&conn, user_id, group_id, state);
         state.clone()
+    }
+
+    pub fn upsert_group_task_state_with_events(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        state: &serde_json::Value,
+        events: &[CortexTaskStateEvent],
+        chat_attachment: Option<(&str, &str)>,
+    ) -> Result<serde_json::Value, String> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to begin task state transaction: {err}"))?;
+        let raw = serde_json::to_string(state).unwrap_or_else(|_| "{}".to_string());
+        tx.execute(
+            "INSERT INTO group_task_state (group_id, user_id, state_json, updated_at)
+             VALUES (?1, ?2, ?3, datetime('now'))
+             ON CONFLICT(group_id, user_id) DO UPDATE SET
+                state_json = excluded.state_json,
+                updated_at = datetime('now')",
+            params![group_id, user_id, raw],
+        )
+        .map_err(|err| format!("failed to upsert group task state: {err}"))?;
+
+        index_group_task_state_checked(&tx, user_id, group_id, state)
+            .map_err(|err| format!("failed to index group task state: {err}"))?;
+
+        for event in events {
+            try_insert_operations_event(
+                &tx,
+                Some(user_id),
+                Some(group_id),
+                None,
+                event.task_id.as_deref(),
+                None,
+                None,
+                None,
+                &event.event_type,
+                &event.entity_type,
+                &event.entity_id,
+                &event.payload,
+            )
+            .map_err(|err| format!("failed to record task state event: {err}"))?;
+        }
+
+        if let Some((task_id, conversation_id)) = chat_attachment {
+            attach_cortex_task_chat_tx_checked(
+                &tx,
+                user_id,
+                group_id,
+                task_id,
+                conversation_id,
+                None,
+            )
+            .map_err(|err| format!("failed to attach task chat: {err}"))?;
+        }
+
+        tx.commit()
+            .map_err(|err| format!("failed to commit task state transaction: {err}"))?;
+        Ok(state.clone())
     }
 
     pub fn cortex_task_exists(&self, user_id: &str, group_id: &str, task_id: &str) -> bool {
@@ -8177,6 +8312,86 @@ mod tests {
             "Apply change".to_string(),
             Utc::now().timestamp_millis(),
         )
+    }
+
+    #[test]
+    fn upsert_group_task_state_with_events_persists_projection_and_event() {
+        let db = test_db();
+        let state = task_state("task-1", "First task");
+        db.upsert_group_task_state_with_events(
+            "user-1",
+            "group-1",
+            &state,
+            &[CortexTaskStateEvent {
+                task_id: Some("task-1".to_string()),
+                event_type: "task.created".to_string(),
+                entity_type: "task".to_string(),
+                entity_id: "task-1".to_string(),
+                payload: serde_json::json!({ "task": { "id": "task-1" } }),
+            }],
+            None,
+        )
+        .expect("atomic task state write");
+
+        let projection = db
+            .get_cortex_task_projection("user-1", "group-1", "task-1", 25)
+            .expect("task projection");
+
+        assert_eq!(projection["task"]["id"], "task-1");
+        assert!(
+            projection["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|event| {
+                    event["event_type"] == "task.created"
+                        && event["entity_type"] == "task"
+                        && event["entity_id"] == "task-1"
+                        && event["task_id"] == "task-1"
+                })
+        );
+    }
+
+    #[test]
+    fn upsert_group_task_state_with_events_rolls_back_when_attachment_fails() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "First task"));
+        let next_state = task_state("task-2", "Second task");
+
+        let result = db.upsert_group_task_state_with_events(
+            "user-1",
+            "group-1",
+            &next_state,
+            &[CortexTaskStateEvent {
+                task_id: Some("task-2".to_string()),
+                event_type: "task.created".to_string(),
+                entity_type: "task".to_string(),
+                entity_id: "task-2".to_string(),
+                payload: serde_json::json!({ "task": { "id": "task-2" } }),
+            }],
+            Some(("missing-task", "conversation-1")),
+        );
+
+        assert!(result.is_err());
+        assert!(
+            db.get_cortex_task_projection("user-1", "group-1", "task-2", 25)
+                .is_none()
+        );
+        let state = db
+            .get_group_task_state("user-1", "group-1")
+            .expect("previous state remains");
+        assert_eq!(state["tasks"][0]["id"], "task-1");
+
+        let summary = db.get_group_operations_summary("user-1", "group-1", 25);
+        assert!(
+            !summary["recent_events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(
+                    |event| event["event_type"] == "task.created" && event["entity_id"] == "task-2"
+                )
+        );
     }
 
     #[test]

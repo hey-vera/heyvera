@@ -10,6 +10,7 @@ use sha2::Sha256;
 use uuid::Uuid;
 
 use crate::clerk::ClerkUser;
+use crate::db::CortexTaskStateEvent;
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
 
@@ -476,14 +477,19 @@ pub async fn create_group_task(
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
     require_evidence_for_done_transitions(db, &user.user_id, &group_id, &current, &next_state)
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
-    let saved = db.upsert_group_task_state(&user.user_id, &group_id, &next_state);
-    db.record_cortex_task_event(
-        &user.user_id,
-        &group_id,
-        &task_id,
-        "task.created",
-        &event_payload,
-    );
+    let events = vec![task_state_task_event(
+        task_id,
+        "task.created".to_string(),
+        event_payload,
+    )];
+    let saved = db
+        .upsert_group_task_state_with_events(&user.user_id, &group_id, &next_state, &events, None)
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error }),
+            )
+        })?;
     Ok(Json(saved))
 }
 
@@ -502,25 +508,24 @@ pub async fn apply_group_task_actions(
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
     require_evidence_for_done_transitions(db, &user.user_id, &group_id, &current, &next_state)
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
-    let saved = db.upsert_group_task_state(&user.user_id, &group_id, &next_state);
-    for event in events {
-        if let Some(task_id) = event.task_id {
-            db.record_cortex_task_event(
-                &user.user_id,
-                &group_id,
-                &task_id,
-                &event.event_type,
-                &event.payload,
-            );
-        } else {
-            db.record_cortex_task_manager_event(
-                &user.user_id,
-                &group_id,
-                &event.event_type,
-                &event.payload,
-            );
-        }
-    }
+    let events = events
+        .into_iter()
+        .map(|event| {
+            if let Some(task_id) = event.task_id {
+                task_state_task_event(task_id, event.event_type, event.payload)
+            } else {
+                task_state_manager_event(&group_id, event.event_type, event.payload)
+            }
+        })
+        .collect::<Vec<_>>();
+    let saved = db
+        .upsert_group_task_state_with_events(&user.user_id, &group_id, &next_state, &events, None)
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error }),
+            )
+        })?;
     Ok(Json(saved))
 }
 
@@ -562,17 +567,27 @@ pub async fn patch_group_task(
         })?;
     require_evidence_for_done_transitions(db, &user.user_id, &group_id, &current, &next_state)
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
-    let saved = db.upsert_group_task_state(&user.user_id, &group_id, &next_state);
-    db.record_cortex_task_event(
-        &user.user_id,
-        &group_id,
-        &task_id,
-        &event_type,
-        &event_payload,
-    );
-    if let Some(conversation_id) = attached_conversation_id.as_deref() {
-        db.attach_cortex_task_chat(&user.user_id, &group_id, &task_id, conversation_id);
-    }
+    let events = vec![task_state_task_event(
+        task_id.clone(),
+        event_type,
+        event_payload,
+    )];
+    let saved = db
+        .upsert_group_task_state_with_events(
+            &user.user_id,
+            &group_id,
+            &next_state,
+            &events,
+            attached_conversation_id
+                .as_deref()
+                .map(|conversation_id| (task_id.as_str(), conversation_id)),
+        )
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error }),
+            )
+        })?;
     Ok(Json(saved))
 }
 
@@ -761,39 +776,38 @@ pub async fn update_group_tasks(
     require_evidence_for_done_transitions(db, &user.user_id, &group_id, &current, &normalized)
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
     let reconciliation_events = derive_task_state_reconciliation_events(&current, &normalized);
-    let saved = db.upsert_group_task_state(&user.user_id, &group_id, &normalized);
-    for event in &reconciliation_events {
-        if let Some(task_id) = event.task_id.as_deref() {
-            db.record_cortex_task_event(
-                &user.user_id,
-                &group_id,
-                task_id,
-                &event.event_type,
-                &event.payload,
-            );
-        } else {
-            db.record_cortex_task_manager_event(
-                &user.user_id,
-                &group_id,
-                &event.event_type,
-                &event.payload,
-            );
-        }
-    }
-    db.record_cortex_task_manager_event(
-        &user.user_id,
+    let mut events = reconciliation_events
+        .into_iter()
+        .map(|event| {
+            if let Some(task_id) = event.task_id {
+                task_state_task_event(task_id, event.event_type, event.payload)
+            } else {
+                task_state_manager_event(&group_id, event.event_type, event.payload)
+            }
+        })
+        .collect::<Vec<_>>();
+    let reconciliation_event_count = events.len();
+    events.push(task_state_manager_event(
         &group_id,
-        "task_state.reconciled",
-        &serde_json::json!({
+        "task_state.reconciled".to_string(),
+        serde_json::json!({
             "source": "bulk_update",
-            "event_count": reconciliation_events.len(),
+            "event_count": reconciliation_event_count,
             "task_count": normalized
                 .get("tasks")
                 .and_then(|value| value.as_array())
                 .map(|tasks| tasks.len())
                 .unwrap_or(0),
         }),
-    );
+    ));
+    let saved = db
+        .upsert_group_task_state_with_events(&user.user_id, &group_id, &normalized, &events, None)
+        .map_err(|error| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error }),
+            )
+        })?;
     db.record_integration_event(
         &user.user_id,
         "cortex",
@@ -1344,6 +1358,34 @@ struct TaskActionEvent {
     task_id: Option<String>,
     event_type: String,
     payload: serde_json::Value,
+}
+
+fn task_state_task_event(
+    task_id: String,
+    event_type: String,
+    payload: serde_json::Value,
+) -> CortexTaskStateEvent {
+    CortexTaskStateEvent {
+        entity_type: "task".to_string(),
+        entity_id: task_id.clone(),
+        task_id: Some(task_id),
+        event_type,
+        payload,
+    }
+}
+
+fn task_state_manager_event(
+    group_id: &str,
+    event_type: String,
+    payload: serde_json::Value,
+) -> CortexTaskStateEvent {
+    CortexTaskStateEvent {
+        entity_type: "task_manager".to_string(),
+        entity_id: group_id.to_string(),
+        task_id: None,
+        event_type,
+        payload,
+    }
 }
 
 fn task_id(value: &serde_json::Value) -> Option<&str> {
