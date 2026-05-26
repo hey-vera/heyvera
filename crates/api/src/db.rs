@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use chrono::{Datelike, Utc};
 use cortex_core::task::TaskContract;
 use cortex_core::usage::{DailyUsage, ProviderUsage, UsageSummary, estimate_cost_by_provider};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -164,6 +164,15 @@ pub struct ResourceLease {
     pub metadata: serde_json::Value,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct RunPrAuthorityContext {
+    pub run_id: String,
+    pub user_id: String,
+    pub repo_key: Option<String>,
+    pub authority_scope_id: Option<String>,
+    pub authority_context: serde_json::Value,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
 pub struct ResourceLeaseConflict {
     pub lease_id: String,
@@ -273,18 +282,23 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 25;
+const SCHEMA_VERSION: i64 = 26;
 const RUN_RESOURCE_LEASE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_version (
             version INTEGER NOT NULL
-        );"
-    ).expect("failed to create schema_version table");
+        );",
+    )
+    .expect("failed to create schema_version table");
 
     let current: i64 = conn
-        .query_row("SELECT COALESCE(MAX(version), 0) FROM schema_version", [], |r| r.get(0))
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |r| r.get(0),
+        )
         .unwrap_or(0);
 
     if current < 1 {
@@ -362,6 +376,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 25 {
         migrate_v25(conn);
     }
+    if current < 26 {
+        migrate_v26(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -390,8 +407,9 @@ fn migrate_v1(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_messages_conversation
             ON messages(conversation_id, created_at ASC);
 
-        INSERT OR REPLACE INTO schema_version (version) VALUES (1);"
-    ).expect("migration v1 failed");
+        INSERT OR REPLACE INTO schema_version (version) VALUES (1);",
+    )
+    .expect("migration v1 failed");
 
     tracing::info!("applied migration v1: conversations + messages");
 }
@@ -621,10 +639,13 @@ fn migrate_v2(conn: &Connection) {
             expires_at INTEGER NOT NULL
         );
 
-        UPDATE schema_version SET version = 2;"
-    ).expect("migration v2 failed");
+        UPDATE schema_version SET version = 2;",
+    )
+    .expect("migration v2 failed");
 
-    tracing::info!("applied migration v2: workers, capabilities, profiles, decisions, runs, steps, dependencies, attempts, artifacts");
+    tracing::info!(
+        "applied migration v2: workers, capabilities, profiles, decisions, runs, steps, dependencies, attempts, artifacts"
+    );
 }
 
 fn migrate_v3(conn: &Connection) {
@@ -632,8 +653,9 @@ fn migrate_v3(conn: &Connection) {
     conn.execute_batch(
         "ALTER TABLE runs ADD COLUMN branch TEXT;
 
-        UPDATE schema_version SET version = 3;"
-    ).expect("migration v3 failed");
+        UPDATE schema_version SET version = 3;",
+    )
+    .expect("migration v3 failed");
 
     tracing::info!("applied migration v3: runs.branch column for PR creation");
 }
@@ -644,8 +666,9 @@ fn migrate_v4(conn: &Connection) {
     conn.execute_batch(
         "ALTER TABLE steps ADD COLUMN earliest_dispatch_at INTEGER;
 
-        UPDATE schema_version SET version = 4;"
-    ).expect("migration v4 failed");
+        UPDATE schema_version SET version = 4;",
+    )
+    .expect("migration v4 failed");
 
     tracing::info!("applied migration v4: steps.earliest_dispatch_at for retry backoff");
 }
@@ -656,8 +679,9 @@ fn migrate_v5(conn: &Connection) {
     conn.execute_batch(
         "ALTER TABLE runs ADD COLUMN file_paths TEXT;
 
-        UPDATE schema_version SET version = 5;"
-    ).expect("migration v5 failed");
+        UPDATE schema_version SET version = 5;",
+    )
+    .expect("migration v5 failed");
 
     tracing::info!("applied migration v5: runs.file_paths for workspace context");
 }
@@ -713,10 +737,13 @@ fn migrate_v6(conn: &Connection) {
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
-        UPDATE schema_version SET version = 6;"
-    ).expect("migration v6 failed");
+        UPDATE schema_version SET version = 6;",
+    )
+    .expect("migration v6 failed");
 
-    tracing::info!("applied migration v6: subscriptions, credit_balances, credit_transactions, billing_history, referral_codes");
+    tracing::info!(
+        "applied migration v6: subscriptions, credit_balances, credit_transactions, billing_history, referral_codes"
+    );
 }
 
 fn migrate_v7(conn: &Connection) {
@@ -747,8 +774,9 @@ fn migrate_v7(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_code_redemptions_user ON code_redemptions(user_id);
         CREATE INDEX IF NOT EXISTS idx_code_redemptions_code ON code_redemptions(code);
 
-        UPDATE schema_version SET version = 7;"
-    ).expect("migration v7 failed");
+        UPDATE schema_version SET version = 7;",
+    )
+    .expect("migration v7 failed");
 
     tracing::info!("applied migration v7: promo_codes, code_redemptions");
 }
@@ -757,16 +785,17 @@ fn migrate_v8(conn: &Connection) {
     conn.execute(
         "ALTER TABLE referral_codes ADD COLUMN weeks_earned INTEGER NOT NULL DEFAULT 0",
         [],
-    ).ok();
+    )
+    .ok();
 
     conn.execute(
         "ALTER TABLE referral_codes ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 50",
         [],
-    ).ok();
+    )
+    .ok();
 
-    conn.execute_batch(
-        "UPDATE schema_version SET version = 8;"
-    ).expect("migration v8 failed");
+    conn.execute_batch("UPDATE schema_version SET version = 8;")
+        .expect("migration v8 failed");
 
     tracing::info!("applied migration v8: referral_codes weeks_earned + max_uses");
 }
@@ -775,11 +804,11 @@ fn migrate_v9(conn: &Connection) {
     conn.execute(
         "ALTER TABLE promo_codes ADD COLUMN discount_options TEXT",
         [],
-    ).ok();
+    )
+    .ok();
 
-    conn.execute_batch(
-        "UPDATE schema_version SET version = 9;"
-    ).expect("migration v9 failed");
+    conn.execute_batch("UPDATE schema_version SET version = 9;")
+        .expect("migration v9 failed");
 
     tracing::info!("applied migration v9: promo_codes discount_options JSON column");
 }
@@ -873,10 +902,13 @@ fn migrate_v10(conn: &Connection) {
             expires_at TEXT NOT NULL
         );
 
-        UPDATE schema_version SET version = 10;"
-    ).expect("migration v10 failed");
+        UPDATE schema_version SET version = 10;",
+    )
+    .expect("migration v10 failed");
 
-    tracing::info!("applied migration v10: Cortex groups, task state, Slack/Replit integration tables");
+    tracing::info!(
+        "applied migration v10: Cortex groups, task state, Slack/Replit integration tables"
+    );
 }
 
 fn migrate_v11(conn: &Connection) {
@@ -901,25 +933,25 @@ fn migrate_v11(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_context_artifacts_step
             ON context_flow_artifacts(producer_step_id);
 
-        UPDATE schema_version SET version = 11;"
-    ).expect("migration v11 failed");
+        UPDATE schema_version SET version = 11;",
+    )
+    .expect("migration v11 failed");
 
-    tracing::info!("applied migration v11: context_flow_artifacts table for AI model context pipeline");
+    tracing::info!(
+        "applied migration v11: context_flow_artifacts table for AI model context pipeline"
+    );
 }
 
 fn migrate_v12(conn: &Connection) {
     conn.execute(
         "ALTER TABLE steps ADD COLUMN verification_status TEXT NOT NULL DEFAULT 'unverified'",
         [],
-    ).ok();
-    conn.execute(
-        "ALTER TABLE steps ADD COLUMN verifier_report_id TEXT",
-        [],
-    ).ok();
-    conn.execute(
-        "ALTER TABLE steps ADD COLUMN verified_at INTEGER",
-        [],
-    ).ok();
+    )
+    .ok();
+    conn.execute("ALTER TABLE steps ADD COLUMN verifier_report_id TEXT", [])
+        .ok();
+    conn.execute("ALTER TABLE steps ADD COLUMN verified_at INTEGER", [])
+        .ok();
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS verifier_reports (
@@ -942,8 +974,9 @@ fn migrate_v12(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_verifier_reports_run
             ON verifier_reports(run_id, created_at DESC);
 
-        UPDATE schema_version SET version = 12;"
-    ).expect("migration v12 failed");
+        UPDATE schema_version SET version = 12;",
+    )
+    .expect("migration v12 failed");
 
     tracing::info!("applied migration v12: verifier reports and step verification status");
 }
@@ -962,8 +995,9 @@ fn migrate_v13(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_step_work_contracts_run
             ON step_work_contracts(run_id, created_at DESC);
 
-        UPDATE schema_version SET version = 13;"
-    ).expect("migration v13 failed");
+        UPDATE schema_version SET version = 13;",
+    )
+    .expect("migration v13 failed");
 
     tracing::info!("applied migration v13: persisted step work contracts");
 }
@@ -1000,8 +1034,9 @@ fn migrate_v16(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_step_work_contracts_run_step_latest
             ON step_work_contracts(run_id, step_id, lease_gen DESC, created_at DESC);
 
-        UPDATE schema_version SET version = 16;"
-    ).expect("migration v16 failed");
+        UPDATE schema_version SET version = 16;",
+    )
+    .expect("migration v16 failed");
 
     tracing::info!("applied migration v16: run payload snapshot indexes");
 }
@@ -1011,8 +1046,9 @@ fn migrate_v17(conn: &Connection) {
         "CREATE INDEX IF NOT EXISTS idx_step_attempts_run_step_latest
             ON step_attempts(run_id, step_id, attempt_number DESC);
 
-        UPDATE schema_version SET version = 17;"
-    ).expect("migration v17 failed");
+        UPDATE schema_version SET version = 17;",
+    )
+    .expect("migration v17 failed");
 
     tracing::info!("applied migration v17: latest attempt snapshot index");
 }
@@ -1050,16 +1086,20 @@ fn migrate_v18(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_operations_events_actor
             ON operations_events(actor_user_id, created_at);
 
-        UPDATE schema_version SET version = 18;"
-    ).expect("migration v18 failed");
+        UPDATE schema_version SET version = 18;",
+    )
+    .expect("migration v18 failed");
 
     tracing::info!("applied migration v18: operations room event log");
 }
 
 fn migrate_v19(conn: &Connection) {
-    conn.execute("ALTER TABLE runs ADD COLUMN task_id TEXT", []).ok();
-    conn.execute("ALTER TABLE runs ADD COLUMN group_id TEXT", []).ok();
-    conn.execute("ALTER TABLE runs ADD COLUMN conversation_id TEXT", []).ok();
+    conn.execute("ALTER TABLE runs ADD COLUMN task_id TEXT", [])
+        .ok();
+    conn.execute("ALTER TABLE runs ADD COLUMN group_id TEXT", [])
+        .ok();
+    conn.execute("ALTER TABLE runs ADD COLUMN conversation_id TEXT", [])
+        .ok();
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_runs_task
             ON runs(user_id, task_id, created_at DESC);
@@ -1067,8 +1107,9 @@ fn migrate_v19(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_runs_group
             ON runs(user_id, group_id, created_at DESC);
 
-        UPDATE schema_version SET version = 19;"
-    ).expect("migration v19 failed");
+        UPDATE schema_version SET version = 19;",
+    )
+    .expect("migration v19 failed");
 
     tracing::info!("applied migration v19: task-aware run metadata");
 }
@@ -1104,8 +1145,9 @@ fn migrate_v20(conn: &Connection) {
             conversation_id TEXT NOT NULL,
             attached_at TEXT NOT NULL DEFAULT (datetime('now')),
             PRIMARY KEY (user_id, group_id, task_id, conversation_id)
-        );"
-    ).expect("migration v20 failed");
+        );",
+    )
+    .expect("migration v20 failed");
 
     let task_states = {
         let mut stmt = conn
@@ -1149,8 +1191,9 @@ fn migrate_v21(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_cortex_task_chats_group_attached
             ON cortex_task_chats(user_id, group_id, task_id, attached_at DESC);
 
-        UPDATE schema_version SET version = 21;"
-    ).expect("migration v21 failed");
+        UPDATE schema_version SET version = 21;",
+    )
+    .expect("migration v21 failed");
 
     tracing::info!("applied migration v21: operations summary query indexes");
 }
@@ -1181,15 +1224,19 @@ fn migrate_v22(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_cortex_approval_requests_task
             ON cortex_approval_requests(user_id, group_id, task_id, updated_at DESC);
 
-        UPDATE schema_version SET version = 22;"
-    ).expect("migration v22 failed");
+        UPDATE schema_version SET version = 22;",
+    )
+    .expect("migration v22 failed");
 
     tracing::info!("applied migration v22: Cortex approval request ledger");
 }
 
 fn migrate_v23(conn: &Connection) {
-    conn.execute("ALTER TABLE cortex_approval_requests ADD COLUMN step_id TEXT", [])
-        .ok();
+    conn.execute(
+        "ALTER TABLE cortex_approval_requests ADD COLUMN step_id TEXT",
+        [],
+    )
+    .ok();
     conn.execute(
         "ALTER TABLE cortex_approval_requests ADD COLUMN ask_type TEXT NOT NULL DEFAULT 'approval'",
         [],
@@ -1203,8 +1250,9 @@ fn migrate_v23(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_cortex_approval_requests_run_status
             ON cortex_approval_requests(user_id, run_id, status, updated_at DESC);
 
-        UPDATE schema_version SET version = 23;"
-    ).expect("migration v23 failed");
+        UPDATE schema_version SET version = 23;",
+    )
+    .expect("migration v23 failed");
 
     tracing::info!("applied migration v23: Cortex approval step gates");
 }
@@ -1241,8 +1289,9 @@ fn migrate_v24(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_resource_leases_task
             ON resource_leases(user_id, group_id, task_id, status);
 
-        UPDATE schema_version SET version = 24;"
-    ).expect("migration v24 failed");
+        UPDATE schema_version SET version = 24;",
+    )
+    .expect("migration v24 failed");
 
     tracing::info!("applied migration v24: Cortex resource leases");
 }
@@ -1300,10 +1349,35 @@ fn migrate_v25(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_cortex_authority_resources_scope
             ON cortex_authority_resources(scope_id, resource_type);
 
-        UPDATE schema_version SET version = 25;"
-    ).expect("migration v25 failed");
+        UPDATE schema_version SET version = 25;",
+    )
+    .expect("migration v25 failed");
 
     tracing::info!("applied migration v25: Cortex authority scopes");
+}
+
+fn migrate_v26(conn: &Connection) {
+    conn.execute("ALTER TABLE runs ADD COLUMN repo_key TEXT", [])
+        .ok();
+    conn.execute("ALTER TABLE runs ADD COLUMN authority_scope_id TEXT", [])
+        .ok();
+    conn.execute(
+        "ALTER TABLE runs ADD COLUMN authority_context_json TEXT",
+        [],
+    )
+    .ok();
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_runs_authority_scope
+            ON runs(user_id, authority_scope_id, created_at DESC);
+
+        CREATE INDEX IF NOT EXISTS idx_runs_repo_key
+            ON runs(user_id, repo_key, created_at DESC);
+
+        UPDATE schema_version SET version = 26;",
+    )
+    .expect("migration v26 failed");
+
+    tracing::info!("applied migration v26: Cortex run authority metadata");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1396,7 +1470,10 @@ pub struct IntegrationMapping {
 
 // --- Database implementation ---
 
-fn json_text<'a>(object: &'a serde_json::Map<String, serde_json::Value>, key: &str) -> Option<&'a str> {
+fn json_text<'a>(
+    object: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<&'a str> {
     object.get(key).and_then(|value| value.as_str())
 }
 
@@ -1410,7 +1487,8 @@ fn index_group_task_state(
         conn.execute(
             "DELETE FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2",
             params![user_id, group_id],
-        ).ok();
+        )
+        .ok();
         return;
     };
 
@@ -1464,7 +1542,8 @@ fn index_group_task_state(
                 latest_run_id,
                 source_json
             ],
-        ).ok();
+        )
+        .ok();
 
         if let Some(conversation_id) = conversation_id {
             conn.execute(
@@ -1473,12 +1552,15 @@ fn index_group_task_state(
                  )
                  VALUES (?1, ?2, ?3, ?4, datetime('now'))",
                 params![user_id, group_id, id, conversation_id],
-            ).ok();
+            )
+            .ok();
         }
     }
 
     let existing_ids = {
-        let mut stmt = match conn.prepare("SELECT id FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2") {
+        let mut stmt = match conn
+            .prepare("SELECT id FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2")
+        {
             Ok(stmt) => stmt,
             Err(_) => return,
         };
@@ -1492,7 +1574,8 @@ fn index_group_task_state(
             conn.execute(
                 "DELETE FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2 AND id = ?3",
                 params![user_id, group_id, existing_id],
-            ).ok();
+            )
+            .ok();
         }
     }
 }
@@ -1517,7 +1600,8 @@ fn attach_run_to_cortex_task(
              version = version + 1
          WHERE user_id = ?3 AND group_id = ?4 AND id = ?5",
         params![run_id, conversation_id, user_id, group_id, task_id],
-    ).ok();
+    )
+    .ok();
 
     if let Some(conversation_id) = conversation_id {
         conn.execute(
@@ -1526,7 +1610,8 @@ fn attach_run_to_cortex_task(
              )
              VALUES (?1, ?2, ?3, ?4, datetime('now'))",
             params![user_id, group_id, task_id, conversation_id],
-        ).ok();
+        )
+        .ok();
     }
 }
 
@@ -1785,11 +1870,7 @@ fn sort_json_array_desc(items: &mut [serde_json::Value], preferred_key: &str) {
 fn authority_access_allows(actual: &str, required: &str) -> bool {
     matches!(
         (actual, required),
-        ("admin", _)
-            | ("write", "write")
-            | ("write", "read")
-            | ("read", "read")
-            | ("owner", _)
+        ("admin", _) | ("write", "write") | ("write", "read") | ("read", "read") | ("owner", _)
     )
 }
 
@@ -1931,6 +2012,21 @@ fn acquire_run_resource_leases_tx(
     Ok(())
 }
 
+fn run_repo_key_from_resource_leases(requests: &[ResourceLeaseRequest]) -> Option<&str> {
+    requests
+        .iter()
+        .find(|request| request.repo_key != "default")
+        .or_else(|| requests.first())
+        .map(|request| request.repo_key.as_str())
+}
+
+fn authority_scope_id_from_context(authority_context: Option<&serde_json::Value>) -> Option<&str> {
+    authority_context
+        .and_then(|value| value.get("scope_id"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+}
+
 fn release_resource_leases_for_run_tx(
     conn: &Connection,
     run_id: &str,
@@ -2049,33 +2145,42 @@ impl Database {
              PRAGMA synchronous = NORMAL;
              PRAGMA foreign_keys = ON;
              PRAGMA busy_timeout = 5000;
-             PRAGMA temp_store = MEMORY;"
-        ).expect("failed to set pragmas");
+             PRAGMA temp_store = MEMORY;",
+        )
+        .expect("failed to set pragmas");
 
         apply_migrations(&conn);
 
-        Self { conn: Mutex::new(conn) }
+        Self {
+            conn: Mutex::new(conn),
+        }
     }
 
     // --- Schema info ---
 
     pub fn schema_version(&self) -> i64 {
         let conn = self.conn.lock().unwrap();
-        conn.query_row("SELECT COALESCE(MAX(version), 0) FROM schema_version", [], |r| r.get(0))
-            .unwrap_or(0)
+        conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0)
     }
 
     pub fn list_run_operations_events(&self, run_id: &str, limit: usize) -> Vec<OperationsEvent> {
         let conn = self.conn.lock().unwrap();
         let limit = limit.clamp(1, 500) as i64;
-        let mut stmt = conn.prepare(
-            "SELECT id, created_at, actor_user_id, scope_id, project_id, task_id, run_id,
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, created_at, actor_user_id, scope_id, project_id, task_id, run_id,
                     step_id, attempt_id, event_type, entity_type, entity_id, payload_json
              FROM operations_events
              WHERE run_id = ?1
              ORDER BY created_at ASC, id ASC
-             LIMIT ?2"
-        ).unwrap();
+             LIMIT ?2",
+            )
+            .unwrap();
 
         stmt.query_map(params![run_id, limit], |row| {
             let payload_json: String = row.get(12)?;
@@ -2092,9 +2197,13 @@ impl Database {
                 event_type: row.get(9)?,
                 entity_type: row.get(10)?,
                 entity_id: row.get(11)?,
-                payload: serde_json::from_str(&payload_json).unwrap_or_else(|_| serde_json::json!({})),
+                payload: serde_json::from_str(&payload_json)
+                    .unwrap_or_else(|_| serde_json::json!({})),
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn list_deployment_operations_events(&self, limit: usize) -> Vec<OperationsEvent> {
@@ -2136,13 +2245,17 @@ impl Database {
         .collect()
     }
 
-    pub fn get_run_binding(&self, run_id: &str) -> Option<(Option<String>, Option<String>, Option<String>)> {
+    pub fn get_run_binding(
+        &self,
+        run_id: &str,
+    ) -> Option<(Option<String>, Option<String>, Option<String>)> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT task_id, group_id, conversation_id FROM runs WHERE id = ?1",
             params![run_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        ).ok()
+        )
+        .ok()
     }
 
     // --- Conversations ---
@@ -2157,7 +2270,13 @@ impl Database {
             params![id, user_id, title, now, now],
         ).expect("failed to insert conversation");
 
-        Conversation { id, user_id: user_id.to_string(), title: title.map(String::from), created_at: now.clone(), updated_at: now }
+        Conversation {
+            id,
+            user_id: user_id.to_string(),
+            title: title.map(String::from),
+            created_at: now.clone(),
+            updated_at: now,
+        }
     }
 
     pub fn list_conversations(&self, user_id: &str) -> Vec<ConversationSummary> {
@@ -2178,12 +2297,25 @@ impl Database {
                 title: row.get(1)?,
                 updated_at: row.get(2)?,
                 message_count: row.get(3)?,
-                last_message_preview: preview.map(|s| if s.len() > 100 { format!("{}...", &s[..97]) } else { s }),
+                last_message_preview: preview.map(|s| {
+                    if s.len() > 100 {
+                        format!("{}...", &s[..97])
+                    } else {
+                        s
+                    }
+                }),
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
-    pub fn get_conversation(&self, conversation_id: &str, user_id: &str) -> Option<ConversationWithMessages> {
+    pub fn get_conversation(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+    ) -> Option<ConversationWithMessages> {
         let conn = self.conn.lock().unwrap();
 
         let conversation = conn.query_row(
@@ -2198,36 +2330,52 @@ impl Database {
             }),
         ).ok()?;
 
-        let mut stmt = conn.prepare(
-            "SELECT id, conversation_id, role, content, provider, model, created_at
-             FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, conversation_id, role, content, provider, model, created_at
+             FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC",
+            )
+            .unwrap();
 
-        let messages = stmt.query_map(params![conversation_id], |row| {
-            Ok(Message {
-                id: row.get(0)?,
-                conversation_id: row.get(1)?,
-                role: row.get(2)?,
-                content: row.get(3)?,
-                provider: row.get(4)?,
-                model: row.get(5)?,
-                created_at: row.get(6)?,
+        let messages = stmt
+            .query_map(params![conversation_id], |row| {
+                Ok(Message {
+                    id: row.get(0)?,
+                    conversation_id: row.get(1)?,
+                    role: row.get(2)?,
+                    content: row.get(3)?,
+                    provider: row.get(4)?,
+                    model: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
             })
-        }).unwrap().filter_map(|r| r.ok()).collect();
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
 
-        Some(ConversationWithMessages { conversation, messages })
+        Some(ConversationWithMessages {
+            conversation,
+            messages,
+        })
     }
 
     pub fn delete_conversation(&self, conversation_id: &str, user_id: &str) -> bool {
         let conn = self.conn.lock().unwrap();
-        let rows = conn.execute(
-            "DELETE FROM conversations WHERE id = ?1 AND user_id = ?2",
-            params![conversation_id, user_id],
-        ).unwrap_or(0);
+        let rows = conn
+            .execute(
+                "DELETE FROM conversations WHERE id = ?1 AND user_id = ?2",
+                params![conversation_id, user_id],
+            )
+            .unwrap_or(0);
         rows > 0
     }
 
-    pub fn update_conversation_title(&self, conversation_id: &str, user_id: &str, title: &str) -> bool {
+    pub fn update_conversation_title(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        title: &str,
+    ) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().to_rfc3339();
         let rows = conn.execute(
@@ -2257,7 +2405,8 @@ impl Database {
         conn.execute(
             "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
             params![now, conversation_id],
-        ).ok();
+        )
+        .ok();
 
         Message {
             id,
@@ -2313,30 +2462,15 @@ impl Database {
 
     pub fn list_groups(&self, user_id: &str) -> Vec<CortexGroup> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, name, kind, description, members, accent, source, external_id
-             FROM cortex_groups WHERE user_id = ?1 ORDER BY updated_at DESC"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, kind, description, members, accent, source, external_id
+             FROM cortex_groups WHERE user_id = ?1 ORDER BY updated_at DESC",
+            )
+            .unwrap();
 
-        stmt.query_map(params![user_id], |row| Ok(CortexGroup {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            kind: row.get(2)?,
-            description: row.get(3)?,
-            members: row.get(4)?,
-            accent: row.get(5)?,
-            source: row.get(6)?,
-            external_id: row.get(7)?,
-        })).unwrap().filter_map(|r| r.ok()).collect()
-    }
-
-    pub fn get_group(&self, user_id: &str, group_id: &str) -> Option<CortexGroup> {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT id, name, kind, description, members, accent, source, external_id
-             FROM cortex_groups WHERE user_id = ?1 AND id = ?2",
-            params![user_id, group_id],
-            |row| Ok(CortexGroup {
+        stmt.query_map(params![user_id], |row| {
+            Ok(CortexGroup {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 kind: row.get(2)?,
@@ -2345,8 +2479,33 @@ impl Database {
                 accent: row.get(5)?,
                 source: row.get(6)?,
                 external_id: row.get(7)?,
-            }),
-        ).ok()
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    pub fn get_group(&self, user_id: &str, group_id: &str) -> Option<CortexGroup> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, name, kind, description, members, accent, source, external_id
+             FROM cortex_groups WHERE user_id = ?1 AND id = ?2",
+            params![user_id, group_id],
+            |row| {
+                Ok(CortexGroup {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    kind: row.get(2)?,
+                    description: row.get(3)?,
+                    members: row.get(4)?,
+                    accent: row.get(5)?,
+                    source: row.get(6)?,
+                    external_id: row.get(7)?,
+                })
+            },
+        )
+        .ok()
     }
 
     pub fn ensure_personal_authority_scope(&self, user_id: &str) -> CortexAuthorityScope {
@@ -2769,11 +2928,13 @@ impl Database {
 
     pub fn get_group_task_state(&self, user_id: &str, group_id: &str) -> Option<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
-        let raw: String = conn.query_row(
-            "SELECT state_json FROM group_task_state WHERE user_id = ?1 AND group_id = ?2",
-            params![user_id, group_id],
-            |row| row.get(0),
-        ).ok()?;
+        let raw: String = conn
+            .query_row(
+                "SELECT state_json FROM group_task_state WHERE user_id = ?1 AND group_id = ?2",
+                params![user_id, group_id],
+                |row| row.get(0),
+            )
+            .ok()?;
         serde_json::from_str(&raw).ok()
     }
 
@@ -2792,7 +2953,8 @@ impl Database {
                 state_json = excluded.state_json,
                 updated_at = datetime('now')",
             params![group_id, user_id, raw],
-        ).expect("failed to upsert group task state");
+        )
+        .expect("failed to upsert group task state");
         index_group_task_state(&conn, user_id, group_id, state);
         state.clone()
     }
@@ -2803,7 +2965,8 @@ impl Database {
             "SELECT 1 FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2 AND id = ?3",
             params![user_id, group_id, task_id],
             |_| Ok(()),
-        ).is_ok()
+        )
+        .is_ok()
     }
 
     pub fn cortex_task_has_evidence_backed_completion(
@@ -2820,17 +2983,12 @@ impl Database {
                 params![user_id, group_id, task_id],
                 |row| row.get::<_, Option<String>>(0),
             )
-            .ok() else {
-                return false;
-            };
-        cortex_completion_gate(
-            &conn,
-            user_id,
-            group_id,
-            task_id,
-            latest_run_id.as_deref(),
-        )
-        .gated_done
+            .ok()
+        else {
+            return false;
+        };
+        cortex_completion_gate(&conn, user_id, group_id, task_id, latest_run_id.as_deref())
+            .gated_done
     }
 
     pub fn record_cortex_task_event(
@@ -2955,7 +3113,11 @@ impl Database {
             _ => "normal",
         };
         let ask_type = ask_type.trim();
-        let ask_type = if ask_type.is_empty() { "approval" } else { ask_type };
+        let ask_type = if ask_type.is_empty() {
+            "approval"
+        } else {
+            ask_type
+        };
         conn.execute(
             "INSERT INTO cortex_approval_requests (
                 id, user_id, group_id, task_id, step_id, conversation_id, run_id, ask_type, status,
@@ -2977,7 +3139,8 @@ impl Database {
                 requested_by.trim(),
                 now,
             ],
-        ).expect("failed to create cortex approval request");
+        )
+        .expect("failed to create cortex approval request");
 
         insert_operations_event(
             &conn,
@@ -3015,32 +3178,37 @@ impl Database {
         requested_by: &str,
     ) -> Option<CortexApprovalRequest> {
         let conn = self.conn.lock().unwrap();
-        if let Some((id, group_id)) = conn.query_row(
-            "SELECT id, group_id FROM cortex_approval_requests
+        if let Some((id, group_id)) = conn
+            .query_row(
+                "SELECT id, group_id FROM cortex_approval_requests
              WHERE user_id = ?1 AND step_id = ?2 AND ask_type = ?3 AND status = 'pending'
              ORDER BY updated_at DESC, id DESC
              LIMIT 1",
-            params![user_id, step_id, ask_type],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        ).ok() {
+                params![user_id, step_id, ask_type],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .ok()
+        {
             return self.approval_request_from_row(&conn, user_id, &group_id, &id);
         }
 
-        let context = conn.query_row(
-            "SELECT r.group_id, r.task_id, r.conversation_id, r.id
+        let context = conn
+            .query_row(
+                "SELECT r.group_id, r.task_id, r.conversation_id, r.id
              FROM steps s
              JOIN runs r ON r.id = s.run_id
              WHERE s.id = ?1 AND r.user_id = ?2",
-            params![step_id, user_id],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
-            },
-        ).ok()?;
+                params![step_id, user_id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .ok()?;
         let (Some(group_id), task_id, conversation_id, run_id) = context else {
             return None;
         };
@@ -3069,7 +3237,8 @@ impl Database {
              LIMIT 1",
             params![user_id, step_id],
             |_| Ok(()),
-        ).is_ok()
+        )
+        .is_ok()
     }
 
     pub fn has_approved_cortex_step_approval(
@@ -3085,7 +3254,8 @@ impl Database {
              LIMIT 1",
             params![user_id, step_id, ask_type],
             |_| Ok(()),
-        ).is_ok()
+        )
+        .is_ok()
     }
 
     pub fn latest_cortex_step_approval_status(
@@ -3102,7 +3272,8 @@ impl Database {
              LIMIT 1",
             params![user_id, step_id, ask_type],
             |row| Ok((row.get(0)?, row.get(1)?)),
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn list_cortex_approval_requests(
@@ -3116,28 +3287,42 @@ impl Database {
         let limit = limit.clamp(1, 100) as i64;
         let mut requests = Vec::new();
         if let Some(status) = status {
-            let mut stmt = conn.prepare(
-                "SELECT id FROM cortex_approval_requests
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id FROM cortex_approval_requests
                  WHERE user_id = ?1 AND group_id = ?2 AND status = ?3
                  ORDER BY updated_at DESC, id DESC
                  LIMIT ?4",
-            ).unwrap();
-            let rows = stmt.query_map(params![user_id, group_id, status, limit], |row| row.get::<_, String>(0)).unwrap();
+                )
+                .unwrap();
+            let rows = stmt
+                .query_map(params![user_id, group_id, status, limit], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap();
             for id in rows.filter_map(|row| row.ok()) {
-                if let Some(request) = self.approval_request_from_row(&conn, user_id, group_id, &id) {
+                if let Some(request) = self.approval_request_from_row(&conn, user_id, group_id, &id)
+                {
                     requests.push(request);
                 }
             }
         } else {
-            let mut stmt = conn.prepare(
-                "SELECT id FROM cortex_approval_requests
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id FROM cortex_approval_requests
                  WHERE user_id = ?1 AND group_id = ?2
                  ORDER BY updated_at DESC, id DESC
                  LIMIT ?3",
-            ).unwrap();
-            let rows = stmt.query_map(params![user_id, group_id, limit], |row| row.get::<_, String>(0)).unwrap();
+                )
+                .unwrap();
+            let rows = stmt
+                .query_map(params![user_id, group_id, limit], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap();
             for id in rows.filter_map(|row| row.ok()) {
-                if let Some(request) = self.approval_request_from_row(&conn, user_id, group_id, &id) {
+                if let Some(request) = self.approval_request_from_row(&conn, user_id, group_id, &id)
+                {
                     requests.push(request);
                 }
             }
@@ -3160,12 +3345,15 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let decision_json = serde_json::to_string(decision).unwrap_or_else(|_| "{}".to_string());
-        let updated = conn.execute(
-            "UPDATE cortex_approval_requests
+        let updated = conn
+            .execute(
+                "UPDATE cortex_approval_requests
              SET status = ?1, decision_json = ?2, updated_at = ?3, resolved_at = ?3
              WHERE user_id = ?4 AND group_id = ?5 AND id = ?6 AND status = 'pending'",
-            params![status, decision_json, now, user_id, group_id, request_id],
-        ).ok()? > 0;
+                params![status, decision_json, now, user_id, group_id, request_id],
+            )
+            .ok()?
+            > 0;
         if !updated {
             return None;
         }
@@ -3221,14 +3409,14 @@ impl Database {
                     body: row.get(9)?,
                     priority: row.get(10)?,
                     requested_by: row.get(11)?,
-                    decision: decision_json
-                        .and_then(|raw| serde_json::from_str(&raw).ok()),
+                    decision: decision_json.and_then(|raw| serde_json::from_str(&raw).ok()),
                     created_at: row.get(13)?,
                     updated_at: row.get(14)?,
                     resolved_at: row.get(15)?,
                 })
             },
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn get_cortex_task_projection(
@@ -3285,13 +3473,8 @@ impl Database {
             )
             .ok()?;
         let source = serde_json::from_str(&source_json).unwrap_or_else(|_| serde_json::json!({}));
-        let completion_gate = cortex_completion_gate(
-            &conn,
-            user_id,
-            group_id,
-            task_id,
-            latest_run_id.as_deref(),
-        );
+        let completion_gate =
+            cortex_completion_gate(&conn, user_id, group_id, task_id, latest_run_id.as_deref());
         let completion = completion_gate.to_json(status == "done");
 
         let mut runs_stmt = conn
@@ -3394,7 +3577,9 @@ impl Database {
             )
             .unwrap();
         let approval_ids = approvals_stmt
-            .query_map(params![user_id, group_id, task_id], |row| row.get::<_, String>(0))
+            .query_map(params![user_id, group_id, task_id], |row| {
+                row.get::<_, String>(0)
+            })
             .unwrap()
             .filter_map(|row| row.ok())
             .collect::<Vec<_>>();
@@ -3468,7 +3653,8 @@ impl Database {
         let mut task_done_without_evidence = 0;
         let mut attention: Vec<serde_json::Value> = Vec::new();
 
-        for (task_id, title, status, priority, latest_run_id, source_json, updated_at) in &task_rows {
+        for (task_id, title, status, priority, latest_run_id, source_json, updated_at) in &task_rows
+        {
             match status.as_str() {
                 "created" => task_created += 1,
                 "assigned" => task_assigned += 1,
@@ -3529,7 +3715,10 @@ impl Database {
             let source = serde_json::from_str::<serde_json::Value>(source_json)
                 .unwrap_or_else(|_| serde_json::json!({}));
             let assignee = source.get("assigneeId").and_then(|value| value.as_str());
-            if assignee.map(|value| value.trim().is_empty()).unwrap_or(true) {
+            if assignee
+                .map(|value| value.trim().is_empty())
+                .unwrap_or(true)
+            {
                 task_unassigned += 1;
             }
         }
@@ -4075,7 +4264,8 @@ impl Database {
             "SELECT 1 FROM conversations WHERE user_id = ?1 AND id = ?2",
             params![user_id, conversation_id],
             |_| Ok(()),
-        ).is_ok()
+        )
+        .is_ok()
     }
 
     // --- Integrations ---
@@ -4163,7 +4353,8 @@ impl Database {
              ORDER BY updated_at DESC LIMIT 1",
             params![user_id, provider],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn list_integration_connections(&self, user_id: &str) -> Vec<IntegrationConnection> {
@@ -4183,13 +4374,17 @@ impl Database {
                 display_name: row.get(3)?,
                 status: row.get(4)?,
                 scopes: serde_json::from_str(&scopes_raw).unwrap_or_default(),
-                metadata: serde_json::from_str(&metadata_raw).unwrap_or_else(|_| serde_json::json!({})),
+                metadata: serde_json::from_str(&metadata_raw)
+                    .unwrap_or_else(|_| serde_json::json!({})),
                 last_sync_at: row.get(7)?,
                 last_error: row.get(8)?,
                 created_at: row.get(9)?,
                 updated_at: row.get(10)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn upsert_integration_mapping(
@@ -4246,11 +4441,15 @@ impl Database {
                 external_id: row.get(3)?,
                 external_name: row.get(4)?,
                 mapping_type: row.get(5)?,
-                metadata: serde_json::from_str(&metadata_raw).unwrap_or_else(|_| serde_json::json!({})),
+                metadata: serde_json::from_str(&metadata_raw)
+                    .unwrap_or_else(|_| serde_json::json!({})),
                 created_at: row.get(7)?,
                 updated_at: row.get(8)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn record_integration_event(
@@ -4271,7 +4470,13 @@ impl Database {
         );
     }
 
-    pub fn store_oauth_state(&self, user_id: &str, provider: &str, state: &str, redirect_after: Option<&str>) {
+    pub fn store_oauth_state(
+        &self,
+        user_id: &str,
+        provider: &str,
+        state: &str,
+        redirect_after: Option<&str>,
+    ) {
         let conn = self.conn.lock().unwrap();
         let expires_at = (Utc::now() + chrono::Duration::minutes(10)).to_rfc3339();
         let _ = conn.execute(
@@ -4281,15 +4486,24 @@ impl Database {
         );
     }
 
-    pub fn consume_oauth_state(&self, provider: &str, state: &str) -> Option<(String, Option<String>)> {
+    pub fn consume_oauth_state(
+        &self,
+        provider: &str,
+        state: &str,
+    ) -> Option<(String, Option<String>)> {
         let conn = self.conn.lock().unwrap();
-        let row = conn.query_row(
-            "SELECT user_id, redirect_after FROM integration_oauth_states
+        let row = conn
+            .query_row(
+                "SELECT user_id, redirect_after FROM integration_oauth_states
              WHERE provider = ?1 AND state = ?2 AND expires_at > datetime('now')",
-            params![provider, state],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-        ).ok();
-        let _ = conn.execute("DELETE FROM integration_oauth_states WHERE state = ?1", params![state]);
+                params![provider, state],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .ok();
+        let _ = conn.execute(
+            "DELETE FROM integration_oauth_states WHERE state = ?1",
+            params![state],
+        );
         row
     }
 
@@ -4310,7 +4524,8 @@ impl Database {
         conn.execute(
             "UPDATE workers SET last_seen = ?1 WHERE id = ?2",
             params![now, worker_id],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn set_worker_status(&self, worker_id: &str, status: &str) {
@@ -4318,7 +4533,8 @@ impl Database {
         conn.execute(
             "UPDATE workers SET status = ?1 WHERE id = ?2",
             params![status, worker_id],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn upsert_provider_capability(
@@ -4342,7 +4558,13 @@ impl Database {
 
     // --- Runs ---
 
-    pub fn create_run(&self, user_id: &str, goal: &str, profile: &str, file_paths: &[String]) -> String {
+    pub fn create_run(
+        &self,
+        user_id: &str,
+        goal: &str,
+        profile: &str,
+        file_paths: &[String],
+    ) -> String {
         self.create_run_with_metadata(user_id, goal, profile, file_paths, None, None, None)
     }
 
@@ -4406,7 +4628,16 @@ impl Database {
         task_id: Option<&str>,
         group_id: Option<&str>,
         conversation_id: Option<&str>,
-        steps: &[(String, String, String, Option<String>, String, String, String, i64)], // (id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at)
+        steps: &[(
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+            i64,
+        )], // (id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at)
         edges: &[(String, String, String)], // (step_id, depends_on_id, edge_type)
     ) -> String {
         self.create_run_with_steps_and_resource_leases(
@@ -4434,7 +4665,16 @@ impl Database {
         group_id: Option<&str>,
         conversation_id: Option<&str>,
         resource_leases: &[ResourceLeaseRequest],
-        steps: &[(String, String, String, Option<String>, String, String, String, i64)],
+        steps: &[(
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+            i64,
+        )],
         edges: &[(String, String, String)],
     ) -> Result<String, CreateRunError> {
         self.create_run_with_steps_and_resource_leases_with_authority(
@@ -4462,7 +4702,16 @@ impl Database {
         group_id: Option<&str>,
         conversation_id: Option<&str>,
         resource_leases: &[ResourceLeaseRequest],
-        steps: &[(String, String, String, Option<String>, String, String, String, i64)],
+        steps: &[(
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+            i64,
+        )],
         edges: &[(String, String, String)],
         authority_context: Option<&serde_json::Value>,
     ) -> Result<String, CreateRunError> {
@@ -4491,11 +4740,34 @@ impl Database {
             return Err(err);
         }
 
+        let repo_key = run_repo_key_from_resource_leases(resource_leases);
+        let authority_scope_id = authority_scope_id_from_context(authority_context);
+        let authority_context_json = authority_context
+            .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string()));
+
         conn.execute(
-            "INSERT INTO runs (id, user_id, goal, status, profile, file_paths, task_id, group_id, conversation_id, created_at, updated_at)
-             VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
-            params![run_id, user_id, goal, profile, file_paths_json, task_id, group_id, conversation_id, now],
-        ).expect("failed to create run in batch");
+            "INSERT INTO runs (
+                id, user_id, goal, status, profile, file_paths, task_id, group_id,
+                conversation_id, repo_key, authority_scope_id, authority_context_json,
+                created_at, updated_at
+             )
+             VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
+            params![
+                run_id,
+                user_id,
+                goal,
+                profile,
+                file_paths_json,
+                task_id,
+                group_id,
+                conversation_id,
+                repo_key,
+                authority_scope_id,
+                authority_context_json,
+                now
+            ],
+        )
+        .expect("failed to create run in batch");
         attach_run_to_cortex_task(&conn, user_id, group_id, task_id, conversation_id, &run_id);
         insert_operations_event(
             &conn,
@@ -4574,7 +4846,8 @@ impl Database {
         conn.execute(
             "UPDATE runs SET branch = ?1, updated_at = ?2 WHERE id = ?3",
             params![branch_name, now, run_id],
-        ).ok();
+        )
+        .ok();
     }
 
     /// Retrieve the branch name recorded for a run, if any.
@@ -4584,7 +4857,59 @@ impl Database {
             "SELECT branch FROM runs WHERE id = ?1",
             params![run_id],
             |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten()
+        )
+        .ok()
+        .flatten()
+    }
+
+    pub fn get_run_pr_authority_context(
+        &self,
+        run_id: &str,
+        user_id: &str,
+    ) -> Option<RunPrAuthorityContext> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, user_id, repo_key, authority_scope_id, authority_context_json
+             FROM runs
+             WHERE id = ?1 AND user_id = ?2",
+            params![run_id, user_id],
+            |row| {
+                let authority_context_json: Option<String> = row.get(4)?;
+                Ok(RunPrAuthorityContext {
+                    run_id: row.get(0)?,
+                    user_id: row.get(1)?,
+                    repo_key: row.get(2)?,
+                    authority_scope_id: row.get(3)?,
+                    authority_context: authority_context_json
+                        .as_deref()
+                        .and_then(|raw| serde_json::from_str(raw).ok())
+                        .unwrap_or_else(|| serde_json::json!({})),
+                })
+            },
+        )
+        .ok()
+    }
+
+    pub fn run_has_pr_write_lease(&self, run_id: &str, repo_key: Option<&str>) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let mut query = String::from(
+            "SELECT 1 FROM resource_leases
+             WHERE run_id = ?1
+                AND status IN ('active', 'released')
+                AND mode IN ('write', 'exclusive')
+                AND resource_type IN ('repo', 'path')",
+        );
+        if repo_key.is_some() {
+            query.push_str(" AND repo_key = ?2");
+        }
+        query.push_str(" LIMIT 1");
+
+        if let Some(repo_key) = repo_key {
+            conn.query_row(&query, params![run_id, repo_key], |_| Ok(()))
+                .is_ok()
+        } else {
+            conn.query_row(&query, params![run_id], |_| Ok(())).is_ok()
+        }
     }
 
     /// Get the latest head_commit from any completed step in the given run.
@@ -4597,26 +4922,39 @@ impl Database {
              ORDER BY updated_at DESC LIMIT 1",
             params![run_id],
             |row| row.get::<_, String>(0),
-        ).ok()
+        )
+        .ok()
     }
 
     /// Get the file_paths stored for a run (from the original goal decomposition).
     pub fn get_run_file_paths(&self, run_id: &str) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
-        let json: Option<String> = conn.query_row(
-            "SELECT file_paths FROM runs WHERE id = ?1",
-            params![run_id],
-            |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten();
+        let json: Option<String> = conn
+            .query_row(
+                "SELECT file_paths FROM runs WHERE id = ?1",
+                params![run_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten();
 
         json.and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
             .unwrap_or_default()
     }
 
-    pub fn update_run_status(&self, run_id: &str, status: &str, failure_reason: Option<&str>) -> bool {
+    pub fn update_run_status(
+        &self,
+        run_id: &str,
+        status: &str,
+        failure_reason: Option<&str>,
+    ) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let finished = if matches!(status, "succeeded" | "failed" | "cancelled") { Some(now) } else { None };
+        let finished = if matches!(status, "succeeded" | "failed" | "cancelled") {
+            Some(now)
+        } else {
+            None
+        };
         let rows = conn.execute(
             "UPDATE runs SET status = ?1, failure_reason = ?2, finished_at = ?3, updated_at = ?4, version = version + 1
              WHERE id = ?5",
@@ -4627,9 +4965,13 @@ impl Database {
             insert_operations_event(
                 &conn,
                 context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.group_id.as_deref()),
                 None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.task_id.as_deref()),
                 Some(run_id),
                 None,
                 None,
@@ -4671,9 +5013,13 @@ impl Database {
         insert_operations_event(
             &conn,
             context.as_ref().map(|context| context.user_id.as_str()),
-            context.as_ref().and_then(|context| context.group_id.as_deref()),
+            context
+                .as_ref()
+                .and_then(|context| context.group_id.as_deref()),
             None,
-            context.as_ref().and_then(|context| context.task_id.as_deref()),
+            context
+                .as_ref()
+                .and_then(|context| context.task_id.as_deref()),
             Some(run_id),
             Some(&id),
             None,
@@ -4731,7 +5077,18 @@ impl Database {
     /// Find all ready steps across all active runs in a single query.
     /// Returns (step_id, run_id, user_id, kind, work_kind, tier, risk, objective) tuples.
     /// This replaces the N+1 pattern of get_active_run_ids() + find_ready_steps() per run.
-    pub fn find_all_ready_steps(&self) -> Vec<(String, String, String, String, String, String, String, String)> {
+    pub fn find_all_ready_steps(
+        &self,
+    ) -> Vec<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+    )> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
@@ -4776,29 +5133,37 @@ impl Database {
     pub fn lease_step(&self, step_id: &str, worker_id: &str, deadline_ms: i64) -> Option<i64> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET status = 'leased', assigned_worker = ?1, lease_deadline = ?2,
+        let rows = conn
+            .execute(
+                "UPDATE steps SET status = 'leased', assigned_worker = ?1, lease_deadline = ?2,
                  lease_gen = lease_gen + 1, attempt_count = attempt_count + 1,
                  updated_at = ?3, version = version + 1
              WHERE id = ?4 AND status IN ('pending', 'ready', 'orphaned')",
-            params![worker_id, deadline_ms, now, step_id],
-        ).unwrap_or(0);
+                params![worker_id, deadline_ms, now, step_id],
+            )
+            .unwrap_or(0);
         if rows == 0 {
             return None;
         }
-        let lease_gen = conn.query_row(
-            "SELECT lease_gen FROM steps WHERE id = ?1",
-            params![step_id],
-            |row| row.get::<_, i64>(0),
-        ).ok();
+        let lease_gen = conn
+            .query_row(
+                "SELECT lease_gen FROM steps WHERE id = ?1",
+                params![step_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .ok();
         if let Some(lease_gen) = lease_gen {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
                 context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.group_id.as_deref()),
                 None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.task_id.as_deref()),
                 context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
@@ -4819,19 +5184,25 @@ impl Database {
     pub fn start_step(&self, step_id: &str, lease_gen: i64) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET status = 'running', updated_at = ?1, version = version + 1
+        let rows = conn
+            .execute(
+                "UPDATE steps SET status = 'running', updated_at = ?1, version = version + 1
              WHERE id = ?2 AND lease_gen = ?3 AND status IN ('leased', 'running')",
-            params![now, step_id, lease_gen],
-        ).unwrap_or(0);
+                params![now, step_id, lease_gen],
+            )
+            .unwrap_or(0);
         if rows > 0 {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
                 context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.group_id.as_deref()),
                 None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.task_id.as_deref()),
                 context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
@@ -4858,20 +5229,34 @@ impl Database {
     ) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET status = 'succeeded', output_summary = ?1, files_changed = ?2,
+        let rows = conn
+            .execute(
+                "UPDATE steps SET status = 'succeeded', output_summary = ?1, files_changed = ?2,
                  base_commit = ?3, head_commit = ?4, updated_at = ?5, version = version + 1
              WHERE id = ?6 AND lease_gen = ?7 AND status IN ('leased', 'running')",
-            params![output_summary, files_changed, base_commit, head_commit, now, step_id, lease_gen],
-        ).unwrap_or(0);
+                params![
+                    output_summary,
+                    files_changed,
+                    base_commit,
+                    head_commit,
+                    now,
+                    step_id,
+                    lease_gen
+                ],
+            )
+            .unwrap_or(0);
         if rows > 0 {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
                 context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.group_id.as_deref()),
                 None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.task_id.as_deref()),
                 context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
@@ -4891,7 +5276,13 @@ impl Database {
         rows > 0
     }
 
-    pub fn fail_step(&self, step_id: &str, lease_gen: i64, error: &str, _failure_kind: Option<&str>) -> bool {
+    pub fn fail_step(
+        &self,
+        step_id: &str,
+        lease_gen: i64,
+        error: &str,
+        _failure_kind: Option<&str>,
+    ) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let rows = conn.execute(
@@ -4904,9 +5295,13 @@ impl Database {
             insert_operations_event(
                 &conn,
                 context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.group_id.as_deref()),
                 None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.task_id.as_deref()),
                 context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
@@ -4923,7 +5318,12 @@ impl Database {
         rows > 0
     }
 
-    pub fn fail_unleased_step(&self, step_id: &str, error: &str, _failure_kind: Option<&str>) -> bool {
+    pub fn fail_unleased_step(
+        &self,
+        step_id: &str,
+        error: &str,
+        _failure_kind: Option<&str>,
+    ) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let rows = conn.execute(
@@ -4936,9 +5336,13 @@ impl Database {
             insert_operations_event(
                 &conn,
                 context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.group_id.as_deref()),
                 None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.task_id.as_deref()),
                 context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
@@ -4957,20 +5361,26 @@ impl Database {
     pub fn cancel_step(&self, step_id: &str, lease_gen: i64, reason: &str) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET status = 'cancelled', last_error = ?1, assigned_worker = NULL,
+        let rows = conn
+            .execute(
+                "UPDATE steps SET status = 'cancelled', last_error = ?1, assigned_worker = NULL,
                  lease_deadline = NULL, updated_at = ?2, version = version + 1
              WHERE id = ?3 AND lease_gen = ?4 AND status IN ('leased', 'running')",
-            params![reason, now, step_id, lease_gen],
-        ).unwrap_or(0);
+                params![reason, now, step_id, lease_gen],
+            )
+            .unwrap_or(0);
         if rows > 0 {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
                 context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.group_id.as_deref()),
                 None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.task_id.as_deref()),
                 context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
@@ -4990,23 +5400,27 @@ impl Database {
     pub fn cancel_assigned_step(&self, step_id: &str, reason: &str) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET status = 'cancelled', last_error = ?1, assigned_worker = NULL,
+        let rows = conn
+            .execute(
+                "UPDATE steps SET status = 'cancelled', last_error = ?1, assigned_worker = NULL,
                  lease_deadline = NULL, updated_at = ?2, version = version + 1
              WHERE id = ?3 AND status IN ('leased', 'running')",
-            params![reason, now, step_id],
-        ).unwrap_or(0);
+                params![reason, now, step_id],
+            )
+            .unwrap_or(0);
         rows > 0
     }
 
     pub fn mark_step_recovered(&self, step_id: &str) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET status = 'recovered', updated_at = ?1, version = version + 1
+        let rows = conn
+            .execute(
+                "UPDATE steps SET status = 'recovered', updated_at = ?1, version = version + 1
              WHERE id = ?2 AND status = 'failed'",
-            params![now, step_id],
-        ).unwrap_or(0);
+                params![now, step_id],
+            )
+            .unwrap_or(0);
         rows > 0
     }
 
@@ -5021,8 +5435,9 @@ impl Database {
     ) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps
+        let rows = conn
+            .execute(
+                "UPDATE steps
              SET output_summary = ?1,
                  files_changed = ?2,
                  base_commit = ?3,
@@ -5032,8 +5447,17 @@ impl Database {
              WHERE id = ?6
                AND lease_gen = ?7
                AND status IN ('leased', 'running', 'failed')",
-            params![output_summary, files_changed, base_commit, head_commit, now, step_id, lease_gen],
-        ).unwrap_or(0);
+                params![
+                    output_summary,
+                    files_changed,
+                    base_commit,
+                    head_commit,
+                    now,
+                    step_id,
+                    lease_gen
+                ],
+            )
+            .unwrap_or(0);
         rows > 0
     }
 
@@ -5158,10 +5582,17 @@ impl Database {
             "UPDATE step_attempts SET status = 'succeeded', finished_at = ?1
              WHERE step_id = ?2 AND lease_gen = ?3 AND status = 'started'",
             params![now, step_id, lease_gen],
-        ).ok();
+        )
+        .ok();
     }
 
-    pub fn fail_attempt(&self, step_id: &str, lease_gen: i64, failure_kind: Option<&str>, error: Option<&str>) {
+    pub fn fail_attempt(
+        &self,
+        step_id: &str,
+        lease_gen: i64,
+        failure_kind: Option<&str>,
+        error: Option<&str>,
+    ) {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         conn.execute(
@@ -5253,12 +5684,14 @@ impl Database {
         let cutoff = now_ms - window_ms;
 
         // Fetch individual events so we can apply per-event decay weights
-        let mut stmt = conn.prepare(
-            "SELECT provider, tier, timestamp, COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)
+        let mut stmt = conn
+            .prepare(
+                "SELECT provider, tier, timestamp, COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)
              FROM usage_events
              WHERE user_id = ?1 AND timestamp > ?2
-             ORDER BY provider, tier"
-        ).unwrap();
+             ORDER BY provider, tier",
+            )
+            .unwrap();
 
         let rows: Vec<(String, String, i64, i64)> = stmt
             .query_map(params![user_id, cutoff], |row| {
@@ -5293,17 +5726,26 @@ impl Database {
     pub fn provider_reliability(&self, user_id: &str, hours: i64) -> Vec<(String, i64, i64)> {
         let conn = self.conn.lock().unwrap();
         let cutoff = Utc::now().timestamp_millis() - (hours * 3600 * 1000);
-        let mut stmt = conn.prepare(
-            "SELECT d.provider, COUNT(*) as total, SUM(o.success) as successes
+        let mut stmt = conn
+            .prepare(
+                "SELECT d.provider, COUNT(*) as total, SUM(o.success) as successes
              FROM outcomes o
              JOIN decisions d ON o.decision_id = d.id
              WHERE o.timestamp > ?1 AND d.user_id = ?2
-             GROUP BY d.provider"
-        ).unwrap();
+             GROUP BY d.provider",
+            )
+            .unwrap();
 
         stmt.query_map(params![cutoff, user_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     // --- Idempotency ---
@@ -5315,7 +5757,9 @@ impl Database {
             "SELECT result_json FROM idempotency_keys WHERE key = ?1 AND expires_at > ?2",
             params![key, now],
             |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten()
+        )
+        .ok()
+        .flatten()
     }
 
     pub fn set_idempotency(&self, key: &str, result: Option<&str>, ttl_ms: i64) {
@@ -5330,8 +5774,11 @@ impl Database {
     pub fn cleanup_expired_idempotency(&self) -> usize {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        conn.execute("DELETE FROM idempotency_keys WHERE expires_at < ?1", params![now])
-            .unwrap_or(0)
+        conn.execute(
+            "DELETE FROM idempotency_keys WHERE expires_at < ?1",
+            params![now],
+        )
+        .unwrap_or(0)
     }
 
     // --- Scheduler helpers ---
@@ -5366,27 +5813,36 @@ impl Database {
              ORDER BY a.attempt_number DESC
              LIMIT 1",
             params![step_id],
-            |row| Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            )),
-        ).ok()
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .ok()
     }
 
-    pub fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String, String)> {
+    pub fn get_step_details(
+        &self,
+        step_id: &str,
+    ) -> Option<(String, String, String, String, String)> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT kind, work_kind, tier, risk, objective FROM steps WHERE id = ?1",
             params![step_id],
-            |row| Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-            )),
-        ).ok()
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .ok()
     }
 
     pub fn get_step_recipe_seed_json(&self, step_id: &str) -> Option<String> {
@@ -5395,7 +5851,9 @@ impl Database {
             "SELECT recipe_seed_json FROM steps WHERE id = ?1",
             params![step_id],
             |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten()
+        )
+        .ok()
+        .flatten()
     }
 
     pub fn get_run_user_id(&self, run_id: &str) -> Option<String> {
@@ -5404,7 +5862,8 @@ impl Database {
             "SELECT user_id FROM runs WHERE id = ?1",
             params![run_id],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     /// Check if a run belongs to the given user. Returns true if the run exists and is owned by user_id.
@@ -5414,11 +5873,17 @@ impl Database {
             "SELECT 1 FROM runs WHERE id = ?1 AND user_id = ?2",
             params![run_id, user_id],
             |_| Ok(()),
-        ).is_ok()
+        )
+        .is_ok()
     }
 
     /// List runs for a specific user, ordered by creation time descending.
-    pub fn list_user_runs(&self, user_id: &str, limit: usize, offset: usize) -> Vec<serde_json::Value> {
+    pub fn list_user_runs(
+        &self,
+        user_id: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, goal, status, profile, created_at, updated_at, started_at, finished_at, heal_attempts,
@@ -5441,7 +5906,10 @@ impl Database {
                 "group_id": row.get::<_, Option<String>>(10)?,
                 "conversation_id": row.get::<_, Option<String>>(11)?,
             }))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn get_run_goal(&self, run_id: &str) -> Option<String> {
@@ -5450,7 +5918,8 @@ impl Database {
             "SELECT goal FROM runs WHERE id = ?1",
             params![run_id],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     /// Return timing metadata for a single run (used for PR body generation).
@@ -5476,7 +5945,8 @@ impl Database {
                     "conversation_id": row.get::<_, Option<String>>(10)?,
                 }))
             },
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn get_run_heal_count(&self, run_id: &str) -> i32 {
@@ -5485,7 +5955,8 @@ impl Database {
             "SELECT heal_attempts FROM runs WHERE id = ?1",
             params![run_id],
             |row| row.get::<_, i32>(0),
-        ).unwrap_or(0)
+        )
+        .unwrap_or(0)
     }
 
     pub fn increment_heal_count(&self, run_id: &str) {
@@ -5494,7 +5965,8 @@ impl Database {
         conn.execute(
             "UPDATE runs SET heal_attempts = heal_attempts + 1, updated_at = ?1 WHERE id = ?2",
             params![now, run_id],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn get_step_last_error(&self, step_id: &str) -> Option<String> {
@@ -5503,30 +5975,39 @@ impl Database {
             "SELECT last_error FROM steps WHERE id = ?1",
             params![step_id],
             |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten()
+        )
+        .ok()
+        .flatten()
     }
 
     pub fn get_all_step_statuses(&self, run_id: &str) -> Vec<(String, String)> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, status FROM steps WHERE run_id = ?1 ORDER BY created_at ASC, id ASC"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, status FROM steps WHERE run_id = ?1 ORDER BY created_at ASC, id ASC",
+            )
+            .unwrap();
         stmt.query_map(params![run_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn get_run_step_snapshots(&self, run_id: &str) -> Vec<RunStepSnapshot> {
         let conn = self.conn.lock().unwrap();
 
         let mut predecessors_by_step: HashMap<String, Vec<String>> = HashMap::new();
-        let mut predecessor_stmt = conn.prepare(
-            "SELECT sd.step_id, sd.depends_on_id
+        let mut predecessor_stmt = conn
+            .prepare(
+                "SELECT sd.step_id, sd.depends_on_id
              FROM step_dependencies sd
              JOIN steps s ON s.id = sd.step_id
              WHERE s.run_id = ?1
-             ORDER BY sd.step_id ASC, sd.depends_on_id ASC"
-        ).unwrap();
+             ORDER BY sd.step_id ASC, sd.depends_on_id ASC",
+            )
+            .unwrap();
         for row in predecessor_stmt
             .query_map(params![run_id], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -5538,40 +6019,48 @@ impl Database {
         }
 
         let mut verifier_by_step: HashMap<String, VerifierReport> = HashMap::new();
-        let mut verifier_stmt = conn.prepare(
-            "SELECT id, step_id, run_id, lease_gen, worker_id, verifier, status, verdict,
+        let mut verifier_stmt = conn
+            .prepare(
+                "SELECT id, step_id, run_id, lease_gen, worker_id, verifier, status, verdict,
                     evidence_json, created_at, updated_at
              FROM verifier_reports
              WHERE run_id = ?1
-             ORDER BY step_id ASC, created_at DESC"
-        ).unwrap();
+             ORDER BY step_id ASC, created_at DESC",
+            )
+            .unwrap();
         for report in verifier_stmt
-            .query_map(params![run_id], |row| Ok(VerifierReport {
-                id: row.get(0)?,
-                step_id: row.get(1)?,
-                run_id: row.get(2)?,
-                lease_gen: row.get(3)?,
-                worker_id: row.get(4)?,
-                verifier: row.get(5)?,
-                status: row.get(6)?,
-                verdict: row.get(7)?,
-                evidence_json: row.get(8)?,
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
-            }))
+            .query_map(params![run_id], |row| {
+                Ok(VerifierReport {
+                    id: row.get(0)?,
+                    step_id: row.get(1)?,
+                    run_id: row.get(2)?,
+                    lease_gen: row.get(3)?,
+                    worker_id: row.get(4)?,
+                    verifier: row.get(5)?,
+                    status: row.get(6)?,
+                    verdict: row.get(7)?,
+                    evidence_json: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                })
+            })
             .unwrap()
             .filter_map(|r| r.ok())
         {
-            verifier_by_step.entry(report.step_id.clone()).or_insert(report);
+            verifier_by_step
+                .entry(report.step_id.clone())
+                .or_insert(report);
         }
 
         let mut contract_by_step: HashMap<String, TaskContract> = HashMap::new();
-        let mut contract_stmt = conn.prepare(
-            "SELECT step_id, contract_json
+        let mut contract_stmt = conn
+            .prepare(
+                "SELECT step_id, contract_json
              FROM step_work_contracts
              WHERE run_id = ?1
-             ORDER BY step_id ASC, lease_gen DESC, created_at DESC"
-        ).unwrap();
+             ORDER BY step_id ASC, lease_gen DESC, created_at DESC",
+            )
+            .unwrap();
         for (step_id, contract_json) in contract_stmt
             .query_map(params![run_id], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -5597,13 +6086,15 @@ impl Database {
         }
 
         let mut attempt_by_step: HashMap<String, RunStepAttemptSnapshot> = HashMap::new();
-        let mut attempt_stmt = conn.prepare(
-            "SELECT step_id, attempt_number, worker_id, lease_gen, status, provider, model,
+        let mut attempt_stmt = conn
+            .prepare(
+                "SELECT step_id, attempt_number, worker_id, lease_gen, status, provider, model,
                     started_at, finished_at, failure_kind, error_summary
              FROM step_attempts
              WHERE run_id = ?1
-             ORDER BY step_id ASC, attempt_number DESC"
-        ).unwrap();
+             ORDER BY step_id ASC, attempt_number DESC",
+            )
+            .unwrap();
         for attempt in attempt_stmt
             .query_map(params![run_id], |row| {
                 Ok((
@@ -5660,7 +6151,10 @@ impl Database {
                 files_changed: row.get(14)?,
                 last_error: row.get(15)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn get_step_run_id(&self, step_id: &str) -> Option<String> {
@@ -5669,14 +6163,15 @@ impl Database {
             "SELECT run_id FROM steps WHERE id = ?1",
             params![step_id],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn get_active_run_ids(&self) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id FROM runs WHERE status IN ('planning', 'running')"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT id FROM runs WHERE status IN ('planning', 'running')")
+            .unwrap();
         stmt.query_map([], |row| row.get::<_, String>(0))
             .unwrap()
             .filter_map(|r| r.ok())
@@ -5690,7 +6185,8 @@ impl Database {
              ORDER BY last_reported DESC LIMIT 1",
             params![user_id, provider],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn get_user_profile(&self, user_id: &str) -> Option<String> {
@@ -5699,7 +6195,8 @@ impl Database {
             "SELECT active_profile FROM user_profiles WHERE user_id = ?1",
             params![user_id],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn get_user_auto_mode(&self, user_id: &str) -> Option<String> {
@@ -5708,7 +6205,8 @@ impl Database {
             "SELECT auto_mode FROM user_profiles WHERE user_id = ?1",
             params![user_id],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn record_score_evidence(
@@ -5724,7 +6222,8 @@ impl Database {
             "INSERT INTO score_evidence (decision_id, evaluator, evidence_json, score, timestamp)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![decision_id, evaluator, evidence_json, score, timestamp],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn get_step_predecessors(&self, step_id: &str) -> Vec<String> {
@@ -5740,20 +6239,25 @@ impl Database {
 
     pub fn get_run_step_dependency_edges(&self, run_id: &str) -> Vec<StepDependencyEdge> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT sd.step_id, sd.depends_on_id, sd.edge_type
+        let mut stmt = conn
+            .prepare(
+                "SELECT sd.step_id, sd.depends_on_id, sd.edge_type
              FROM step_dependencies sd
              JOIN steps s ON s.id = sd.step_id
              WHERE s.run_id = ?1
-             ORDER BY sd.step_id ASC, sd.depends_on_id ASC"
-        ).unwrap();
+             ORDER BY sd.step_id ASC, sd.depends_on_id ASC",
+            )
+            .unwrap();
         stmt.query_map(params![run_id], |row| {
             Ok(StepDependencyEdge {
                 step_id: row.get::<_, String>(0)?,
                 depends_on_id: row.get::<_, String>(1)?,
                 edge_type: row.get::<_, String>(2)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn get_step_output_summary(&self, step_id: &str) -> Option<String> {
@@ -5762,7 +6266,9 @@ impl Database {
             "SELECT output_summary FROM steps WHERE id = ?1",
             params![step_id],
             |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten()
+        )
+        .ok()
+        .flatten()
     }
 
     pub fn get_step_files_changed(&self, step_id: &str) -> Option<String> {
@@ -5771,7 +6277,9 @@ impl Database {
             "SELECT files_changed FROM steps WHERE id = ?1",
             params![step_id],
             |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten()
+        )
+        .ok()
+        .flatten()
     }
 
     pub fn record_verifier_report(
@@ -5806,7 +6314,8 @@ impl Database {
                 evidence_json,
                 now
             ],
-        ).ok()?;
+        )
+        .ok()?;
 
         let step_verification_status = match (status, verdict) {
             ("verified", "pass") => "verified_pass",
@@ -5816,7 +6325,11 @@ impl Database {
             ("error", _) => "verification_error",
             _ => "unverified",
         };
-        let verified_at = if status == "verified" { Some(now) } else { None };
+        let verified_at = if status == "verified" {
+            Some(now)
+        } else {
+            None
+        };
 
         conn.execute(
             "UPDATE steps
@@ -5826,14 +6339,19 @@ impl Database {
                  updated_at = ?4
              WHERE id = ?5",
             params![step_verification_status, id, verified_at, now, step_id],
-        ).ok();
+        )
+        .ok();
         let context = step_event_context(&conn, step_id);
         insert_operations_event(
             &conn,
             context.as_ref().map(|context| context.user_id.as_str()),
-            context.as_ref().and_then(|context| context.group_id.as_deref()),
+            context
+                .as_ref()
+                .and_then(|context| context.group_id.as_deref()),
             None,
-            context.as_ref().and_then(|context| context.task_id.as_deref()),
+            context
+                .as_ref()
+                .and_then(|context| context.task_id.as_deref()),
             Some(run_id),
             Some(step_id),
             None,
@@ -5864,20 +6382,23 @@ impl Database {
              ORDER BY created_at DESC
              LIMIT 1",
             params![step_id],
-            |row| Ok(VerifierReport {
-                id: row.get(0)?,
-                step_id: row.get(1)?,
-                run_id: row.get(2)?,
-                lease_gen: row.get(3)?,
-                worker_id: row.get(4)?,
-                verifier: row.get(5)?,
-                status: row.get(6)?,
-                verdict: row.get(7)?,
-                evidence_json: row.get(8)?,
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
-            }),
-        ).ok()
+            |row| {
+                Ok(VerifierReport {
+                    id: row.get(0)?,
+                    step_id: row.get(1)?,
+                    run_id: row.get(2)?,
+                    lease_gen: row.get(3)?,
+                    worker_id: row.get(4)?,
+                    verifier: row.get(5)?,
+                    status: row.get(6)?,
+                    verdict: row.get(7)?,
+                    evidence_json: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                })
+            },
+        )
+        .ok()
     }
 
     pub fn record_step_work_contract(
@@ -5924,18 +6445,16 @@ impl Database {
         rows > 0
     }
 
-    pub fn get_step_work_contract(
-        &self,
-        step_id: &str,
-        lease_gen: i64,
-    ) -> Option<TaskContract> {
+    pub fn get_step_work_contract(&self, step_id: &str, lease_gen: i64) -> Option<TaskContract> {
         let conn = self.conn.lock().unwrap();
-        let contract_json: String = conn.query_row(
-            "SELECT contract_json FROM step_work_contracts
+        let contract_json: String = conn
+            .query_row(
+                "SELECT contract_json FROM step_work_contracts
              WHERE step_id = ?1 AND lease_gen = ?2",
-            params![step_id, lease_gen],
-            |row| row.get(0),
-        ).ok()?;
+                params![step_id, lease_gen],
+                |row| row.get(0),
+            )
+            .ok()?;
 
         serde_json::from_str(&contract_json)
             .map_err(|err| {
@@ -5952,14 +6471,16 @@ impl Database {
 
     pub fn get_latest_step_work_contract(&self, step_id: &str) -> Option<TaskContract> {
         let conn = self.conn.lock().unwrap();
-        let contract_json: String = conn.query_row(
-            "SELECT contract_json FROM step_work_contracts
+        let contract_json: String = conn
+            .query_row(
+                "SELECT contract_json FROM step_work_contracts
              WHERE step_id = ?1
              ORDER BY lease_gen DESC, created_at DESC
              LIMIT 1",
-            params![step_id],
-            |row| row.get(0),
-        ).ok()?;
+                params![step_id],
+                |row| row.get(0),
+            )
+            .ok()?;
 
         serde_json::from_str(&contract_json)
             .map_err(|err| {
@@ -5979,7 +6500,8 @@ impl Database {
             "SELECT profile FROM runs WHERE id = ?1",
             params![run_id],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     // --- Attempt details (for usage recording) ---
@@ -5996,7 +6518,8 @@ impl Database {
              ORDER BY attempt_number DESC LIMIT 1",
             params![step_id, lease_gen],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        ).ok()
+        )
+        .ok()
     }
 
     // --- Worker sessions ---
@@ -6008,7 +6531,8 @@ impl Database {
             "INSERT INTO worker_sessions (id, worker_id, connected_at, last_heartbeat)
              VALUES (?1, ?2, ?3, ?3)",
             params![session_id, worker_id, now],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn disconnect_worker_session(&self, session_id: &str) {
@@ -6017,7 +6541,8 @@ impl Database {
         conn.execute(
             "UPDATE worker_sessions SET disconnected_at = ?1 WHERE id = ?2",
             params![now, session_id],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn set_worker_grace_deadline(&self, worker_id: &str, deadline_ms: i64) {
@@ -6026,7 +6551,8 @@ impl Database {
             "UPDATE worker_sessions SET grace_deadline = ?1
              WHERE worker_id = ?2 AND disconnected_at IS NOT NULL AND grace_deadline IS NULL",
             params![deadline_ms, worker_id],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn update_heartbeat(&self, worker_id: &str) {
@@ -6036,22 +6562,28 @@ impl Database {
             "UPDATE worker_sessions SET last_heartbeat = ?1
              WHERE worker_id = ?2 AND disconnected_at IS NULL",
             params![now, worker_id],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn workers_past_grace(&self) -> Vec<(String, String)> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let mut stmt = conn.prepare(
-            "SELECT ws.worker_id, s.id FROM worker_sessions ws
+        let mut stmt = conn
+            .prepare(
+                "SELECT ws.worker_id, s.id FROM worker_sessions ws
              JOIN steps s ON s.assigned_worker = ws.worker_id AND s.status IN ('leased', 'running')
              WHERE ws.disconnected_at IS NOT NULL
              AND ws.grace_deadline IS NOT NULL
-             AND ws.grace_deadline < ?1"
-        ).unwrap();
+             AND ws.grace_deadline < ?1",
+            )
+            .unwrap();
         stmt.query_map(params![now], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     // --- User profile mutations ---
@@ -6064,7 +6596,8 @@ impl Database {
              VALUES (?1, ?2, 'normal', ?3)
              ON CONFLICT(user_id) DO UPDATE SET active_profile = ?2, updated_at = ?3",
             params![user_id, profile, now],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn get_full_user_profile(&self, user_id: &str) -> Option<(String, String)> {
@@ -6073,14 +6606,16 @@ impl Database {
             "SELECT active_profile, auto_mode FROM user_profiles WHERE user_id = ?1",
             params![user_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
-        ).ok()
+        )
+        .ok()
     }
 
     /// List runs with active (non-terminal) status for the MC snapshot.
     pub fn list_active_runs(&self) -> Vec<ActiveRunSummary> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT r.id, r.goal, r.status, r.created_at,
+        let mut stmt = conn
+            .prepare(
+                "SELECT r.id, r.goal, r.status, r.created_at,
                     COUNT(s.id) as step_count,
                     SUM(CASE WHEN s.status = 'succeeded' THEN 1 ELSE 0 END) as steps_completed,
                     SUM(CASE WHEN s.status = 'failed' THEN 1 ELSE 0 END) as steps_failed
@@ -6089,8 +6624,9 @@ impl Database {
              WHERE r.status IN ('pending', 'running', 'leased')
              GROUP BY r.id
              ORDER BY r.created_at DESC
-             LIMIT 50"
-        ).unwrap();
+             LIMIT 50",
+            )
+            .unwrap();
         stmt.query_map([], |row| {
             Ok(ActiveRunSummary {
                 id: row.get(0)?,
@@ -6101,17 +6637,26 @@ impl Database {
                 steps_completed: row.get::<_, i64>(5)? as usize,
                 steps_failed: row.get::<_, i64>(6)? as usize,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     // --- Admin queries ---
 
-    pub fn list_all_runs(&self, limit: usize, offset: usize) -> Vec<(String, String, String, String, String)> {
+    pub fn list_all_runs(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Vec<(String, String, String, String, String)> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, user_id, goal, status, created_at FROM runs
-             ORDER BY created_at DESC LIMIT ?1 OFFSET ?2"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, user_id, goal, status, created_at FROM runs
+             ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
+            )
+            .unwrap();
         stmt.query_map(params![limit as i64, offset as i64], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -6120,16 +6665,17 @@ impl Database {
                 row.get::<_, String>(3)?,
                 row.get::<_, i64>(4)?.to_string(),
             ))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
-    pub fn list_decisions(
-        &self,
-        limit: usize,
-        user_id: Option<&str>,
-    ) -> Vec<serde_json::Value> {
+    pub fn list_decisions(&self, limit: usize, user_id: Option<&str>) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
-        let (sql, params_vec): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(uid) = user_id {
+        let (sql, params_vec): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(uid) =
+            user_id
+        {
             (
                 "SELECT id, user_id, run_id, step_id, timestamp, intent, risk, tier, provider, model, rationale, profile
                  FROM decisions WHERE user_id = ?1 ORDER BY timestamp DESC LIMIT ?2",
@@ -6144,7 +6690,8 @@ impl Database {
         };
 
         let mut stmt = conn.prepare(sql).unwrap();
-        let params_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
         stmt.query_map(params_refs.as_slice(), |row| {
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
@@ -6160,43 +6707,62 @@ impl Database {
                 "rationale": row.get::<_, String>(10)?,
                 "profile": row.get::<_, String>(11)?,
             }))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn system_stats(&self) -> serde_json::Value {
         let conn = self.conn.lock().unwrap();
 
-        let total_runs: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM runs", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let total_runs: i64 = conn
+            .query_row("SELECT COUNT(*) FROM runs", [], |r| r.get(0))
+            .unwrap_or(0);
 
-        let active_runs: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM runs WHERE status IN ('planning', 'running')", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let active_runs: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM runs WHERE status IN ('planning', 'running')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
 
-        let total_steps: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM steps", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let total_steps: i64 = conn
+            .query_row("SELECT COUNT(*) FROM steps", [], |r| r.get(0))
+            .unwrap_or(0);
 
-        let succeeded_steps: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM steps WHERE status = 'succeeded'", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let succeeded_steps: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM steps WHERE status = 'succeeded'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
 
-        let failed_steps: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM steps WHERE status = 'failed'", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let failed_steps: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM steps WHERE status = 'failed'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
 
-        let total_decisions: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM decisions", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let total_decisions: i64 = conn
+            .query_row("SELECT COUNT(*) FROM decisions", [], |r| r.get(0))
+            .unwrap_or(0);
 
-        let connected_workers: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM workers WHERE status = 'connected'", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let connected_workers: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM workers WHERE status = 'connected'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
 
-        let total_users: i64 = conn.query_row(
-            "SELECT COUNT(DISTINCT user_id) FROM runs", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let total_users: i64 = conn
+            .query_row("SELECT COUNT(DISTINCT user_id) FROM runs", [], |r| r.get(0))
+            .unwrap_or(0);
 
         serde_json::json!({
             "runs": { "total": total_runs, "active": active_runs },
@@ -6209,14 +6775,16 @@ impl Database {
 
     pub fn get_worker_list(&self) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT w.id, w.user_id, w.status, w.last_seen,
+        let mut stmt = conn
+            .prepare(
+                "SELECT w.id, w.user_id, w.status, w.last_seen,
                     GROUP_CONCAT(pc.provider, ',') as providers
              FROM workers w
              LEFT JOIN provider_capabilities pc ON pc.worker_id = w.id
              GROUP BY w.id
-             ORDER BY w.last_seen DESC"
-        ).unwrap();
+             ORDER BY w.last_seen DESC",
+            )
+            .unwrap();
         stmt.query_map([], |row| {
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
@@ -6227,7 +6795,10 @@ impl Database {
                     .map(|s| s.split(',').map(String::from).collect::<Vec<_>>())
                     .unwrap_or_default(),
             }))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     // --- Steps assigned to a worker (for orphaning on disconnect) ---
@@ -6263,11 +6834,13 @@ impl Database {
     pub fn renew_lease(&self, step_id: &str, lease_gen: i64, new_deadline: i64) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET lease_deadline = ?1, updated_at = ?2
+        let rows = conn
+            .execute(
+                "UPDATE steps SET lease_deadline = ?1, updated_at = ?2
              WHERE id = ?3 AND lease_gen = ?4 AND status IN ('leased', 'running')",
-            params![new_deadline, now, step_id, lease_gen],
-        ).unwrap_or(0);
+                params![new_deadline, now, step_id, lease_gen],
+            )
+            .unwrap_or(0);
         rows > 0
     }
 
@@ -6278,7 +6851,8 @@ impl Database {
             "UPDATE steps SET earliest_dispatch_at = ?1, updated_at = ?2
              WHERE id = ?3",
             params![earliest_ms, now, step_id],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn unlease_step(&self, step_id: &str, lease_gen: i64) -> bool {
@@ -6301,7 +6875,8 @@ impl Database {
                  updated_at = ?1, version = version + 1
              WHERE id = ?2 AND status IN ('leased', 'running')",
             params![now, step_id],
-        ).ok();
+        )
+        .ok();
     }
 
     /// Cascade failure from a failed step to all downstream steps that depend on it
@@ -6319,12 +6894,14 @@ impl Database {
 
         while let Some(current_id) = queue.pop_front() {
             // Find all steps that depend on current_id with success_required edge
-            let mut stmt = conn.prepare(
-                "SELECT sd.step_id FROM step_dependencies sd
+            let mut stmt = conn
+                .prepare(
+                    "SELECT sd.step_id FROM step_dependencies sd
                  JOIN steps s ON s.id = sd.step_id
                  WHERE sd.depends_on_id = ?1 AND sd.edge_type = 'success_required'
-                 AND s.status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped')"
-            ).unwrap();
+                 AND s.status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped')",
+                )
+                .unwrap();
 
             let dependents: Vec<String> = stmt
                 .query_map(params![current_id], |row| row.get::<_, String>(0))
@@ -6359,24 +6936,36 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         // Per-provider breakdown
-        let mut stmt = conn.prepare(
-            "SELECT provider,
+        let mut stmt = conn
+            .prepare(
+                "SELECT provider,
                     COALESCE(SUM(COALESCE(tokens_in, 0)), 0),
                     COALESCE(SUM(COALESCE(tokens_out, 0)), 0),
                     COUNT(*)
              FROM usage_events
              WHERE user_id = ?1 AND timestamp > ?2
-             GROUP BY provider"
-        ).unwrap();
+             GROUP BY provider",
+            )
+            .unwrap();
 
-        let by_provider: Vec<ProviderUsage> = stmt.query_map(params![user_id, since_ms], |row| {
-            let provider: String = row.get(0)?;
-            let tokens_in: i64 = row.get(1)?;
-            let tokens_out: i64 = row.get(2)?;
-            let step_count: i64 = row.get(3)?;
-            let cost = estimate_cost_by_provider(&provider, tokens_in, tokens_out);
-            Ok(ProviderUsage { provider, tokens_in, tokens_out, cost_estimate: cost, step_count })
-        }).unwrap().filter_map(|r| r.ok()).collect();
+        let by_provider: Vec<ProviderUsage> = stmt
+            .query_map(params![user_id, since_ms], |row| {
+                let provider: String = row.get(0)?;
+                let tokens_in: i64 = row.get(1)?;
+                let tokens_out: i64 = row.get(2)?;
+                let step_count: i64 = row.get(3)?;
+                let cost = estimate_cost_by_provider(&provider, tokens_in, tokens_out);
+                Ok(ProviderUsage {
+                    provider,
+                    tokens_in,
+                    tokens_out,
+                    cost_estimate: cost,
+                    step_count,
+                })
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
 
         let total_tokens_in = by_provider.iter().map(|p| p.tokens_in).sum();
         let total_tokens_out = by_provider.iter().map(|p| p.tokens_out).sum();
@@ -6397,16 +6986,18 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let cutoff_ms = Utc::now().timestamp_millis() - (days as i64 * 86_400_000);
 
-        let mut stmt = conn.prepare(
-            "SELECT DATE(timestamp / 1000, 'unixepoch') as day,
+        let mut stmt = conn
+            .prepare(
+                "SELECT DATE(timestamp / 1000, 'unixepoch') as day,
                     COALESCE(SUM(COALESCE(tokens_in, 0)), 0),
                     COALESCE(SUM(COALESCE(tokens_out, 0)), 0),
                     COUNT(*)
              FROM usage_events
              WHERE user_id = ?1 AND timestamp > ?2
              GROUP BY day
-             ORDER BY day ASC"
-        ).unwrap();
+             ORDER BY day ASC",
+            )
+            .unwrap();
 
         stmt.query_map(params![user_id, cutoff_ms], |row| {
             let date: String = row.get(0)?;
@@ -6415,32 +7006,53 @@ impl Database {
             let step_count: i64 = row.get(3)?;
             // Use a blended rate for daily aggregation
             let cost_estimate = estimate_cost_by_provider("claude", tokens_in, tokens_out);
-            Ok(DailyUsage { date, tokens_in, tokens_out, cost_estimate, step_count })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+            Ok(DailyUsage {
+                date,
+                tokens_in,
+                tokens_out,
+                cost_estimate,
+                step_count,
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     /// Get system-wide usage summary since a given timestamp (admin).
     pub fn get_system_usage_summary(&self, since_ms: i64) -> UsageSummary {
         let conn = self.conn.lock().unwrap();
 
-        let mut stmt = conn.prepare(
-            "SELECT provider,
+        let mut stmt = conn
+            .prepare(
+                "SELECT provider,
                     COALESCE(SUM(COALESCE(tokens_in, 0)), 0),
                     COALESCE(SUM(COALESCE(tokens_out, 0)), 0),
                     COUNT(*)
              FROM usage_events
              WHERE timestamp > ?1
-             GROUP BY provider"
-        ).unwrap();
+             GROUP BY provider",
+            )
+            .unwrap();
 
-        let by_provider: Vec<ProviderUsage> = stmt.query_map(params![since_ms], |row| {
-            let provider: String = row.get(0)?;
-            let tokens_in: i64 = row.get(1)?;
-            let tokens_out: i64 = row.get(2)?;
-            let step_count: i64 = row.get(3)?;
-            let cost = estimate_cost_by_provider(&provider, tokens_in, tokens_out);
-            Ok(ProviderUsage { provider, tokens_in, tokens_out, cost_estimate: cost, step_count })
-        }).unwrap().filter_map(|r| r.ok()).collect();
+        let by_provider: Vec<ProviderUsage> = stmt
+            .query_map(params![since_ms], |row| {
+                let provider: String = row.get(0)?;
+                let tokens_in: i64 = row.get(1)?;
+                let tokens_out: i64 = row.get(2)?;
+                let step_count: i64 = row.get(3)?;
+                let cost = estimate_cost_by_provider(&provider, tokens_in, tokens_out);
+                Ok(ProviderUsage {
+                    provider,
+                    tokens_in,
+                    tokens_out,
+                    cost_estimate: cost,
+                    step_count,
+                })
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
 
         let total_tokens_in = by_provider.iter().map(|p| p.tokens_in).sum();
         let total_tokens_out = by_provider.iter().map(|p| p.tokens_out).sum();
@@ -6461,9 +7073,9 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         // Get distinct users with usage in the window
-        let mut user_stmt = conn.prepare(
-            "SELECT DISTINCT user_id FROM usage_events WHERE timestamp > ?1"
-        ).unwrap();
+        let mut user_stmt = conn
+            .prepare("SELECT DISTINCT user_id FROM usage_events WHERE timestamp > ?1")
+            .unwrap();
 
         let user_ids: Vec<String> = user_stmt
             .query_map(params![since_ms], |row| row.get::<_, String>(0))
@@ -6519,8 +7131,8 @@ impl Database {
     pub fn get_user_daily_cost(&self, user_id: &str) -> (f64, i64) {
         let now = Utc::now();
         let midnight = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
-        let midnight_ms = chrono::DateTime::<Utc>::from_naive_utc_and_offset(midnight, Utc)
-            .timestamp_millis();
+        let midnight_ms =
+            chrono::DateTime::<Utc>::from_naive_utc_and_offset(midnight, Utc).timestamp_millis();
         let summary = self.get_user_usage_summary(user_id, midnight_ms);
         (summary.total_cost_estimate, summary.step_count)
     }
@@ -6528,7 +7140,12 @@ impl Database {
     /// Get a user's usage cost for the current month (since 1st of month UTC).
     pub fn get_user_monthly_cost(&self, user_id: &str) -> f64 {
         let now = Utc::now();
-        let first_of_month = now.date_naive().with_day(1).unwrap().and_hms_opt(0, 0, 0).unwrap();
+        let first_of_month = now
+            .date_naive()
+            .with_day(1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let first_ms = chrono::DateTime::<Utc>::from_naive_utc_and_offset(first_of_month, Utc)
             .timestamp_millis();
         let summary = self.get_user_usage_summary(user_id, first_ms);
@@ -6544,17 +7161,20 @@ impl Database {
                     trial_end, current_period_start, current_period_end
              FROM subscriptions WHERE clerk_user_id = ?1",
             params![clerk_user_id],
-            |row| Ok(SubscriptionRecord {
-                clerk_user_id: row.get(0)?,
-                stripe_customer_id: row.get(1)?,
-                stripe_subscription_id: row.get(2)?,
-                plan_type: row.get(3)?,
-                status: row.get(4)?,
-                trial_end: row.get(5)?,
-                current_period_start: row.get(6)?,
-                current_period_end: row.get(7)?,
-            }),
-        ).ok()
+            |row| {
+                Ok(SubscriptionRecord {
+                    clerk_user_id: row.get(0)?,
+                    stripe_customer_id: row.get(1)?,
+                    stripe_subscription_id: row.get(2)?,
+                    plan_type: row.get(3)?,
+                    status: row.get(4)?,
+                    trial_end: row.get(5)?,
+                    current_period_start: row.get(6)?,
+                    current_period_end: row.get(7)?,
+                })
+            },
+        )
+        .ok()
     }
 
     pub fn upsert_subscription(&self, sub: &SubscriptionRecord) {
@@ -6574,27 +7194,34 @@ impl Database {
                 sub.current_period_start,
                 sub.current_period_end,
             ],
-        ).expect("failed to upsert subscription");
+        )
+        .expect("failed to upsert subscription");
     }
 
-    pub fn get_subscription_by_customer(&self, stripe_customer_id: &str) -> Option<SubscriptionRecord> {
+    pub fn get_subscription_by_customer(
+        &self,
+        stripe_customer_id: &str,
+    ) -> Option<SubscriptionRecord> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT clerk_user_id, stripe_customer_id, stripe_subscription_id, plan_type, status,
                     trial_end, current_period_start, current_period_end
              FROM subscriptions WHERE stripe_customer_id = ?1",
             params![stripe_customer_id],
-            |row| Ok(SubscriptionRecord {
-                clerk_user_id: row.get(0)?,
-                stripe_customer_id: row.get(1)?,
-                stripe_subscription_id: row.get(2)?,
-                plan_type: row.get(3)?,
-                status: row.get(4)?,
-                trial_end: row.get(5)?,
-                current_period_start: row.get(6)?,
-                current_period_end: row.get(7)?,
-            }),
-        ).ok()
+            |row| {
+                Ok(SubscriptionRecord {
+                    clerk_user_id: row.get(0)?,
+                    stripe_customer_id: row.get(1)?,
+                    stripe_subscription_id: row.get(2)?,
+                    plan_type: row.get(3)?,
+                    status: row.get(4)?,
+                    trial_end: row.get(5)?,
+                    current_period_start: row.get(6)?,
+                    current_period_end: row.get(7)?,
+                })
+            },
+        )
+        .ok()
     }
 
     pub fn get_credit_balance(&self, clerk_user_id: &str) -> CreditBalanceRecord {
@@ -6603,12 +7230,15 @@ impl Database {
             "SELECT subscription_remaining, subscription_total, pack_remaining
              FROM credit_balances WHERE clerk_user_id = ?1",
             params![clerk_user_id],
-            |row| Ok(CreditBalanceRecord {
-                subscription_remaining: row.get(0)?,
-                subscription_total: row.get(1)?,
-                pack_remaining: row.get(2)?,
-            }),
-        ).unwrap_or(CreditBalanceRecord {
+            |row| {
+                Ok(CreditBalanceRecord {
+                    subscription_remaining: row.get(0)?,
+                    subscription_total: row.get(1)?,
+                    pack_remaining: row.get(2)?,
+                })
+            },
+        )
+        .unwrap_or(CreditBalanceRecord {
             subscription_remaining: 200.0,
             subscription_total: 200.0,
             pack_remaining: 0.0,
@@ -6684,11 +7314,13 @@ impl Database {
         conn.execute("COMMIT", [])
             .map_err(|e| format!("failed to commit transaction: {e}"))?;
 
-        let sub_total = conn.query_row(
-            "SELECT subscription_total FROM credit_balances WHERE clerk_user_id = ?1",
-            params![clerk_user_id],
-            |row| row.get::<_, f64>(0),
-        ).unwrap_or(200.0);
+        let sub_total = conn
+            .query_row(
+                "SELECT subscription_total FROM credit_balances WHERE clerk_user_id = ?1",
+                params![clerk_user_id],
+                |row| row.get::<_, f64>(0),
+            )
+            .unwrap_or(200.0);
 
         Ok(CreditBalanceRecord {
             subscription_remaining: new_sub_rem,
@@ -6745,13 +7377,19 @@ impl Database {
         rows > 0
     }
 
-    pub fn get_billing_history(&self, clerk_user_id: &str, limit: i64) -> Vec<BillingHistoryRecord> {
+    pub fn get_billing_history(
+        &self,
+        clerk_user_id: &str,
+        limit: i64,
+    ) -> Vec<BillingHistoryRecord> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, amount_cents, description, status, created_at
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, amount_cents, description, status, created_at
              FROM billing_history WHERE clerk_user_id = ?1
-             ORDER BY created_at DESC LIMIT ?2"
-        ).unwrap();
+             ORDER BY created_at DESC LIMIT ?2",
+            )
+            .unwrap();
 
         stmt.query_map(params![clerk_user_id, limit], |row| {
             Ok(BillingHistoryRecord {
@@ -6761,7 +7399,10 @@ impl Database {
                 status: row.get(3)?,
                 created_at: row.get(4)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn get_referral_code(&self, code: &str) -> Option<ReferralCodeRecord> {
@@ -6770,14 +7411,17 @@ impl Database {
             "SELECT code, creator_user_id, uses_remaining, total_uses, weeks_earned
              FROM referral_codes WHERE code = ?1",
             params![code],
-            |row| Ok(ReferralCodeRecord {
-                code: row.get(0)?,
-                creator_user_id: row.get(1)?,
-                uses_remaining: row.get(2)?,
-                total_uses: row.get(3)?,
-                weeks_earned: row.get(4)?,
-            }),
-        ).ok()
+            |row| {
+                Ok(ReferralCodeRecord {
+                    code: row.get(0)?,
+                    creator_user_id: row.get(1)?,
+                    uses_remaining: row.get(2)?,
+                    total_uses: row.get(3)?,
+                    weeks_earned: row.get(4)?,
+                })
+            },
+        )
+        .ok()
     }
 
     pub fn get_user_referral_code(&self, user_id: &str) -> Option<ReferralCodeRecord> {
@@ -6786,14 +7430,17 @@ impl Database {
             "SELECT code, creator_user_id, uses_remaining, total_uses, weeks_earned
              FROM referral_codes WHERE creator_user_id = ?1",
             params![user_id],
-            |row| Ok(ReferralCodeRecord {
-                code: row.get(0)?,
-                creator_user_id: row.get(1)?,
-                uses_remaining: row.get(2)?,
-                total_uses: row.get(3)?,
-                weeks_earned: row.get(4)?,
-            }),
-        ).ok()
+            |row| {
+                Ok(ReferralCodeRecord {
+                    code: row.get(0)?,
+                    creator_user_id: row.get(1)?,
+                    uses_remaining: row.get(2)?,
+                    total_uses: row.get(3)?,
+                    weeks_earned: row.get(4)?,
+                })
+            },
+        )
+        .ok()
     }
 
     pub fn create_user_referral_code(&self, user_id: &str) -> ReferralCodeRecord {
@@ -6809,13 +7456,14 @@ impl Database {
             params![code, user_id],
         ).ok();
         drop(conn);
-        self.get_user_referral_code(user_id).unwrap_or(ReferralCodeRecord {
-            code,
-            creator_user_id: user_id.to_string(),
-            uses_remaining: 50,
-            total_uses: 0,
-            weeks_earned: 0,
-        })
+        self.get_user_referral_code(user_id)
+            .unwrap_or(ReferralCodeRecord {
+                code,
+                creator_user_id: user_id.to_string(),
+                uses_remaining: 50,
+                total_uses: 0,
+                weeks_earned: 0,
+            })
     }
 
     pub fn consume_referral(&self, code: &str) -> bool {
@@ -6833,7 +7481,8 @@ impl Database {
         conn.execute(
             "UPDATE referral_codes SET weeks_earned = weeks_earned + 1 WHERE code = ?1",
             params![code],
-        ).ok();
+        )
+        .ok();
     }
 
     // --- Promo Codes ---
@@ -6899,7 +7548,10 @@ impl Database {
                 description: row.get(10)?,
                 discount_options: row.get(11)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn get_promo_code(&self, code: &str) -> Option<PromoCode> {
@@ -6963,7 +7615,9 @@ impl Database {
 
     pub fn delete_promo_code(&self, id: &str) -> bool {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM promo_codes WHERE id = ?1", params![id]).unwrap_or(0) > 0
+        conn.execute("DELETE FROM promo_codes WHERE id = ?1", params![id])
+            .unwrap_or(0)
+            > 0
     }
 
     pub fn validate_promo_code(&self, code: &str, user_id: &str) -> Result<PromoCode, String> {
@@ -7004,7 +7658,8 @@ impl Database {
         conn.execute(
             "UPDATE promo_codes SET current_uses = current_uses + 1 WHERE id = ?1",
             params![promo.id],
-        ).map_err(|e| format!("usage update failed: {e}"))?;
+        )
+        .map_err(|e| format!("usage update failed: {e}"))?;
         Ok(promo)
     }
 
@@ -7021,7 +7676,8 @@ impl Database {
             ),
         };
         let mut stmt = conn.prepare(sql).unwrap();
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|v| v.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|v| v.as_ref()).collect();
         stmt.query_map(param_refs.as_slice(), |row| {
             Ok(CodeRedemption {
                 id: row.get(0)?,
@@ -7030,7 +7686,10 @@ impl Database {
                 user_id: row.get(3)?,
                 redeemed_at: row.get(4)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     // --- Context Flow Artifacts ---
@@ -7061,7 +7720,20 @@ impl Database {
         ).expect("failed to store context artifact");
     }
 
-    pub fn get_context_artifacts_for_run(&self, run_id: &str) -> Vec<(String, String, String, String, String, Vec<String>, f32, u32, i64)> {
+    pub fn get_context_artifacts_for_run(
+        &self,
+        run_id: &str,
+    ) -> Vec<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        Vec<String>,
+        f32,
+        u32,
+        i64,
+    )> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, producer_step_id, kind, content, summary, files_changed, confidence, tokens, created_at
@@ -7084,7 +7756,10 @@ impl Database {
                 row.get(7)?, // tokens
                 row.get(8)?, // created_at
             ))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn cleanup_context_artifacts_for_run(&self, run_id: &str) {
@@ -7092,10 +7767,13 @@ impl Database {
         conn.execute(
             "DELETE FROM context_flow_artifacts WHERE producer_run_id = ?1",
             params![run_id],
-        ).expect("failed to cleanup context artifacts");
+        )
+        .expect("failed to cleanup context artifacts");
     }
 
-    pub fn get_context_artifact_stats(&self) -> (usize, std::collections::HashMap<String, usize>, f32) {
+    pub fn get_context_artifact_stats(
+        &self,
+    ) -> (usize, std::collections::HashMap<String, usize>, f32) {
         let conn = self.conn.lock().unwrap();
 
         // Total count
@@ -7106,9 +7784,9 @@ impl Database {
             .unwrap_or(0);
 
         // Count by kind
-        let mut stmt = conn.prepare(
-            "SELECT kind, COUNT(*) FROM context_flow_artifacts GROUP BY kind"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT kind, COUNT(*) FROM context_flow_artifacts GROUP BY kind")
+            .unwrap();
         let kind_counts: std::collections::HashMap<String, usize> = stmt
             .query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
@@ -7119,9 +7797,11 @@ impl Database {
 
         // Average tokens
         let avg_tokens: f32 = conn
-            .query_row("SELECT AVG(CAST(tokens AS REAL)) FROM context_flow_artifacts", [], |row| {
-                Ok(row.get::<_, f64>(0)? as f32)
-            })
+            .query_row(
+                "SELECT AVG(CAST(tokens AS REAL)) FROM context_flow_artifacts",
+                [],
+                |row| Ok(row.get::<_, f64>(0)? as f32),
+            )
             .unwrap_or(0.0);
 
         (total, kind_counts, avg_tokens)
@@ -7129,17 +7809,17 @@ impl Database {
 
     pub fn get_recent_runs_with_artifacts(&self, limit: usize) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT DISTINCT producer_run_id FROM context_flow_artifacts
-             ORDER BY created_at DESC LIMIT ?1"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT producer_run_id FROM context_flow_artifacts
+             ORDER BY created_at DESC LIMIT ?1",
+            )
+            .unwrap();
 
-        stmt.query_map([limit], |row| {
-            Ok(row.get::<_, String>(0)?)
-        })
-        .unwrap()
-        .filter_map(|r| r.ok())
-        .collect()
+        stmt.query_map([limit], |row| Ok(row.get::<_, String>(0)?))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
     }
 }
 
@@ -7223,18 +7903,35 @@ mod tests {
 
         assert_eq!(events.len(), 2);
         assert!(events.iter().all(|event| event.entity_type == "deployment"));
-        assert!(events
-            .iter()
-            .all(|event| event.scope_id.as_deref() == Some("cortex")));
-        assert!(events
-            .iter()
-            .any(|event| event.entity_id == "first" && event.payload["commit"] == "abc1234"));
-        assert!(events
-            .iter()
-            .any(|event| event.entity_id == "second" && event.payload["commit"] == "def5678"));
+        assert!(
+            events
+                .iter()
+                .all(|event| event.scope_id.as_deref() == Some("cortex"))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.entity_id == "first" && event.payload["commit"] == "abc1234")
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.entity_id == "second" && event.payload["commit"] == "def5678")
+        );
     }
 
-    fn test_step(id: &str) -> (String, String, String, Option<String>, String, String, String, i64) {
+    fn test_step(
+        id: &str,
+    ) -> (
+        String,
+        String,
+        String,
+        Option<String>,
+        String,
+        String,
+        String,
+        i64,
+    ) {
         (
             id.to_string(),
             "execute".to_string(),
@@ -7288,14 +7985,15 @@ mod tests {
         assert_eq!(latest_run_id.as_deref(), Some(run_id.as_str()));
         assert_eq!(conversation_id.as_deref(), Some(conversation.id.as_str()));
 
-        assert!(conn
-            .query_row(
+        assert!(
+            conn.query_row(
                 "SELECT 1 FROM cortex_task_chats
                  WHERE user_id = ?1 AND group_id = ?2 AND task_id = ?3 AND conversation_id = ?4",
                 params!["user-1", "group-1", "task-1", conversation.id],
                 |_| Ok(())
             )
-            .is_ok());
+            .is_ok()
+        );
     }
 
     #[test]
@@ -7408,7 +8106,10 @@ mod tests {
             None,
             None,
             None,
-            &[path_lease_in_repo("github:claw-net/claw-net", "src/main.rs")],
+            &[path_lease_in_repo(
+                "github:claw-net/claw-net",
+                "src/main.rs",
+            )],
             &[test_step("step-b")],
             &[],
         );
@@ -7558,7 +8259,10 @@ mod tests {
             &[test_step("step-b")],
             &[],
         );
-        assert!(matches!(same_task, Err(CreateRunError::ResourceConflict(_))));
+        assert!(matches!(
+            same_task,
+            Err(CreateRunError::ResourceConflict(_))
+        ));
 
         let other_task = db.create_run_with_steps_and_resource_leases(
             "user-1",
@@ -7601,13 +8305,15 @@ mod tests {
         assert_eq!(projection["task"]["conversation_id"], conversation.id);
         assert_eq!(projection["runs"][0]["id"], run_id);
         assert_eq!(projection["chats"][0]["id"], conversation.id);
-        assert!(projection["events"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|event| event["event_type"] == "run.created"
-                && event["run_id"] == run_id
-                && event["task_id"] == "task-1"));
+        assert!(
+            projection["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|event| event["event_type"] == "run.created"
+                    && event["run_id"] == run_id
+                    && event["task_id"] == "task-1")
+        );
     }
 
     #[test]
@@ -7631,9 +8337,11 @@ mod tests {
         assert_eq!(request.task_id.as_deref(), Some("task-1"));
         assert_eq!(request.priority, "urgent");
 
-        let user_requests = db.list_cortex_approval_requests("user-1", "group-1", Some("pending"), 10);
+        let user_requests =
+            db.list_cortex_approval_requests("user-1", "group-1", Some("pending"), 10);
         assert_eq!(user_requests.len(), 1);
-        let other_user_requests = db.list_cortex_approval_requests("user-2", "group-1", Some("pending"), 10);
+        let other_user_requests =
+            db.list_cortex_approval_requests("user-2", "group-1", Some("pending"), 10);
         assert!(other_user_requests.is_empty());
 
         let resolved = db
@@ -7648,15 +8356,16 @@ mod tests {
         assert_eq!(resolved.status, "approved");
         assert_eq!(resolved.decision.as_ref().unwrap()["note"], "looks good");
         assert!(resolved.resolved_at.is_some());
-        assert!(db
-            .resolve_cortex_approval_request(
+        assert!(
+            db.resolve_cortex_approval_request(
                 "user-1",
                 "group-1",
                 &request.id,
                 "rejected",
                 &serde_json::json!({}),
             )
-            .is_none());
+            .is_none()
+        );
 
         let pending = db.list_cortex_approval_requests("user-1", "group-1", Some("pending"), 10);
         assert!(pending.is_empty());
@@ -7721,13 +8430,15 @@ mod tests {
 
         let summary = db.get_group_operations_summary("user-1", "group-1", 25);
         assert_eq!(summary["approvals"]["pending"], 1);
-        assert!(summary["attention"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["kind"] == "approval_pending"
-                && item["approval_id"] == approval.id
-                && item["task_id"] == "task-1"));
+        assert!(
+            summary["attention"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["kind"] == "approval_pending"
+                    && item["approval_id"] == approval.id
+                    && item["task_id"] == "task-1")
+        );
     }
 
     #[test]
@@ -7798,11 +8509,7 @@ mod tests {
         )
         .expect("approval resolves");
 
-        assert!(db.has_approved_cortex_step_approval(
-            "user-1",
-            "step-risky",
-            "autonomy.dispatch"
-        ));
+        assert!(db.has_approved_cortex_step_approval("user-1", "step-risky", "autonomy.dispatch"));
         assert_eq!(
             db.latest_cortex_step_approval_status("user-1", "step-risky", "autonomy.dispatch")
                 .map(|(_, status)| status)
@@ -7817,31 +8524,39 @@ mod tests {
     #[test]
     fn get_group_operations_summary_counts_user_scoped_backend_state() {
         let db = test_db();
-        db.upsert_group_task_state("user-1", "group-1", &task_state_with_tasks(serde_json::json!([
-            {
-                "id": "task-urgent",
-                "groupId": "group-1",
-                "title": "Urgent queued task",
-                "status": "created",
-                "priority": "urgent",
-                "assigneeId": null,
-                "createdAt": "2026-05-25T00:00:00Z",
-                "updatedAt": "2026-05-25T00:00:00Z",
-                "createdBy": "You"
-            },
-            {
-                "id": "task-active",
-                "groupId": "group-1",
-                "title": "Active backend task",
-                "status": "in-progress",
-                "priority": "normal",
-                "assigneeId": "user-1",
-                "createdAt": "2026-05-25T00:00:00Z",
-                "updatedAt": "2026-05-25T00:00:00Z",
-                "createdBy": "You"
-            }
-        ])));
-        db.upsert_group_task_state("user-2", "group-1", &task_state("task-other-user", "Other user task"));
+        db.upsert_group_task_state(
+            "user-1",
+            "group-1",
+            &task_state_with_tasks(serde_json::json!([
+                {
+                    "id": "task-urgent",
+                    "groupId": "group-1",
+                    "title": "Urgent queued task",
+                    "status": "created",
+                    "priority": "urgent",
+                    "assigneeId": null,
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                },
+                {
+                    "id": "task-active",
+                    "groupId": "group-1",
+                    "title": "Active backend task",
+                    "status": "in-progress",
+                    "priority": "normal",
+                    "assigneeId": "user-1",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                }
+            ])),
+        );
+        db.upsert_group_task_state(
+            "user-2",
+            "group-1",
+            &task_state("task-other-user", "Other user task"),
+        );
 
         let run_id = db.create_run_with_metadata(
             "user-1",
@@ -7890,34 +8605,33 @@ mod tests {
             .iter()
             .any(|item| item["kind"] == "urgent_not_active"
                 && item["task_id"] == "task-urgent"));
-        assert!(summary["attention"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["kind"] == "failed_run"
-                && item["run_id"] == run_id));
-        assert!(summary["recent_events"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|event| event["actor_user_id"] == "user-1"));
-        assert!(summary["recent_events"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|event| event["event_type"] == "run.status_changed"
-                && event["scope_id"] == "group-1"
-                && event["task_id"] == "task-active"
-                && event["run_id"] == run_id));
-        assert!(summary["recent_events"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|event| event["event_type"] == "step.failed"
+        assert!(
+            summary["attention"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["kind"] == "failed_run" && item["run_id"] == run_id)
+        );
+        assert!(
+            summary["recent_events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|event| event["actor_user_id"] == "user-1")
+        );
+        assert!(summary["recent_events"].as_array().unwrap().iter().any(
+            |event| event["event_type"] == "run.status_changed"
                 && event["scope_id"] == "group-1"
                 && event["task_id"] == "task-active"
                 && event["run_id"] == run_id
-                && event["step_id"] == step_id));
+        ));
+        assert!(summary["recent_events"].as_array().unwrap().iter().any(
+            |event| event["event_type"] == "step.failed"
+                && event["scope_id"] == "group-1"
+                && event["task_id"] == "task-active"
+                && event["run_id"] == run_id
+                && event["step_id"] == step_id
+        ));
     }
 
     #[test]
@@ -7948,14 +8662,16 @@ mod tests {
         assert_eq!(summary["resource_leases"]["by_type"]["task"], 1);
         assert_eq!(summary["resource_leases"]["by_mode"]["write"], 1);
         assert_eq!(summary["resource_leases"]["by_mode"]["exclusive"], 1);
-        assert!(summary["resource_leases"]["leases"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|lease| lease["run_id"] == run_id
-                && lease["resource_type"] == "path"
-                && lease["repo_key"] == "github:hey-vera/heyvera"
-                && lease["resource_key"] == "src/main.rs"));
+        assert!(
+            summary["resource_leases"]["leases"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|lease| lease["run_id"] == run_id
+                    && lease["resource_type"] == "path"
+                    && lease["repo_key"] == "github:hey-vera/heyvera"
+                    && lease["resource_key"] == "src/main.rs")
+        );
     }
 
     #[test]
@@ -8006,7 +8722,11 @@ mod tests {
                 }
             ])),
         );
-        db.upsert_group_task_state("user-2", "group-derived", &task_state("other-task", "Other"));
+        db.upsert_group_task_state(
+            "user-2",
+            "group-derived",
+            &task_state("other-task", "Other"),
+        );
 
         let run_id = db
             .create_run_with_steps_and_resource_leases(
@@ -8036,25 +8756,31 @@ mod tests {
         assert_eq!(summary["runs"]["active"], 1);
         assert_eq!(summary["resource_leases"]["active"], 1);
         assert_eq!(summary["resource_leases"]["by_type"]["path"], 1);
-        assert!(summary["groups"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|group| group["group_id"] == "group-derived"
-                && group["source"] == "derived"
-                && group["tasks"]["total"] == 1));
-        assert!(summary["groups"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|group| group["group_id"] == "group-registered"
-                && group["name"] == "Registered group"
-                && group["resource_leases"]["active"] == 1));
-        assert!(summary["attention"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|item| item["group_id"].as_str().is_some()));
+        assert!(
+            summary["groups"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|group| group["group_id"] == "group-derived"
+                    && group["source"] == "derived"
+                    && group["tasks"]["total"] == 1)
+        );
+        assert!(
+            summary["groups"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|group| group["group_id"] == "group-registered"
+                    && group["name"] == "Registered group"
+                    && group["resource_leases"]["active"] == 1)
+        );
+        assert!(
+            summary["attention"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["group_id"].as_str().is_some())
+        );
     }
 
     #[test]
@@ -8094,9 +8820,11 @@ mod tests {
 
         let scopes = db.list_authority_scopes_for_user("user-1");
         assert_eq!(scopes.len(), 2);
-        assert!(scopes
-            .iter()
-            .any(|scope| scope.id == "personal:user-1" && scope.kind == "personal"));
+        assert!(
+            scopes
+                .iter()
+                .any(|scope| scope.id == "personal:user-1" && scope.kind == "personal")
+        );
         let org = scopes
             .iter()
             .find(|scope| scope.id == "org:github:hey-vera")
@@ -8166,26 +8894,125 @@ mod tests {
             .iter()
             .find(|event| event.event_type == "run.created")
             .expect("run.created event");
-        assert_eq!(created.payload["authority"]["scope_id"], "org:github:hey-vera");
+        assert_eq!(
+            created.payload["authority"]["scope_id"],
+            "org:github:hey-vera"
+        );
         assert_eq!(created.payload["authority"]["handoff_id"], "handoff-1");
+    }
+
+    #[test]
+    fn run_creation_persists_pr_authority_context_and_write_lease() {
+        let db = test_db();
+        let run_id = db
+            .create_run_with_steps_and_resource_leases_with_authority(
+                "user-1",
+                "Ship org scoped PR",
+                "auto",
+                &["src/lib.rs".to_string()],
+                Some("task-1"),
+                Some("group-1"),
+                None,
+                &[path_lease_in_repo("github:hey-vera/heyvera", "src/lib.rs")],
+                &[test_step("step-authority-pr")],
+                &[],
+                Some(&serde_json::json!({
+                    "scope_id": "org:github:hey-vera",
+                    "scope_kind": "org",
+                    "role": "admin",
+                    "handoff_id": "handoff-1",
+                    "reason": "operator selected org context"
+                })),
+            )
+            .expect("run");
+
+        let context = db
+            .get_run_pr_authority_context(&run_id, "user-1")
+            .expect("PR authority context");
+        assert_eq!(context.repo_key.as_deref(), Some("github:hey-vera/heyvera"));
+        assert_eq!(
+            context.authority_scope_id.as_deref(),
+            Some("org:github:hey-vera")
+        );
+        assert_eq!(context.authority_context["handoff_id"], "handoff-1");
+        assert!(db.run_has_pr_write_lease(&run_id, Some("github:hey-vera/heyvera")));
+    }
+
+    #[test]
+    fn run_pr_write_lease_ignores_read_and_expired_leases() {
+        let db = test_db();
+        let read_lease = ResourceLeaseRequest {
+            resource_type: "path".to_string(),
+            repo_key: "github:hey-vera/heyvera".to_string(),
+            resource_key: "src/lib.rs".to_string(),
+            mode: "read".to_string(),
+            reason: Some("read-only inspection".to_string()),
+            metadata: serde_json::json!({}),
+        };
+        let run_id = db
+            .create_run_with_steps_and_resource_leases(
+                "user-1",
+                "Inspect only",
+                "auto",
+                &["src/lib.rs".to_string()],
+                None,
+                Some("group-1"),
+                None,
+                &[read_lease],
+                &[test_step("step-read-only")],
+                &[],
+            )
+            .expect("run");
+        assert!(!db.run_has_pr_write_lease(&run_id, Some("github:hey-vera/heyvera")));
+
+        let write_run_id = db
+            .create_run_with_steps_and_resource_leases(
+                "user-1",
+                "Write then expire",
+                "auto",
+                &["src/other.rs".to_string()],
+                None,
+                Some("group-1"),
+                None,
+                &[path_lease_in_repo(
+                    "github:hey-vera/heyvera",
+                    "src/other.rs",
+                )],
+                &[test_step("step-expired")],
+                &[],
+            )
+            .expect("run");
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE resource_leases SET status = 'expired' WHERE run_id = ?1",
+                params![write_run_id],
+            )
+            .unwrap();
+        }
+        assert!(!db.run_has_pr_write_lease(&write_run_id, Some("github:hey-vera/heyvera")));
     }
 
     #[test]
     fn get_cortex_task_projection_reports_evidence_gated_completion() {
         let db = test_db();
-        db.upsert_group_task_state("user-1", "group-1", &task_state_with_tasks(serde_json::json!([
-            {
-                "id": "task-1",
-                "groupId": "group-1",
-                "title": "Verified task",
-                "status": "done",
-                "priority": "normal",
-                "assigneeId": "user-1",
-                "createdAt": "2026-05-25T00:00:00Z",
-                "updatedAt": "2026-05-25T00:00:00Z",
-                "createdBy": "You"
-            }
-        ])));
+        db.upsert_group_task_state(
+            "user-1",
+            "group-1",
+            &task_state_with_tasks(serde_json::json!([
+                {
+                    "id": "task-1",
+                    "groupId": "group-1",
+                    "title": "Verified task",
+                    "status": "done",
+                    "priority": "normal",
+                    "assigneeId": "user-1",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                }
+            ])),
+        );
         let run_id = db.create_run_with_metadata(
             "user-1",
             "Ship verified task",
@@ -8216,29 +9043,34 @@ mod tests {
         assert_eq!(projection["task"]["completion"]["gated_done"], true);
         assert_eq!(projection["task"]["completion"]["reason"], "passed");
         assert_eq!(projection["task"]["completion"]["run_id"], run_id);
-        assert_eq!(projection["task"]["completion"]["steps"]["verified_pass"], 1);
+        assert_eq!(
+            projection["task"]["completion"]["steps"]["verified_pass"],
+            1
+        );
     }
 
     #[test]
     fn cortex_task_has_evidence_backed_completion_requires_verified_success() {
         let db = test_db();
-        db.upsert_group_task_state("user-1", "group-1", &task_state_with_tasks(serde_json::json!([
-            {
-                "id": "task-1",
-                "groupId": "group-1",
-                "title": "Verified task",
-                "status": "in-progress",
-                "priority": "normal",
-                "assigneeId": "user-1",
-                "createdAt": "2026-05-25T00:00:00Z",
-                "updatedAt": "2026-05-25T00:00:00Z",
-                "createdBy": "You"
-            }
-        ])));
+        db.upsert_group_task_state(
+            "user-1",
+            "group-1",
+            &task_state_with_tasks(serde_json::json!([
+                {
+                    "id": "task-1",
+                    "groupId": "group-1",
+                    "title": "Verified task",
+                    "status": "in-progress",
+                    "priority": "normal",
+                    "assigneeId": "user-1",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                }
+            ])),
+        );
 
-        assert!(!db.cortex_task_has_evidence_backed_completion(
-            "user-1", "group-1", "task-1"
-        ));
+        assert!(!db.cortex_task_has_evidence_backed_completion("user-1", "group-1", "task-1"));
 
         let run_id = db.create_run_with_metadata(
             "user-1",
@@ -8251,9 +9083,7 @@ mod tests {
         );
         let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
         assert!(db.update_run_status(&run_id, "succeeded", None));
-        assert!(!db.cortex_task_has_evidence_backed_completion(
-            "user-1", "group-1", "task-1"
-        ));
+        assert!(!db.cortex_task_has_evidence_backed_completion("user-1", "group-1", "task-1"));
 
         {
             let conn = db.conn.lock().unwrap();
@@ -8266,38 +9096,40 @@ mod tests {
             .unwrap();
         }
 
-        assert!(db.cortex_task_has_evidence_backed_completion(
-            "user-1", "group-1", "task-1"
-        ));
+        assert!(db.cortex_task_has_evidence_backed_completion("user-1", "group-1", "task-1"));
     }
 
     #[test]
     fn get_group_operations_summary_counts_evidence_gated_done() {
         let db = test_db();
-        db.upsert_group_task_state("user-1", "group-1", &task_state_with_tasks(serde_json::json!([
-            {
-                "id": "task-verified",
-                "groupId": "group-1",
-                "title": "Verified done task",
-                "status": "done",
-                "priority": "normal",
-                "assigneeId": "user-1",
-                "createdAt": "2026-05-25T00:00:00Z",
-                "updatedAt": "2026-05-25T00:00:00Z",
-                "createdBy": "You"
-            },
-            {
-                "id": "task-raw",
-                "groupId": "group-1",
-                "title": "Raw done task",
-                "status": "done",
-                "priority": "normal",
-                "assigneeId": "user-1",
-                "createdAt": "2026-05-25T00:00:00Z",
-                "updatedAt": "2026-05-25T00:00:00Z",
-                "createdBy": "You"
-            }
-        ])));
+        db.upsert_group_task_state(
+            "user-1",
+            "group-1",
+            &task_state_with_tasks(serde_json::json!([
+                {
+                    "id": "task-verified",
+                    "groupId": "group-1",
+                    "title": "Verified done task",
+                    "status": "done",
+                    "priority": "normal",
+                    "assigneeId": "user-1",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                },
+                {
+                    "id": "task-raw",
+                    "groupId": "group-1",
+                    "title": "Raw done task",
+                    "status": "done",
+                    "priority": "normal",
+                    "assigneeId": "user-1",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                }
+            ])),
+        );
         let run_id = db.create_run_with_metadata(
             "user-1",
             "Ship verified done task",
@@ -8326,12 +9158,14 @@ mod tests {
         assert_eq!(summary["tasks"]["completion"]["gated_done_available"], true);
         assert_eq!(summary["tasks"]["completion"]["gated_done"], 1);
         assert_eq!(summary["tasks"]["completion"]["done_without_evidence"], 1);
-        assert!(summary["attention"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["kind"] == "done_without_evidence"
-                && item["task_id"] == "task-raw"
-                && item["reason"] == "no_run"));
+        assert!(
+            summary["attention"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["kind"] == "done_without_evidence"
+                    && item["task_id"] == "task-raw"
+                    && item["reason"] == "no_run")
+        );
     }
 }
