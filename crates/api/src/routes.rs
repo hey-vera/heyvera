@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use cortex_core::ledger::{LedgerEntry, LedgerEvent};
@@ -72,7 +72,12 @@ pub async fn route_task(
     Json(req): Json<RouteRequest>,
 ) -> Result<Json<RouteResponse>, (StatusCode, Json<ErrorResponse>)> {
     if req.input.len() > 32_768 {
-        return Err((StatusCode::PAYLOAD_TOO_LARGE, Json(ErrorResponse { error: "input exceeds 32KB".into() })));
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(ErrorResponse {
+                error: "input exceeds 32KB".into(),
+            }),
+        ));
     }
     let file_paths = crate::validate::sanitize_file_paths(&req.file_paths)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
@@ -156,10 +161,15 @@ pub struct CreateRunResponse {
 }
 
 fn trim_optional(value: Option<String>) -> Option<String> {
-    value.map(|value| value.trim().to_string()).filter(|value| !value.is_empty())
+    value
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
 }
 
-fn validate_optional_id(label: &str, value: Option<&str>) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+fn validate_optional_id(
+    label: &str,
+    value: Option<&str>,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     if let Some(value) = value {
         if value.len() > 256
             || !value
@@ -272,16 +282,115 @@ fn validate_run_authority(
     })))
 }
 
+fn validate_pr_authority(
+    db: &crate::db::Database,
+    user_id: &str,
+    run_id: &str,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    let context = db
+        .get_run_pr_authority_context(run_id, user_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "run not found".into(),
+                }),
+            )
+        })?;
+    let repo_key = context.repo_key.as_deref();
+    if !db.run_has_pr_write_lease(run_id, repo_key) {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "PR creation requires a run-owned write lease".into(),
+            }),
+        ));
+    }
+
+    let scope_id = context
+        .authority_scope_id
+        .as_deref()
+        .or_else(|| {
+            context
+                .authority_context
+                .get("scope_id")
+                .and_then(|value| value.as_str())
+        })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+        .unwrap_or_else(|| format!("personal:{user_id}"));
+
+    let scope = db
+        .get_authority_scope_for_user(user_id, &scope_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "run authority scope is not available to this user".into(),
+                }),
+            )
+        })?;
+
+    if scope.kind == "personal" {
+        return Ok(());
+    }
+
+    let Some(repo_key) = repo_key else {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "non-personal PR creation requires a repo_key".into(),
+            }),
+        ));
+    };
+    if !db.authority_resource_allows(user_id, &scope.id, "github_repo", repo_key, "write") {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "run authority scope does not grant write access to repo_key".into(),
+            }),
+        ));
+    }
+
+    let handoff_id = context
+        .authority_context
+        .get("handoff_id")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty());
+    if handoff_id.is_none() {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "non-personal PR creation requires an authority_handoff_id".into(),
+            }),
+        ));
+    }
+
+    Ok(())
+}
+
 pub async fn create_run(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
     Json(req): Json<CreateRunRequest>,
 ) -> Result<Json<CreateRunResponse>, (StatusCode, Json<ErrorResponse>)> {
     if req.goal.len() > 32_768 {
-        return Err((StatusCode::PAYLOAD_TOO_LARGE, Json(ErrorResponse { error: "goal exceeds 32KB".into() })));
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(ErrorResponse {
+                error: "goal exceeds 32KB".into(),
+            }),
+        ));
     }
     if req.file_paths.len() > 50 {
-        return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "too many file paths (max 50)".into() })));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "too many file paths (max 50)".into(),
+            }),
+        ));
     }
     if let Some(repo_key) = req.repo_key.as_deref() {
         if repo_key.len() > 256
@@ -308,7 +417,12 @@ pub async fn create_run(
                     .chars()
                     .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.'))
             {
-                return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: format!("invalid {label}") })));
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: format!("invalid {label}"),
+                    }),
+                ));
             }
         }
     }
@@ -403,10 +517,7 @@ pub async fn create_run(
         } else {
             StatusCode::BAD_REQUEST
         };
-        (
-            status,
-            Json(ErrorResponse { error: e }),
-        )
+        (status, Json(ErrorResponse { error: e }))
     })?;
 
     // Count steps
@@ -500,7 +611,8 @@ pub async fn get_run(
 
     let steps = build_run_step_payloads(db, &id);
     let graph = build_run_graph_payload(db, &id, &steps);
-    let (task_id, group_id, conversation_id) = db.get_run_binding(&id).unwrap_or((None, None, None));
+    let (task_id, group_id, conversation_id) =
+        db.get_run_binding(&id).unwrap_or((None, None, None));
 
     Ok(Json(serde_json::json!({
         "id": id,
@@ -599,16 +711,10 @@ pub struct CreatePrResponse {
 }
 
 /// Build a rich PR body with step summaries, files changed, cost, and duration.
-fn build_pr_body(
-    run_id: &str,
-    goal: &str,
-    branch: &str,
-    db: &crate::db::Database,
-) -> String {
+fn build_pr_body(run_id: &str, goal: &str, branch: &str, db: &crate::db::Database) -> String {
     let steps = db.get_all_step_statuses(run_id);
-    let mut body = format!(
-        "## Cortex Run `{run_id}`\n\n**Goal:** {goal}\n\n**Branch:** `{branch}`\n"
-    );
+    let mut body =
+        format!("## Cortex Run `{run_id}`\n\n**Goal:** {goal}\n\n**Branch:** `{branch}`\n");
 
     // Step summary table
     if !steps.is_empty() {
@@ -659,10 +765,7 @@ fn build_pr_body(
                 body.push_str(&format!("- `{f}`\n"));
             }
             if all_files.len() > 30 {
-                body.push_str(&format!(
-                    "\n...and {} more files\n",
-                    all_files.len() - 30,
-                ));
+                body.push_str(&format!("\n...and {} more files\n", all_files.len() - 30,));
             }
         }
     }
@@ -731,6 +834,8 @@ pub async fn create_pr(
         ));
     }
 
+    validate_pr_authority(db, &user.user_id, &id)?;
+
     // Get the branch
     let branch = db.get_run_branch(&id).ok_or_else(|| {
         (
@@ -789,20 +894,15 @@ pub async fn create_pr(
                 }
             }
         } else {
-            tracing::warn!(
-                "could not parse owner/repo from git remote, falling back to gh CLI"
-            );
+            tracing::warn!("could not parse owner/repo from git remote, falling back to gh CLI");
         }
     }
 
     // Fallback: create PR via gh CLI
     let pr_output = std::process::Command::new("gh")
         .args([
-            "pr", "create",
-            "--title", &title,
-            "--body", &body,
-            "--base", &req.base,
-            "--head", &branch,
+            "pr", "create", "--title", &title, "--body", &body, "--base", &req.base, "--head",
+            &branch,
         ])
         .current_dir(&state.workspace_dir)
         .output()
@@ -825,7 +925,9 @@ pub async fn create_pr(
         ));
     }
 
-    let pr_url = String::from_utf8_lossy(&pr_output.stdout).trim().to_string();
+    let pr_url = String::from_utf8_lossy(&pr_output.stdout)
+        .trim()
+        .to_string();
 
     Ok(Json(CreatePrResponse { pr_url, branch }))
 }
@@ -875,12 +977,7 @@ pub async fn estimate_run(
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
     // Decompose the goal into steps (same as create_run)
     let builder = decompose_goal(&user.user_id, &req.goal, &file_paths, &req.profile)
-        .map_err(|e| {
-            (
-                StatusCode::BAD_REQUEST,
-                Json(ErrorResponse { error: e }),
-            )
-        })?;
+        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
 
     let mut step_estimates = Vec::new();
     let mut total_confidence_sum = 0.0_f64;
