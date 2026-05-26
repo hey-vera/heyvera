@@ -475,8 +475,8 @@ pub async fn patch_group_task(
         .get_group_task_state(&user.user_id, &group_id)
         .and_then(|value| normalize_task_state(&group_id, &value).ok())
         .unwrap_or_else(|| empty_task_state(&group_id));
-    let (next_state, event_type, event_payload) = apply_task_patch(&group_id, &task_id, &current, &patch)
-        .map_err(|error| {
+    let (next_state, event_type, event_payload) =
+        apply_task_patch(&group_id, &task_id, &current, &patch).map_err(|error| {
             let status = if error == "task not found" {
                 StatusCode::NOT_FOUND
             } else {
@@ -503,7 +503,11 @@ pub async fn get_group_operations_summary(
     Path(group_id): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let db = db_ref(&state)?;
-    Ok(Json(db.get_group_operations_summary(&user.user_id, &group_id, 25)))
+    Ok(Json(db.get_group_operations_summary(
+        &user.user_id,
+        &group_id,
+        25,
+    )))
 }
 
 pub async fn get_personal_operations_summary(
@@ -677,7 +681,40 @@ pub async fn update_group_tasks(
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
     require_evidence_for_done_transitions(db, &user.user_id, &group_id, &current, &normalized)
         .map_err(|error| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error })))?;
+    let reconciliation_events = derive_task_state_reconciliation_events(&current, &normalized);
     let saved = db.upsert_group_task_state(&user.user_id, &group_id, &normalized);
+    for event in &reconciliation_events {
+        if let Some(task_id) = event.task_id.as_deref() {
+            db.record_cortex_task_event(
+                &user.user_id,
+                &group_id,
+                task_id,
+                &event.event_type,
+                &event.payload,
+            );
+        } else {
+            db.record_cortex_task_manager_event(
+                &user.user_id,
+                &group_id,
+                &event.event_type,
+                &event.payload,
+            );
+        }
+    }
+    db.record_cortex_task_manager_event(
+        &user.user_id,
+        &group_id,
+        "task_state.reconciled",
+        &serde_json::json!({
+            "source": "bulk_update",
+            "event_count": reconciliation_events.len(),
+            "task_count": normalized
+                .get("tasks")
+                .and_then(|value| value.as_array())
+                .map(|tasks| tasks.len())
+                .unwrap_or(0),
+        }),
+    );
     db.record_integration_event(
         &user.user_id,
         "cortex",
@@ -902,9 +939,9 @@ fn task_status<'a>(state: &'a serde_json::Value, task_id: &str) -> Option<&'a st
         .get("tasks")
         .and_then(|value| value.as_array())
         .and_then(|tasks| {
-            tasks.iter().find(|task| {
-                task.get("id").and_then(|value| value.as_str()) == Some(task_id)
-            })
+            tasks
+                .iter()
+                .find(|task| task.get("id").and_then(|value| value.as_str()) == Some(task_id))
         })
         .and_then(|task| task.get("status"))
         .and_then(|value| value.as_str())
@@ -1050,7 +1087,10 @@ fn apply_task_patch(
         task_object.insert(key.clone(), value.clone());
     }
     let updated_at = chrono::Utc::now().to_rfc3339();
-    task_object.insert("updatedAt".to_string(), serde_json::Value::String(updated_at.clone()));
+    task_object.insert(
+        "updatedAt".to_string(),
+        serde_json::Value::String(updated_at.clone()),
+    );
 
     let event_type = if patch_object.contains_key("status") {
         "task.status_changed"
@@ -1117,7 +1157,11 @@ fn apply_task_patch(
     let next_task = normalized
         .get("tasks")
         .and_then(|value| value.as_array())
-        .and_then(|tasks| tasks.iter().find(|task| task.get("id").and_then(|value| value.as_str()) == Some(task_id)))
+        .and_then(|tasks| {
+            tasks
+                .iter()
+                .find(|task| task.get("id").and_then(|value| value.as_str()) == Some(task_id))
+        })
         .cloned()
         .unwrap_or_else(|| serde_json::json!({}));
 
@@ -1223,6 +1267,98 @@ struct TaskActionEvent {
     payload: serde_json::Value,
 }
 
+fn task_id(value: &serde_json::Value) -> Option<&str> {
+    value.get("id").and_then(|value| value.as_str())
+}
+
+fn derive_task_state_reconciliation_events(
+    current: &serde_json::Value,
+    next: &serde_json::Value,
+) -> Vec<TaskActionEvent> {
+    let current_tasks = current
+        .get("tasks")
+        .and_then(|value| value.as_array())
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+    let next_tasks = next
+        .get("tasks")
+        .and_then(|value| value.as_array())
+        .map(Vec::as_slice)
+        .unwrap_or(&[]);
+
+    let mut current_by_id = std::collections::BTreeMap::new();
+    for task in current_tasks {
+        if let Some(id) = task_id(task) {
+            current_by_id.insert(id.to_string(), task);
+        }
+    }
+
+    let mut next_by_id = std::collections::BTreeMap::new();
+    for task in next_tasks {
+        if let Some(id) = task_id(task) {
+            next_by_id.insert(id.to_string(), task);
+        }
+    }
+
+    let mut events = Vec::new();
+    for (id, next_task) in &next_by_id {
+        let Some(current_task) = current_by_id.get(id) else {
+            events.push(TaskActionEvent {
+                task_id: Some(id.clone()),
+                event_type: "task.created".to_string(),
+                payload: serde_json::json!({
+                    "source": "bulk_update",
+                    "task": next_task,
+                }),
+            });
+            continue;
+        };
+
+        if *current_task == *next_task {
+            continue;
+        }
+
+        let event_type = if current_task.get("status") != next_task.get("status") {
+            "task.status_changed"
+        } else if current_task.get("assigneeId") != next_task.get("assigneeId") {
+            "task.assigned"
+        } else if current_task.get("projectChatConversationId")
+            != next_task.get("projectChatConversationId")
+            || current_task.get("projectChatLaunchedAt") != next_task.get("projectChatLaunchedAt")
+        {
+            "task.linked"
+        } else {
+            "task.updated"
+        };
+
+        events.push(TaskActionEvent {
+            task_id: Some(id.clone()),
+            event_type: event_type.to_string(),
+            payload: serde_json::json!({
+                "source": "bulk_update",
+                "previous": current_task,
+                "next": next_task,
+            }),
+        });
+    }
+
+    for (id, current_task) in &current_by_id {
+        if next_by_id.contains_key(id) {
+            continue;
+        }
+        events.push(TaskActionEvent {
+            task_id: Some(id.clone()),
+            event_type: "task.removed".to_string(),
+            payload: serde_json::json!({
+                "source": "bulk_update",
+                "previous": current_task,
+            }),
+        });
+    }
+
+    events
+}
+
 fn apply_task_actions(
     group_id: &str,
     state: &serde_json::Value,
@@ -1280,7 +1416,10 @@ fn apply_task_actions(
                 32,
                 &format!("action {index} status"),
             )?;
-            if !matches!(status.as_str(), "created" | "assigned" | "in-progress" | "done") {
+            if !matches!(
+                status.as_str(),
+                "created" | "assigned" | "in-progress" | "done"
+            ) {
                 return Err(format!("action {index} has invalid status"));
             }
             let tasks = next_state
@@ -1290,16 +1429,21 @@ fn apply_task_actions(
             let task = tasks
                 .iter_mut()
                 .find(|task| {
-                    task.get("id").and_then(|value| value.as_str())
-                        == Some(target_task_id.as_str())
+                    task.get("id").and_then(|value| value.as_str()) == Some(target_task_id.as_str())
                 })
                 .ok_or_else(|| format!("action {index} target task not found"))?;
             let previous_task = task.clone();
             let task_object = task
                 .as_object_mut()
                 .ok_or_else(|| format!("action {index} target task must be an object"))?;
-            task_object.insert("status".to_string(), serde_json::Value::String(status.clone()));
-            task_object.insert("updatedAt".to_string(), serde_json::Value::String(timestamp.clone()));
+            task_object.insert(
+                "status".to_string(),
+                serde_json::Value::String(status.clone()),
+            );
+            task_object.insert(
+                "updatedAt".to_string(),
+                serde_json::Value::String(timestamp.clone()),
+            );
             let next_task = task.clone();
             push_task_activity(
                 group_id,
@@ -1351,7 +1495,10 @@ fn apply_task_actions(
                 "created".to_string()
             }
         });
-        if !matches!(status.as_str(), "created" | "assigned" | "in-progress" | "done") {
+        if !matches!(
+            status.as_str(),
+            "created" | "assigned" | "in-progress" | "done"
+        ) {
             return Err(format!("action {index} has invalid status"));
         }
         let task_id = Uuid::new_v4().to_string();
@@ -1908,16 +2055,7 @@ mod tests {
             None,
         );
         let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
-        db.record_verifier_report(
-            &step_id,
-            &run_id,
-            1,
-            None,
-            "test",
-            "verified",
-            "pass",
-            "{}",
-        );
+        db.record_verifier_report(&step_id, &run_id, 1, None, "test", "verified", "pass", "{}");
         assert!(db.update_run_status(&run_id, "succeeded", None));
         let (next, _, _) = apply_task_patch(
             "group-1",
@@ -1927,8 +2065,7 @@ mod tests {
         )
         .unwrap();
 
-        require_evidence_for_done_transitions(&db, "user-1", "group-1", &current, &next)
-            .unwrap();
+        require_evidence_for_done_transitions(&db, "user-1", "group-1", &current, &next).unwrap();
     }
 
     #[test]
@@ -1981,6 +2118,86 @@ mod tests {
         let error = apply_task_create("group-1", &state, &state["tasks"][0]).unwrap_err();
 
         assert!(error.contains("already exists"));
+    }
+
+    #[test]
+    fn derive_task_state_reconciliation_events_covers_bulk_create_update_and_remove() {
+        let current = normalize_task_state("group-1", &valid_task_state()).unwrap();
+        let mut next = current.clone();
+        next["tasks"] = serde_json::json!([
+            {
+                "id": "task-2",
+                "groupId": "group-1",
+                "title": "New task",
+                "description": null,
+                "status": "created",
+                "assigneeId": null,
+                "repo": null,
+                "priority": "normal",
+                "createdAt": "2026-05-25T00:04:00Z",
+                "updatedAt": "2026-05-25T00:04:00Z",
+                "createdBy": "You"
+            },
+            {
+                "id": "task-1",
+                "groupId": "group-1",
+                "title": "Ship the operation queue",
+                "description": "Make the live map useful",
+                "status": "assigned",
+                "assigneeId": "user-1",
+                "repo": "hey-vera/heyvera",
+                "priority": "high",
+                "createdAt": "2026-05-25T00:00:00Z",
+                "updatedAt": "2026-05-25T00:04:00Z",
+                "createdBy": "You",
+                "sourceMessageId": "message-1",
+                "projectChatConversationId": "conversation-1",
+                "projectChatLaunchedAt": "2026-05-25T00:02:00Z",
+                "latestRunId": "run-1",
+                "latestRunStatus": "running",
+                "latestRunSyncedAt": "2026-05-25T00:03:00Z",
+                "latestRunStepSummary": {
+                    "total": 4,
+                    "active": 1,
+                    "done": 2,
+                    "failed": 1
+                }
+            }
+        ]);
+        let next = normalize_task_state("group-1", &next).unwrap();
+
+        let events = derive_task_state_reconciliation_events(&current, &next);
+
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().any(|event| {
+            event.task_id.as_deref() == Some("task-1")
+                && event.event_type == "task.status_changed"
+                && event.payload["previous"]["status"] == "in-progress"
+                && event.payload["next"]["status"] == "assigned"
+        }));
+        assert!(events.iter().any(|event| {
+            event.task_id.as_deref() == Some("task-2")
+                && event.event_type == "task.created"
+                && event.payload["task"]["title"] == "New task"
+        }));
+    }
+
+    #[test]
+    fn derive_task_state_reconciliation_events_records_bulk_removal() {
+        let current = normalize_task_state("group-1", &valid_task_state()).unwrap();
+        let mut next = current.clone();
+        next["tasks"] = serde_json::json!([]);
+        let next = normalize_task_state("group-1", &next).unwrap();
+
+        let events = derive_task_state_reconciliation_events(&current, &next);
+
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].task_id.as_deref(), Some("task-1"));
+        assert_eq!(events[0].event_type, "task.removed");
+        assert_eq!(
+            events[0].payload["previous"]["title"],
+            "Ship the operation queue"
+        );
     }
 
     #[test]
