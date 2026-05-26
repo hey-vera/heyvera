@@ -4453,6 +4453,624 @@ impl Database {
         })
     }
 
+    pub fn get_group_operations_graph(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        event_limit: usize,
+    ) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let generated_at = Utc::now().timestamp_millis();
+        let mut nodes: Vec<serde_json::Value> = Vec::new();
+        let mut edges: Vec<serde_json::Value> = Vec::new();
+
+        let mut tasks_stmt = conn
+            .prepare(
+                "SELECT id, title, status, priority, conversation_id, latest_run_id,
+                        source_json, created_at, updated_at, version
+                 FROM cortex_tasks
+                 WHERE user_id = ?1 AND group_id = ?2
+                 ORDER BY updated_at DESC, id ASC",
+            )
+            .unwrap();
+        let task_rows = tasks_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, i64>(9)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+
+        for (
+            task_id,
+            title,
+            status,
+            priority,
+            conversation_id,
+            latest_run_id,
+            source_json,
+            created_at,
+            updated_at,
+            version,
+        ) in &task_rows
+        {
+            let source =
+                serde_json::from_str(source_json).unwrap_or_else(|_| serde_json::json!({}));
+            let completion =
+                cortex_completion_gate(&conn, user_id, group_id, task_id, latest_run_id.as_deref())
+                    .to_json(status == "done");
+            nodes.push(serde_json::json!({
+                "id": format!("task:{task_id}"),
+                "type": "task",
+                "entity_id": task_id,
+                "group_id": group_id,
+                "label": title,
+                "status": status,
+                "priority": priority,
+                "conversation_id": conversation_id,
+                "latest_run_id": latest_run_id,
+                "source": source,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "version": version,
+                "completion": completion,
+            }));
+
+            if let Some(conversation_id) = conversation_id {
+                edges.push(serde_json::json!({
+                    "id": format!("task:{task_id}->chat:{conversation_id}"),
+                    "from": format!("task:{task_id}"),
+                    "to": format!("chat:{conversation_id}"),
+                    "type": "task_chat",
+                }));
+            }
+        }
+
+        let mut runs_stmt = conn
+            .prepare(
+                "SELECT id, goal, status, profile, created_at, updated_at, started_at, finished_at,
+                        heal_attempts, task_id, conversation_id, repo_key, authority_scope_id
+                 FROM runs
+                 WHERE user_id = ?1 AND group_id = ?2
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 100",
+            )
+            .unwrap();
+        let run_rows = runs_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
+                    row.get::<_, Option<i64>>(7)?,
+                    row.get::<_, i32>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, Option<String>>(10)?,
+                    row.get::<_, Option<String>>(11)?,
+                    row.get::<_, Option<String>>(12)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+        let run_ids = run_rows
+            .iter()
+            .map(|(run_id, ..)| run_id.clone())
+            .collect::<HashSet<_>>();
+
+        for (
+            run_id,
+            goal,
+            status,
+            profile,
+            created_at,
+            updated_at,
+            started_at,
+            finished_at,
+            heal_attempts,
+            task_id,
+            conversation_id,
+            repo_key,
+            authority_scope_id,
+        ) in &run_rows
+        {
+            nodes.push(serde_json::json!({
+                "id": format!("run:{run_id}"),
+                "type": "run",
+                "entity_id": run_id,
+                "group_id": group_id,
+                "task_id": task_id,
+                "conversation_id": conversation_id,
+                "label": goal,
+                "status": status,
+                "profile": profile,
+                "repo_key": repo_key,
+                "authority_scope_id": authority_scope_id,
+                "heal_attempts": heal_attempts,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "started_at": started_at,
+                "finished_at": finished_at,
+            }));
+            if let Some(task_id) = task_id {
+                edges.push(serde_json::json!({
+                    "id": format!("task:{task_id}->run:{run_id}"),
+                    "from": format!("task:{task_id}"),
+                    "to": format!("run:{run_id}"),
+                    "type": "task_run",
+                }));
+            }
+            if let Some(conversation_id) = conversation_id {
+                edges.push(serde_json::json!({
+                    "id": format!("chat:{conversation_id}->run:{run_id}"),
+                    "from": format!("chat:{conversation_id}"),
+                    "to": format!("run:{run_id}"),
+                    "type": "chat_run",
+                }));
+            }
+        }
+
+        let mut chats_stmt = conn
+            .prepare(
+                "SELECT DISTINCT c.id, c.title, c.created_at, c.updated_at
+                 FROM cortex_task_chats tc
+                 JOIN conversations c ON c.id = tc.conversation_id AND c.user_id = tc.user_id
+                 WHERE tc.user_id = ?1 AND tc.group_id = ?2
+                 ORDER BY c.updated_at DESC, c.id ASC
+                 LIMIT 100",
+            )
+            .unwrap();
+        let chat_rows = chats_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+        for (conversation_id, title, created_at, updated_at) in chat_rows {
+            nodes.push(serde_json::json!({
+                "id": format!("chat:{conversation_id}"),
+                "type": "chat",
+                "entity_id": conversation_id,
+                "group_id": group_id,
+                "label": title.as_deref().unwrap_or("Project Chat"),
+                "title": title,
+                "created_at": created_at,
+                "updated_at": updated_at,
+            }));
+        }
+
+        let mut steps_stmt = conn
+            .prepare(
+                "SELECT s.id, s.run_id, r.task_id, s.status, s.kind, s.work_kind, s.tier, s.risk,
+                        s.objective, s.attempt_count, s.max_attempts, s.lease_gen,
+                        s.lease_deadline, s.assigned_worker, s.verification_status,
+                        s.verifier_report_id, s.updated_at
+                 FROM steps s
+                 JOIN runs r ON r.id = s.run_id
+                 WHERE r.user_id = ?1 AND r.group_id = ?2
+                 ORDER BY r.created_at DESC, s.created_at ASC, s.id ASC
+                 LIMIT 500",
+            )
+            .unwrap();
+        let step_rows = steps_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, i64>(9)?,
+                    row.get::<_, i64>(10)?,
+                    row.get::<_, i64>(11)?,
+                    row.get::<_, Option<i64>>(12)?,
+                    row.get::<_, Option<String>>(13)?,
+                    row.get::<_, String>(14)?,
+                    row.get::<_, Option<String>>(15)?,
+                    row.get::<_, i64>(16)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+        let step_ids = step_rows
+            .iter()
+            .map(|(step_id, ..)| step_id.clone())
+            .collect::<HashSet<_>>();
+
+        for (
+            step_id,
+            run_id,
+            task_id,
+            status,
+            kind,
+            work_kind,
+            tier,
+            risk,
+            objective,
+            attempt_count,
+            max_attempts,
+            lease_gen,
+            lease_deadline,
+            assigned_worker,
+            verification_status,
+            verifier_report_id,
+            updated_at,
+        ) in &step_rows
+        {
+            let lease_stale = lease_deadline
+                .map(|deadline| {
+                    matches!(status.as_str(), "leased" | "running") && deadline < generated_at
+                })
+                .unwrap_or(false);
+            nodes.push(serde_json::json!({
+                "id": format!("step:{step_id}"),
+                "type": "step",
+                "entity_id": step_id,
+                "group_id": group_id,
+                "task_id": task_id,
+                "run_id": run_id,
+                "label": objective,
+                "status": status,
+                "kind": kind,
+                "work_kind": work_kind,
+                "tier": tier,
+                "risk": risk,
+                "attempt_count": attempt_count,
+                "max_attempts": max_attempts,
+                "lease_gen": lease_gen,
+                "lease_deadline": lease_deadline,
+                "assigned_worker": assigned_worker,
+                "lease_stale": lease_stale,
+                "verification_status": verification_status,
+                "verifier_report_id": verifier_report_id,
+                "updated_at": updated_at,
+            }));
+            edges.push(serde_json::json!({
+                "id": format!("run:{run_id}->step:{step_id}"),
+                "from": format!("run:{run_id}"),
+                "to": format!("step:{step_id}"),
+                "type": "run_step",
+            }));
+        }
+
+        let mut dependency_stmt = conn
+            .prepare(
+                "SELECT sd.depends_on_id, sd.step_id, sd.edge_type
+                 FROM step_dependencies sd
+                 JOIN steps s ON s.id = sd.step_id
+                 JOIN runs r ON r.id = s.run_id
+                 WHERE r.user_id = ?1 AND r.group_id = ?2
+                 ORDER BY sd.depends_on_id ASC, sd.step_id ASC",
+            )
+            .unwrap();
+        for (depends_on_id, step_id, edge_type) in dependency_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+        {
+            edges.push(serde_json::json!({
+                "id": format!("step:{depends_on_id}->step:{step_id}:{edge_type}"),
+                "from": format!("step:{depends_on_id}"),
+                "to": format!("step:{step_id}"),
+                "type": "step_dependency",
+                "edge_type": edge_type,
+            }));
+        }
+
+        let mut seen_evidence_steps = HashSet::new();
+        let mut verifier_stmt = conn
+            .prepare(
+                "SELECT vr.id, vr.step_id, vr.run_id, vr.lease_gen, vr.worker_id, vr.verifier,
+                        vr.status, vr.verdict, vr.created_at, vr.updated_at
+                 FROM verifier_reports vr
+                 JOIN runs r ON r.id = vr.run_id
+                 WHERE r.user_id = ?1 AND r.group_id = ?2
+                 ORDER BY vr.step_id ASC, vr.created_at DESC, vr.id DESC",
+            )
+            .unwrap();
+        for (
+            report_id,
+            step_id,
+            run_id,
+            lease_gen,
+            worker_id,
+            verifier,
+            status,
+            verdict,
+            created_at,
+            updated_at,
+        ) in verifier_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, i64>(8)?,
+                    row.get::<_, i64>(9)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+        {
+            if !seen_evidence_steps.insert(step_id.clone()) {
+                continue;
+            }
+            nodes.push(serde_json::json!({
+                "id": format!("evidence:{report_id}"),
+                "type": "evidence",
+                "entity_id": report_id,
+                "group_id": group_id,
+                "step_id": step_id,
+                "run_id": run_id,
+                "label": format!("{verifier} {verdict}"),
+                "status": status,
+                "verdict": verdict,
+                "verifier": verifier,
+                "worker_id": worker_id,
+                "lease_gen": lease_gen,
+                "created_at": created_at,
+                "updated_at": updated_at,
+            }));
+            edges.push(serde_json::json!({
+                "id": format!("step:{step_id}->evidence:{report_id}"),
+                "from": format!("step:{step_id}"),
+                "to": format!("evidence:{report_id}"),
+                "type": "step_evidence",
+            }));
+        }
+
+        let mut approvals_stmt = conn
+            .prepare(
+                "SELECT id, task_id, step_id, conversation_id, run_id, ask_type, status, title,
+                        priority, requested_by, created_at, updated_at, resolved_at
+                 FROM cortex_approval_requests
+                 WHERE user_id = ?1 AND group_id = ?2
+                 ORDER BY updated_at DESC, id DESC
+                 LIMIT 100",
+            )
+            .unwrap();
+        for (
+            approval_id,
+            task_id,
+            step_id,
+            conversation_id,
+            run_id,
+            ask_type,
+            status,
+            title,
+            priority,
+            requested_by,
+            created_at,
+            updated_at,
+            resolved_at,
+        ) in approvals_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, String>(9)?,
+                    row.get::<_, i64>(10)?,
+                    row.get::<_, i64>(11)?,
+                    row.get::<_, Option<i64>>(12)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+        {
+            nodes.push(serde_json::json!({
+                "id": format!("approval:{approval_id}"),
+                "type": "approval",
+                "entity_id": approval_id,
+                "group_id": group_id,
+                "task_id": task_id,
+                "step_id": step_id,
+                "conversation_id": conversation_id,
+                "run_id": run_id,
+                "label": title,
+                "ask_type": ask_type,
+                "status": status,
+                "priority": priority,
+                "requested_by": requested_by,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "resolved_at": resolved_at,
+            }));
+            if let Some(task_id) = task_id.as_deref() {
+                edges.push(serde_json::json!({
+                    "id": format!("task:{task_id}->approval:{approval_id}"),
+                    "from": format!("task:{task_id}"),
+                    "to": format!("approval:{approval_id}"),
+                    "type": "task_approval",
+                }));
+            }
+            if let Some(run_id) = run_id.as_deref() {
+                edges.push(serde_json::json!({
+                    "id": format!("run:{run_id}->approval:{approval_id}"),
+                    "from": format!("run:{run_id}"),
+                    "to": format!("approval:{approval_id}"),
+                    "type": "run_approval",
+                }));
+            }
+            if let Some(step_id) = step_id.as_deref() {
+                edges.push(serde_json::json!({
+                    "id": format!("step:{step_id}->approval:{approval_id}"),
+                    "from": format!("step:{step_id}"),
+                    "to": format!("approval:{approval_id}"),
+                    "type": "step_approval",
+                }));
+            }
+        }
+
+        let mut leases_stmt = conn
+            .prepare(
+                "SELECT id, user_id, authority_scope_id, group_id, task_id, run_id, step_id, holder_type,
+                        resource_type, repo_key, resource_key, mode, status, lease_gen,
+                        acquired_at, expires_at, released_at, reason, metadata_json
+                 FROM resource_leases
+                 WHERE user_id = ?1 AND group_id = ?2 AND status = 'active'
+                 ORDER BY acquired_at DESC, id DESC
+                 LIMIT 100",
+            )
+            .unwrap();
+        for lease in leases_stmt
+            .query_map(params![user_id, group_id], resource_lease_from_row)
+            .unwrap()
+            .filter_map(|row| row.ok())
+        {
+            nodes.push(serde_json::json!({
+                "id": format!("resource_lease:{}", lease.id),
+                "type": "resource_lease",
+                "entity_id": lease.id,
+                "authority_scope_id": lease.authority_scope_id,
+                "group_id": lease.group_id,
+                "task_id": lease.task_id,
+                "run_id": lease.run_id,
+                "step_id": lease.step_id,
+                "label": format!("{}:{} {}", lease.resource_type, lease.resource_key, lease.mode),
+                "holder_type": lease.holder_type,
+                "resource_type": lease.resource_type,
+                "repo_key": lease.repo_key,
+                "resource_key": lease.resource_key,
+                "mode": lease.mode,
+                "status": lease.status,
+                "lease_gen": lease.lease_gen,
+                "acquired_at": lease.acquired_at,
+                "expires_at": lease.expires_at,
+                "seconds_until_expiry": ((lease.expires_at - generated_at).max(0)) / 1000,
+                "reason": lease.reason,
+                "metadata": lease.metadata,
+            }));
+            let from = lease
+                .step_id
+                .as_ref()
+                .map(|step_id| format!("step:{step_id}"))
+                .unwrap_or_else(|| format!("run:{}", lease.run_id));
+            edges.push(serde_json::json!({
+                "id": format!("{}->resource_lease:{}", from, lease.id),
+                "from": from,
+                "to": format!("resource_lease:{}", lease.id),
+                "type": "resource_lease",
+            }));
+        }
+
+        let event_limit = event_limit.clamp(1, 250) as i64;
+        let mut events_stmt = conn
+            .prepare(
+                "SELECT id, created_at, actor_user_id, scope_id, project_id, task_id, run_id,
+                        step_id, attempt_id, event_type, entity_type, entity_id, payload_json
+                 FROM operations_events
+                 WHERE scope_id = ?1
+                    AND (actor_user_id = ?2 OR actor_user_id IS NULL)
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT ?3",
+            )
+            .unwrap();
+        let recent_events = events_stmt
+            .query_map(params![group_id, user_id, event_limit], |row| {
+                let payload_json: String = row.get(12)?;
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "created_at": row.get::<_, i64>(1)?,
+                    "actor_user_id": row.get::<_, Option<String>>(2)?,
+                    "scope_id": row.get::<_, Option<String>>(3)?,
+                    "project_id": row.get::<_, Option<String>>(4)?,
+                    "task_id": row.get::<_, Option<String>>(5)?,
+                    "run_id": row.get::<_, Option<String>>(6)?,
+                    "step_id": row.get::<_, Option<String>>(7)?,
+                    "attempt_id": row.get::<_, Option<String>>(8)?,
+                    "event_type": row.get::<_, String>(9)?,
+                    "entity_type": row.get::<_, String>(10)?,
+                    "entity_id": row.get::<_, String>(11)?,
+                    "payload": serde_json::from_str(&payload_json).unwrap_or_else(|_| serde_json::json!({})),
+                }))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+
+        nodes.retain(|node| {
+            let node_type = node.get("type").and_then(|value| value.as_str());
+            let run_id = node.get("run_id").and_then(|value| value.as_str());
+            let step_id = node.get("step_id").and_then(|value| value.as_str());
+            match node_type {
+                Some("resource_lease") => run_id.is_some_and(|run_id| run_ids.contains(run_id)),
+                Some("evidence") | Some("approval") => {
+                    run_id
+                        .map(|run_id| run_ids.contains(run_id))
+                        .unwrap_or(true)
+                        && step_id
+                            .map(|step_id| step_ids.contains(step_id))
+                            .unwrap_or(true)
+                }
+                _ => true,
+            }
+        });
+        let node_ids = nodes
+            .iter()
+            .filter_map(|node| node.get("id").and_then(|value| value.as_str()))
+            .map(str::to_string)
+            .collect::<HashSet<_>>();
+        edges.retain(|edge| {
+            let from = edge.get("from").and_then(|value| value.as_str());
+            let to = edge.get("to").and_then(|value| value.as_str());
+            from.is_some_and(|from| node_ids.contains(from))
+                && to.is_some_and(|to| node_ids.contains(to))
+        });
+
+        serde_json::json!({
+            "group_id": group_id,
+            "scope": "group",
+            "generated_at": generated_at,
+            "nodes": nodes,
+            "edges": edges,
+            "recent_events": recent_events,
+        })
+    }
+
     pub fn get_personal_operations_summary(
         &self,
         user_id: &str,
@@ -9586,6 +10204,144 @@ mod tests {
                     && lease["resource_type"] == "path"
                     && lease["repo_key"] == "github:hey-vera/heyvera"
                     && lease["resource_key"] == "src/main.rs")
+        );
+    }
+
+    #[test]
+    fn get_group_operations_graph_links_tasks_runs_steps_evidence_and_leases() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "Ship graph"));
+        db.upsert_group_task_state(
+            "user-2",
+            "group-1",
+            &task_state("task-other-user", "Other graph"),
+        );
+        let conversation = db.create_conversation("user-1", Some("Project Chat"));
+        assert!(db.attach_cortex_task_chat("user-1", "group-1", "task-1", &conversation.id));
+
+        let run_id = db
+            .create_run_with_steps_and_resource_leases(
+                "user-1",
+                "Ship graph",
+                "auto",
+                &["src/main.rs".to_string()],
+                Some("task-1"),
+                Some("group-1"),
+                Some(&conversation.id),
+                &[path_lease_in_repo("github:hey-vera/heyvera", "src/main.rs")],
+                &[test_step("step-a"), test_step("step-b")],
+                &[(
+                    "step-b".to_string(),
+                    "step-a".to_string(),
+                    "success_required".to_string(),
+                )],
+            )
+            .expect("run");
+        let report_id = db
+            .record_verifier_report(
+                "step-a",
+                &run_id,
+                0,
+                None,
+                "test",
+                "verified",
+                "pass",
+                r#"{"ok":true}"#,
+            )
+            .expect("report");
+        let approval = db.create_cortex_approval_request_with_gate(
+            "user-1",
+            "group-1",
+            Some("task-1"),
+            Some("step-b"),
+            Some(&conversation.id),
+            Some(&run_id),
+            "approval",
+            "Approve merge",
+            "Ship it",
+            "high",
+            "cortex",
+        );
+        let other_run_id = db.create_run_with_metadata(
+            "user-2",
+            "Other user run",
+            "auto",
+            &[],
+            Some("task-other-user"),
+            Some("group-1"),
+            None,
+        );
+        let graph = db.get_group_operations_graph("user-1", "group-1", 50);
+        let nodes = graph["nodes"].as_array().unwrap();
+        let edges = graph["edges"].as_array().unwrap();
+
+        assert_eq!(graph["group_id"], "group-1");
+        assert!(nodes.iter().any(|node| {
+            node["id"] == "task:task-1"
+                && node["type"] == "task"
+                && node["completion"]["run_id"] == run_id
+        }));
+        assert!(nodes.iter().any(
+            |node| node["id"] == format!("chat:{}", conversation.id) && node["type"] == "chat"
+        ));
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node["id"] == format!("run:{run_id}") && node["type"] == "run")
+        );
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node["id"] == "step:step-a" && node["type"] == "step")
+        );
+        assert!(nodes.iter().any(|node| {
+            node["id"] == format!("evidence:{report_id}")
+                && node["type"] == "evidence"
+                && node["step_id"] == "step-a"
+        }));
+        assert!(nodes.iter().any(|node| {
+            node["id"] == format!("approval:{}", approval.id)
+                && node["type"] == "approval"
+                && node["step_id"] == "step-b"
+        }));
+        assert!(nodes.iter().any(|node| {
+            node["type"] == "resource_lease"
+                && node["run_id"] == run_id
+                && node["resource_key"] == "src/main.rs"
+        }));
+        assert!(
+            nodes.iter().all(
+                |node| node["run_id"] != other_run_id && node["entity_id"] != "task-other-user"
+            )
+        );
+
+        assert!(edges.iter().any(|edge| {
+            edge["from"] == "task:task-1"
+                && edge["to"] == format!("run:{run_id}")
+                && edge["type"] == "task_run"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge["from"] == "step:step-a"
+                && edge["to"] == "step:step-b"
+                && edge["type"] == "step_dependency"
+                && edge["edge_type"] == "success_required"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge["from"] == "step:step-a"
+                && edge["to"] == format!("evidence:{report_id}")
+                && edge["type"] == "step_evidence"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge["from"] == "step:step-b"
+                && edge["to"] == format!("approval:{}", approval.id)
+                && edge["type"] == "step_approval"
+        }));
+        assert!(
+            graph["recent_events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|event| event["actor_user_id"] == "user-1")
         );
     }
 

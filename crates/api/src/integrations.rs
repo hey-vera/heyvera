@@ -604,6 +604,19 @@ pub async fn get_group_operations_summary(
     )))
 }
 
+pub async fn get_group_operations_graph(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(group_id): Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let db = db_ref(&state)?;
+    Ok(Json(db.get_group_operations_graph(
+        &user.user_id,
+        &group_id,
+        100,
+    )))
+}
+
 pub async fn get_personal_operations_summary(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
