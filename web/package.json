@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "test:unit": "vitest run",
+    "test:e2e": "playwright test tests/e2e/",
+    "test:visual": "playwright test tests/e2e/visual-regression.spec.ts",
     "test:responsive": "playwright test",
     "typecheck": "tsc -b --pretty false",
     "build": "tsc -b && vite build",

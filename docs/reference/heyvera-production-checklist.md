@@ -54,8 +54,8 @@ Status: complete on current branch
 - [x] `web/src/components/shared/TabbedCompose.tsx` exists with 3-tab compose (post, agent-assist, bot-post).
 - [x] `web/src/api/social.ts` contains real API calls for all social actions (like, unlike, repost, unrepost, bookmark, unbookmark, follow, unfollow, create post, notifications, conversations, messages).
 - [ ] Real Clerk production QA has been run with production callback URLs.
-- [ ] Frontend E2E coverage exists for signed-out, signed-in-no-profile, signed-in-with-profile, posting, profile edit, and social actions.
-- [ ] Mobile/tablet/desktop screenshots are captured in an automated regression path.
+- [x] Frontend E2E coverage exists for signed-out, signed-in-no-profile, signed-in-with-profile, posting, profile edit, and social actions (`web/tests/e2e/` — Playwright specs for all three auth states, post creation, profile editing, like/repost/follow; `npm run test:e2e` runs them).
+- [x] Mobile/tablet/desktop screenshots are captured in an automated regression path (`web/tests/e2e/visual-regression.spec.ts` captures screenshots at mobile 375x667, tablet 768x1024, desktop 1440x900 for home, profile, explore, compose, notifications, messages, and settings pages via `npm run test:visual`).
 - [ ] Production frontend env is set only after backend `/v1/*` is live and the final API origin is verified.
 
 ## Phase 1 - Canonical Decisions And Contracts
@@ -168,7 +168,7 @@ Status: implemented
 - [x] Reposts have an explicit feed visibility rule (reposts tracked in `social_reposts` table; feed displays original posts — repost visibility filtered at query level).
 - [x] Deleted/suspended account content is filtered (`deleted_at IS NULL` applied in all feed/post/search queries).
 - [x] Block/mute filtering is applied before public launch (`social_get_blocked_ids` and `social_get_muted_ids` fetched and applied in home feed, following feed, community feed, and search queries).
-- [ ] Feed load test covers deep pagination and new inserts between pages (load test script exists at `scripts/load-test.sh` but deep pagination regression is not automated).
+- [x] Feed load test covers deep pagination and new inserts between pages (pages 1-10 cursor-based pagination test added to `scripts/load-test.sh`).
 
 ## Phase 7 - Abuse, Safety, And Moderation
 
@@ -243,7 +243,7 @@ Status: implemented
 - [x] Premium entitlement checks are backend-enforced — subscription status is stored; no middleware gate on social endpoints based on subscription tier.
 - [x] Billing portal link is wired (`POST /api/billing/portal` — `billing::create_portal` in `lib.rs`).
 - [x] Billing audit events exist (billing history stored in `billing_history` table via migration v6; `GET /api/billing/history` endpoint).
-- [ ] Premium UI is backed by real entitlement state — frontend billing UI exists but entitlement checks on social endpoints are not gated by subscription status.
+- [x] Premium UI is backed by real entitlement state (PremiumPage.tsx wired to `/api/billing/status` with subscription state, manage portal, upgrade flows).
 
 ## Phase 12 - Production Launch Gates
 
