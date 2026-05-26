@@ -301,6 +301,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/notifications/read", post(notifications::mark_notifications_read))
         // Task #36: Community feed
         .route("/v1/social/communities/{id}/feed", get(social::get_community_feed))
+        // Community membership
+        .route("/v1/social/communities/{id}/join", post(social::join_community))
+        .route("/v1/social/communities/{id}/leave", delete(social::leave_community))
+        .route("/v1/social/communities/{id}/members", get(social::list_community_members))
         // Task #35: Conversations & Messages
         .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
         .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))
@@ -373,6 +377,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/admin/codes", get(admin::list_promo_codes).post(admin::create_promo_code))
         .route("/api/admin/codes/{id}", patch(admin::update_promo_code).delete(admin::delete_promo_code))
         .route("/api/admin/redemptions", get(admin::list_redemptions))
+        // Admin — Account suspension
+        .route("/api/admin/accounts/{clerk_user_id}/suspend", post(admin::suspend_account))
+        .route("/api/admin/accounts/{clerk_user_id}/unsuspend", post(admin::unsuspend_account))
+        // Admin — Orphaned media cleanup
+        .route("/api/admin/cleanup-orphaned-media", post(admin::cleanup_orphaned_media))
         // Admin — Moderation reports
         .route("/api/admin/reports", get(moderation::list_reports))
         // Admin — Audit log

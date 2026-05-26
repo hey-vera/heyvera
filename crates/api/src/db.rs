@@ -7758,6 +7758,7 @@ impl Database {
     }
 
     pub fn social_create_post(&self, profile_id: &str, body: &str, visibility: &str, author_mode: &str, linked_agent_id: Option<&str>, reply_to: Option<&str>, quote: Option<&str>) -> serde_json::Value {
+        let _t = std::time::Instant::now();
         let conn = self.conn.lock().unwrap();
         let id = Uuid::new_v4().to_string();
         conn.execute(
@@ -7776,7 +7777,7 @@ impl Database {
              LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
              WHERE sp.id = ?1"
         ).unwrap();
-        stmt.query_row([&id], |row| {
+        let post = stmt.query_row([&id], |row| {
             let agent_name: Option<String> = row.get(13)?;
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
@@ -7801,7 +7802,9 @@ impl Database {
                     })
                 } else { serde_json::Value::Null },
             }))
-        }).unwrap()
+        }).unwrap();
+        tracing::info!(method = "social_create_post", duration_ms = _t.elapsed().as_millis(), "db query");
+        post
     }
 
     pub fn social_search_posts(&self, query: &str, limit: i64) -> Vec<serde_json::Value> {
@@ -8340,6 +8343,7 @@ impl Database {
         post_id: &str,
         viewer_profile_id: Option<&str>,
     ) -> Option<serde_json::Value> {
+        let _t = std::time::Instant::now();
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
@@ -8422,6 +8426,7 @@ impl Database {
             m.insert("bookmarked".into(), serde_json::json!(bookmarked));
             m.insert("reposted".into(), serde_json::json!(reposted));
         }
+        tracing::info!(method = "social_get_post_by_id", duration_ms = _t.elapsed().as_millis(), "db query");
         Some(post)
     }
 
@@ -8531,6 +8536,7 @@ impl Database {
         cursor_created_at: Option<&str>,
         cursor_id: Option<&str>,
     ) -> Vec<serde_json::Value> {
+        let _t = std::time::Instant::now();
         let conn = self.conn.lock().unwrap();
         let (sql, use_cursor) = if cursor_created_at.is_some() && cursor_id.is_some() {
             (
@@ -8595,6 +8601,7 @@ impl Database {
                 },
             ).unwrap().filter_map(|r| r.ok()).collect()
         };
+        tracing::info!(method = "social_get_notifications", duration_ms = _t.elapsed().as_millis(), row_count = rows.len(), "db query");
         rows
     }
 
@@ -8711,6 +8718,7 @@ impl Database {
         blocked_ids: &[String],
         muted_ids: &[String],
     ) -> Vec<serde_json::Value> {
+        let _t = std::time::Instant::now();
         let conn = self.conn.lock().unwrap();
         let filter_clause = match filter {
             Some(f) if f != "all" => format!("AND sp.author_mode = '{}'", f.replace('\'', "''")),
@@ -8748,7 +8756,7 @@ impl Database {
                 } else { serde_json::Value::Null },
             }))
         };
-        if cursor_created_at.is_some() && cursor_id.is_some() {
+        let rows: Vec<serde_json::Value> = if cursor_created_at.is_some() && cursor_id.is_some() {
             let sql = format!(
                 "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
                         sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
@@ -8798,7 +8806,9 @@ impl Database {
                 let pr: Vec<&dyn rusqlite::types::ToSql> = p.iter().map(|b| b.as_ref()).collect();
                 stmt.query_map(pr.as_slice(), map_row).unwrap().filter_map(|r| r.ok()).collect()
             }
-        }
+        };
+        tracing::info!(method = "social_list_feed_posts_keyset", duration_ms = _t.elapsed().as_millis(), row_count = rows.len(), "db query");
+        rows
     }
 
     /// Keyset-paginated search posts
@@ -8811,6 +8821,7 @@ impl Database {
         blocked_ids: &[String],
         muted_ids: &[String],
     ) -> Vec<serde_json::Value> {
+        let _t = std::time::Instant::now();
         let conn = self.conn.lock().unwrap();
         let pattern = format!("%{query}%");
         let excluded: Vec<String> = blocked_ids.iter().chain(muted_ids.iter()).cloned().collect();
@@ -8845,7 +8856,7 @@ impl Database {
             let ph: Vec<String> = (0..excluded.len()).map(|i| format!("?{}", start + i)).collect();
             format!("AND sp.profile_id NOT IN ({})", ph.join(", "))
         };
-        if cursor_created_at.is_some() && cursor_id.is_some() {
+        let rows: Vec<serde_json::Value> = if cursor_created_at.is_some() && cursor_id.is_some() {
             let sql = format!(
                 "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
                         sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
@@ -8894,7 +8905,9 @@ impl Database {
                 let pr: Vec<&dyn rusqlite::types::ToSql> = p.iter().map(|b| b.as_ref()).collect();
                 stmt.query_map(pr.as_slice(), map_row).unwrap().filter_map(|r| r.ok()).collect()
             }
-        }
+        };
+        tracing::info!(method = "social_search_posts_keyset", duration_ms = _t.elapsed().as_millis(), row_count = rows.len(), "db query");
+        rows
     }
 
     // ─── Wave 4: Media uploads ─────────────────────────────────────────────────
@@ -9081,6 +9094,64 @@ impl Database {
         count
     }
 
+    // --- Community membership ---
+
+    /// Join a community (insert membership row; no-op if already a member).
+    pub fn social_join_community(&self, community_id: &str, profile_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let id = format!("cmem_{}", Uuid::new_v4());
+        let inserted = conn.execute(
+            "INSERT OR IGNORE INTO social_community_memberships (id, community_id, profile_id)
+             VALUES (?1, ?2, ?3)",
+            params![id, community_id, profile_id],
+        ).unwrap_or(0);
+        inserted > 0
+    }
+
+    /// Leave a community (delete membership row).
+    pub fn social_leave_community(&self, community_id: &str, profile_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let deleted = conn.execute(
+            "DELETE FROM social_community_memberships
+             WHERE community_id = ?1 AND profile_id = ?2",
+            params![community_id, profile_id],
+        ).unwrap_or(0);
+        deleted > 0
+    }
+
+    /// List members of a community, most-recently-joined first.
+    pub fn social_list_community_members(&self, community_id: &str, limit: i64) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT p.id, p.handle, p.display_name, p.avatar_url, m.joined_at
+             FROM social_community_memberships m
+             JOIN social_profiles p ON p.id = m.profile_id
+             WHERE m.community_id = ?1
+             ORDER BY m.joined_at DESC
+             LIMIT ?2"
+        ).unwrap();
+        stmt.query_map(params![community_id, limit], |row| {
+            Ok(serde_json::json!({
+                "profileId": row.get::<_, String>(0)?,
+                "handle": row.get::<_, String>(1)?,
+                "displayName": row.get::<_, String>(2)?,
+                "avatarUrl": row.get::<_, Option<String>>(3)?,
+                "joinedAt": row.get::<_, String>(4)?,
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    /// Check whether a profile is a member of a community.
+    pub fn social_is_community_member(&self, community_id: &str, profile_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM social_community_memberships
+             WHERE community_id = ?1 AND profile_id = ?2",
+            params![community_id, profile_id],
+            |_| Ok(()),
+        ).is_ok()
+    }
+
     // --- Webhook events (idempotency) ---
 
     /// Check if a webhook event has already been processed.
@@ -9139,6 +9210,28 @@ impl Database {
             params![clerk_user_id],
         )
         .ok();
+    }
+
+    /// Suspend an account — sets status to "suspended".
+    pub fn admin_suspend_account(&self, clerk_user_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let updated = conn.execute(
+            "UPDATE accounts SET status = 'suspended', updated_at = datetime('now')
+             WHERE clerk_user_id = ?1",
+            params![clerk_user_id],
+        ).unwrap_or(0);
+        updated > 0
+    }
+
+    /// Unsuspend an account — sets status back to "active".
+    pub fn admin_unsuspend_account(&self, clerk_user_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let updated = conn.execute(
+            "UPDATE accounts SET status = 'active', updated_at = datetime('now')
+             WHERE clerk_user_id = ?1 AND status = 'suspended'",
+            params![clerk_user_id],
+        ).unwrap_or(0);
+        updated > 0
     }
 
     // --- Health check ---

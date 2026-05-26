@@ -694,3 +694,56 @@ pub async fn get_community_feed(
         "has_more": has_more,
     }))
 }
+
+// ─── Community Membership ─────────────────────────────────────────────────────
+
+/// POST /v1/social/communities/{id}/join — join a community (auth required)
+pub async fn join_community(
+    user: ClerkUser,
+    Path(community_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let joined = db(&state).social_join_community(&community_id, &profile_id);
+    if joined {
+        Json(serde_json::json!({ "ok": true, "joined": true }))
+    } else {
+        Json(serde_json::json!({ "ok": true, "joined": false, "message": "already a member" }))
+    }
+}
+
+/// DELETE /v1/social/communities/{id}/leave — leave a community (auth required)
+pub async fn leave_community(
+    user: ClerkUser,
+    Path(community_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let left = db(&state).social_leave_community(&community_id, &profile_id);
+    if left {
+        Json(serde_json::json!({ "ok": true, "left": true }))
+    } else {
+        Json(serde_json::json!({ "ok": true, "left": false, "message": "not a member" }))
+    }
+}
+
+/// GET /v1/social/communities/{id}/members — list members (public)
+pub async fn list_community_members(
+    Path(community_id): Path<String>,
+    Query(params): Query<FeedQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let limit = params.limit.unwrap_or(50).min(200);
+    let members = db(&state).social_list_community_members(&community_id, limit);
+    let count = members.len();
+    Json(serde_json::json!({
+        "members": members,
+        "count": count,
+    }))
+}

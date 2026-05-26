@@ -527,6 +527,98 @@ pub async fn get_audit_log(
     })))
 }
 
+// ─── Account Suspension ───────────────────────────────────────────────────────
+
+pub async fn suspend_account(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(clerk_user_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    resolve_admin(&state, &user).await?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    let updated = db.admin_suspend_account(&clerk_user_id);
+    if updated {
+        db.audit_log(
+            &user.user_id,
+            "admin",
+            "account.suspended",
+            Some("account"),
+            Some(&clerk_user_id),
+            None,
+            None,
+        );
+        tracing::info!("admin {} suspended account {}", user.user_id, clerk_user_id);
+        Ok(Json(serde_json::json!({ "ok": true, "status": "suspended" })))
+    } else {
+        Err((StatusCode::NOT_FOUND, Json(ErrorResponse { error: "account not found".into() })))
+    }
+}
+
+pub async fn unsuspend_account(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(clerk_user_id): Path<String>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    resolve_admin(&state, &user).await?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    let updated = db.admin_unsuspend_account(&clerk_user_id);
+    if updated {
+        db.audit_log(
+            &user.user_id,
+            "admin",
+            "account.unsuspended",
+            Some("account"),
+            Some(&clerk_user_id),
+            None,
+            None,
+        );
+        tracing::info!("admin {} unsuspended account {}", user.user_id, clerk_user_id);
+        Ok(Json(serde_json::json!({ "ok": true, "status": "active" })))
+    } else {
+        Err((StatusCode::NOT_FOUND, Json(ErrorResponse { error: "account not found or not suspended".into() })))
+    }
+}
+
+// ─── Orphaned Media Cleanup ───────────────────────────────────────────────────
+
+pub async fn cleanup_orphaned_media(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    resolve_admin(&state, &user).await?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    let orphaned = db.social_get_orphaned_media(500);
+    let ids: Vec<String> = orphaned
+        .iter()
+        .filter_map(|m| m["id"].as_str().map(|s| s.to_string()))
+        .collect();
+    let count = if ids.is_empty() {
+        0
+    } else {
+        db.social_delete_orphaned_media(&ids)
+    };
+    tracing::info!("admin {} cleaned up {} orphaned media objects", user.user_id, count);
+    db.audit_log(
+        &user.user_id,
+        "admin",
+        "media.orphaned_cleanup",
+        None,
+        None,
+        Some(&format!("cleaned {} objects", count)),
+        None,
+    );
+    Ok(Json(serde_json::json!({ "ok": true, "cleaned": count })))
+}
+
 // ─── Counter Reconciliation ───────────────────────────────────────────────────
 
 pub async fn reconcile_counters(

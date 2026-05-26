@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::extract::State;
+use axum::extract::{FromRef, FromRequestParts, State};
+use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
 use cortex_core::usage::UsageLimits;
@@ -12,6 +13,49 @@ use crate::db::Database;
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
 use crate::stripe_client::StripeClient;
+
+// ─── PremiumUser extractor ────────────────────────────────────────────────────
+
+/// An Axum extractor that succeeds only when the authenticated user has an active
+/// premium (paid) subscription. Returns 403 otherwise.
+///
+/// Usage: add `_user: PremiumUser` as a handler parameter to gate a route.
+#[derive(Debug, Clone)]
+pub struct PremiumUser {
+    pub user_id: String,
+}
+
+impl<S> FromRequestParts<S> for PremiumUser
+where
+    Arc<AppState>: FromRef<S>,
+    S: Send + Sync,
+{
+    type Rejection = (StatusCode, Json<ErrorResponse>);
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let app_state: Arc<AppState> = Arc::from_ref(state);
+
+        // First, extract the authenticated user via ClerkUser
+        let clerk_user = ClerkUser::from_request_parts(parts, state).await?;
+
+        // Check premium status
+        let is_premium = app_state
+            .db
+            .as_ref()
+            .and_then(|db| db.get_subscription(&clerk_user.user_id))
+            .map(|sub| sub.status == "active" && (sub.plan_type == "monthly" || sub.plan_type == "annual" || sub.plan_type == "yearly"))
+            .unwrap_or(false);
+
+        if is_premium {
+            Ok(PremiumUser { user_id: clerk_user.user_id })
+        } else {
+            Err((
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse { error: "premium subscription required".into() }),
+            ))
+        }
+    }
+}
 
 /// Billing gate errors. Each variant carries current and limit values for diagnostics.
 #[derive(Debug, Clone, Serialize)]
