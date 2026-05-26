@@ -1173,6 +1173,7 @@ export interface RunListItem {
 export interface CreateRunResponse {
   run_id: string;
   steps: number;
+  authority_scope_id?: string | null;
 }
 
 export interface CreateRunOptions {
@@ -1180,6 +1181,9 @@ export interface CreateRunOptions {
   taskId?: string | null;
   groupId?: string | null;
   conversationId?: string | null;
+  authorityScopeId?: string | null;
+  authorityHandoffId?: string | null;
+  authorityReason?: string | null;
 }
 
 export function repoKeyFromLabel(repo?: string | null): string | undefined {
@@ -1224,6 +1228,9 @@ export async function createRun(
       task_id: options.taskId ?? undefined,
       group_id: options.groupId ?? undefined,
       conversation_id: options.conversationId ?? undefined,
+      authority_scope_id: options.authorityScopeId ?? undefined,
+      authority_handoff_id: options.authorityHandoffId ?? undefined,
+      authority_reason: options.authorityReason ?? undefined,
     }),
   });
 }

@@ -77,7 +77,7 @@ Cortex Personal Operations and Task Manager should consume a read-only `/api/aut
 1. Add read-only authority scope tables and personal scope bootstrap.
 2. Add `/api/authority/scopes` for frontend context.
 3. Add frontend API types, no write UI.
-4. Add explicit org-context handoff for org mutations.
+4. Add explicit org-context handoff for run creation against org-scoped repo resources.
 5. Add GitHub org/repo trust mirror and authority resources.
 6. Enforce authority on runs, approvals, leases, PRs, and deployment adapters.
 7. Add read-only multi-org aggregation only after single-org enforcement works.

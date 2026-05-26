@@ -26,6 +26,11 @@ The first implementation is read-only:
 - do not grant new write powers
 - do not allow Personal Operations to mutate org work without a later explicit handoff and policy check
 
+The first mutation gate is run creation. A run may continue to default to personal
+authority, but non-personal repo work must provide an explicit authority scope.
+If the selected scope policy requires org handoff, the request must also provide
+a handoff id before Cortex starts work.
+
 ## Consequences
 
 - Personal Operations can show a user's authorized operational universe without pretending everything is personal.
@@ -36,7 +41,7 @@ The first implementation is read-only:
 
 ## Follow-Up Work
 
-- Add explicit org-context handoff for mutations initiated from Personal Operations.
+- Extend explicit org-context handoff from run creation to task-board mutations once groups are mapped to authority scopes.
 - Add GitHub org/repo trust mirror as authority resources.
 - Add authority scope ids to runs, approvals, leases, task projections, and operations events.
 - Enforce authority on PR creation, deployment adapters, and any repo mutation.
