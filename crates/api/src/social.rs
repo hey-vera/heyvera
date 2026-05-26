@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
+    extract::{Query, State},
     response::IntoResponse,
     Json,
 };
@@ -100,7 +99,7 @@ pub async fn search(
     Query(params): Query<SearchQuery>,
     State(_state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let _query = params.q.unwrap_or_default().trim();
+    let _query = params.q.unwrap_or_default();
     let _search_type = params.search_type.unwrap_or_else(|| "all".to_string());
 
     // Return empty results for now
@@ -124,7 +123,7 @@ pub async fn get_home_feed(
 ) -> impl IntoResponse {
     Json(serde_json::json!({
         "posts": [],
-        "message": format!("Home feed for user {}", user.id)
+        "message": format!("Home feed for user {}", user.user_id)
     }))
 }
 
@@ -137,7 +136,7 @@ pub async fn get_my_profile(
 ) -> impl IntoResponse {
     // TODO: Look up profile in database
     Json(serde_json::json!({
-        "message": format!("Profile for user {}", user.id),
+        "message": format!("Profile for user {}", user.user_id),
         "profile": null
     }))
 }
@@ -150,7 +149,7 @@ pub async fn create_profile(
 ) -> impl IntoResponse {
     let profile = SocialProfile {
         id: Uuid::new_v4().to_string(),
-        account_id: user.id.clone(),
+        account_id: user.user_id.clone(),
         handle: req.handle,
         display_name: req.display_name,
         bio: req.bio.unwrap_or_default(),
@@ -178,7 +177,7 @@ pub async fn create_post(
 ) -> impl IntoResponse {
     let post = SocialPost {
         id: Uuid::new_v4().to_string(),
-        profile_id: user.id.clone(), // TODO: Get actual profile ID from DB
+        profile_id: user.user_id.clone(), // TODO: Get actual profile ID from DB
         body: req.body,
         visibility: req.visibility.unwrap_or_else(|| "public".to_string()),
         author_mode: req.author_mode.unwrap_or_else(|| "person".to_string()),
