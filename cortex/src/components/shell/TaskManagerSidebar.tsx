@@ -12,6 +12,7 @@ import {
 import TaskManagerChat from '../tasks/TaskManagerChat';
 import TaskBoard from '../tasks/TaskBoard';
 import TaskInspector from '../tasks/TaskInspector';
+import OperationsGraphPanel from '../tasks/OperationsGraphPanel';
 import { openDetachedPanel } from '../../lib/shell/windowManager';
 import { useTaskManager, type TaskManagerSyncState } from '../../lib/taskManager';
 import { CortexApiError, createRun, repoKeyFromLabel } from '../../lib/cortexApi';
@@ -337,6 +338,7 @@ export default function TaskManagerSidebar({
                 </p>
               </div>
             </div>
+            <OperationsGraphPanel groupId={group.id} groupName={group.name} />
             <TaskBoard
               tasks={taskManager.state.tasks}
               members={taskManager.state.members}
