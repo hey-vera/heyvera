@@ -163,14 +163,9 @@ export type ProfileSummary = {
 
 // ─── API base URL ────────────────────────────────────────────────────────────
 //
-// When VITE_API_URL is set (e.g. "http://localhost:3001" for local Rust backend),
-// requests are prefixed with "<VITE_API_URL>/v1/social".
-// For development: Use Rust backend on localhost:3001
-// For production: Will use deployed Rust backend instead of broken Node.js
-
 const API_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/v1/social`
-  : "http://localhost:3001/v1/social";
+  : "https://api.heyvera.org/v1/social";
 
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 

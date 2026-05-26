@@ -24,8 +24,8 @@ export type PulseAuditEntry = {
 // ─── API base URL ───────────────────────────────────────────────────────────
 
 const PULSE_API_BASE = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/v1/social`
-  : 'http://localhost:3001/v1/social';
+  ? `${import.meta.env.VITE_API_URL}/v1/pulse`
+  : 'https://api.heyvera.org/v1/pulse';
 
 // ─── Fetch helper ───────────────────────────────────────────────────────────
 
