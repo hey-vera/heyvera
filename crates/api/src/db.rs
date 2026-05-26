@@ -1735,16 +1735,43 @@ fn cortex_completion_gate(
 
     let (total_steps, verified_pass_steps, failed_steps, unverified_steps): (i64, i64, i64, i64) =
         conn.query_row(
-            "SELECT
+            "WITH latest_reports AS (
+                SELECT vr.*
+                FROM verifier_reports vr
+                JOIN (
+                    SELECT step_id, MAX(created_at) AS created_at
+                    FROM verifier_reports
+                    WHERE run_id = ?1
+                    GROUP BY step_id
+                ) latest
+                    ON latest.step_id = vr.step_id
+                   AND latest.created_at = vr.created_at
+                WHERE vr.run_id = ?1
+            )
+            SELECT
                 COUNT(*),
-                COALESCE(SUM(CASE WHEN verification_status = 'verified_pass' THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN status IN ('failed', 'orphaned') THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE
-                    WHEN verification_status IS NULL OR verification_status != 'verified_pass' THEN 1
-                    ELSE 0
+                    WHEN s.status = 'succeeded'
+                     AND s.verifier_report_id = lr.id
+                     AND s.lease_gen = lr.lease_gen
+                     AND lr.status = 'verified'
+                     AND lr.verdict = 'pass'
+                    THEN 1 ELSE 0
+                END), 0),
+                COALESCE(SUM(CASE WHEN s.status IN ('failed', 'orphaned') THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE
+                    WHEN lr.id IS NULL OR NOT (
+                        s.status = 'succeeded'
+                        AND s.verifier_report_id = lr.id
+                        AND s.lease_gen = lr.lease_gen
+                        AND lr.status = 'verified'
+                        AND lr.verdict = 'pass'
+                    )
+                    THEN 1 ELSE 0
                 END), 0)
-             FROM steps
-             WHERE run_id = ?1",
+             FROM steps s
+             LEFT JOIN latest_reports lr ON lr.step_id = s.id
+             WHERE s.run_id = ?1",
             params![run_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
@@ -6401,6 +6428,62 @@ impl Database {
         .ok()
     }
 
+    pub fn get_verifier_report_for_run_step(
+        &self,
+        user_id: &str,
+        run_id: &str,
+        step_id: &str,
+        report_id: &str,
+    ) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let report = conn
+            .query_row(
+                "SELECT vr.id, vr.step_id, vr.run_id, vr.lease_gen, vr.worker_id, vr.verifier,
+                        vr.status, vr.verdict, vr.evidence_json, vr.created_at, vr.updated_at
+                 FROM verifier_reports vr
+                 JOIN runs r ON r.id = vr.run_id
+                 WHERE r.user_id = ?1
+                    AND vr.run_id = ?2
+                    AND vr.step_id = ?3
+                    AND vr.id = ?4",
+                params![user_id, run_id, step_id, report_id],
+                |row| {
+                    Ok(VerifierReport {
+                        id: row.get(0)?,
+                        step_id: row.get(1)?,
+                        run_id: row.get(2)?,
+                        lease_gen: row.get(3)?,
+                        worker_id: row.get(4)?,
+                        verifier: row.get(5)?,
+                        status: row.get(6)?,
+                        verdict: row.get(7)?,
+                        evidence_json: row.get(8)?,
+                        created_at: row.get(9)?,
+                        updated_at: row.get(10)?,
+                    })
+                },
+            )
+            .ok()?;
+        let evidence = serde_json::from_str::<serde_json::Value>(&report.evidence_json)
+            .unwrap_or_else(|_| serde_json::json!({}));
+
+        Some(serde_json::json!({
+            "report": {
+                "id": report.id,
+                "step_id": report.step_id,
+                "run_id": report.run_id,
+                "lease_gen": report.lease_gen,
+                "worker_id": report.worker_id,
+                "verifier": report.verifier,
+                "status": report.status,
+                "verdict": report.verdict,
+                "created_at": report.created_at,
+                "updated_at": report.updated_at,
+            },
+            "evidence": evidence,
+        }))
+    }
+
     pub fn record_step_work_contract(
         &self,
         step_id: &str,
@@ -9027,12 +9110,22 @@ mod tests {
             let conn = db.conn.lock().unwrap();
             conn.execute(
                 "UPDATE steps
-                 SET status = 'succeeded', verification_status = 'verified_pass'
+                 SET status = 'succeeded'
                  WHERE id = ?1",
                 params![step_id],
             )
             .unwrap();
         }
+        db.record_verifier_report(
+            &step_id,
+            &run_id,
+            0,
+            None,
+            "test",
+            "verified",
+            "pass",
+            r#"{"verifier_report":{"verdict":"success"}}"#,
+        );
         assert!(db.update_run_status(&run_id, "succeeded", None));
 
         let projection = db
@@ -9089,14 +9182,100 @@ mod tests {
             let conn = db.conn.lock().unwrap();
             conn.execute(
                 "UPDATE steps
+                 SET status = 'succeeded'
+                 WHERE id = ?1",
+                params![step_id],
+            )
+            .unwrap();
+        }
+        db.record_verifier_report(
+            &step_id,
+            &run_id,
+            0,
+            None,
+            "test",
+            "verified",
+            "pass",
+            r#"{"verifier_report":{"verdict":"success"}}"#,
+        );
+
+        assert!(db.cortex_task_has_evidence_backed_completion("user-1", "group-1", "task-1"));
+    }
+
+    #[test]
+    fn cortex_task_completion_gate_does_not_trust_step_status_only() {
+        let db = test_db();
+        db.upsert_group_task_state(
+            "user-1",
+            "group-1",
+            &task_state_with_tasks(serde_json::json!([
+                {
+                    "id": "task-1",
+                    "groupId": "group-1",
+                    "title": "Spoofed task",
+                    "status": "in-progress",
+                    "priority": "normal",
+                    "assigneeId": "user-1",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                }
+            ])),
+        );
+        let run_id = db.create_run_with_metadata(
+            "user-1",
+            "Ship spoofed task",
+            "auto",
+            &[],
+            Some("task-1"),
+            Some("group-1"),
+            None,
+        );
+        let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE steps
                  SET status = 'succeeded', verification_status = 'verified_pass'
                  WHERE id = ?1",
                 params![step_id],
             )
             .unwrap();
         }
+        assert!(db.update_run_status(&run_id, "succeeded", None));
 
-        assert!(db.cortex_task_has_evidence_backed_completion("user-1", "group-1", "task-1"));
+        assert!(!db.cortex_task_has_evidence_backed_completion("user-1", "group-1", "task-1"));
+    }
+
+    #[test]
+    fn get_verifier_report_for_run_step_returns_owned_evidence() {
+        let db = test_db();
+        let run_id =
+            db.create_run_with_metadata("user-1", "Ship evidence", "auto", &[], None, None, None);
+        let step_id = db.create_step(&run_id, "verify", "standard", "medium", "Verify it");
+        let report_id = db
+            .record_verifier_report(
+                &step_id,
+                &run_id,
+                0,
+                Some("worker-1"),
+                "test",
+                "verified",
+                "pass",
+                r#"{"worker_completed":{"exit_code":0},"verifier_report":{"verdict":"success"}}"#,
+            )
+            .expect("report id");
+
+        let payload = db
+            .get_verifier_report_for_run_step("user-1", &run_id, &step_id, &report_id)
+            .expect("report payload");
+        assert_eq!(payload["report"]["id"], report_id);
+        assert_eq!(payload["report"]["status"], "verified");
+        assert_eq!(payload["evidence"]["worker_completed"]["exit_code"], 0);
+        assert!(
+            db.get_verifier_report_for_run_step("user-2", &run_id, &step_id, &report_id)
+                .is_none()
+        );
     }
 
     #[test]
@@ -9144,12 +9323,22 @@ mod tests {
             let conn = db.conn.lock().unwrap();
             conn.execute(
                 "UPDATE steps
-                 SET status = 'succeeded', verification_status = 'verified_pass'
+                 SET status = 'succeeded'
                  WHERE id = ?1",
                 params![step_id],
             )
             .unwrap();
         }
+        db.record_verifier_report(
+            &step_id,
+            &run_id,
+            0,
+            None,
+            "test",
+            "verified",
+            "pass",
+            r#"{"verifier_report":{"verdict":"success"}}"#,
+        );
         assert!(db.update_run_status(&run_id, "succeeded", None));
 
         let summary = db.get_group_operations_summary("user-1", "group-1", 25);
