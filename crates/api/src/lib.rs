@@ -115,10 +115,20 @@ fn cors_layer() -> CorsLayer {
                 .allow_headers(AllowHeaders::any())
         }
         _ => {
+            if is_production_env() {
+                panic!("CORTEX_ALLOWED_ORIGINS is required when CORTEX_ENV/APP_ENV/ENVIRONMENT is production");
+            }
             tracing::info!("CORS: permissive (set CORTEX_ALLOWED_ORIGINS to restrict)");
             CorsLayer::permissive()
         }
     }
+}
+
+fn is_production_env() -> bool {
+    ["CORTEX_ENV", "APP_ENV", "ENVIRONMENT"]
+        .iter()
+        .filter_map(|key| std::env::var(key).ok())
+        .any(|value| value.eq_ignore_ascii_case("production"))
 }
 
 /// Build the full axum Router with all routes, given an initialized AppState.
@@ -150,6 +160,23 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(middleware::from_fn_with_state(
             state.clone(),
             ratelimit::rate_limit_middleware,
+        ));
+
+    let admin_routes = Router::new()
+        .route("/api/admin/workers", get(admin::get_workers))
+        .route("/api/admin/stats", get(admin::system_stats))
+        .route("/api/admin/decisions", get(admin::list_decisions))
+        .route("/api/admin/runs", get(admin::list_all_runs))
+        .route("/api/admin/runs/{id}", get(admin::get_run_detail))
+        .route("/api/admin/pressure", get(admin::pressure_dashboard))
+        .route("/api/admin/usage", get(usage_api::admin_usage))
+        .route("/api/admin/usage/users", get(usage_api::admin_usage_users))
+        .route("/api/admin/codes", get(admin::list_promo_codes).post(admin::create_promo_code))
+        .route("/api/admin/codes/{id}", patch(admin::update_promo_code).delete(admin::delete_promo_code))
+        .route("/api/admin/redemptions", get(admin::list_redemptions))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            admin::require_admin_middleware,
         ));
 
     // Non-rate-limited routes
@@ -231,24 +258,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Usage
         .route("/api/usage", get(usage_api::get_usage))
         .route("/api/usage/daily", get(usage_api::get_daily_usage))
-        // Admin / Observability
-        .route("/api/admin/workers", get(admin::get_workers))
-        .route("/api/admin/stats", get(admin::system_stats))
-        .route("/api/admin/decisions", get(admin::list_decisions))
-        .route("/api/admin/runs", get(admin::list_all_runs))
-        .route("/api/admin/runs/{id}", get(admin::get_run_detail))
-        .route("/api/admin/pressure", get(admin::pressure_dashboard))
-        .route("/api/admin/usage", get(usage_api::admin_usage))
-        .route("/api/admin/usage/users", get(usage_api::admin_usage_users))
-        // Admin — Promo Codes
-        .route("/api/admin/codes", get(admin::list_promo_codes).post(admin::create_promo_code))
-        .route("/api/admin/codes/{id}", patch(admin::update_promo_code).delete(admin::delete_promo_code))
-        .route("/api/admin/redemptions", get(admin::list_redemptions))
         // Worker WebSocket
         .route("/api/ws", get(ws::ws_handler))
         // Mission Control WebSocket (frontend observers) + snapshot
         .route("/api/mc", get(mission_control::mc_handler))
         .route("/api/mc/snapshot", get(mission_control::mc_snapshot))
+        .merge(admin_routes)
         // Merge rate-limited routes
         .merge(rate_limited)
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB max request body
