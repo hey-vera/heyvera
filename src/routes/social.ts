@@ -222,28 +222,38 @@ socialRouter.get('/search', (c) => {
     return c.json({ posts: [], profiles: [] });
   }
 
-  const posts = type === 'profiles' ? [] : searchPosts(q, 20).map((p) => postToApi(p));
-  const profiles = type === 'posts'
-    ? []
-    : searchProfiles(q, 20).map((p) => ({
-        id: p.id,
-        handle: p.handle,
-        displayName: p.display_name,
-        avatarUrl: p.avatar_url,
-        bio: p.bio,
-      }));
+  try {
+    const posts = type === 'profiles' ? [] : searchPosts(q, 20).map((p) => postToApi(p));
+    const profiles = type === 'posts'
+      ? []
+      : searchProfiles(q, 20).map((p) => ({
+          id: p.id,
+          handle: p.handle,
+          displayName: p.display_name,
+          avatarUrl: p.avatar_url,
+          bio: p.bio,
+        }));
 
-  return c.json({ posts, profiles });
+    return c.json({ posts, profiles });
+  } catch (error) {
+    // Return empty results if database error
+    return c.json({ posts: [], profiles: [] });
+  }
 });
 
 // ─── Public: trending ───────────────────────────────────────────────────────
 
 socialRouter.get('/trending', (c) => {
-  const topics = getTrendingHashtags(10).map((t) => ({
-    tag: t.tag,
-    postCount: t.post_count,
-  }));
-  return c.json({ topics });
+  try {
+    const topics = getTrendingHashtags(10).map((t) => ({
+      tag: t.tag,
+      postCount: t.post_count,
+    }));
+    return c.json({ topics });
+  } catch (error) {
+    // Return empty topics if database tables don't exist or other error
+    return c.json({ topics: [] });
+  }
 });
 
 // ─── Authenticated: notifications ───────────────────────────────────────────
