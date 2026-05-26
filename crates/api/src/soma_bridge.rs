@@ -1,13 +1,13 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use soma::crypto::encode_base64;
-use soma::delegation::{create_delegation, Caveat, Delegation};
+use soma::delegation::{Caveat, Delegation, create_delegation};
 use soma::identity::HeartIdentity;
 
 use crate::clerk::ClerkUser;
@@ -47,10 +47,7 @@ fn user_soma_dir(state: &AppState, user_id: &str) -> PathBuf {
         .join(user_id)
 }
 
-fn load_or_create_user_identity(
-    state: &AppState,
-    user_id: &str,
-) -> Result<HeartIdentity, String> {
+fn load_or_create_user_identity(state: &AppState, user_id: &str) -> Result<HeartIdentity, String> {
     let dir = user_soma_dir(state, user_id);
     let path = dir.join("soma-identity.json");
 
@@ -212,7 +209,7 @@ pub async fn revoke_delegation(
         .map(|id| id.did);
 
     let is_own = user_did.as_deref() == Some(&req.subject_did);
-    let is_admin = user.user_id.starts_with("user_admin");
+    let is_admin = !is_own && crate::admin::authorize_admin(&state, &user).await.is_ok();
 
     if !is_own && !is_admin {
         return Err((
