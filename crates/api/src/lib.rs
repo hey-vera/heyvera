@@ -173,13 +173,14 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/soma/me", get(soma_bridge::get_user_identity))
         .route("/api/soma/spend", get(soma_bridge::get_spend))
         .route("/api/soma/spend/{delegation_id}", get(soma_bridge::get_spend_detail))
-        // Social layer (HeyVera) — unified social + agent-assisted posting
+        // Social layer (HeyVera) — real DB-backed endpoints
         .route("/v1/social/trending", get(social::get_trending))
         .route("/v1/social/search", get(social::search))
         .route("/v1/social/profiles/featured", get(social::get_featured_profiles))
         .route("/v1/social/feed/home", get(social::get_home_feed))
+        .route("/v1/social/profiles", get(social::get_profiles).post(social::create_profile))
+        .route("/v1/social/communities", get(social::get_communities))
         .route("/v1/social/profile/me", get(social::get_my_profile))
-        .route("/v1/social/profiles", post(social::create_profile))
         .route("/v1/social/posts", post(social::create_post))
         // Protected — lightweight
         .route("/api/providers", get(routes::get_providers))

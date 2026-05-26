@@ -273,7 +273,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 25;
+const SCHEMA_VERSION: i64 = 26;
 const RUN_RESOURCE_LEASE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 fn apply_migrations(conn: &Connection) {
@@ -361,6 +361,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 25 {
         migrate_v25(conn);
+    }
+    if current < 26 {
+        migrate_v26(conn);
     }
 }
 
@@ -1304,6 +1307,181 @@ fn migrate_v25(conn: &Connection) {
     ).expect("migration v25 failed");
 
     tracing::info!("applied migration v25: Cortex authority scopes");
+}
+
+fn migrate_v26(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS social_profiles (
+            id TEXT PRIMARY KEY,
+            clerk_user_id TEXT NOT NULL,
+            handle TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            bio TEXT NOT NULL DEFAULT '',
+            avatar_url TEXT,
+            banner_url TEXT,
+            location TEXT,
+            website_url TEXT,
+            proof_state TEXT NOT NULL DEFAULT 'pending',
+            continuity_state TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_profiles_clerk
+            ON social_profiles(clerk_user_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_profiles_handle
+            ON social_profiles(handle);
+
+        CREATE TABLE IF NOT EXISTS social_linked_agents (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            agent_name TEXT NOT NULL,
+            agent_slug TEXT NOT NULL,
+            agent_key TEXT NOT NULL,
+            agent_type TEXT NOT NULL DEFAULT 'general',
+            link_state TEXT NOT NULL DEFAULT 'active',
+            visibility TEXT NOT NULL DEFAULT 'public',
+            proof_state TEXT NOT NULL DEFAULT 'pending',
+            is_primary INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_linked_agents_profile
+            ON social_linked_agents(profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_posts (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            linked_agent_id TEXT REFERENCES social_linked_agents(id),
+            body TEXT NOT NULL,
+            visibility TEXT NOT NULL DEFAULT 'public',
+            proof_state TEXT NOT NULL DEFAULT 'pending',
+            author_mode TEXT NOT NULL DEFAULT 'person',
+            reply_to_post_id TEXT REFERENCES social_posts(id),
+            quote_post_id TEXT REFERENCES social_posts(id),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_posts_profile
+            ON social_posts(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_posts_created
+            ON social_posts(created_at);
+
+        CREATE TABLE IF NOT EXISTS social_follows (
+            id TEXT PRIMARY KEY,
+            follower_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            following_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_follows_pair
+            ON social_follows(follower_profile_id, following_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_follows_follower
+            ON social_follows(follower_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_follows_following
+            ON social_follows(following_profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_communities (
+            id TEXT PRIMARY KEY,
+            creator_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            slug TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            visibility TEXT NOT NULL DEFAULT 'public',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_communities_slug
+            ON social_communities(slug);
+        CREATE INDEX IF NOT EXISTS idx_social_communities_creator
+            ON social_communities(creator_profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_community_memberships (
+            id TEXT PRIMARY KEY,
+            community_id TEXT NOT NULL REFERENCES social_communities(id),
+            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            joined_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_memberships_pair
+            ON social_community_memberships(community_id, profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_memberships_profile
+            ON social_community_memberships(profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_longform (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            linked_agent_id TEXT REFERENCES social_linked_agents(id),
+            title TEXT NOT NULL,
+            summary TEXT NOT NULL DEFAULT '',
+            body TEXT NOT NULL,
+            format_type TEXT NOT NULL DEFAULT 'essay',
+            visibility TEXT NOT NULL DEFAULT 'public',
+            proof_state TEXT NOT NULL DEFAULT 'pending',
+            author_mode TEXT NOT NULL DEFAULT 'person',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_longform_profile
+            ON social_longform(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_longform_created
+            ON social_longform(created_at);
+
+        CREATE TABLE IF NOT EXISTS social_likes (
+            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            post_id TEXT NOT NULL REFERENCES social_posts(id),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (profile_id, post_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_likes_post
+            ON social_likes(post_id);
+
+        CREATE TABLE IF NOT EXISTS social_bookmarks (
+            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            post_id TEXT NOT NULL REFERENCES social_posts(id),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (profile_id, post_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_bookmarks_post
+            ON social_bookmarks(post_id);
+
+        CREATE TABLE IF NOT EXISTS social_reposts (
+            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            post_id TEXT NOT NULL REFERENCES social_posts(id),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (profile_id, post_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_reposts_post
+            ON social_reposts(post_id);
+
+        CREATE TABLE IF NOT EXISTS pulse_drafts (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            body TEXT NOT NULL,
+            visibility TEXT NOT NULL DEFAULT 'public',
+            author_mode TEXT NOT NULL DEFAULT 'person',
+            linked_agent_id TEXT REFERENCES social_linked_agents(id),
+            status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_pulse_drafts_profile
+            ON pulse_drafts(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_pulse_drafts_status
+            ON pulse_drafts(status);
+
+        CREATE TABLE IF NOT EXISTS pulse_audit_log (
+            id TEXT PRIMARY KEY,
+            draft_id TEXT NOT NULL REFERENCES pulse_drafts(id),
+            action TEXT NOT NULL,
+            actor_profile_id TEXT NOT NULL,
+            details_json TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_pulse_audit_log_draft
+            ON pulse_audit_log(draft_id);
+
+        UPDATE schema_version SET version = 26;"
+    ).expect("migration v26 failed");
+
+    tracing::info!("applied migration v26: HeyVera social layer tables");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -7134,6 +7312,466 @@ impl Database {
         .unwrap()
         .filter_map(|r| r.ok())
         .collect()
+    }
+
+    // ─── HeyVera Social Layer ──────────────────────────────────────────────────
+
+    pub fn social_find_profile_by_clerk_id(&self, clerk_user_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
+                    location, website_url, proof_state, continuity_state, created_at, updated_at
+             FROM social_profiles WHERE clerk_user_id = ?1"
+        ).ok()?;
+        stmt.query_row([clerk_user_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "accountId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(2)?,
+                "displayName": row.get::<_, String>(3)?,
+                "bio": row.get::<_, String>(4)?,
+                "avatarUrl": row.get::<_, Option<String>>(5)?,
+                "bannerUrl": row.get::<_, Option<String>>(6)?,
+                "location": row.get::<_, Option<String>>(7)?,
+                "websiteUrl": row.get::<_, Option<String>>(8)?,
+                "proofState": row.get::<_, String>(9)?,
+                "continuityState": row.get::<_, String>(10)?,
+                "createdAt": row.get::<_, String>(11)?,
+                "updatedAt": row.get::<_, String>(12)?,
+            }))
+        }).ok()
+    }
+
+    pub fn social_find_profile_by_handle(&self, handle: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
+                    location, website_url, proof_state, continuity_state, created_at, updated_at
+             FROM social_profiles WHERE handle = ?1"
+        ).ok()?;
+        stmt.query_row([handle], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "accountId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(2)?,
+                "displayName": row.get::<_, String>(3)?,
+                "bio": row.get::<_, String>(4)?,
+                "avatarUrl": row.get::<_, Option<String>>(5)?,
+                "bannerUrl": row.get::<_, Option<String>>(6)?,
+                "location": row.get::<_, Option<String>>(7)?,
+                "websiteUrl": row.get::<_, Option<String>>(8)?,
+                "proofState": row.get::<_, String>(9)?,
+                "continuityState": row.get::<_, String>(10)?,
+                "createdAt": row.get::<_, String>(11)?,
+                "updatedAt": row.get::<_, String>(12)?,
+            }))
+        }).ok()
+    }
+
+    pub fn social_list_profiles(&self, limit: i64) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
+                    p.banner_url, p.location, p.website_url, p.proof_state, p.continuity_state,
+                    p.created_at, p.updated_at,
+                    la.agent_name, la.agent_slug, la.link_state
+             FROM social_profiles p
+             LEFT JOIN social_linked_agents la ON la.profile_id = p.id AND la.is_primary = 1
+             ORDER BY p.created_at DESC LIMIT ?1"
+        ).unwrap();
+        stmt.query_map([limit], |row| {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "accountId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(2)?,
+                "displayName": row.get::<_, String>(3)?,
+                "bio": row.get::<_, String>(4)?,
+                "avatarUrl": row.get::<_, Option<String>>(5)?,
+                "bannerUrl": row.get::<_, Option<String>>(6)?,
+                "location": row.get::<_, Option<String>>(7)?,
+                "websiteUrl": row.get::<_, Option<String>>(8)?,
+                "proofState": row.get::<_, String>(9)?,
+                "continuityState": row.get::<_, String>(10)?,
+                "createdAt": row.get::<_, String>(11)?,
+                "updatedAt": row.get::<_, String>(12)?,
+                "primaryAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                        "linkState": row.get::<_, Option<String>>(15)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn social_get_first_profile(&self) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
+                    p.banner_url, p.location, p.website_url, p.proof_state, p.continuity_state,
+                    p.created_at, p.updated_at,
+                    la.agent_name, la.agent_slug, la.link_state
+             FROM social_profiles p
+             LEFT JOIN social_linked_agents la ON la.profile_id = p.id AND la.is_primary = 1
+             ORDER BY p.created_at ASC LIMIT 1"
+        ).ok()?;
+        stmt.query_row([], |row| {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "accountId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(2)?,
+                "displayName": row.get::<_, String>(3)?,
+                "bio": row.get::<_, String>(4)?,
+                "avatarUrl": row.get::<_, Option<String>>(5)?,
+                "bannerUrl": row.get::<_, Option<String>>(6)?,
+                "location": row.get::<_, Option<String>>(7)?,
+                "websiteUrl": row.get::<_, Option<String>>(8)?,
+                "proofState": row.get::<_, String>(9)?,
+                "continuityState": row.get::<_, String>(10)?,
+                "createdAt": row.get::<_, String>(11)?,
+                "updatedAt": row.get::<_, String>(12)?,
+                "primaryAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                        "linkState": row.get::<_, Option<String>>(15)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        }).ok()
+    }
+
+    pub fn social_create_profile(&self, clerk_user_id: &str, handle: &str, display_name: &str, bio: &str) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO social_profiles (id, clerk_user_id, handle, display_name, bio) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, clerk_user_id, handle, display_name, bio],
+        ).expect("insert profile");
+        drop(conn);
+        self.social_find_profile_by_clerk_id(clerk_user_id).unwrap()
+    }
+
+    pub fn social_get_linked_agents(&self, profile_id: &str) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, profile_id, agent_name, agent_slug, agent_key, agent_type,
+                    link_state, visibility, proof_state, is_primary, created_at, updated_at
+             FROM social_linked_agents WHERE profile_id = ?1
+             ORDER BY is_primary DESC, created_at ASC"
+        ).unwrap();
+        stmt.query_map([profile_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "profileId": row.get::<_, String>(1)?,
+                "agentName": row.get::<_, String>(2)?,
+                "agentSlug": row.get::<_, String>(3)?,
+                "agentKey": row.get::<_, String>(4)?,
+                "agentType": row.get::<_, String>(5)?,
+                "linkState": row.get::<_, String>(6)?,
+                "visibility": row.get::<_, String>(7)?,
+                "proofState": row.get::<_, String>(8)?,
+                "isPrimary": row.get::<_, i64>(9)? == 1,
+                "createdAt": row.get::<_, String>(10)?,
+                "updatedAt": row.get::<_, String>(11)?,
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn social_list_feed_posts(&self, limit: i64, offset: i64, filter: Option<&str>) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let filter_clause = match filter {
+            Some(f) if f != "all" => format!("AND sp.author_mode = '{}'", f.replace('\'', "''")),
+            _ => String::new(),
+        };
+        let sql = format!(
+            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                    sp.created_at, sp.updated_at,
+                    p.handle, p.display_name,
+                    la.agent_name, la.agent_slug
+             FROM social_posts sp
+             JOIN social_profiles p ON p.id = sp.profile_id
+             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+             WHERE sp.visibility = 'public' {filter_clause}
+             ORDER BY sp.created_at DESC LIMIT ?1 OFFSET ?2"
+        );
+        let mut stmt = conn.prepare(&sql).unwrap();
+        stmt.query_map(params![limit, offset], |row| {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": row.get::<_, String>(9)?,
+                "updatedAt": row.get::<_, String>(10)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn social_create_post(&self, profile_id: &str, body: &str, visibility: &str, author_mode: &str, linked_agent_id: Option<&str>, reply_to: Option<&str>, quote: Option<&str>) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO social_posts (id, profile_id, body, visibility, author_mode, linked_agent_id, reply_to_post_id, quote_post_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, profile_id, body, visibility, author_mode, linked_agent_id, reply_to, quote],
+        ).expect("insert post");
+        let mut stmt = conn.prepare(
+            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                    sp.created_at, sp.updated_at,
+                    p.handle, p.display_name,
+                    la.agent_name, la.agent_slug
+             FROM social_posts sp
+             JOIN social_profiles p ON p.id = sp.profile_id
+             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+             WHERE sp.id = ?1"
+        ).unwrap();
+        stmt.query_row([&id], |row| {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": row.get::<_, String>(9)?,
+                "updatedAt": row.get::<_, String>(10)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        }).unwrap()
+    }
+
+    pub fn social_search_posts(&self, query: &str, limit: i64) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let pattern = format!("%{query}%");
+        let mut stmt = conn.prepare(
+            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                    sp.created_at, sp.updated_at,
+                    p.handle, p.display_name,
+                    la.agent_name, la.agent_slug
+             FROM social_posts sp
+             JOIN social_profiles p ON p.id = sp.profile_id
+             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+             WHERE sp.visibility = 'public' AND sp.body LIKE ?1
+             ORDER BY sp.created_at DESC LIMIT ?2"
+        ).unwrap();
+        stmt.query_map(params![pattern, limit], |row| {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": row.get::<_, String>(9)?,
+                "updatedAt": row.get::<_, String>(10)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn social_search_profiles(&self, query: &str, limit: i64) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let pattern = format!("%{query}%");
+        let mut stmt = conn.prepare(
+            "SELECT id, handle, display_name, avatar_url, bio
+             FROM social_profiles WHERE handle LIKE ?1 OR display_name LIKE ?1
+             ORDER BY created_at DESC LIMIT ?2"
+        ).unwrap();
+        stmt.query_map(params![pattern, limit], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "handle": row.get::<_, String>(1)?,
+                "displayName": row.get::<_, String>(2)?,
+                "avatarUrl": row.get::<_, Option<String>>(3)?,
+                "bio": row.get::<_, String>(4)?,
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn social_get_trending_hashtags(&self, limit: usize) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT body FROM social_posts WHERE visibility = 'public' AND created_at >= datetime('now', '-7 days')"
+        ).unwrap();
+        let bodies: Vec<String> = stmt.query_map([], |row| row.get(0))
+            .unwrap().filter_map(|r| r.ok()).collect();
+
+        let mut counts: HashMap<String, i64> = HashMap::new();
+        for body in &bodies {
+            for word in body.split_whitespace() {
+                if word.starts_with('#') && word.len() > 1 {
+                    let tag: String = word.chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '#')
+                        .collect::<String>()
+                        .to_lowercase();
+                    if tag.len() > 1 {
+                        *counts.entry(tag).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+
+        let mut tags: Vec<_> = counts.into_iter().collect();
+        tags.sort_by(|a, b| b.1.cmp(&a.1));
+        tags.truncate(limit);
+        tags.into_iter().map(|(tag, count)| serde_json::json!({ "tag": tag, "postCount": count })).collect()
+    }
+
+    pub fn social_list_communities(&self, limit: i64) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT sc.id, sc.slug, sc.name, sc.description, sc.visibility, sc.created_at, sc.updated_at,
+                    sc.creator_profile_id, p.handle, p.display_name
+             FROM social_communities sc
+             JOIN social_profiles p ON p.id = sc.creator_profile_id
+             WHERE sc.visibility = 'public'
+             ORDER BY sc.created_at DESC LIMIT ?1"
+        ).unwrap();
+        stmt.query_map([limit], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "slug": row.get::<_, String>(1)?,
+                "name": row.get::<_, String>(2)?,
+                "description": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "createdAt": row.get::<_, String>(5)?,
+                "updatedAt": row.get::<_, String>(6)?,
+                "creator": {
+                    "profileId": row.get::<_, String>(7)?,
+                    "handle": row.get::<_, String>(8)?,
+                    "displayName": row.get::<_, String>(9)?,
+                },
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn social_get_profile_stats(&self, profile_id: &str) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let count = |sql: &str| -> i64 {
+            conn.query_row(sql, [profile_id], |r| r.get(0)).unwrap_or(0)
+        };
+        serde_json::json!({
+            "postCount": count("SELECT COUNT(*) FROM social_posts WHERE profile_id = ?1"),
+            "followerCount": count("SELECT COUNT(*) FROM social_follows WHERE following_profile_id = ?1"),
+            "followingCount": count("SELECT COUNT(*) FROM social_follows WHERE follower_profile_id = ?1"),
+            "linkedAgentCount": count("SELECT COUNT(*) FROM social_linked_agents WHERE profile_id = ?1"),
+            "communityCount": count("SELECT COUNT(*) FROM social_communities WHERE creator_profile_id = ?1"),
+            "longformCount": count("SELECT COUNT(*) FROM social_longform WHERE profile_id = ?1"),
+        })
+    }
+
+    pub fn social_like(&self, profile_id: &str, post_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("INSERT OR IGNORE INTO social_likes (profile_id, post_id) VALUES (?1, ?2)", params![profile_id, post_id]).ok();
+    }
+
+    pub fn social_unlike(&self, profile_id: &str, post_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM social_likes WHERE profile_id = ?1 AND post_id = ?2", params![profile_id, post_id]).ok();
+    }
+
+    pub fn social_bookmark(&self, profile_id: &str, post_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("INSERT OR IGNORE INTO social_bookmarks (profile_id, post_id) VALUES (?1, ?2)", params![profile_id, post_id]).ok();
+    }
+
+    pub fn social_unbookmark(&self, profile_id: &str, post_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM social_bookmarks WHERE profile_id = ?1 AND post_id = ?2", params![profile_id, post_id]).ok();
+    }
+
+    pub fn social_repost(&self, profile_id: &str, post_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("INSERT OR IGNORE INTO social_reposts (profile_id, post_id) VALUES (?1, ?2)", params![profile_id, post_id]).ok();
+    }
+
+    pub fn social_unrepost(&self, profile_id: &str, post_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM social_reposts WHERE profile_id = ?1 AND post_id = ?2", params![profile_id, post_id]).ok();
+    }
+
+    pub fn social_post_exists(&self, post_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT 1 FROM social_posts WHERE id = ?1", [post_id], |_| Ok(())).is_ok()
+    }
+
+    pub fn social_follow(&self, follower_id: &str, following_id: &str) -> String {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT OR IGNORE INTO social_follows (id, follower_profile_id, following_profile_id) VALUES (?1, ?2, ?3)",
+            params![id, follower_id, following_id],
+        ).ok();
+        let actual_id: String = conn.query_row(
+            "SELECT id FROM social_follows WHERE follower_profile_id = ?1 AND following_profile_id = ?2",
+            params![follower_id, following_id], |r| r.get(0),
+        ).unwrap_or(id);
+        actual_id
+    }
+
+    pub fn social_unfollow(&self, follower_id: &str, following_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM social_follows WHERE follower_profile_id = ?1 AND following_profile_id = ?2",
+            params![follower_id, following_id],
+        ).ok();
+    }
+
+    pub fn social_get_follow_status(&self, follower_id: &str, following_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM social_follows WHERE follower_profile_id = ?1 AND following_profile_id = ?2",
+            params![follower_id, following_id], |_| Ok(()),
+        ).is_ok()
     }
 }
 
