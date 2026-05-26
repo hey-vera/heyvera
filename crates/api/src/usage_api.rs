@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::Json;
 use chrono::Utc;
 use cortex_core::usage::UsageLimits;
 use serde::Deserialize;
@@ -81,9 +81,7 @@ pub async fn admin_usage(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    if !crate::admin::is_admin(&state, &user.user_id) {
-        return Err((StatusCode::FORBIDDEN, Json(ErrorResponse { error: "admin access required".into() })));
-    }
+    crate::admin::authorize_admin(&state, &user).await?;
     let db = state.db.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -112,9 +110,7 @@ pub async fn admin_usage_users(
     user: ClerkUser,
     Query(query): Query<AdminUsersQuery>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    if !crate::admin::is_admin(&state, &user.user_id) {
-        return Err((StatusCode::FORBIDDEN, Json(ErrorResponse { error: "admin access required".into() })));
-    }
+    crate::admin::authorize_admin(&state, &user).await?;
     let db = state.db.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,

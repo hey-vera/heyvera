@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
+use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
-use axum::Json;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 use tokio::process::Command;
@@ -13,23 +13,22 @@ use crate::clerk::ClerkUser;
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
 
-fn require_admin(state: &AppState, user: &ClerkUser) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+async fn require_admin(
+    state: &AppState,
+    user: &ClerkUser,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
     let provider_auth_enabled = std::env::var("CORTEX_PROVIDER_AUTH_ENABLED")
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
     if !provider_auth_enabled {
         return Err((
             StatusCode::FORBIDDEN,
-            Json(ErrorResponse { error: "provider auth management is disabled".into() }),
+            Json(ErrorResponse {
+                error: "provider auth management is disabled".into(),
+            }),
         ));
     }
-    if crate::admin::is_admin(state, &user.user_id) {
-        return Ok(());
-    }
-    Err((
-        StatusCode::FORBIDDEN,
-        Json(ErrorResponse { error: "admin access required".into() }),
-    ))
+    crate::admin::authorize_admin(state, user).await
 }
 
 #[derive(Serialize)]
@@ -98,12 +97,14 @@ pub async fn auth_start(
     user: ClerkUser,
     Json(req): Json<AuthStartRequest>,
 ) -> Result<Json<AuthStartResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_admin(&state, &user)?;
+    require_admin(&state, &user).await?;
     let provider = req.provider.to_lowercase();
 
     match provider.as_str() {
         "claude" => start_provider_auth(&state, "claude", "claude", &["auth", "login"]).await,
-        "openai" | "codex" => start_provider_auth(&state, "openai", "codex", &["login", "--device-auth"]).await,
+        "openai" | "codex" => {
+            start_provider_auth(&state, "openai", "codex", &["login", "--device-auth"]).await
+        }
         _ => Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
@@ -118,7 +119,7 @@ pub async fn auth_submit(
     user: ClerkUser,
     Json(req): Json<AuthSubmitRequest>,
 ) -> Result<Json<AuthSubmitResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_admin(&state, &user)?;
+    require_admin(&state, &user).await?;
     let provider = req.provider.to_lowercase();
 
     let mut pending = state.pending_auths.write().await;
@@ -135,14 +136,17 @@ pub async fn auth_submit(
     let mut stdin = stdin;
     let code_with_newline = format!("{}\n", req.code.trim());
 
-    stdin.write_all(code_with_newline.as_bytes()).await.map_err(|e| {
-        (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse {
-                error: format!("failed to send code: {e}"),
-            }),
-        )
-    })?;
+    stdin
+        .write_all(code_with_newline.as_bytes())
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to send code: {e}"),
+                }),
+            )
+        })?;
 
     stdin.flush().await.ok();
 
@@ -160,7 +164,11 @@ pub async fn auth_submit(
         // Update provider list
         let mut providers = state.providers.write().await;
         let all_tiers = vec![Tier::Search, Tier::Execute, Tier::Think];
-        let id = if provider == "claude" { ProviderId::Claude } else { ProviderId::Openai };
+        let id = if provider == "claude" {
+            ProviderId::Claude
+        } else {
+            ProviderId::Openai
+        };
 
         if !providers.iter().any(|p| p.provider == id) {
             providers.push(ProviderStatus {
@@ -186,7 +194,7 @@ pub async fn auth_refresh(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
 ) -> Result<Json<Vec<ProviderAuthInfo>>, (StatusCode, Json<ErrorResponse>)> {
-    require_admin(&state, &user)?;
+    require_admin(&state, &user).await?;
     let mut providers = state.providers.write().await;
     providers.clear();
 
@@ -229,7 +237,10 @@ async fn check_claude_auth() -> Option<ProviderAuthInfo> {
     Some(ProviderAuthInfo {
         provider: "claude".to_string(),
         authenticated: logged_in,
-        email: v.get("email").and_then(|e| e.as_str()).map(|s| s.to_string()),
+        email: v
+            .get("email")
+            .and_then(|e| e.as_str())
+            .map(|s| s.to_string()),
         subscription: v
             .get("subscriptionType")
             .and_then(|s| s.as_str())
@@ -314,9 +325,7 @@ async fn start_provider_auth(
         if let Some(err) = &result.error {
             return Err((
                 StatusCode::BAD_GATEWAY,
-                Json(ErrorResponse {
-                    error: err.clone(),
-                }),
+                Json(ErrorResponse { error: err.clone() }),
             ));
         }
     }
@@ -374,7 +383,10 @@ async fn scan_for_auth_info(child: &mut tokio::process::Child) -> AuthScanResult
             Ok(Some(line)) => {
                 let clean = strip_ansi(&line);
                 let lower = clean.to_lowercase();
-                if lower.contains("error") || lower.contains("failed") || lower.contains("forbidden") {
+                if lower.contains("error")
+                    || lower.contains("failed")
+                    || lower.contains("forbidden")
+                {
                     error = Some(clean.trim().to_string());
                 }
                 if url.is_none() {
@@ -397,7 +409,12 @@ async fn scan_for_auth_info(child: &mut tokio::process::Child) -> AuthScanResult
         }
     }
 
-    tracing::info!("auth scan complete — url: {:?}, code: {:?}, error: {:?}", url, code, error);
+    tracing::info!(
+        "auth scan complete — url: {:?}, code: {:?}, error: {:?}",
+        url,
+        code,
+        error
+    );
     AuthScanResult { url, code, error }
 }
 
@@ -429,7 +446,16 @@ fn extract_url(text: &str) -> Option<String> {
         .find(|word| word.starts_with("http://") || word.starts_with("https://"))
         .map(|url| {
             url.trim_matches(|c: char| {
-                !c.is_alphanumeric() && c != ':' && c != '/' && c != '?' && c != '=' && c != '&' && c != '.' && c != '-' && c != '_' && c != '%'
+                !c.is_alphanumeric()
+                    && c != ':'
+                    && c != '/'
+                    && c != '?'
+                    && c != '='
+                    && c != '&'
+                    && c != '.'
+                    && c != '-'
+                    && c != '_'
+                    && c != '%'
             })
             .to_string()
         })
@@ -446,7 +472,11 @@ fn extract_device_code(text: &str) -> Option<String> {
         if parts.len() < 2 || parts.len() > 4 {
             continue;
         }
-        if !parts.iter().all(|p| p.len() >= 2 && p.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())) {
+        if !parts.iter().all(|p| {
+            p.len() >= 2
+                && p.chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        }) {
             continue;
         }
         return Some(clean.to_string());

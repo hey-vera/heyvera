@@ -1,7 +1,8 @@
-import { useCallback, useRef, useEffect } from 'react';
-import { ChevronRight, Users, User, Pin, LayoutGrid } from 'lucide-react';
+import { useCallback, useRef, useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, ChevronRight, ListChecks, LockKeyhole, Users, User, Pin, LayoutGrid } from 'lucide-react';
 import { buildTaskSummary, readTaskManagerState, useTaskManager } from '../../lib/taskManager';
 import type { CortexGroup } from '../../lib/groups';
+import { getPersonalOperationsSummary, type PersonalOperationsSummary } from '../../lib/cortexApi';
 
 interface TaskManagerSwitcherProps {
   groups: CortexGroup[];
@@ -11,6 +12,34 @@ interface TaskManagerSwitcherProps {
   onClose: () => void;
   onSwitchToGroup: (groupId: string) => void;
   onOpenPersonalTaskManager: () => void;
+}
+
+function usePersonalOperationsBadge(isOpen: boolean) {
+  const [summary, setSummary] = useState<PersonalOperationsSummary | null>(null);
+  const [error, setError] = useState(false);
+
+  const refresh = useCallback(async () => {
+    try {
+      const next = await getPersonalOperationsSummary();
+      setSummary(next);
+      setError(false);
+    } catch {
+      setError(true);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!isOpen) return;
+    refresh();
+    const interval = window.setInterval(refresh, 20_000);
+    return () => window.clearInterval(interval);
+  }, [isOpen, refresh]);
+
+  return { summary, error };
+}
+
+function countNonApprovalAttention(items: { kind?: string | null }[] | undefined) {
+  return items?.filter((item) => item.kind !== 'approval_pending').length ?? 0;
 }
 
 function GroupSwitcherItem({
@@ -89,6 +118,7 @@ export default function TaskManagerSwitcher({
   onOpenPersonalTaskManager,
 }: TaskManagerSwitcherProps) {
   const dropdownRef = useRef<HTMLDivElement>(null);
+  const { summary: operationsSummary, error: operationsError } = usePersonalOperationsBadge(isOpen);
 
   // Close on outside click
   useEffect(() => {
@@ -128,17 +158,22 @@ export default function TaskManagerSwitcher({
     onClose();
   }, [onOpenPersonalTaskManager, onClose]);
 
-  if (!isOpen) return null;
-
-  // Calculate total stats across all groups
-  const totalStats = groups.reduce((acc, group) => {
+  // Local fallback only; backend operations summary is the preferred source.
+  const totalStats = useMemo(() => groups.reduce((acc, group) => {
     const summary = buildTaskSummary(readTaskManagerState(group, userId));
     return {
       open: acc.open + summary.open,
       inProgress: acc.inProgress + summary.inProgress,
       done: acc.done + summary.done,
     };
-  }, { open: 0, inProgress: 0, done: 0 });
+  }, { open: 0, inProgress: 0, done: 0 }), [groups, userId]);
+  const activeTotal = operationsSummary?.tasks.active ?? totalStats.inProgress;
+  const openTotal = operationsSummary?.tasks.open ?? totalStats.open;
+  const attentionTotal = countNonApprovalAttention(operationsSummary?.attention);
+  const pendingApprovals = operationsSummary?.approvals.pending ?? 0;
+  const activeLeases = operationsSummary?.resource_leases.active ?? 0;
+
+  if (!isOpen) return null;
 
   return (
     <div
@@ -171,8 +206,35 @@ export default function TaskManagerSwitcher({
               <Pin className="h-3 w-3 text-[var(--muted)] opacity-0 transition-opacity group-hover:opacity-100" />
             </div>
             <p className="text-xs text-[var(--muted)]">
-              Master view: {totalStats.inProgress} active, {totalStats.open} open
+              Master view: {activeTotal} active, {openTotal} open
             </p>
+            {(operationsSummary || operationsError) && (
+              <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+                {operationsSummary && attentionTotal > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-0.5 text-amber-200">
+                    <AlertTriangle className="h-3 w-3" />
+                    {attentionTotal}
+                  </span>
+                )}
+                {operationsSummary && pendingApprovals > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-sky-300/20 bg-sky-300/10 px-2 py-0.5 text-sky-200">
+                    <ListChecks className="h-3 w-3" />
+                    {pendingApprovals}
+                  </span>
+                )}
+                {operationsSummary && activeLeases > 0 && (
+                  <span className="inline-flex items-center gap-1 rounded-full border border-sky-300/20 bg-sky-300/10 px-2 py-0.5 text-sky-200">
+                    <LockKeyhole className="h-3 w-3" />
+                    {activeLeases}
+                  </span>
+                )}
+                {operationsError && (
+                  <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[var(--muted)]">
+                    local view
+                  </span>
+                )}
+              </div>
+            )}
           </div>
           <ChevronRight className="h-4 w-4 text-[var(--muted)] transition-transform group-hover:translate-x-0.5" />
         </button>
@@ -204,7 +266,7 @@ export default function TaskManagerSwitcher({
       <div className="border-t border-white/6 px-4 py-2">
         <div className="flex items-center justify-between text-xs">
           <span className="text-[var(--muted)]">
-            {totalStats.inProgress} active across all teams
+            {activeTotal} active across all scopes
           </span>
           <span className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[var(--muted)]">
             Ctrl+P

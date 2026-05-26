@@ -5,7 +5,7 @@ use std::sync::Mutex;
 use chrono::{Datelike, Utc};
 use cortex_core::task::TaskContract;
 use cortex_core::usage::{DailyUsage, ProviderUsage, UsageSummary, estimate_cost_by_provider};
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -99,6 +99,15 @@ pub struct OperationsEvent {
     pub payload: serde_json::Value,
 }
 
+#[derive(Debug, Clone)]
+pub struct CortexTaskStateEvent {
+    pub task_id: Option<String>,
+    pub event_type: String,
+    pub entity_type: String,
+    pub entity_id: String,
+    pub payload: serde_json::Value,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct StepDependencyEdge {
     pub step_id: String,
@@ -146,6 +155,7 @@ pub struct RunStepAttemptSnapshot {
 pub struct ResourceLease {
     pub id: String,
     pub user_id: String,
+    pub authority_scope_id: Option<String>,
     pub group_id: Option<String>,
     pub task_id: Option<String>,
     pub run_id: String,
@@ -162,6 +172,15 @@ pub struct ResourceLease {
     pub released_at: Option<i64>,
     pub reason: Option<String>,
     pub metadata: serde_json::Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct RunPrAuthorityContext {
+    pub run_id: String,
+    pub user_id: String,
+    pub repo_key: Option<String>,
+    pub authority_scope_id: Option<String>,
+    pub authority_context: serde_json::Value,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
@@ -273,18 +292,23 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 26;
+const SCHEMA_VERSION: i64 = 33;
 const RUN_RESOURCE_LEASE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 fn apply_migrations(conn: &Connection) {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS schema_version (
             version INTEGER NOT NULL
-        );"
-    ).expect("failed to create schema_version table");
+        );",
+    )
+    .expect("failed to create schema_version table");
 
     let current: i64 = conn
-        .query_row("SELECT COALESCE(MAX(version), 0) FROM schema_version", [], |r| r.get(0))
+        .query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |r| r.get(0),
+        )
         .unwrap_or(0);
 
     if current < 1 {
@@ -368,6 +392,11 @@ fn apply_migrations(conn: &Connection) {
     if current < 27 {
         migrate_v27(conn);
     }
+    // Ensure social tables exist regardless of version. Handles version collision
+    // where production DB ran main-branch v26-v27 (authority metadata) and skipped
+    // social table creation that the feature branch put at the same version numbers.
+    ensure_social_tables(conn);
+
     if current < 28 {
         migrate_v28(conn);
     }
@@ -380,10 +409,6 @@ fn apply_migrations(conn: &Connection) {
     if current < 31 {
         migrate_v31(conn);
     }
-    // Ensure social tables exist before v32+. Handles version collision where
-    // production DB ran main-branch v26-v31 (non-social) and skipped social table creation.
-    ensure_social_tables(conn);
-
     if current < 32 {
         migrate_v32(conn);
     }
@@ -418,8 +443,9 @@ fn migrate_v1(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_messages_conversation
             ON messages(conversation_id, created_at ASC);
 
-        INSERT OR REPLACE INTO schema_version (version) VALUES (1);"
-    ).expect("migration v1 failed");
+        INSERT OR REPLACE INTO schema_version (version) VALUES (1);",
+    )
+    .expect("migration v1 failed");
 
     tracing::info!("applied migration v1: conversations + messages");
 }
@@ -649,10 +675,13 @@ fn migrate_v2(conn: &Connection) {
             expires_at INTEGER NOT NULL
         );
 
-        UPDATE schema_version SET version = 2;"
-    ).expect("migration v2 failed");
+        UPDATE schema_version SET version = 2;",
+    )
+    .expect("migration v2 failed");
 
-    tracing::info!("applied migration v2: workers, capabilities, profiles, decisions, runs, steps, dependencies, attempts, artifacts");
+    tracing::info!(
+        "applied migration v2: workers, capabilities, profiles, decisions, runs, steps, dependencies, attempts, artifacts"
+    );
 }
 
 fn migrate_v3(conn: &Connection) {
@@ -660,8 +689,9 @@ fn migrate_v3(conn: &Connection) {
     conn.execute_batch(
         "ALTER TABLE runs ADD COLUMN branch TEXT;
 
-        UPDATE schema_version SET version = 3;"
-    ).expect("migration v3 failed");
+        UPDATE schema_version SET version = 3;",
+    )
+    .expect("migration v3 failed");
 
     tracing::info!("applied migration v3: runs.branch column for PR creation");
 }
@@ -672,8 +702,9 @@ fn migrate_v4(conn: &Connection) {
     conn.execute_batch(
         "ALTER TABLE steps ADD COLUMN earliest_dispatch_at INTEGER;
 
-        UPDATE schema_version SET version = 4;"
-    ).expect("migration v4 failed");
+        UPDATE schema_version SET version = 4;",
+    )
+    .expect("migration v4 failed");
 
     tracing::info!("applied migration v4: steps.earliest_dispatch_at for retry backoff");
 }
@@ -684,8 +715,9 @@ fn migrate_v5(conn: &Connection) {
     conn.execute_batch(
         "ALTER TABLE runs ADD COLUMN file_paths TEXT;
 
-        UPDATE schema_version SET version = 5;"
-    ).expect("migration v5 failed");
+        UPDATE schema_version SET version = 5;",
+    )
+    .expect("migration v5 failed");
 
     tracing::info!("applied migration v5: runs.file_paths for workspace context");
 }
@@ -741,10 +773,13 @@ fn migrate_v6(conn: &Connection) {
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
 
-        UPDATE schema_version SET version = 6;"
-    ).expect("migration v6 failed");
+        UPDATE schema_version SET version = 6;",
+    )
+    .expect("migration v6 failed");
 
-    tracing::info!("applied migration v6: subscriptions, credit_balances, credit_transactions, billing_history, referral_codes");
+    tracing::info!(
+        "applied migration v6: subscriptions, credit_balances, credit_transactions, billing_history, referral_codes"
+    );
 }
 
 fn migrate_v7(conn: &Connection) {
@@ -775,8 +810,9 @@ fn migrate_v7(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_code_redemptions_user ON code_redemptions(user_id);
         CREATE INDEX IF NOT EXISTS idx_code_redemptions_code ON code_redemptions(code);
 
-        UPDATE schema_version SET version = 7;"
-    ).expect("migration v7 failed");
+        UPDATE schema_version SET version = 7;",
+    )
+    .expect("migration v7 failed");
 
     tracing::info!("applied migration v7: promo_codes, code_redemptions");
 }
@@ -785,16 +821,17 @@ fn migrate_v8(conn: &Connection) {
     conn.execute(
         "ALTER TABLE referral_codes ADD COLUMN weeks_earned INTEGER NOT NULL DEFAULT 0",
         [],
-    ).ok();
+    )
+    .ok();
 
     conn.execute(
         "ALTER TABLE referral_codes ADD COLUMN max_uses INTEGER NOT NULL DEFAULT 50",
         [],
-    ).ok();
+    )
+    .ok();
 
-    conn.execute_batch(
-        "UPDATE schema_version SET version = 8;"
-    ).expect("migration v8 failed");
+    conn.execute_batch("UPDATE schema_version SET version = 8;")
+        .expect("migration v8 failed");
 
     tracing::info!("applied migration v8: referral_codes weeks_earned + max_uses");
 }
@@ -803,11 +840,11 @@ fn migrate_v9(conn: &Connection) {
     conn.execute(
         "ALTER TABLE promo_codes ADD COLUMN discount_options TEXT",
         [],
-    ).ok();
+    )
+    .ok();
 
-    conn.execute_batch(
-        "UPDATE schema_version SET version = 9;"
-    ).expect("migration v9 failed");
+    conn.execute_batch("UPDATE schema_version SET version = 9;")
+        .expect("migration v9 failed");
 
     tracing::info!("applied migration v9: promo_codes discount_options JSON column");
 }
@@ -901,10 +938,13 @@ fn migrate_v10(conn: &Connection) {
             expires_at TEXT NOT NULL
         );
 
-        UPDATE schema_version SET version = 10;"
-    ).expect("migration v10 failed");
+        UPDATE schema_version SET version = 10;",
+    )
+    .expect("migration v10 failed");
 
-    tracing::info!("applied migration v10: Cortex groups, task state, Slack/Replit integration tables");
+    tracing::info!(
+        "applied migration v10: Cortex groups, task state, Slack/Replit integration tables"
+    );
 }
 
 fn migrate_v11(conn: &Connection) {
@@ -929,25 +969,25 @@ fn migrate_v11(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_context_artifacts_step
             ON context_flow_artifacts(producer_step_id);
 
-        UPDATE schema_version SET version = 11;"
-    ).expect("migration v11 failed");
+        UPDATE schema_version SET version = 11;",
+    )
+    .expect("migration v11 failed");
 
-    tracing::info!("applied migration v11: context_flow_artifacts table for AI model context pipeline");
+    tracing::info!(
+        "applied migration v11: context_flow_artifacts table for AI model context pipeline"
+    );
 }
 
 fn migrate_v12(conn: &Connection) {
     conn.execute(
         "ALTER TABLE steps ADD COLUMN verification_status TEXT NOT NULL DEFAULT 'unverified'",
         [],
-    ).ok();
-    conn.execute(
-        "ALTER TABLE steps ADD COLUMN verifier_report_id TEXT",
-        [],
-    ).ok();
-    conn.execute(
-        "ALTER TABLE steps ADD COLUMN verified_at INTEGER",
-        [],
-    ).ok();
+    )
+    .ok();
+    conn.execute("ALTER TABLE steps ADD COLUMN verifier_report_id TEXT", [])
+        .ok();
+    conn.execute("ALTER TABLE steps ADD COLUMN verified_at INTEGER", [])
+        .ok();
 
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS verifier_reports (
@@ -970,8 +1010,9 @@ fn migrate_v12(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_verifier_reports_run
             ON verifier_reports(run_id, created_at DESC);
 
-        UPDATE schema_version SET version = 12;"
-    ).expect("migration v12 failed");
+        UPDATE schema_version SET version = 12;",
+    )
+    .expect("migration v12 failed");
 
     tracing::info!("applied migration v12: verifier reports and step verification status");
 }
@@ -990,8 +1031,9 @@ fn migrate_v13(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_step_work_contracts_run
             ON step_work_contracts(run_id, created_at DESC);
 
-        UPDATE schema_version SET version = 13;"
-    ).expect("migration v13 failed");
+        UPDATE schema_version SET version = 13;",
+    )
+    .expect("migration v13 failed");
 
     tracing::info!("applied migration v13: persisted step work contracts");
 }
@@ -1028,8 +1070,9 @@ fn migrate_v16(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_step_work_contracts_run_step_latest
             ON step_work_contracts(run_id, step_id, lease_gen DESC, created_at DESC);
 
-        UPDATE schema_version SET version = 16;"
-    ).expect("migration v16 failed");
+        UPDATE schema_version SET version = 16;",
+    )
+    .expect("migration v16 failed");
 
     tracing::info!("applied migration v16: run payload snapshot indexes");
 }
@@ -1039,8 +1082,9 @@ fn migrate_v17(conn: &Connection) {
         "CREATE INDEX IF NOT EXISTS idx_step_attempts_run_step_latest
             ON step_attempts(run_id, step_id, attempt_number DESC);
 
-        UPDATE schema_version SET version = 17;"
-    ).expect("migration v17 failed");
+        UPDATE schema_version SET version = 17;",
+    )
+    .expect("migration v17 failed");
 
     tracing::info!("applied migration v17: latest attempt snapshot index");
 }
@@ -1078,16 +1122,20 @@ fn migrate_v18(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_operations_events_actor
             ON operations_events(actor_user_id, created_at);
 
-        UPDATE schema_version SET version = 18;"
-    ).expect("migration v18 failed");
+        UPDATE schema_version SET version = 18;",
+    )
+    .expect("migration v18 failed");
 
     tracing::info!("applied migration v18: operations room event log");
 }
 
 fn migrate_v19(conn: &Connection) {
-    conn.execute("ALTER TABLE runs ADD COLUMN task_id TEXT", []).ok();
-    conn.execute("ALTER TABLE runs ADD COLUMN group_id TEXT", []).ok();
-    conn.execute("ALTER TABLE runs ADD COLUMN conversation_id TEXT", []).ok();
+    conn.execute("ALTER TABLE runs ADD COLUMN task_id TEXT", [])
+        .ok();
+    conn.execute("ALTER TABLE runs ADD COLUMN group_id TEXT", [])
+        .ok();
+    conn.execute("ALTER TABLE runs ADD COLUMN conversation_id TEXT", [])
+        .ok();
     conn.execute_batch(
         "CREATE INDEX IF NOT EXISTS idx_runs_task
             ON runs(user_id, task_id, created_at DESC);
@@ -1095,8 +1143,9 @@ fn migrate_v19(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_runs_group
             ON runs(user_id, group_id, created_at DESC);
 
-        UPDATE schema_version SET version = 19;"
-    ).expect("migration v19 failed");
+        UPDATE schema_version SET version = 19;",
+    )
+    .expect("migration v19 failed");
 
     tracing::info!("applied migration v19: task-aware run metadata");
 }
@@ -1132,8 +1181,9 @@ fn migrate_v20(conn: &Connection) {
             conversation_id TEXT NOT NULL,
             attached_at TEXT NOT NULL DEFAULT (datetime('now')),
             PRIMARY KEY (user_id, group_id, task_id, conversation_id)
-        );"
-    ).expect("migration v20 failed");
+        );",
+    )
+    .expect("migration v20 failed");
 
     let task_states = {
         let mut stmt = conn
@@ -1177,8 +1227,9 @@ fn migrate_v21(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_cortex_task_chats_group_attached
             ON cortex_task_chats(user_id, group_id, task_id, attached_at DESC);
 
-        UPDATE schema_version SET version = 21;"
-    ).expect("migration v21 failed");
+        UPDATE schema_version SET version = 21;",
+    )
+    .expect("migration v21 failed");
 
     tracing::info!("applied migration v21: operations summary query indexes");
 }
@@ -1209,15 +1260,19 @@ fn migrate_v22(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_cortex_approval_requests_task
             ON cortex_approval_requests(user_id, group_id, task_id, updated_at DESC);
 
-        UPDATE schema_version SET version = 22;"
-    ).expect("migration v22 failed");
+        UPDATE schema_version SET version = 22;",
+    )
+    .expect("migration v22 failed");
 
     tracing::info!("applied migration v22: Cortex approval request ledger");
 }
 
 fn migrate_v23(conn: &Connection) {
-    conn.execute("ALTER TABLE cortex_approval_requests ADD COLUMN step_id TEXT", [])
-        .ok();
+    conn.execute(
+        "ALTER TABLE cortex_approval_requests ADD COLUMN step_id TEXT",
+        [],
+    )
+    .ok();
     conn.execute(
         "ALTER TABLE cortex_approval_requests ADD COLUMN ask_type TEXT NOT NULL DEFAULT 'approval'",
         [],
@@ -1231,8 +1286,9 @@ fn migrate_v23(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_cortex_approval_requests_run_status
             ON cortex_approval_requests(user_id, run_id, status, updated_at DESC);
 
-        UPDATE schema_version SET version = 23;"
-    ).expect("migration v23 failed");
+        UPDATE schema_version SET version = 23;",
+    )
+    .expect("migration v23 failed");
 
     tracing::info!("applied migration v23: Cortex approval step gates");
 }
@@ -1269,8 +1325,9 @@ fn migrate_v24(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_resource_leases_task
             ON resource_leases(user_id, group_id, task_id, status);
 
-        UPDATE schema_version SET version = 24;"
-    ).expect("migration v24 failed");
+        UPDATE schema_version SET version = 24;",
+    )
+    .expect("migration v24 failed");
 
     tracing::info!("applied migration v24: Cortex resource leases");
 }
@@ -1328,355 +1385,66 @@ fn migrate_v25(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_cortex_authority_resources_scope
             ON cortex_authority_resources(scope_id, resource_type);
 
-        UPDATE schema_version SET version = 25;"
-    ).expect("migration v25 failed");
+        UPDATE schema_version SET version = 25;",
+    )
+    .expect("migration v25 failed");
 
     tracing::info!("applied migration v25: Cortex authority scopes");
 }
 
 fn migrate_v26(conn: &Connection) {
+    conn.execute("ALTER TABLE runs ADD COLUMN repo_key TEXT", [])
+        .ok();
+    conn.execute("ALTER TABLE runs ADD COLUMN authority_scope_id TEXT", [])
+        .ok();
+    conn.execute(
+        "ALTER TABLE runs ADD COLUMN authority_context_json TEXT",
+        [],
+    )
+    .ok();
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS social_profiles (
-            id TEXT PRIMARY KEY,
-            clerk_user_id TEXT NOT NULL,
-            handle TEXT NOT NULL,
-            display_name TEXT NOT NULL,
-            bio TEXT NOT NULL DEFAULT '',
-            avatar_url TEXT,
-            banner_url TEXT,
-            location TEXT,
-            website_url TEXT,
-            proof_state TEXT NOT NULL DEFAULT 'pending',
-            continuity_state TEXT NOT NULL DEFAULT 'pending',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_profiles_clerk
-            ON social_profiles(clerk_user_id);
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_profiles_handle
-            ON social_profiles(handle);
+        "CREATE INDEX IF NOT EXISTS idx_runs_authority_scope
+            ON runs(user_id, authority_scope_id, created_at DESC);
 
-        CREATE TABLE IF NOT EXISTS social_linked_agents (
-            id TEXT PRIMARY KEY,
-            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            agent_name TEXT NOT NULL,
-            agent_slug TEXT NOT NULL,
-            agent_key TEXT NOT NULL,
-            agent_type TEXT NOT NULL DEFAULT 'general',
-            link_state TEXT NOT NULL DEFAULT 'active',
-            visibility TEXT NOT NULL DEFAULT 'public',
-            proof_state TEXT NOT NULL DEFAULT 'pending',
-            is_primary INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_linked_agents_profile
-            ON social_linked_agents(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_runs_repo_key
+            ON runs(user_id, repo_key, created_at DESC);
 
-        CREATE TABLE IF NOT EXISTS social_posts (
-            id TEXT PRIMARY KEY,
-            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            linked_agent_id TEXT REFERENCES social_linked_agents(id),
-            body TEXT NOT NULL,
-            visibility TEXT NOT NULL DEFAULT 'public',
-            proof_state TEXT NOT NULL DEFAULT 'pending',
-            author_mode TEXT NOT NULL DEFAULT 'person',
-            reply_to_post_id TEXT REFERENCES social_posts(id),
-            quote_post_id TEXT REFERENCES social_posts(id),
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_posts_profile
-            ON social_posts(profile_id);
-        CREATE INDEX IF NOT EXISTS idx_social_posts_created
-            ON social_posts(created_at);
+        UPDATE schema_version SET version = 26;",
+    )
+    .expect("migration v26 failed");
 
-        CREATE TABLE IF NOT EXISTS social_follows (
-            id TEXT PRIMARY KEY,
-            follower_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            following_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_follows_pair
-            ON social_follows(follower_profile_id, following_profile_id);
-        CREATE INDEX IF NOT EXISTS idx_social_follows_follower
-            ON social_follows(follower_profile_id);
-        CREATE INDEX IF NOT EXISTS idx_social_follows_following
-            ON social_follows(following_profile_id);
-
-        CREATE TABLE IF NOT EXISTS social_communities (
-            id TEXT PRIMARY KEY,
-            creator_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            slug TEXT NOT NULL,
-            name TEXT NOT NULL,
-            description TEXT NOT NULL DEFAULT '',
-            visibility TEXT NOT NULL DEFAULT 'public',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_communities_slug
-            ON social_communities(slug);
-        CREATE INDEX IF NOT EXISTS idx_social_communities_creator
-            ON social_communities(creator_profile_id);
-
-        CREATE TABLE IF NOT EXISTS social_community_memberships (
-            id TEXT PRIMARY KEY,
-            community_id TEXT NOT NULL REFERENCES social_communities(id),
-            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            joined_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_memberships_pair
-            ON social_community_memberships(community_id, profile_id);
-        CREATE INDEX IF NOT EXISTS idx_social_memberships_profile
-            ON social_community_memberships(profile_id);
-
-        CREATE TABLE IF NOT EXISTS social_longform (
-            id TEXT PRIMARY KEY,
-            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            linked_agent_id TEXT REFERENCES social_linked_agents(id),
-            title TEXT NOT NULL,
-            summary TEXT NOT NULL DEFAULT '',
-            body TEXT NOT NULL,
-            format_type TEXT NOT NULL DEFAULT 'essay',
-            visibility TEXT NOT NULL DEFAULT 'public',
-            proof_state TEXT NOT NULL DEFAULT 'pending',
-            author_mode TEXT NOT NULL DEFAULT 'person',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_longform_profile
-            ON social_longform(profile_id);
-        CREATE INDEX IF NOT EXISTS idx_social_longform_created
-            ON social_longform(created_at);
-
-        CREATE TABLE IF NOT EXISTS social_likes (
-            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            post_id TEXT NOT NULL REFERENCES social_posts(id),
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (profile_id, post_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_likes_post
-            ON social_likes(post_id);
-
-        CREATE TABLE IF NOT EXISTS social_bookmarks (
-            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            post_id TEXT NOT NULL REFERENCES social_posts(id),
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (profile_id, post_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_bookmarks_post
-            ON social_bookmarks(post_id);
-
-        CREATE TABLE IF NOT EXISTS social_reposts (
-            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            post_id TEXT NOT NULL REFERENCES social_posts(id),
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (profile_id, post_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_reposts_post
-            ON social_reposts(post_id);
-
-        CREATE TABLE IF NOT EXISTS pulse_drafts (
-            id TEXT PRIMARY KEY,
-            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            body TEXT NOT NULL,
-            visibility TEXT NOT NULL DEFAULT 'public',
-            author_mode TEXT NOT NULL DEFAULT 'person',
-            linked_agent_id TEXT REFERENCES social_linked_agents(id),
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_pulse_drafts_profile
-            ON pulse_drafts(profile_id);
-        CREATE INDEX IF NOT EXISTS idx_pulse_drafts_status
-            ON pulse_drafts(status);
-
-        CREATE TABLE IF NOT EXISTS pulse_audit_log (
-            id TEXT PRIMARY KEY,
-            draft_id TEXT NOT NULL REFERENCES pulse_drafts(id),
-            action TEXT NOT NULL,
-            actor_profile_id TEXT NOT NULL,
-            details_json TEXT,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_pulse_audit_log_draft
-            ON pulse_audit_log(draft_id);
-
-        UPDATE schema_version SET version = 26;"
-    ).expect("migration v26 failed");
-
-    tracing::info!("applied migration v26: HeyVera social layer tables");
+    tracing::info!("applied migration v26: Cortex run authority metadata");
 }
 
 fn migrate_v27(conn: &Connection) {
+    conn.execute(
+        "ALTER TABLE resource_leases ADD COLUMN authority_scope_id TEXT",
+        [],
+    )
+    .ok();
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS social_notifications (
-            id TEXT PRIMARY KEY,
-            recipient_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            actor_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            notification_type TEXT NOT NULL,
-            post_id TEXT REFERENCES social_posts(id),
-            read INTEGER NOT NULL DEFAULT 0,
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_notifications_recipient
-            ON social_notifications(recipient_profile_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_social_notifications_read
-            ON social_notifications(recipient_profile_id, read);
+        "CREATE INDEX IF NOT EXISTS idx_resource_leases_authority_active
+            ON resource_leases(authority_scope_id, status, resource_type, repo_key, resource_key, expires_at);
 
-        ALTER TABLE social_posts ADD COLUMN community_id TEXT REFERENCES social_communities(id);
-        CREATE INDEX IF NOT EXISTS idx_social_posts_community
-            ON social_posts(community_id);
+        UPDATE resource_leases
+        SET authority_scope_id = (
+            SELECT runs.authority_scope_id
+            FROM runs
+            WHERE runs.id = resource_leases.run_id
+        )
+        WHERE authority_scope_id IS NULL
+          AND EXISTS (
+              SELECT 1
+              FROM runs
+              WHERE runs.id = resource_leases.run_id
+                AND runs.authority_scope_id IS NOT NULL
+          );
 
-        UPDATE schema_version SET version = 27;"
-    ).expect("migration v27 failed");
+        UPDATE schema_version SET version = 27;",
+    )
+    .expect("migration v27 failed");
 
-    tracing::info!("applied migration v27: notifications table + posts community_id");
-}
-
-fn migrate_v28(conn: &Connection) {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS social_media_objects (
-            id TEXT PRIMARY KEY,
-            owner_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            filename TEXT NOT NULL,
-            content_type TEXT NOT NULL,
-            size_bytes INTEGER NOT NULL,
-            media_type TEXT NOT NULL DEFAULT 'image',
-            storage_key TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_media_objects_owner
-            ON social_media_objects(owner_profile_id);
-        CREATE INDEX IF NOT EXISTS idx_social_media_objects_status
-            ON social_media_objects(status, created_at);
-
-        CREATE TABLE IF NOT EXISTS social_post_media (
-            post_id TEXT NOT NULL REFERENCES social_posts(id),
-            media_id TEXT NOT NULL REFERENCES social_media_objects(id),
-            position INTEGER NOT NULL DEFAULT 0,
-            PRIMARY KEY (post_id, media_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_post_media_post
-            ON social_post_media(post_id);
-        CREATE INDEX IF NOT EXISTS idx_social_post_media_media
-            ON social_post_media(media_id);
-
-        UPDATE schema_version SET version = 28;"
-    ).expect("migration v28 failed");
-
-    tracing::info!("applied migration v28: media_objects + post_media tables");
-}
-
-fn migrate_v29(conn: &Connection) {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS webhook_events (
-            id TEXT PRIMARY KEY,
-            event_type TEXT NOT NULL,
-            timestamp INTEGER NOT NULL,
-            processed_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_webhook_events_type
-            ON webhook_events(event_type);
-
-        CREATE TABLE IF NOT EXISTS accounts (
-            clerk_user_id TEXT PRIMARY KEY,
-            email TEXT NOT NULL DEFAULT '',
-            display_name TEXT NOT NULL DEFAULT '',
-            status TEXT NOT NULL DEFAULT 'active',
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_accounts_email
-            ON accounts(email);
-        CREATE INDEX IF NOT EXISTS idx_accounts_status
-            ON accounts(status);
-
-        UPDATE schema_version SET version = 29;"
-    ).expect("migration v29 failed");
-
-    tracing::info!("applied migration v29: webhook_events + accounts tables");
-}
-
-fn migrate_v30(conn: &Connection) {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS social_conversations (
-            id TEXT PRIMARY KEY,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-
-        CREATE TABLE IF NOT EXISTS social_conversation_participants (
-            conversation_id TEXT NOT NULL REFERENCES social_conversations(id),
-            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            joined_at TEXT NOT NULL DEFAULT (datetime('now')),
-            PRIMARY KEY (conversation_id, profile_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_conv_participants_profile
-            ON social_conversation_participants(profile_id);
-
-        CREATE TABLE IF NOT EXISTS social_messages (
-            id TEXT PRIMARY KEY,
-            conversation_id TEXT NOT NULL REFERENCES social_conversations(id),
-            sender_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            content TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            read INTEGER NOT NULL DEFAULT 0
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_messages_conversation
-            ON social_messages(conversation_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_social_messages_sender
-            ON social_messages(sender_profile_id);
-
-        UPDATE schema_version SET version = 30;"
-    ).expect("migration v30 failed");
-
-    tracing::info!("applied migration v30: conversations & messages tables");
-}
-
-fn migrate_v31(conn: &Connection) {
-    conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS social_blocks (
-            blocker_profile_id TEXT NOT NULL,
-            blocked_profile_id TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            UNIQUE (blocker_profile_id, blocked_profile_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_blocks_blocker
-            ON social_blocks(blocker_profile_id);
-        CREATE INDEX IF NOT EXISTS idx_social_blocks_blocked
-            ON social_blocks(blocked_profile_id);
-
-        CREATE TABLE IF NOT EXISTS social_mutes (
-            muter_profile_id TEXT NOT NULL,
-            muted_profile_id TEXT NOT NULL,
-            created_at TEXT NOT NULL DEFAULT (datetime('now')),
-            UNIQUE (muter_profile_id, muted_profile_id)
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_mutes_muter
-            ON social_mutes(muter_profile_id);
-
-        CREATE TABLE IF NOT EXISTS social_reports (
-            id TEXT PRIMARY KEY,
-            reporter_profile_id TEXT NOT NULL,
-            target_type TEXT NOT NULL,
-            target_id TEXT NOT NULL,
-            reason TEXT NOT NULL,
-            status TEXT NOT NULL DEFAULT 'pending',
-            created_at TEXT NOT NULL DEFAULT (datetime('now'))
-        );
-        CREATE INDEX IF NOT EXISTS idx_social_reports_reporter
-            ON social_reports(reporter_profile_id);
-        CREATE INDEX IF NOT EXISTS idx_social_reports_status
-            ON social_reports(status);
-
-        UPDATE schema_version SET version = 31;"
-    ).expect("migration v31 failed");
-
-    tracing::info!("applied migration v31: blocks, mutes, reports tables");
+    tracing::info!("applied migration v27: authority-scoped resource leases");
 }
 
 fn ensure_social_tables(conn: &Connection) {
@@ -1692,90 +1460,235 @@ fn ensure_social_tables(conn: &Connection) {
         return;
     }
 
-    tracing::info!("social tables missing — creating (version collision recovery)");
+    tracing::info!("social tables missing — creating all social tables");
 
-    // v26 tables
-    migrate_v26(conn);
-    // v27 additions (notifications + community_id column)
     conn.execute_batch(
-        "CREATE TABLE IF NOT EXISTS social_notifications (
-            id TEXT PRIMARY KEY,
-            recipient_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            actor_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
-            notification_type TEXT NOT NULL,
-            post_id TEXT REFERENCES social_posts(id),
-            read INTEGER NOT NULL DEFAULT 0,
+        "CREATE TABLE IF NOT EXISTS social_profiles (
+            id TEXT PRIMARY KEY, clerk_user_id TEXT NOT NULL, handle TEXT NOT NULL,
+            display_name TEXT NOT NULL, bio TEXT NOT NULL DEFAULT '', avatar_url TEXT,
+            banner_url TEXT, location TEXT, website_url TEXT,
+            proof_state TEXT NOT NULL DEFAULT 'pending', continuity_state TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_profiles_clerk ON social_profiles(clerk_user_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_profiles_handle ON social_profiles(handle);
+
+        CREATE TABLE IF NOT EXISTS social_linked_agents (
+            id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            agent_name TEXT NOT NULL, agent_slug TEXT NOT NULL, agent_key TEXT NOT NULL,
+            agent_type TEXT NOT NULL DEFAULT 'general', link_state TEXT NOT NULL DEFAULT 'active',
+            visibility TEXT NOT NULL DEFAULT 'public', proof_state TEXT NOT NULL DEFAULT 'pending',
+            is_primary INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_linked_agents_profile ON social_linked_agents(profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_posts (
+            id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            linked_agent_id TEXT REFERENCES social_linked_agents(id), body TEXT NOT NULL,
+            visibility TEXT NOT NULL DEFAULT 'public', proof_state TEXT NOT NULL DEFAULT 'pending',
+            author_mode TEXT NOT NULL DEFAULT 'person',
+            reply_to_post_id TEXT REFERENCES social_posts(id), quote_post_id TEXT REFERENCES social_posts(id),
+            community_id TEXT, deleted_at TEXT DEFAULT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_posts_profile ON social_posts(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_posts_created ON social_posts(created_at);
+        CREATE INDEX IF NOT EXISTS idx_social_posts_community ON social_posts(community_id);
+
+        CREATE TABLE IF NOT EXISTS social_follows (
+            id TEXT PRIMARY KEY, follower_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            following_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
             created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_social_notifications_recipient
-            ON social_notifications(recipient_profile_id, created_at DESC);
-        CREATE INDEX IF NOT EXISTS idx_social_notifications_read
-            ON social_notifications(recipient_profile_id, read);
-        ALTER TABLE social_posts ADD COLUMN community_id TEXT REFERENCES social_communities(id);
-        CREATE INDEX IF NOT EXISTS idx_social_posts_community ON social_posts(community_id);"
-    ).expect("social tables recovery: v27 additions failed");
-    // v28 media
-    migrate_v28(conn);
-    // v29 webhooks + accounts
-    migrate_v29(conn);
-    // v30 conversations + messages
-    migrate_v30(conn);
-    // v31 blocks/mutes/reports
-    migrate_v31(conn);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_follows_pair ON social_follows(follower_profile_id, following_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_follows_follower ON social_follows(follower_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_follows_following ON social_follows(following_profile_id);
 
-    tracing::info!("social tables recovery complete");
+        CREATE TABLE IF NOT EXISTS social_communities (
+            id TEXT PRIMARY KEY, creator_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            slug TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+            visibility TEXT NOT NULL DEFAULT 'public',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_communities_slug ON social_communities(slug);
+        CREATE INDEX IF NOT EXISTS idx_social_communities_creator ON social_communities(creator_profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_community_memberships (
+            id TEXT PRIMARY KEY, community_id TEXT NOT NULL REFERENCES social_communities(id),
+            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            joined_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_memberships_pair ON social_community_memberships(community_id, profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_memberships_profile ON social_community_memberships(profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_longform (
+            id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            linked_agent_id TEXT REFERENCES social_linked_agents(id),
+            title TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
+            format_type TEXT NOT NULL DEFAULT 'essay', visibility TEXT NOT NULL DEFAULT 'public',
+            proof_state TEXT NOT NULL DEFAULT 'pending', author_mode TEXT NOT NULL DEFAULT 'person',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_longform_profile ON social_longform(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_longform_created ON social_longform(created_at);
+
+        CREATE TABLE IF NOT EXISTS social_likes (
+            profile_id TEXT NOT NULL, post_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (profile_id, post_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_likes_post ON social_likes(post_id);
+
+        CREATE TABLE IF NOT EXISTS social_bookmarks (
+            profile_id TEXT NOT NULL, post_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (profile_id, post_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_bookmarks_post ON social_bookmarks(post_id);
+
+        CREATE TABLE IF NOT EXISTS social_reposts (
+            profile_id TEXT NOT NULL, post_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (profile_id, post_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_reposts_post ON social_reposts(post_id);
+
+        CREATE TABLE IF NOT EXISTS pulse_drafts (
+            id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, body TEXT NOT NULL,
+            visibility TEXT NOT NULL DEFAULT 'public', author_mode TEXT NOT NULL DEFAULT 'person',
+            linked_agent_id TEXT, status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_pulse_drafts_profile ON pulse_drafts(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_pulse_drafts_status ON pulse_drafts(status);
+
+        CREATE TABLE IF NOT EXISTS pulse_audit_log (
+            id TEXT PRIMARY KEY, draft_id TEXT NOT NULL, action TEXT NOT NULL,
+            actor_profile_id TEXT NOT NULL, details_json TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_pulse_audit_log_draft ON pulse_audit_log(draft_id);
+
+        CREATE TABLE IF NOT EXISTS social_notifications (
+            id TEXT PRIMARY KEY, recipient_profile_id TEXT NOT NULL, actor_profile_id TEXT NOT NULL,
+            notification_type TEXT NOT NULL, post_id TEXT, read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_notifications_recipient ON social_notifications(recipient_profile_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_social_notifications_read ON social_notifications(recipient_profile_id, read);
+
+        CREATE TABLE IF NOT EXISTS social_media_objects (
+            id TEXT PRIMARY KEY, owner_profile_id TEXT NOT NULL, filename TEXT NOT NULL,
+            content_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, media_type TEXT NOT NULL DEFAULT 'image',
+            storage_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_media_objects_owner ON social_media_objects(owner_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_media_objects_status ON social_media_objects(status, created_at);
+
+        CREATE TABLE IF NOT EXISTS social_post_media (
+            post_id TEXT NOT NULL, media_id TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (post_id, media_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_post_media_post ON social_post_media(post_id);
+        CREATE INDEX IF NOT EXISTS idx_social_post_media_media ON social_post_media(media_id);
+
+        CREATE TABLE IF NOT EXISTS webhook_events (
+            id TEXT PRIMARY KEY, event_type TEXT NOT NULL, timestamp INTEGER NOT NULL,
+            processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_webhook_events_type ON webhook_events(event_type);
+
+        CREATE TABLE IF NOT EXISTS accounts (
+            clerk_user_id TEXT PRIMARY KEY, email TEXT NOT NULL DEFAULT '',
+            display_name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_accounts_email ON accounts(email);
+        CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status);
+
+        CREATE TABLE IF NOT EXISTS social_conversations (
+            id TEXT PRIMARY KEY, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS social_conversation_participants (
+            conversation_id TEXT NOT NULL, profile_id TEXT NOT NULL,
+            joined_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (conversation_id, profile_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_conv_participants_profile ON social_conversation_participants(profile_id);
+        CREATE TABLE IF NOT EXISTS social_messages (
+            id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, sender_profile_id TEXT NOT NULL,
+            content TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), read INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_messages_conversation ON social_messages(conversation_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_social_messages_sender ON social_messages(sender_profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_blocks (
+            blocker_profile_id TEXT NOT NULL, blocked_profile_id TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (blocker_profile_id, blocked_profile_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_blocks_blocker ON social_blocks(blocker_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_blocks_blocked ON social_blocks(blocked_profile_id);
+        CREATE TABLE IF NOT EXISTS social_mutes (
+            muter_profile_id TEXT NOT NULL, muted_profile_id TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (muter_profile_id, muted_profile_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_mutes_muter ON social_mutes(muter_profile_id);
+        CREATE TABLE IF NOT EXISTS social_reports (
+            id TEXT PRIMARY KEY, reporter_profile_id TEXT NOT NULL, target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL, reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_reports_reporter ON social_reports(reporter_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_reports_status ON social_reports(status);
+
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, actor_type TEXT NOT NULL DEFAULT 'user',
+            action TEXT NOT NULL, target_type TEXT, target_id TEXT, details TEXT, ip_address TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
+
+        UPDATE schema_version SET version = 33;"
+    ).expect("social tables creation failed");
+
+    tracing::info!("social tables created successfully");
 }
 
-fn migrate_v32(conn: &Connection) {
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
-        .unwrap_or(0);
-    if version < 32 {
-        // Check if column already exists (from ensure_social_tables or prior run)
-        let has_deleted_at: bool = conn
-            .query_row(
-                "SELECT COUNT(*) FROM pragma_table_info('social_posts') WHERE name='deleted_at'",
-                [],
-                |r| r.get::<_, i64>(0),
-            )
-            .unwrap_or(0) > 0;
+fn migrate_v28(conn: &Connection) {}
+fn migrate_v29(conn: &Connection) {}
+fn migrate_v30(conn: &Connection) {}
+fn migrate_v31(conn: &Connection) {}
 
-        if has_deleted_at {
-            conn.execute_batch("UPDATE schema_version SET version = 32;")
-                .expect("migration v32 version bump failed");
-        } else {
-            conn.execute_batch(
-                "ALTER TABLE social_posts ADD COLUMN deleted_at TEXT DEFAULT NULL;
-                 UPDATE schema_version SET version = 32;"
-            ).expect("migration v32 failed");
-        }
+fn migrate_v32(conn: &Connection) {
+    let has_deleted_at: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('social_posts') WHERE name='deleted_at'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0) > 0;
+
+    if !has_deleted_at {
+        conn.execute_batch(
+            "ALTER TABLE social_posts ADD COLUMN deleted_at TEXT DEFAULT NULL;"
+        ).expect("migration v32 failed");
         tracing::info!("applied migration v32: soft-delete for social_posts");
     }
+    conn.execute_batch("UPDATE schema_version SET version = 32;").ok();
 }
 
 fn migrate_v33(conn: &Connection) {
-    let version: i64 = conn
-        .query_row("SELECT version FROM schema_version", [], |r| r.get(0))
-        .unwrap_or(0);
-    if version < 33 {
-        conn.execute_batch(
-            "CREATE TABLE IF NOT EXISTS audit_log (
-                id TEXT PRIMARY KEY,
-                actor_id TEXT NOT NULL,
-                actor_type TEXT NOT NULL DEFAULT 'user',
-                action TEXT NOT NULL,
-                target_type TEXT,
-                target_id TEXT,
-                details TEXT,
-                ip_address TEXT,
-                created_at TEXT NOT NULL DEFAULT (datetime('now'))
-            );
-            CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor_id);
-            CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
-            UPDATE schema_version SET version = 33;"
-        ).expect("migration v33 failed");
-        tracing::info!("applied migration v33: audit_log table");
-    }
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS audit_log (
+            id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, actor_type TEXT NOT NULL DEFAULT 'user',
+            action TEXT NOT NULL, target_type TEXT, target_id TEXT, details TEXT, ip_address TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
+        UPDATE schema_version SET version = 33;"
+    ).expect("migration v33 failed");
+    tracing::info!("applied migration v33: audit_log table");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1868,7 +1781,10 @@ pub struct IntegrationMapping {
 
 // --- Database implementation ---
 
-fn json_text<'a>(object: &'a serde_json::Map<String, serde_json::Value>, key: &str) -> Option<&'a str> {
+fn json_text<'a>(
+    object: &'a serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<&'a str> {
     object.get(key).and_then(|value| value.as_str())
 }
 
@@ -1878,12 +1794,28 @@ fn index_group_task_state(
     group_id: &str,
     state: &serde_json::Value,
 ) {
+    if let Err(err) = index_group_task_state_checked(conn, user_id, group_id, state) {
+        tracing::warn!(
+            user_id = user_id,
+            group_id = group_id,
+            error = %err,
+            "failed to index group task state"
+        );
+    }
+}
+
+fn index_group_task_state_checked(
+    conn: &Connection,
+    user_id: &str,
+    group_id: &str,
+    state: &serde_json::Value,
+) -> rusqlite::Result<()> {
     let Some(tasks) = state.get("tasks").and_then(|value| value.as_array()) else {
         conn.execute(
             "DELETE FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2",
             params![user_id, group_id],
-        ).ok();
-        return;
+        )?;
+        return Ok(());
     };
 
     let mut seen_ids = HashSet::new();
@@ -1936,7 +1868,7 @@ fn index_group_task_state(
                 latest_run_id,
                 source_json
             ],
-        ).ok();
+        )?;
 
         if let Some(conversation_id) = conversation_id {
             conn.execute(
@@ -1945,18 +1877,15 @@ fn index_group_task_state(
                  )
                  VALUES (?1, ?2, ?3, ?4, datetime('now'))",
                 params![user_id, group_id, id, conversation_id],
-            ).ok();
+            )?;
         }
     }
 
     let existing_ids = {
-        let mut stmt = match conn.prepare("SELECT id FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2") {
-            Ok(stmt) => stmt,
-            Err(_) => return,
-        };
-        stmt.query_map(params![user_id, group_id], |row| row.get::<_, String>(0))
-            .map(|rows| rows.filter_map(|row| row.ok()).collect::<Vec<_>>())
-            .unwrap_or_default()
+        let mut stmt =
+            conn.prepare("SELECT id FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2")?;
+        stmt.query_map(params![user_id, group_id], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?
     };
 
     for existing_id in existing_ids {
@@ -1964,9 +1893,106 @@ fn index_group_task_state(
             conn.execute(
                 "DELETE FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2 AND id = ?3",
                 params![user_id, group_id, existing_id],
-            ).ok();
+            )?;
         }
     }
+
+    Ok(())
+}
+
+fn attach_cortex_task_chat_tx(
+    conn: &Connection,
+    user_id: &str,
+    group_id: &str,
+    task_id: &str,
+    conversation_id: &str,
+    run_id: Option<&str>,
+) -> bool {
+    if let Err(err) = attach_cortex_task_chat_tx_checked(
+        conn,
+        user_id,
+        group_id,
+        task_id,
+        conversation_id,
+        run_id,
+    ) {
+        tracing::warn!(
+            user_id = user_id,
+            group_id = group_id,
+            task_id = task_id,
+            conversation_id = conversation_id,
+            error = %err,
+            "failed to attach cortex task chat"
+        );
+        return false;
+    }
+    true
+}
+
+fn attach_cortex_task_chat_tx_checked(
+    conn: &Connection,
+    user_id: &str,
+    group_id: &str,
+    task_id: &str,
+    conversation_id: &str,
+    run_id: Option<&str>,
+) -> rusqlite::Result<()> {
+    let now = Utc::now().timestamp_millis();
+    let rows = if let Some(run_id) = run_id {
+        conn.execute(
+            "UPDATE cortex_tasks
+             SET latest_run_id = ?1,
+                 conversation_id = ?2,
+                 updated_at = datetime('now'),
+                 version = version + 1
+             WHERE user_id = ?3 AND group_id = ?4 AND id = ?5",
+            params![run_id, conversation_id, user_id, group_id, task_id],
+        )?
+    } else {
+        conn.execute(
+            "UPDATE cortex_tasks
+             SET conversation_id = ?1,
+                 updated_at = datetime('now'),
+                 version = version + 1
+             WHERE user_id = ?2 AND group_id = ?3 AND id = ?4",
+            params![conversation_id, user_id, group_id, task_id],
+        )?
+    };
+    if rows == 0 {
+        return Err(rusqlite::Error::QueryReturnedNoRows);
+    }
+
+    conn.execute(
+        "INSERT INTO cortex_task_chats (
+            user_id, group_id, task_id, conversation_id, attached_at
+         )
+         VALUES (?1, ?2, ?3, ?4, datetime('now'))
+         ON CONFLICT(user_id, group_id, task_id, conversation_id) DO UPDATE SET
+            attached_at = datetime('now')",
+        params![user_id, group_id, task_id, conversation_id],
+    )?;
+
+    try_insert_operations_event(
+        conn,
+        Some(user_id),
+        Some(group_id),
+        None,
+        Some(task_id),
+        run_id,
+        None,
+        None,
+        "chat.attached",
+        "chat",
+        conversation_id,
+        &serde_json::json!({
+            "conversation_id": conversation_id,
+            "group_id": group_id,
+            "task_id": task_id,
+            "run_id": run_id,
+            "attached_at": now,
+        }),
+    )?;
+    Ok(())
 }
 
 fn attach_run_to_cortex_task(
@@ -1981,24 +2007,63 @@ fn attach_run_to_cortex_task(
         return;
     };
 
-    conn.execute(
-        "UPDATE cortex_tasks
-         SET latest_run_id = ?1,
-             conversation_id = COALESCE(?2, conversation_id),
-             updated_at = datetime('now'),
-             version = version + 1
-         WHERE user_id = ?3 AND group_id = ?4 AND id = ?5",
-        params![run_id, conversation_id, user_id, group_id, task_id],
-    ).ok();
+    if let Some(conversation_id) = conversation_id {
+        attach_cortex_task_chat_tx(
+            conn,
+            user_id,
+            group_id,
+            task_id,
+            conversation_id,
+            Some(run_id),
+        );
+    } else {
+        conn.execute(
+            "UPDATE cortex_tasks
+             SET latest_run_id = ?1,
+                 updated_at = datetime('now'),
+                 version = version + 1
+             WHERE user_id = ?2 AND group_id = ?3 AND id = ?4",
+            params![run_id, user_id, group_id, task_id],
+        )
+        .ok();
+    }
+}
+
+fn attach_run_to_cortex_task_tx_checked(
+    conn: &Connection,
+    user_id: &str,
+    group_id: Option<&str>,
+    task_id: Option<&str>,
+    conversation_id: Option<&str>,
+    run_id: &str,
+) -> rusqlite::Result<bool> {
+    let (Some(group_id), Some(task_id)) = (group_id, task_id) else {
+        return Ok(false);
+    };
 
     if let Some(conversation_id) = conversation_id {
-        conn.execute(
-            "INSERT OR IGNORE INTO cortex_task_chats (
-                user_id, group_id, task_id, conversation_id, attached_at
-             )
-             VALUES (?1, ?2, ?3, ?4, datetime('now'))",
-            params![user_id, group_id, task_id, conversation_id],
-        ).ok();
+        match attach_cortex_task_chat_tx_checked(
+            conn,
+            user_id,
+            group_id,
+            task_id,
+            conversation_id,
+            Some(run_id),
+        ) {
+            Ok(()) => Ok(true),
+            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(false),
+            Err(err) => Err(err),
+        }
+    } else {
+        let rows = conn.execute(
+            "UPDATE cortex_tasks
+             SET latest_run_id = ?1,
+                 updated_at = datetime('now'),
+                 version = version + 1
+             WHERE user_id = ?2 AND group_id = ?3 AND id = ?4",
+            params![run_id, user_id, group_id, task_id],
+        )?;
+        Ok(rows > 0)
     }
 }
 
@@ -2016,8 +2081,46 @@ fn insert_operations_event(
     entity_id: &str,
     payload: &serde_json::Value,
 ) {
+    if let Err(err) = try_insert_operations_event(
+        conn,
+        actor_user_id,
+        scope_id,
+        project_id,
+        task_id,
+        run_id,
+        step_id,
+        attempt_id,
+        event_type,
+        entity_type,
+        entity_id,
+        payload,
+    ) {
+        tracing::warn!(
+            event_type = event_type,
+            entity_type = entity_type,
+            entity_id = entity_id,
+            error = %err,
+            "failed to record operations event"
+        );
+    }
+}
+
+fn try_insert_operations_event(
+    conn: &Connection,
+    actor_user_id: Option<&str>,
+    scope_id: Option<&str>,
+    project_id: Option<&str>,
+    task_id: Option<&str>,
+    run_id: Option<&str>,
+    step_id: Option<&str>,
+    attempt_id: Option<&str>,
+    event_type: &str,
+    entity_type: &str,
+    entity_id: &str,
+    payload: &serde_json::Value,
+) -> rusqlite::Result<()> {
     let payload_json = serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string());
-    let result = conn.execute(
+    conn.execute(
         "INSERT INTO operations_events (
             id, created_at, actor_user_id, scope_id, project_id, task_id, run_id, step_id,
             attempt_id, event_type, entity_type, entity_id, payload_json
@@ -2038,17 +2141,8 @@ fn insert_operations_event(
             entity_id,
             payload_json,
         ],
-    );
-
-    if let Err(err) = result {
-        tracing::warn!(
-            event_type = event_type,
-            entity_type = entity_type,
-            entity_id = entity_id,
-            error = %err,
-            "failed to record operations event"
-        );
-    }
+    )?;
+    Ok(())
 }
 
 struct CortexCompletionGate {
@@ -2122,16 +2216,43 @@ fn cortex_completion_gate(
 
     let (total_steps, verified_pass_steps, failed_steps, unverified_steps): (i64, i64, i64, i64) =
         conn.query_row(
-            "SELECT
+            "WITH latest_reports AS (
+                SELECT vr.*
+                FROM verifier_reports vr
+                JOIN (
+                    SELECT step_id, MAX(created_at) AS created_at
+                    FROM verifier_reports
+                    WHERE run_id = ?1
+                    GROUP BY step_id
+                ) latest
+                    ON latest.step_id = vr.step_id
+                   AND latest.created_at = vr.created_at
+                WHERE vr.run_id = ?1
+            )
+            SELECT
                 COUNT(*),
-                COALESCE(SUM(CASE WHEN verification_status = 'verified_pass' THEN 1 ELSE 0 END), 0),
-                COALESCE(SUM(CASE WHEN status IN ('failed', 'orphaned') THEN 1 ELSE 0 END), 0),
                 COALESCE(SUM(CASE
-                    WHEN verification_status IS NULL OR verification_status != 'verified_pass' THEN 1
-                    ELSE 0
+                    WHEN s.status = 'succeeded'
+                     AND s.verifier_report_id = lr.id
+                     AND s.lease_gen = lr.lease_gen
+                     AND lr.status = 'verified'
+                     AND lr.verdict = 'pass'
+                    THEN 1 ELSE 0
+                END), 0),
+                COALESCE(SUM(CASE WHEN s.status IN ('failed', 'orphaned') THEN 1 ELSE 0 END), 0),
+                COALESCE(SUM(CASE
+                    WHEN lr.id IS NULL OR NOT (
+                        s.status = 'succeeded'
+                        AND s.verifier_report_id = lr.id
+                        AND s.lease_gen = lr.lease_gen
+                        AND lr.status = 'verified'
+                        AND lr.verdict = 'pass'
+                    )
+                    THEN 1 ELSE 0
                 END), 0)
-             FROM steps
-             WHERE run_id = ?1",
+             FROM steps s
+             LEFT JOIN latest_reports lr ON lr.step_id = s.id
+             WHERE s.run_id = ?1",
             params![run_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
         )
@@ -2162,25 +2283,26 @@ fn cortex_completion_gate(
 }
 
 fn resource_lease_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ResourceLease> {
-    let metadata_raw: String = row.get(17)?;
+    let metadata_raw: String = row.get(18)?;
     Ok(ResourceLease {
         id: row.get(0)?,
         user_id: row.get(1)?,
-        group_id: row.get(2)?,
-        task_id: row.get(3)?,
-        run_id: row.get(4)?,
-        step_id: row.get(5)?,
-        holder_type: row.get(6)?,
-        resource_type: row.get(7)?,
-        repo_key: row.get(8)?,
-        resource_key: row.get(9)?,
-        mode: row.get(10)?,
-        status: row.get(11)?,
-        lease_gen: row.get(12)?,
-        acquired_at: row.get(13)?,
-        expires_at: row.get(14)?,
-        released_at: row.get(15)?,
-        reason: row.get(16)?,
+        authority_scope_id: row.get(2)?,
+        group_id: row.get(3)?,
+        task_id: row.get(4)?,
+        run_id: row.get(5)?,
+        step_id: row.get(6)?,
+        holder_type: row.get(7)?,
+        resource_type: row.get(8)?,
+        repo_key: row.get(9)?,
+        resource_key: row.get(10)?,
+        mode: row.get(11)?,
+        status: row.get(12)?,
+        lease_gen: row.get(13)?,
+        acquired_at: row.get(14)?,
+        expires_at: row.get(15)?,
+        released_at: row.get(16)?,
+        reason: row.get(17)?,
         metadata: serde_json::from_str(&metadata_raw).unwrap_or_else(|_| serde_json::json!({})),
     })
 }
@@ -2257,11 +2379,7 @@ fn sort_json_array_desc(items: &mut [serde_json::Value], preferred_key: &str) {
 fn authority_access_allows(actual: &str, required: &str) -> bool {
     matches!(
         (actual, required),
-        ("admin", _)
-            | ("write", "write")
-            | ("write", "read")
-            | ("read", "read")
-            | ("owner", _)
+        ("admin", _) | ("write", "write") | ("write", "read") | ("read", "read") | ("owner", _)
     )
 }
 
@@ -2285,26 +2403,55 @@ fn path_keys_overlap(a: &str, b: &str) -> bool {
 fn find_resource_lease_conflict_tx(
     conn: &Connection,
     user_id: &str,
+    authority_scope_id: Option<&str>,
     request: &ResourceLeaseRequest,
     now: i64,
 ) -> Result<Option<ResourceLeaseConflict>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT id, run_id, step_id, holder_type, resource_type, repo_key, resource_key, mode, expires_at
-         FROM resource_leases
-         WHERE user_id = ?1
-           AND status = 'active'
-           AND expires_at > ?2
-           AND resource_type = ?3
-           AND repo_key = ?4
-           AND mode IN ('write', 'exclusive')
-         ORDER BY acquired_at ASC",
-    )?;
-    let candidates = stmt
-        .query_map(
+    let candidates: Vec<ResourceLeaseConflict> = if let Some(authority_scope_id) =
+        authority_scope_id
+    {
+        let mut stmt = conn.prepare(
+            "SELECT id, run_id, step_id, holder_type, resource_type, repo_key, resource_key, mode, expires_at
+             FROM resource_leases
+             WHERE authority_scope_id = ?1
+               AND status = 'active'
+               AND expires_at > ?2
+               AND resource_type = ?3
+               AND repo_key = ?4
+               AND mode IN ('write', 'exclusive')
+             ORDER BY acquired_at ASC",
+        )?;
+        stmt.query_map(
+            params![
+                authority_scope_id,
+                now,
+                request.resource_type,
+                request.repo_key
+            ],
+            resource_conflict_from_row,
+        )?
+        .filter_map(|row| row.ok())
+        .collect()
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT id, run_id, step_id, holder_type, resource_type, repo_key, resource_key, mode, expires_at
+             FROM resource_leases
+             WHERE user_id = ?1
+               AND authority_scope_id IS NULL
+               AND status = 'active'
+               AND expires_at > ?2
+               AND resource_type = ?3
+               AND repo_key = ?4
+               AND mode IN ('write', 'exclusive')
+             ORDER BY acquired_at ASC",
+        )?;
+        stmt.query_map(
             params![user_id, now, request.resource_type, request.repo_key],
             resource_conflict_from_row,
         )?
-        .filter_map(|row| row.ok());
+        .filter_map(|row| row.ok())
+        .collect()
+    };
 
     for candidate in candidates {
         let conflicts = if request.resource_type == "path" {
@@ -2323,6 +2470,7 @@ fn find_resource_lease_conflict_tx(
 fn acquire_run_resource_leases_tx(
     conn: &Connection,
     user_id: &str,
+    authority_scope_id: Option<&str>,
     group_id: Option<&str>,
     task_id: Option<&str>,
     run_id: &str,
@@ -2340,8 +2488,9 @@ fn acquire_run_resource_leases_tx(
     .ok();
 
     for request in requests {
-        if let Some(conflict) = find_resource_lease_conflict_tx(conn, user_id, request, now)
-            .map_err(|err| CreateRunError::Database(err.to_string()))?
+        if let Some(conflict) =
+            find_resource_lease_conflict_tx(conn, user_id, authority_scope_id, request, now)
+                .map_err(|err| CreateRunError::Database(err.to_string()))?
         {
             return Err(CreateRunError::ResourceConflict(conflict));
         }
@@ -2353,14 +2502,15 @@ fn acquire_run_resource_leases_tx(
             serde_json::to_string(&request.metadata).unwrap_or_else(|_| "{}".to_string());
         conn.execute(
             "INSERT INTO resource_leases (
-                id, user_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
-                repo_key, resource_key, mode, status, lease_gen, acquired_at, expires_at, reason,
-                metadata_json
+                id, user_id, authority_scope_id, group_id, task_id, run_id, step_id,
+                holder_type, resource_type, repo_key, resource_key, mode, status,
+                lease_gen, acquired_at, expires_at, reason, metadata_json
              )
-             VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'run', ?6, ?7, ?8, ?9, 'active', 1, ?10, ?11, ?12, ?13)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 'run', ?7, ?8, ?9, ?10, 'active', 1, ?11, ?12, ?13, ?14)",
             params![
                 id,
                 user_id,
+                authority_scope_id,
                 group_id,
                 task_id,
                 run_id,
@@ -2390,6 +2540,7 @@ fn acquire_run_resource_leases_tx(
             &id,
             &serde_json::json!({
                 "holder_type": "run",
+                "authority_scope_id": authority_scope_id,
                 "resource_type": request.resource_type,
                 "repo_key": request.repo_key,
                 "resource_key": request.resource_key,
@@ -2403,30 +2554,39 @@ fn acquire_run_resource_leases_tx(
     Ok(())
 }
 
-fn release_resource_leases_for_run_tx(
+fn run_repo_key_from_resource_leases(requests: &[ResourceLeaseRequest]) -> Option<&str> {
+    requests
+        .iter()
+        .find(|request| request.repo_key != "default")
+        .or_else(|| requests.first())
+        .map(|request| request.repo_key.as_str())
+}
+
+fn authority_scope_id_from_context(authority_context: Option<&serde_json::Value>) -> Option<&str> {
+    authority_context
+        .and_then(|value| value.get("scope_id"))
+        .and_then(|value| value.as_str())
+        .filter(|value| !value.trim().is_empty())
+}
+
+fn release_resource_leases_for_run_tx_checked(
     conn: &Connection,
     run_id: &str,
     now: i64,
-) -> Vec<ResourceLease> {
+) -> rusqlite::Result<Vec<ResourceLease>> {
     let leases: Vec<ResourceLease> = conn
         .prepare(
-            "SELECT id, user_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
+            "SELECT id, user_id, authority_scope_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
                     repo_key, resource_key, mode, status, lease_gen, acquired_at, expires_at,
                     released_at, reason, metadata_json
              FROM resource_leases
              WHERE run_id = ?1 AND status = 'active'",
-        )
-        .ok()
-        .map(|mut stmt| {
-            stmt.query_map(params![run_id], resource_lease_from_row)
-                .unwrap()
-                .filter_map(|row| row.ok())
-                .collect()
-        })
-        .unwrap_or_default();
+        )?
+        .query_map(params![run_id], resource_lease_from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
 
     if leases.is_empty() {
-        return leases;
+        return Ok(leases);
     }
 
     conn.execute(
@@ -2434,11 +2594,10 @@ fn release_resource_leases_for_run_tx(
          SET status = 'released', released_at = ?1
          WHERE run_id = ?2 AND status = 'active'",
         params![now, run_id],
-    )
-    .ok();
+    )?;
 
     for lease in &leases {
-        insert_operations_event(
+        try_insert_operations_event(
             conn,
             Some(&lease.user_id),
             lease.group_id.as_deref(),
@@ -2452,16 +2611,17 @@ fn release_resource_leases_for_run_tx(
             &lease.id,
             &serde_json::json!({
                 "holder_type": lease.holder_type,
+                "authority_scope_id": lease.authority_scope_id,
                 "resource_type": lease.resource_type,
                 "repo_key": lease.repo_key,
                 "resource_key": lease.resource_key,
                 "mode": lease.mode,
                 "released_at": now,
             }),
-        );
+        )?;
     }
 
-    leases
+    Ok(leases)
 }
 
 struct OperationEventContext {
@@ -2508,6 +2668,60 @@ fn step_event_context(conn: &Connection, step_id: &str) -> Option<OperationEvent
     .ok()
 }
 
+fn insert_run_operations_event(
+    conn: &Connection,
+    run_id: &str,
+    event_type: &str,
+    payload: &serde_json::Value,
+) {
+    let context = run_event_context(conn, run_id);
+    insert_operations_event(
+        conn,
+        context.as_ref().map(|context| context.user_id.as_str()),
+        context
+            .as_ref()
+            .and_then(|context| context.group_id.as_deref()),
+        None,
+        context
+            .as_ref()
+            .and_then(|context| context.task_id.as_deref()),
+        Some(run_id),
+        None,
+        None,
+        event_type,
+        "run",
+        run_id,
+        payload,
+    );
+}
+
+fn insert_step_operations_event(
+    conn: &Connection,
+    step_id: &str,
+    event_type: &str,
+    payload: &serde_json::Value,
+) {
+    let context = step_event_context(conn, step_id);
+    insert_operations_event(
+        conn,
+        context.as_ref().map(|context| context.user_id.as_str()),
+        context
+            .as_ref()
+            .and_then(|context| context.group_id.as_deref()),
+        None,
+        context
+            .as_ref()
+            .and_then(|context| context.task_id.as_deref()),
+        context.as_ref().map(|context| context.run_id.as_str()),
+        Some(step_id),
+        None,
+        event_type,
+        "step",
+        step_id,
+        payload,
+    );
+}
+
 impl Database {
     pub fn open(path: &Path) -> Self {
         if let Some(parent) = path.parent() {
@@ -2521,33 +2735,42 @@ impl Database {
              PRAGMA synchronous = NORMAL;
              PRAGMA foreign_keys = ON;
              PRAGMA busy_timeout = 5000;
-             PRAGMA temp_store = MEMORY;"
-        ).expect("failed to set pragmas");
+             PRAGMA temp_store = MEMORY;",
+        )
+        .expect("failed to set pragmas");
 
         apply_migrations(&conn);
 
-        Self { conn: Mutex::new(conn) }
+        Self {
+            conn: Mutex::new(conn),
+        }
     }
 
     // --- Schema info ---
 
     pub fn schema_version(&self) -> i64 {
         let conn = self.conn.lock().unwrap();
-        conn.query_row("SELECT COALESCE(MAX(version), 0) FROM schema_version", [], |r| r.get(0))
-            .unwrap_or(0)
+        conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0)
     }
 
     pub fn list_run_operations_events(&self, run_id: &str, limit: usize) -> Vec<OperationsEvent> {
         let conn = self.conn.lock().unwrap();
         let limit = limit.clamp(1, 500) as i64;
-        let mut stmt = conn.prepare(
-            "SELECT id, created_at, actor_user_id, scope_id, project_id, task_id, run_id,
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, created_at, actor_user_id, scope_id, project_id, task_id, run_id,
                     step_id, attempt_id, event_type, entity_type, entity_id, payload_json
              FROM operations_events
              WHERE run_id = ?1
              ORDER BY created_at ASC, id ASC
-             LIMIT ?2"
-        ).unwrap();
+             LIMIT ?2",
+            )
+            .unwrap();
 
         stmt.query_map(params![run_id, limit], |row| {
             let payload_json: String = row.get(12)?;
@@ -2564,9 +2787,13 @@ impl Database {
                 event_type: row.get(9)?,
                 entity_type: row.get(10)?,
                 entity_id: row.get(11)?,
-                payload: serde_json::from_str(&payload_json).unwrap_or_else(|_| serde_json::json!({})),
+                payload: serde_json::from_str(&payload_json)
+                    .unwrap_or_else(|_| serde_json::json!({})),
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn list_deployment_operations_events(&self, limit: usize) -> Vec<OperationsEvent> {
@@ -2608,13 +2835,17 @@ impl Database {
         .collect()
     }
 
-    pub fn get_run_binding(&self, run_id: &str) -> Option<(Option<String>, Option<String>, Option<String>)> {
+    pub fn get_run_binding(
+        &self,
+        run_id: &str,
+    ) -> Option<(Option<String>, Option<String>, Option<String>)> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT task_id, group_id, conversation_id FROM runs WHERE id = ?1",
             params![run_id],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        ).ok()
+        )
+        .ok()
     }
 
     // --- Conversations ---
@@ -2629,7 +2860,13 @@ impl Database {
             params![id, user_id, title, now, now],
         ).expect("failed to insert conversation");
 
-        Conversation { id, user_id: user_id.to_string(), title: title.map(String::from), created_at: now.clone(), updated_at: now }
+        Conversation {
+            id,
+            user_id: user_id.to_string(),
+            title: title.map(String::from),
+            created_at: now.clone(),
+            updated_at: now,
+        }
     }
 
     pub fn list_conversations(&self, user_id: &str) -> Vec<ConversationSummary> {
@@ -2650,12 +2887,25 @@ impl Database {
                 title: row.get(1)?,
                 updated_at: row.get(2)?,
                 message_count: row.get(3)?,
-                last_message_preview: preview.map(|s| if s.len() > 100 { format!("{}...", &s[..97]) } else { s }),
+                last_message_preview: preview.map(|s| {
+                    if s.len() > 100 {
+                        format!("{}...", &s[..97])
+                    } else {
+                        s
+                    }
+                }),
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
-    pub fn get_conversation(&self, conversation_id: &str, user_id: &str) -> Option<ConversationWithMessages> {
+    pub fn get_conversation(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+    ) -> Option<ConversationWithMessages> {
         let conn = self.conn.lock().unwrap();
 
         let conversation = conn.query_row(
@@ -2670,36 +2920,52 @@ impl Database {
             }),
         ).ok()?;
 
-        let mut stmt = conn.prepare(
-            "SELECT id, conversation_id, role, content, provider, model, created_at
-             FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, conversation_id, role, content, provider, model, created_at
+             FROM messages WHERE conversation_id = ?1 ORDER BY created_at ASC",
+            )
+            .unwrap();
 
-        let messages = stmt.query_map(params![conversation_id], |row| {
-            Ok(Message {
-                id: row.get(0)?,
-                conversation_id: row.get(1)?,
-                role: row.get(2)?,
-                content: row.get(3)?,
-                provider: row.get(4)?,
-                model: row.get(5)?,
-                created_at: row.get(6)?,
+        let messages = stmt
+            .query_map(params![conversation_id], |row| {
+                Ok(Message {
+                    id: row.get(0)?,
+                    conversation_id: row.get(1)?,
+                    role: row.get(2)?,
+                    content: row.get(3)?,
+                    provider: row.get(4)?,
+                    model: row.get(5)?,
+                    created_at: row.get(6)?,
+                })
             })
-        }).unwrap().filter_map(|r| r.ok()).collect();
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
 
-        Some(ConversationWithMessages { conversation, messages })
+        Some(ConversationWithMessages {
+            conversation,
+            messages,
+        })
     }
 
     pub fn delete_conversation(&self, conversation_id: &str, user_id: &str) -> bool {
         let conn = self.conn.lock().unwrap();
-        let rows = conn.execute(
-            "DELETE FROM conversations WHERE id = ?1 AND user_id = ?2",
-            params![conversation_id, user_id],
-        ).unwrap_or(0);
+        let rows = conn
+            .execute(
+                "DELETE FROM conversations WHERE id = ?1 AND user_id = ?2",
+                params![conversation_id, user_id],
+            )
+            .unwrap_or(0);
         rows > 0
     }
 
-    pub fn update_conversation_title(&self, conversation_id: &str, user_id: &str, title: &str) -> bool {
+    pub fn update_conversation_title(
+        &self,
+        conversation_id: &str,
+        user_id: &str,
+        title: &str,
+    ) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().to_rfc3339();
         let rows = conn.execute(
@@ -2729,7 +2995,8 @@ impl Database {
         conn.execute(
             "UPDATE conversations SET updated_at = ?1 WHERE id = ?2",
             params![now, conversation_id],
-        ).ok();
+        )
+        .ok();
 
         Message {
             id,
@@ -2785,30 +3052,15 @@ impl Database {
 
     pub fn list_groups(&self, user_id: &str) -> Vec<CortexGroup> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, name, kind, description, members, accent, source, external_id
-             FROM cortex_groups WHERE user_id = ?1 ORDER BY updated_at DESC"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, name, kind, description, members, accent, source, external_id
+             FROM cortex_groups WHERE user_id = ?1 ORDER BY updated_at DESC",
+            )
+            .unwrap();
 
-        stmt.query_map(params![user_id], |row| Ok(CortexGroup {
-            id: row.get(0)?,
-            name: row.get(1)?,
-            kind: row.get(2)?,
-            description: row.get(3)?,
-            members: row.get(4)?,
-            accent: row.get(5)?,
-            source: row.get(6)?,
-            external_id: row.get(7)?,
-        })).unwrap().filter_map(|r| r.ok()).collect()
-    }
-
-    pub fn get_group(&self, user_id: &str, group_id: &str) -> Option<CortexGroup> {
-        let conn = self.conn.lock().unwrap();
-        conn.query_row(
-            "SELECT id, name, kind, description, members, accent, source, external_id
-             FROM cortex_groups WHERE user_id = ?1 AND id = ?2",
-            params![user_id, group_id],
-            |row| Ok(CortexGroup {
+        stmt.query_map(params![user_id], |row| {
+            Ok(CortexGroup {
                 id: row.get(0)?,
                 name: row.get(1)?,
                 kind: row.get(2)?,
@@ -2817,8 +3069,33 @@ impl Database {
                 accent: row.get(5)?,
                 source: row.get(6)?,
                 external_id: row.get(7)?,
-            }),
-        ).ok()
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    pub fn get_group(&self, user_id: &str, group_id: &str) -> Option<CortexGroup> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, name, kind, description, members, accent, source, external_id
+             FROM cortex_groups WHERE user_id = ?1 AND id = ?2",
+            params![user_id, group_id],
+            |row| {
+                Ok(CortexGroup {
+                    id: row.get(0)?,
+                    name: row.get(1)?,
+                    kind: row.get(2)?,
+                    description: row.get(3)?,
+                    members: row.get(4)?,
+                    accent: row.get(5)?,
+                    source: row.get(6)?,
+                    external_id: row.get(7)?,
+                })
+            },
+        )
+        .ok()
     }
 
     pub fn ensure_personal_authority_scope(&self, user_id: &str) -> CortexAuthorityScope {
@@ -3241,11 +3518,13 @@ impl Database {
 
     pub fn get_group_task_state(&self, user_id: &str, group_id: &str) -> Option<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
-        let raw: String = conn.query_row(
-            "SELECT state_json FROM group_task_state WHERE user_id = ?1 AND group_id = ?2",
-            params![user_id, group_id],
-            |row| row.get(0),
-        ).ok()?;
+        let raw: String = conn
+            .query_row(
+                "SELECT state_json FROM group_task_state WHERE user_id = ?1 AND group_id = ?2",
+                params![user_id, group_id],
+                |row| row.get(0),
+            )
+            .ok()?;
         serde_json::from_str(&raw).ok()
     }
 
@@ -3264,9 +3543,71 @@ impl Database {
                 state_json = excluded.state_json,
                 updated_at = datetime('now')",
             params![group_id, user_id, raw],
-        ).expect("failed to upsert group task state");
+        )
+        .expect("failed to upsert group task state");
         index_group_task_state(&conn, user_id, group_id, state);
         state.clone()
+    }
+
+    pub fn upsert_group_task_state_with_events(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        state: &serde_json::Value,
+        events: &[CortexTaskStateEvent],
+        chat_attachment: Option<(&str, &str)>,
+    ) -> Result<serde_json::Value, String> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn
+            .transaction()
+            .map_err(|err| format!("failed to begin task state transaction: {err}"))?;
+        let raw = serde_json::to_string(state).unwrap_or_else(|_| "{}".to_string());
+        tx.execute(
+            "INSERT INTO group_task_state (group_id, user_id, state_json, updated_at)
+             VALUES (?1, ?2, ?3, datetime('now'))
+             ON CONFLICT(group_id, user_id) DO UPDATE SET
+                state_json = excluded.state_json,
+                updated_at = datetime('now')",
+            params![group_id, user_id, raw],
+        )
+        .map_err(|err| format!("failed to upsert group task state: {err}"))?;
+
+        index_group_task_state_checked(&tx, user_id, group_id, state)
+            .map_err(|err| format!("failed to index group task state: {err}"))?;
+
+        for event in events {
+            try_insert_operations_event(
+                &tx,
+                Some(user_id),
+                Some(group_id),
+                None,
+                event.task_id.as_deref(),
+                None,
+                None,
+                None,
+                &event.event_type,
+                &event.entity_type,
+                &event.entity_id,
+                &event.payload,
+            )
+            .map_err(|err| format!("failed to record task state event: {err}"))?;
+        }
+
+        if let Some((task_id, conversation_id)) = chat_attachment {
+            attach_cortex_task_chat_tx_checked(
+                &tx,
+                user_id,
+                group_id,
+                task_id,
+                conversation_id,
+                None,
+            )
+            .map_err(|err| format!("failed to attach task chat: {err}"))?;
+        }
+
+        tx.commit()
+            .map_err(|err| format!("failed to commit task state transaction: {err}"))?;
+        Ok(state.clone())
     }
 
     pub fn cortex_task_exists(&self, user_id: &str, group_id: &str, task_id: &str) -> bool {
@@ -3275,7 +3616,8 @@ impl Database {
             "SELECT 1 FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2 AND id = ?3",
             params![user_id, group_id, task_id],
             |_| Ok(()),
-        ).is_ok()
+        )
+        .is_ok()
     }
 
     pub fn cortex_task_has_evidence_backed_completion(
@@ -3292,17 +3634,12 @@ impl Database {
                 params![user_id, group_id, task_id],
                 |row| row.get::<_, Option<String>>(0),
             )
-            .ok() else {
-                return false;
-            };
-        cortex_completion_gate(
-            &conn,
-            user_id,
-            group_id,
-            task_id,
-            latest_run_id.as_deref(),
-        )
-        .gated_done
+            .ok()
+        else {
+            return false;
+        };
+        cortex_completion_gate(&conn, user_id, group_id, task_id, latest_run_id.as_deref())
+            .gated_done
     }
 
     pub fn record_cortex_task_event(
@@ -3352,6 +3689,17 @@ impl Database {
             group_id,
             payload,
         );
+    }
+
+    pub fn attach_cortex_task_chat(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        task_id: &str,
+        conversation_id: &str,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        attach_cortex_task_chat_tx(&conn, user_id, group_id, task_id, conversation_id, None)
     }
 
     pub fn record_deployment_event(
@@ -3427,7 +3775,11 @@ impl Database {
             _ => "normal",
         };
         let ask_type = ask_type.trim();
-        let ask_type = if ask_type.is_empty() { "approval" } else { ask_type };
+        let ask_type = if ask_type.is_empty() {
+            "approval"
+        } else {
+            ask_type
+        };
         conn.execute(
             "INSERT INTO cortex_approval_requests (
                 id, user_id, group_id, task_id, step_id, conversation_id, run_id, ask_type, status,
@@ -3449,7 +3801,8 @@ impl Database {
                 requested_by.trim(),
                 now,
             ],
-        ).expect("failed to create cortex approval request");
+        )
+        .expect("failed to create cortex approval request");
 
         insert_operations_event(
             &conn,
@@ -3487,32 +3840,37 @@ impl Database {
         requested_by: &str,
     ) -> Option<CortexApprovalRequest> {
         let conn = self.conn.lock().unwrap();
-        if let Some((id, group_id)) = conn.query_row(
-            "SELECT id, group_id FROM cortex_approval_requests
+        if let Some((id, group_id)) = conn
+            .query_row(
+                "SELECT id, group_id FROM cortex_approval_requests
              WHERE user_id = ?1 AND step_id = ?2 AND ask_type = ?3 AND status = 'pending'
              ORDER BY updated_at DESC, id DESC
              LIMIT 1",
-            params![user_id, step_id, ask_type],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-        ).ok() {
+                params![user_id, step_id, ask_type],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .ok()
+        {
             return self.approval_request_from_row(&conn, user_id, &group_id, &id);
         }
 
-        let context = conn.query_row(
-            "SELECT r.group_id, r.task_id, r.conversation_id, r.id
+        let context = conn
+            .query_row(
+                "SELECT r.group_id, r.task_id, r.conversation_id, r.id
              FROM steps s
              JOIN runs r ON r.id = s.run_id
              WHERE s.id = ?1 AND r.user_id = ?2",
-            params![step_id, user_id],
-            |row| {
-                Ok((
-                    row.get::<_, Option<String>>(0)?,
-                    row.get::<_, Option<String>>(1)?,
-                    row.get::<_, Option<String>>(2)?,
-                    row.get::<_, String>(3)?,
-                ))
-            },
-        ).ok()?;
+                params![step_id, user_id],
+                |row| {
+                    Ok((
+                        row.get::<_, Option<String>>(0)?,
+                        row.get::<_, Option<String>>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                        row.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .ok()?;
         let (Some(group_id), task_id, conversation_id, run_id) = context else {
             return None;
         };
@@ -3541,7 +3899,8 @@ impl Database {
              LIMIT 1",
             params![user_id, step_id],
             |_| Ok(()),
-        ).is_ok()
+        )
+        .is_ok()
     }
 
     pub fn has_approved_cortex_step_approval(
@@ -3557,7 +3916,8 @@ impl Database {
              LIMIT 1",
             params![user_id, step_id, ask_type],
             |_| Ok(()),
-        ).is_ok()
+        )
+        .is_ok()
     }
 
     pub fn latest_cortex_step_approval_status(
@@ -3574,7 +3934,8 @@ impl Database {
              LIMIT 1",
             params![user_id, step_id, ask_type],
             |row| Ok((row.get(0)?, row.get(1)?)),
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn list_cortex_approval_requests(
@@ -3588,28 +3949,42 @@ impl Database {
         let limit = limit.clamp(1, 100) as i64;
         let mut requests = Vec::new();
         if let Some(status) = status {
-            let mut stmt = conn.prepare(
-                "SELECT id FROM cortex_approval_requests
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id FROM cortex_approval_requests
                  WHERE user_id = ?1 AND group_id = ?2 AND status = ?3
                  ORDER BY updated_at DESC, id DESC
                  LIMIT ?4",
-            ).unwrap();
-            let rows = stmt.query_map(params![user_id, group_id, status, limit], |row| row.get::<_, String>(0)).unwrap();
+                )
+                .unwrap();
+            let rows = stmt
+                .query_map(params![user_id, group_id, status, limit], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap();
             for id in rows.filter_map(|row| row.ok()) {
-                if let Some(request) = self.approval_request_from_row(&conn, user_id, group_id, &id) {
+                if let Some(request) = self.approval_request_from_row(&conn, user_id, group_id, &id)
+                {
                     requests.push(request);
                 }
             }
         } else {
-            let mut stmt = conn.prepare(
-                "SELECT id FROM cortex_approval_requests
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id FROM cortex_approval_requests
                  WHERE user_id = ?1 AND group_id = ?2
                  ORDER BY updated_at DESC, id DESC
                  LIMIT ?3",
-            ).unwrap();
-            let rows = stmt.query_map(params![user_id, group_id, limit], |row| row.get::<_, String>(0)).unwrap();
+                )
+                .unwrap();
+            let rows = stmt
+                .query_map(params![user_id, group_id, limit], |row| {
+                    row.get::<_, String>(0)
+                })
+                .unwrap();
             for id in rows.filter_map(|row| row.ok()) {
-                if let Some(request) = self.approval_request_from_row(&conn, user_id, group_id, &id) {
+                if let Some(request) = self.approval_request_from_row(&conn, user_id, group_id, &id)
+                {
                     requests.push(request);
                 }
             }
@@ -3632,12 +4007,15 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let decision_json = serde_json::to_string(decision).unwrap_or_else(|_| "{}".to_string());
-        let updated = conn.execute(
-            "UPDATE cortex_approval_requests
+        let updated = conn
+            .execute(
+                "UPDATE cortex_approval_requests
              SET status = ?1, decision_json = ?2, updated_at = ?3, resolved_at = ?3
              WHERE user_id = ?4 AND group_id = ?5 AND id = ?6 AND status = 'pending'",
-            params![status, decision_json, now, user_id, group_id, request_id],
-        ).ok()? > 0;
+                params![status, decision_json, now, user_id, group_id, request_id],
+            )
+            .ok()?
+            > 0;
         if !updated {
             return None;
         }
@@ -3693,14 +4071,14 @@ impl Database {
                     body: row.get(9)?,
                     priority: row.get(10)?,
                     requested_by: row.get(11)?,
-                    decision: decision_json
-                        .and_then(|raw| serde_json::from_str(&raw).ok()),
+                    decision: decision_json.and_then(|raw| serde_json::from_str(&raw).ok()),
                     created_at: row.get(13)?,
                     updated_at: row.get(14)?,
                     resolved_at: row.get(15)?,
                 })
             },
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn get_cortex_task_projection(
@@ -3757,13 +4135,8 @@ impl Database {
             )
             .ok()?;
         let source = serde_json::from_str(&source_json).unwrap_or_else(|_| serde_json::json!({}));
-        let completion_gate = cortex_completion_gate(
-            &conn,
-            user_id,
-            group_id,
-            task_id,
-            latest_run_id.as_deref(),
-        );
+        let completion_gate =
+            cortex_completion_gate(&conn, user_id, group_id, task_id, latest_run_id.as_deref());
         let completion = completion_gate.to_json(status == "done");
 
         let mut runs_stmt = conn
@@ -3866,7 +4239,9 @@ impl Database {
             )
             .unwrap();
         let approval_ids = approvals_stmt
-            .query_map(params![user_id, group_id, task_id], |row| row.get::<_, String>(0))
+            .query_map(params![user_id, group_id, task_id], |row| {
+                row.get::<_, String>(0)
+            })
             .unwrap()
             .filter_map(|row| row.ok())
             .collect::<Vec<_>>();
@@ -3940,7 +4315,8 @@ impl Database {
         let mut task_done_without_evidence = 0;
         let mut attention: Vec<serde_json::Value> = Vec::new();
 
-        for (task_id, title, status, priority, latest_run_id, source_json, updated_at) in &task_rows {
+        for (task_id, title, status, priority, latest_run_id, source_json, updated_at) in &task_rows
+        {
             match status.as_str() {
                 "created" => task_created += 1,
                 "assigned" => task_assigned += 1,
@@ -4001,7 +4377,10 @@ impl Database {
             let source = serde_json::from_str::<serde_json::Value>(source_json)
                 .unwrap_or_else(|_| serde_json::json!({}));
             let assignee = source.get("assigneeId").and_then(|value| value.as_str());
-            if assignee.map(|value| value.trim().is_empty()).unwrap_or(true) {
+            if assignee
+                .map(|value| value.trim().is_empty())
+                .unwrap_or(true)
+            {
                 task_unassigned += 1;
             }
         }
@@ -4140,6 +4519,7 @@ impl Database {
         let mut approvals_pending = 0;
         let mut approvals_approved = 0;
         let mut approvals_rejected = 0;
+        let mut approvals_cancelled = 0;
         for (approval_id, task_id, run_id, status, title, priority, updated_at) in &approval_rows {
             match status.as_str() {
                 "pending" => {
@@ -4159,13 +4539,14 @@ impl Database {
                 }
                 "approved" => approvals_approved += 1,
                 "rejected" => approvals_rejected += 1,
+                "cancelled" => approvals_cancelled += 1,
                 _ => {}
             }
         }
 
         let mut leases_stmt = conn
             .prepare(
-                "SELECT id, user_id, group_id, task_id, run_id, step_id, holder_type,
+                "SELECT id, user_id, authority_scope_id, group_id, task_id, run_id, step_id, holder_type,
                         resource_type, repo_key, resource_key, mode, status, lease_gen,
                         acquired_at, expires_at, released_at, reason, metadata_json
                  FROM resource_leases
@@ -4204,6 +4585,7 @@ impl Database {
                     attention.push(serde_json::json!({
                         "kind": "stale_resource_lease",
                         "lease_id": lease.id,
+                        "authority_scope_id": lease.authority_scope_id,
                         "task_id": lease.task_id,
                         "run_id": lease.run_id,
                         "step_id": lease.step_id,
@@ -4216,6 +4598,7 @@ impl Database {
                 }
                 serde_json::json!({
                     "id": lease.id,
+                    "authority_scope_id": lease.authority_scope_id,
                     "group_id": lease.group_id,
                     "task_id": lease.task_id,
                     "run_id": lease.run_id,
@@ -4316,6 +4699,7 @@ impl Database {
                 "pending": approvals_pending,
                 "approved": approvals_approved,
                 "rejected": approvals_rejected,
+                "cancelled": approvals_cancelled,
             },
             "resource_leases": {
                 "active": active_resource_leases.len(),
@@ -4332,6 +4716,624 @@ impl Database {
                 "leases": active_resource_lease_summaries,
             },
             "attention": attention,
+            "recent_events": recent_events,
+        })
+    }
+
+    pub fn get_group_operations_graph(
+        &self,
+        user_id: &str,
+        group_id: &str,
+        event_limit: usize,
+    ) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let generated_at = Utc::now().timestamp_millis();
+        let mut nodes: Vec<serde_json::Value> = Vec::new();
+        let mut edges: Vec<serde_json::Value> = Vec::new();
+
+        let mut tasks_stmt = conn
+            .prepare(
+                "SELECT id, title, status, priority, conversation_id, latest_run_id,
+                        source_json, created_at, updated_at, version
+                 FROM cortex_tasks
+                 WHERE user_id = ?1 AND group_id = ?2
+                 ORDER BY updated_at DESC, id ASC",
+            )
+            .unwrap();
+        let task_rows = tasks_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, Option<String>>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, i64>(9)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+
+        for (
+            task_id,
+            title,
+            status,
+            priority,
+            conversation_id,
+            latest_run_id,
+            source_json,
+            created_at,
+            updated_at,
+            version,
+        ) in &task_rows
+        {
+            let source =
+                serde_json::from_str(source_json).unwrap_or_else(|_| serde_json::json!({}));
+            let completion =
+                cortex_completion_gate(&conn, user_id, group_id, task_id, latest_run_id.as_deref())
+                    .to_json(status == "done");
+            nodes.push(serde_json::json!({
+                "id": format!("task:{task_id}"),
+                "type": "task",
+                "entity_id": task_id,
+                "group_id": group_id,
+                "label": title,
+                "status": status,
+                "priority": priority,
+                "conversation_id": conversation_id,
+                "latest_run_id": latest_run_id,
+                "source": source,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "version": version,
+                "completion": completion,
+            }));
+
+            if let Some(conversation_id) = conversation_id {
+                edges.push(serde_json::json!({
+                    "id": format!("task:{task_id}->chat:{conversation_id}"),
+                    "from": format!("task:{task_id}"),
+                    "to": format!("chat:{conversation_id}"),
+                    "type": "task_chat",
+                }));
+            }
+        }
+
+        let mut runs_stmt = conn
+            .prepare(
+                "SELECT id, goal, status, profile, created_at, updated_at, started_at, finished_at,
+                        heal_attempts, task_id, conversation_id, repo_key, authority_scope_id
+                 FROM runs
+                 WHERE user_id = ?1 AND group_id = ?2
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT 100",
+            )
+            .unwrap();
+        let run_rows = runs_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, i64>(4)?,
+                    row.get::<_, i64>(5)?,
+                    row.get::<_, Option<i64>>(6)?,
+                    row.get::<_, Option<i64>>(7)?,
+                    row.get::<_, i32>(8)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, Option<String>>(10)?,
+                    row.get::<_, Option<String>>(11)?,
+                    row.get::<_, Option<String>>(12)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+        let run_ids = run_rows
+            .iter()
+            .map(|(run_id, ..)| run_id.clone())
+            .collect::<HashSet<_>>();
+
+        for (
+            run_id,
+            goal,
+            status,
+            profile,
+            created_at,
+            updated_at,
+            started_at,
+            finished_at,
+            heal_attempts,
+            task_id,
+            conversation_id,
+            repo_key,
+            authority_scope_id,
+        ) in &run_rows
+        {
+            nodes.push(serde_json::json!({
+                "id": format!("run:{run_id}"),
+                "type": "run",
+                "entity_id": run_id,
+                "group_id": group_id,
+                "task_id": task_id,
+                "conversation_id": conversation_id,
+                "label": goal,
+                "status": status,
+                "profile": profile,
+                "repo_key": repo_key,
+                "authority_scope_id": authority_scope_id,
+                "heal_attempts": heal_attempts,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "started_at": started_at,
+                "finished_at": finished_at,
+            }));
+            if let Some(task_id) = task_id {
+                edges.push(serde_json::json!({
+                    "id": format!("task:{task_id}->run:{run_id}"),
+                    "from": format!("task:{task_id}"),
+                    "to": format!("run:{run_id}"),
+                    "type": "task_run",
+                }));
+            }
+            if let Some(conversation_id) = conversation_id {
+                edges.push(serde_json::json!({
+                    "id": format!("chat:{conversation_id}->run:{run_id}"),
+                    "from": format!("chat:{conversation_id}"),
+                    "to": format!("run:{run_id}"),
+                    "type": "chat_run",
+                }));
+            }
+        }
+
+        let mut chats_stmt = conn
+            .prepare(
+                "SELECT DISTINCT c.id, c.title, c.created_at, c.updated_at
+                 FROM cortex_task_chats tc
+                 JOIN conversations c ON c.id = tc.conversation_id AND c.user_id = tc.user_id
+                 WHERE tc.user_id = ?1 AND tc.group_id = ?2
+                 ORDER BY c.updated_at DESC, c.id ASC
+                 LIMIT 100",
+            )
+            .unwrap();
+        let chat_rows = chats_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+        for (conversation_id, title, created_at, updated_at) in chat_rows {
+            nodes.push(serde_json::json!({
+                "id": format!("chat:{conversation_id}"),
+                "type": "chat",
+                "entity_id": conversation_id,
+                "group_id": group_id,
+                "label": title.as_deref().unwrap_or("Project Chat"),
+                "title": title,
+                "created_at": created_at,
+                "updated_at": updated_at,
+            }));
+        }
+
+        let mut steps_stmt = conn
+            .prepare(
+                "SELECT s.id, s.run_id, r.task_id, s.status, s.kind, s.work_kind, s.tier, s.risk,
+                        s.objective, s.attempt_count, s.max_attempts, s.lease_gen,
+                        s.lease_deadline, s.assigned_worker, s.verification_status,
+                        s.verifier_report_id, s.updated_at
+                 FROM steps s
+                 JOIN runs r ON r.id = s.run_id
+                 WHERE r.user_id = ?1 AND r.group_id = ?2
+                 ORDER BY r.created_at DESC, s.created_at ASC, s.id ASC
+                 LIMIT 500",
+            )
+            .unwrap();
+        let step_rows = steps_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, i64>(9)?,
+                    row.get::<_, i64>(10)?,
+                    row.get::<_, i64>(11)?,
+                    row.get::<_, Option<i64>>(12)?,
+                    row.get::<_, Option<String>>(13)?,
+                    row.get::<_, String>(14)?,
+                    row.get::<_, Option<String>>(15)?,
+                    row.get::<_, i64>(16)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+        let step_ids = step_rows
+            .iter()
+            .map(|(step_id, ..)| step_id.clone())
+            .collect::<HashSet<_>>();
+
+        for (
+            step_id,
+            run_id,
+            task_id,
+            status,
+            kind,
+            work_kind,
+            tier,
+            risk,
+            objective,
+            attempt_count,
+            max_attempts,
+            lease_gen,
+            lease_deadline,
+            assigned_worker,
+            verification_status,
+            verifier_report_id,
+            updated_at,
+        ) in &step_rows
+        {
+            let lease_stale = lease_deadline
+                .map(|deadline| {
+                    matches!(status.as_str(), "leased" | "running") && deadline < generated_at
+                })
+                .unwrap_or(false);
+            nodes.push(serde_json::json!({
+                "id": format!("step:{step_id}"),
+                "type": "step",
+                "entity_id": step_id,
+                "group_id": group_id,
+                "task_id": task_id,
+                "run_id": run_id,
+                "label": objective,
+                "status": status,
+                "kind": kind,
+                "work_kind": work_kind,
+                "tier": tier,
+                "risk": risk,
+                "attempt_count": attempt_count,
+                "max_attempts": max_attempts,
+                "lease_gen": lease_gen,
+                "lease_deadline": lease_deadline,
+                "assigned_worker": assigned_worker,
+                "lease_stale": lease_stale,
+                "verification_status": verification_status,
+                "verifier_report_id": verifier_report_id,
+                "updated_at": updated_at,
+            }));
+            edges.push(serde_json::json!({
+                "id": format!("run:{run_id}->step:{step_id}"),
+                "from": format!("run:{run_id}"),
+                "to": format!("step:{step_id}"),
+                "type": "run_step",
+            }));
+        }
+
+        let mut dependency_stmt = conn
+            .prepare(
+                "SELECT sd.depends_on_id, sd.step_id, sd.edge_type
+                 FROM step_dependencies sd
+                 JOIN steps s ON s.id = sd.step_id
+                 JOIN runs r ON r.id = s.run_id
+                 WHERE r.user_id = ?1 AND r.group_id = ?2
+                 ORDER BY sd.depends_on_id ASC, sd.step_id ASC",
+            )
+            .unwrap();
+        for (depends_on_id, step_id, edge_type) in dependency_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+        {
+            edges.push(serde_json::json!({
+                "id": format!("step:{depends_on_id}->step:{step_id}:{edge_type}"),
+                "from": format!("step:{depends_on_id}"),
+                "to": format!("step:{step_id}"),
+                "type": "step_dependency",
+                "edge_type": edge_type,
+            }));
+        }
+
+        let mut seen_evidence_steps = HashSet::new();
+        let mut verifier_stmt = conn
+            .prepare(
+                "SELECT vr.id, vr.step_id, vr.run_id, vr.lease_gen, vr.worker_id, vr.verifier,
+                        vr.status, vr.verdict, vr.created_at, vr.updated_at
+                 FROM verifier_reports vr
+                 JOIN runs r ON r.id = vr.run_id
+                 WHERE r.user_id = ?1 AND r.group_id = ?2
+                 ORDER BY vr.step_id ASC, vr.created_at DESC, vr.id DESC",
+            )
+            .unwrap();
+        for (
+            report_id,
+            step_id,
+            run_id,
+            lease_gen,
+            worker_id,
+            verifier,
+            status,
+            verdict,
+            created_at,
+            updated_at,
+        ) in verifier_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, i64>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, i64>(8)?,
+                    row.get::<_, i64>(9)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+        {
+            if !seen_evidence_steps.insert(step_id.clone()) {
+                continue;
+            }
+            nodes.push(serde_json::json!({
+                "id": format!("evidence:{report_id}"),
+                "type": "evidence",
+                "entity_id": report_id,
+                "group_id": group_id,
+                "step_id": step_id,
+                "run_id": run_id,
+                "label": format!("{verifier} {verdict}"),
+                "status": status,
+                "verdict": verdict,
+                "verifier": verifier,
+                "worker_id": worker_id,
+                "lease_gen": lease_gen,
+                "created_at": created_at,
+                "updated_at": updated_at,
+            }));
+            edges.push(serde_json::json!({
+                "id": format!("step:{step_id}->evidence:{report_id}"),
+                "from": format!("step:{step_id}"),
+                "to": format!("evidence:{report_id}"),
+                "type": "step_evidence",
+            }));
+        }
+
+        let mut approvals_stmt = conn
+            .prepare(
+                "SELECT id, task_id, step_id, conversation_id, run_id, ask_type, status, title,
+                        priority, requested_by, created_at, updated_at, resolved_at
+                 FROM cortex_approval_requests
+                 WHERE user_id = ?1 AND group_id = ?2
+                 ORDER BY updated_at DESC, id DESC
+                 LIMIT 100",
+            )
+            .unwrap();
+        for (
+            approval_id,
+            task_id,
+            step_id,
+            conversation_id,
+            run_id,
+            ask_type,
+            status,
+            title,
+            priority,
+            requested_by,
+            created_at,
+            updated_at,
+            resolved_at,
+        ) in approvals_stmt
+            .query_map(params![user_id, group_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, Option<String>>(1)?,
+                    row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
+                    row.get::<_, String>(5)?,
+                    row.get::<_, String>(6)?,
+                    row.get::<_, String>(7)?,
+                    row.get::<_, String>(8)?,
+                    row.get::<_, String>(9)?,
+                    row.get::<_, i64>(10)?,
+                    row.get::<_, i64>(11)?,
+                    row.get::<_, Option<i64>>(12)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+        {
+            nodes.push(serde_json::json!({
+                "id": format!("approval:{approval_id}"),
+                "type": "approval",
+                "entity_id": approval_id,
+                "group_id": group_id,
+                "task_id": task_id,
+                "step_id": step_id,
+                "conversation_id": conversation_id,
+                "run_id": run_id,
+                "label": title,
+                "ask_type": ask_type,
+                "status": status,
+                "priority": priority,
+                "requested_by": requested_by,
+                "created_at": created_at,
+                "updated_at": updated_at,
+                "resolved_at": resolved_at,
+            }));
+            if let Some(task_id) = task_id.as_deref() {
+                edges.push(serde_json::json!({
+                    "id": format!("task:{task_id}->approval:{approval_id}"),
+                    "from": format!("task:{task_id}"),
+                    "to": format!("approval:{approval_id}"),
+                    "type": "task_approval",
+                }));
+            }
+            if let Some(run_id) = run_id.as_deref() {
+                edges.push(serde_json::json!({
+                    "id": format!("run:{run_id}->approval:{approval_id}"),
+                    "from": format!("run:{run_id}"),
+                    "to": format!("approval:{approval_id}"),
+                    "type": "run_approval",
+                }));
+            }
+            if let Some(step_id) = step_id.as_deref() {
+                edges.push(serde_json::json!({
+                    "id": format!("step:{step_id}->approval:{approval_id}"),
+                    "from": format!("step:{step_id}"),
+                    "to": format!("approval:{approval_id}"),
+                    "type": "step_approval",
+                }));
+            }
+        }
+
+        let mut leases_stmt = conn
+            .prepare(
+                "SELECT id, user_id, authority_scope_id, group_id, task_id, run_id, step_id, holder_type,
+                        resource_type, repo_key, resource_key, mode, status, lease_gen,
+                        acquired_at, expires_at, released_at, reason, metadata_json
+                 FROM resource_leases
+                 WHERE user_id = ?1 AND group_id = ?2 AND status = 'active'
+                 ORDER BY acquired_at DESC, id DESC
+                 LIMIT 100",
+            )
+            .unwrap();
+        for lease in leases_stmt
+            .query_map(params![user_id, group_id], resource_lease_from_row)
+            .unwrap()
+            .filter_map(|row| row.ok())
+        {
+            nodes.push(serde_json::json!({
+                "id": format!("resource_lease:{}", lease.id),
+                "type": "resource_lease",
+                "entity_id": lease.id,
+                "authority_scope_id": lease.authority_scope_id,
+                "group_id": lease.group_id,
+                "task_id": lease.task_id,
+                "run_id": lease.run_id,
+                "step_id": lease.step_id,
+                "label": format!("{}:{} {}", lease.resource_type, lease.resource_key, lease.mode),
+                "holder_type": lease.holder_type,
+                "resource_type": lease.resource_type,
+                "repo_key": lease.repo_key,
+                "resource_key": lease.resource_key,
+                "mode": lease.mode,
+                "status": lease.status,
+                "lease_gen": lease.lease_gen,
+                "acquired_at": lease.acquired_at,
+                "expires_at": lease.expires_at,
+                "seconds_until_expiry": ((lease.expires_at - generated_at).max(0)) / 1000,
+                "reason": lease.reason,
+                "metadata": lease.metadata,
+            }));
+            let from = lease
+                .step_id
+                .as_ref()
+                .map(|step_id| format!("step:{step_id}"))
+                .unwrap_or_else(|| format!("run:{}", lease.run_id));
+            edges.push(serde_json::json!({
+                "id": format!("{}->resource_lease:{}", from, lease.id),
+                "from": from,
+                "to": format!("resource_lease:{}", lease.id),
+                "type": "resource_lease",
+            }));
+        }
+
+        let event_limit = event_limit.clamp(1, 250) as i64;
+        let mut events_stmt = conn
+            .prepare(
+                "SELECT id, created_at, actor_user_id, scope_id, project_id, task_id, run_id,
+                        step_id, attempt_id, event_type, entity_type, entity_id, payload_json
+                 FROM operations_events
+                 WHERE scope_id = ?1
+                    AND (actor_user_id = ?2 OR actor_user_id IS NULL)
+                 ORDER BY created_at DESC, id DESC
+                 LIMIT ?3",
+            )
+            .unwrap();
+        let recent_events = events_stmt
+            .query_map(params![group_id, user_id, event_limit], |row| {
+                let payload_json: String = row.get(12)?;
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "created_at": row.get::<_, i64>(1)?,
+                    "actor_user_id": row.get::<_, Option<String>>(2)?,
+                    "scope_id": row.get::<_, Option<String>>(3)?,
+                    "project_id": row.get::<_, Option<String>>(4)?,
+                    "task_id": row.get::<_, Option<String>>(5)?,
+                    "run_id": row.get::<_, Option<String>>(6)?,
+                    "step_id": row.get::<_, Option<String>>(7)?,
+                    "attempt_id": row.get::<_, Option<String>>(8)?,
+                    "event_type": row.get::<_, String>(9)?,
+                    "entity_type": row.get::<_, String>(10)?,
+                    "entity_id": row.get::<_, String>(11)?,
+                    "payload": serde_json::from_str(&payload_json).unwrap_or_else(|_| serde_json::json!({})),
+                }))
+            })
+            .unwrap()
+            .filter_map(|row| row.ok())
+            .collect::<Vec<_>>();
+
+        nodes.retain(|node| {
+            let node_type = node.get("type").and_then(|value| value.as_str());
+            let run_id = node.get("run_id").and_then(|value| value.as_str());
+            let step_id = node.get("step_id").and_then(|value| value.as_str());
+            match node_type {
+                Some("resource_lease") => run_id.is_some_and(|run_id| run_ids.contains(run_id)),
+                Some("evidence") | Some("approval") => {
+                    run_id
+                        .map(|run_id| run_ids.contains(run_id))
+                        .unwrap_or(true)
+                        && step_id
+                            .map(|step_id| step_ids.contains(step_id))
+                            .unwrap_or(true)
+                }
+                _ => true,
+            }
+        });
+        let node_ids = nodes
+            .iter()
+            .filter_map(|node| node.get("id").and_then(|value| value.as_str()))
+            .map(str::to_string)
+            .collect::<HashSet<_>>();
+        edges.retain(|edge| {
+            let from = edge.get("from").and_then(|value| value.as_str());
+            let to = edge.get("to").and_then(|value| value.as_str());
+            from.is_some_and(|from| node_ids.contains(from))
+                && to.is_some_and(|to| node_ids.contains(to))
+        });
+
+        serde_json::json!({
+            "group_id": group_id,
+            "scope": "group",
+            "generated_at": generated_at,
+            "nodes": nodes,
+            "edges": edges,
             "recent_events": recent_events,
         })
     }
@@ -4376,6 +5378,7 @@ impl Database {
         let mut approvals_pending = 0;
         let mut approvals_approved = 0;
         let mut approvals_rejected = 0;
+        let mut approvals_cancelled = 0;
         let mut resource_leases_active = 0;
         let mut resource_leases_path = 0;
         let mut resource_leases_task = 0;
@@ -4427,6 +5430,7 @@ impl Database {
             approvals_pending += json_i64(&summary, &["approvals", "pending"]);
             approvals_approved += json_i64(&summary, &["approvals", "approved"]);
             approvals_rejected += json_i64(&summary, &["approvals", "rejected"]);
+            approvals_cancelled += json_i64(&summary, &["approvals", "cancelled"]);
             resource_leases_active += json_i64(&summary, &["resource_leases", "active"]);
             resource_leases_path += json_i64(&summary, &["resource_leases", "by_type", "path"]);
             resource_leases_task += json_i64(&summary, &["resource_leases", "by_type", "task"]);
@@ -4514,6 +5518,7 @@ impl Database {
                 "pending": approvals_pending,
                 "approved": approvals_approved,
                 "rejected": approvals_rejected,
+                "cancelled": approvals_cancelled,
             },
             "resource_leases": {
                 "active": resource_leases_active,
@@ -4541,7 +5546,8 @@ impl Database {
             "SELECT 1 FROM conversations WHERE user_id = ?1 AND id = ?2",
             params![user_id, conversation_id],
             |_| Ok(()),
-        ).is_ok()
+        )
+        .is_ok()
     }
 
     // --- Integrations ---
@@ -4629,7 +5635,8 @@ impl Database {
              ORDER BY updated_at DESC LIMIT 1",
             params![user_id, provider],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn list_integration_connections(&self, user_id: &str) -> Vec<IntegrationConnection> {
@@ -4649,13 +5656,17 @@ impl Database {
                 display_name: row.get(3)?,
                 status: row.get(4)?,
                 scopes: serde_json::from_str(&scopes_raw).unwrap_or_default(),
-                metadata: serde_json::from_str(&metadata_raw).unwrap_or_else(|_| serde_json::json!({})),
+                metadata: serde_json::from_str(&metadata_raw)
+                    .unwrap_or_else(|_| serde_json::json!({})),
                 last_sync_at: row.get(7)?,
                 last_error: row.get(8)?,
                 created_at: row.get(9)?,
                 updated_at: row.get(10)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn upsert_integration_mapping(
@@ -4712,11 +5723,15 @@ impl Database {
                 external_id: row.get(3)?,
                 external_name: row.get(4)?,
                 mapping_type: row.get(5)?,
-                metadata: serde_json::from_str(&metadata_raw).unwrap_or_else(|_| serde_json::json!({})),
+                metadata: serde_json::from_str(&metadata_raw)
+                    .unwrap_or_else(|_| serde_json::json!({})),
                 created_at: row.get(7)?,
                 updated_at: row.get(8)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn record_integration_event(
@@ -4737,7 +5752,13 @@ impl Database {
         );
     }
 
-    pub fn store_oauth_state(&self, user_id: &str, provider: &str, state: &str, redirect_after: Option<&str>) {
+    pub fn store_oauth_state(
+        &self,
+        user_id: &str,
+        provider: &str,
+        state: &str,
+        redirect_after: Option<&str>,
+    ) {
         let conn = self.conn.lock().unwrap();
         let expires_at = (Utc::now() + chrono::Duration::minutes(10)).to_rfc3339();
         let _ = conn.execute(
@@ -4747,15 +5768,24 @@ impl Database {
         );
     }
 
-    pub fn consume_oauth_state(&self, provider: &str, state: &str) -> Option<(String, Option<String>)> {
+    pub fn consume_oauth_state(
+        &self,
+        provider: &str,
+        state: &str,
+    ) -> Option<(String, Option<String>)> {
         let conn = self.conn.lock().unwrap();
-        let row = conn.query_row(
-            "SELECT user_id, redirect_after FROM integration_oauth_states
+        let row = conn
+            .query_row(
+                "SELECT user_id, redirect_after FROM integration_oauth_states
              WHERE provider = ?1 AND state = ?2 AND expires_at > datetime('now')",
-            params![provider, state],
-            |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
-        ).ok();
-        let _ = conn.execute("DELETE FROM integration_oauth_states WHERE state = ?1", params![state]);
+                params![provider, state],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, Option<String>>(1)?)),
+            )
+            .ok();
+        let _ = conn.execute(
+            "DELETE FROM integration_oauth_states WHERE state = ?1",
+            params![state],
+        );
         row
     }
 
@@ -4776,7 +5806,8 @@ impl Database {
         conn.execute(
             "UPDATE workers SET last_seen = ?1 WHERE id = ?2",
             params![now, worker_id],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn set_worker_status(&self, worker_id: &str, status: &str) {
@@ -4784,7 +5815,8 @@ impl Database {
         conn.execute(
             "UPDATE workers SET status = ?1 WHERE id = ?2",
             params![status, worker_id],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn upsert_provider_capability(
@@ -4808,7 +5840,13 @@ impl Database {
 
     // --- Runs ---
 
-    pub fn create_run(&self, user_id: &str, goal: &str, profile: &str, file_paths: &[String]) -> String {
+    pub fn create_run(
+        &self,
+        user_id: &str,
+        goal: &str,
+        profile: &str,
+        file_paths: &[String],
+    ) -> String {
         self.create_run_with_metadata(user_id, goal, profile, file_paths, None, None, None)
     }
 
@@ -4822,7 +5860,7 @@ impl Database {
         group_id: Option<&str>,
         conversation_id: Option<&str>,
     ) -> String {
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
         let file_paths_json = if file_paths.is_empty() {
@@ -4830,14 +5868,18 @@ impl Database {
         } else {
             serde_json::to_string(file_paths).ok()
         };
-        conn.execute(
+        let tx = conn
+            .transaction()
+            .expect("failed to begin create run transaction");
+        tx.execute(
             "INSERT INTO runs (id, user_id, goal, status, profile, file_paths, task_id, group_id, conversation_id, created_at, updated_at)
              VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
             params![id, user_id, goal, profile, file_paths_json, task_id, group_id, conversation_id, now],
         ).expect("failed to create run");
-        attach_run_to_cortex_task(&conn, user_id, group_id, task_id, conversation_id, &id);
-        insert_operations_event(
-            &conn,
+        attach_run_to_cortex_task_tx_checked(&tx, user_id, group_id, task_id, conversation_id, &id)
+            .expect("failed to attach run to cortex task");
+        try_insert_operations_event(
+            &tx,
             Some(user_id),
             group_id,
             None,
@@ -4856,7 +5898,10 @@ impl Database {
                 "group_id": group_id,
                 "conversation_id": conversation_id,
             }),
-        );
+        )
+        .expect("failed to record run created event");
+        tx.commit()
+            .expect("failed to commit create run transaction");
         id
     }
 
@@ -4872,7 +5917,16 @@ impl Database {
         task_id: Option<&str>,
         group_id: Option<&str>,
         conversation_id: Option<&str>,
-        steps: &[(String, String, String, Option<String>, String, String, String, i64)], // (id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at)
+        steps: &[(
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+            i64,
+        )], // (id, kind, work_kind, recipe_seed_json, tier, risk, objective, created_at)
         edges: &[(String, String, String)], // (step_id, depends_on_id, edge_type)
     ) -> String {
         self.create_run_with_steps_and_resource_leases(
@@ -4900,7 +5954,16 @@ impl Database {
         group_id: Option<&str>,
         conversation_id: Option<&str>,
         resource_leases: &[ResourceLeaseRequest],
-        steps: &[(String, String, String, Option<String>, String, String, String, i64)],
+        steps: &[(
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+            i64,
+        )],
         edges: &[(String, String, String)],
     ) -> Result<String, CreateRunError> {
         self.create_run_with_steps_and_resource_leases_with_authority(
@@ -4928,7 +5991,16 @@ impl Database {
         group_id: Option<&str>,
         conversation_id: Option<&str>,
         resource_leases: &[ResourceLeaseRequest],
-        steps: &[(String, String, String, Option<String>, String, String, String, i64)],
+        steps: &[(
+            String,
+            String,
+            String,
+            Option<String>,
+            String,
+            String,
+            String,
+            i64,
+        )],
         edges: &[(String, String, String)],
         authority_context: Option<&serde_json::Value>,
     ) -> Result<String, CreateRunError> {
@@ -4944,9 +6016,15 @@ impl Database {
         conn.execute("BEGIN IMMEDIATE", [])
             .map_err(|err| CreateRunError::Database(err.to_string()))?;
 
+        let repo_key = run_repo_key_from_resource_leases(resource_leases);
+        let authority_scope_id = authority_scope_id_from_context(authority_context);
+        let authority_context_json = authority_context
+            .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string()));
+
         if let Err(err) = acquire_run_resource_leases_tx(
             &conn,
             user_id,
+            authority_scope_id,
             group_id,
             task_id,
             &run_id,
@@ -4958,10 +6036,28 @@ impl Database {
         }
 
         conn.execute(
-            "INSERT INTO runs (id, user_id, goal, status, profile, file_paths, task_id, group_id, conversation_id, created_at, updated_at)
-             VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8, ?9, ?9)",
-            params![run_id, user_id, goal, profile, file_paths_json, task_id, group_id, conversation_id, now],
-        ).expect("failed to create run in batch");
+            "INSERT INTO runs (
+                id, user_id, goal, status, profile, file_paths, task_id, group_id,
+                conversation_id, repo_key, authority_scope_id, authority_context_json,
+                created_at, updated_at
+             )
+             VALUES (?1, ?2, ?3, 'pending', ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?12)",
+            params![
+                run_id,
+                user_id,
+                goal,
+                profile,
+                file_paths_json,
+                task_id,
+                group_id,
+                conversation_id,
+                repo_key,
+                authority_scope_id,
+                authority_context_json,
+                now
+            ],
+        )
+        .expect("failed to create run in batch");
         attach_run_to_cortex_task(&conn, user_id, group_id, task_id, conversation_id, &run_id);
         insert_operations_event(
             &conn,
@@ -5037,10 +6133,22 @@ impl Database {
     pub fn record_run_branch(&self, run_id: &str, branch_name: &str) {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        conn.execute(
-            "UPDATE runs SET branch = ?1, updated_at = ?2 WHERE id = ?3",
-            params![branch_name, now, run_id],
-        ).ok();
+        let rows = conn
+            .execute(
+                "UPDATE runs SET branch = ?1, updated_at = ?2 WHERE id = ?3",
+                params![branch_name, now, run_id],
+            )
+            .unwrap_or(0);
+        if rows > 0 {
+            insert_run_operations_event(
+                &conn,
+                run_id,
+                "run.branch_recorded",
+                &serde_json::json!({
+                    "branch_name": branch_name,
+                }),
+            );
+        }
     }
 
     /// Retrieve the branch name recorded for a run, if any.
@@ -5050,7 +6158,59 @@ impl Database {
             "SELECT branch FROM runs WHERE id = ?1",
             params![run_id],
             |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten()
+        )
+        .ok()
+        .flatten()
+    }
+
+    pub fn get_run_pr_authority_context(
+        &self,
+        run_id: &str,
+        user_id: &str,
+    ) -> Option<RunPrAuthorityContext> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, user_id, repo_key, authority_scope_id, authority_context_json
+             FROM runs
+             WHERE id = ?1 AND user_id = ?2",
+            params![run_id, user_id],
+            |row| {
+                let authority_context_json: Option<String> = row.get(4)?;
+                Ok(RunPrAuthorityContext {
+                    run_id: row.get(0)?,
+                    user_id: row.get(1)?,
+                    repo_key: row.get(2)?,
+                    authority_scope_id: row.get(3)?,
+                    authority_context: authority_context_json
+                        .as_deref()
+                        .and_then(|raw| serde_json::from_str(raw).ok())
+                        .unwrap_or_else(|| serde_json::json!({})),
+                })
+            },
+        )
+        .ok()
+    }
+
+    pub fn run_has_pr_write_lease(&self, run_id: &str, repo_key: Option<&str>) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let mut query = String::from(
+            "SELECT 1 FROM resource_leases
+             WHERE run_id = ?1
+                AND status IN ('active', 'released')
+                AND mode IN ('write', 'exclusive')
+                AND resource_type IN ('repo', 'path')",
+        );
+        if repo_key.is_some() {
+            query.push_str(" AND repo_key = ?2");
+        }
+        query.push_str(" LIMIT 1");
+
+        if let Some(repo_key) = repo_key {
+            conn.query_row(&query, params![run_id, repo_key], |_| Ok(()))
+                .is_ok()
+        } else {
+            conn.query_row(&query, params![run_id], |_| Ok(())).is_ok()
+        }
     }
 
     /// Get the latest head_commit from any completed step in the given run.
@@ -5063,56 +6223,114 @@ impl Database {
              ORDER BY updated_at DESC LIMIT 1",
             params![run_id],
             |row| row.get::<_, String>(0),
-        ).ok()
+        )
+        .ok()
     }
 
     /// Get the file_paths stored for a run (from the original goal decomposition).
     pub fn get_run_file_paths(&self, run_id: &str) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
-        let json: Option<String> = conn.query_row(
-            "SELECT file_paths FROM runs WHERE id = ?1",
-            params![run_id],
-            |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten();
+        let json: Option<String> = conn
+            .query_row(
+                "SELECT file_paths FROM runs WHERE id = ?1",
+                params![run_id],
+                |row| row.get::<_, Option<String>>(0),
+            )
+            .ok()
+            .flatten();
 
         json.and_then(|j| serde_json::from_str::<Vec<String>>(&j).ok())
             .unwrap_or_default()
     }
 
-    pub fn update_run_status(&self, run_id: &str, status: &str, failure_reason: Option<&str>) -> bool {
-        let conn = self.conn.lock().unwrap();
+    pub fn update_run_status(
+        &self,
+        run_id: &str,
+        status: &str,
+        failure_reason: Option<&str>,
+    ) -> bool {
+        let mut conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let finished = if matches!(status, "succeeded" | "failed" | "cancelled") { Some(now) } else { None };
-        let rows = conn.execute(
+        let finished = if matches!(status, "succeeded" | "failed" | "cancelled") {
+            Some(now)
+        } else {
+            None
+        };
+        let tx = match conn.transaction() {
+            Ok(tx) => tx,
+            Err(err) => {
+                tracing::warn!(
+                    run_id = run_id,
+                    status = status,
+                    error = %err,
+                    "failed to begin run status transaction"
+                );
+                return false;
+            }
+        };
+        let rows = match tx.execute(
             "UPDATE runs SET status = ?1, failure_reason = ?2, finished_at = ?3, updated_at = ?4, version = version + 1
              WHERE id = ?5",
             params![status, failure_reason, finished, now, run_id],
-        ).unwrap_or(0);
-        if rows > 0 {
-            let context = run_event_context(&conn, run_id);
-            insert_operations_event(
-                &conn,
-                context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
-                None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
-                Some(run_id),
-                None,
-                None,
-                "run.status_changed",
-                "run",
-                run_id,
-                &serde_json::json!({
-                    "status": status,
-                    "failure_reason": failure_reason,
-                    "finished_at": finished,
-                }),
-            );
-            if finished.is_some() {
-                release_resource_leases_for_run_tx(&conn, run_id, now);
+        ) {
+            Ok(rows) => rows,
+            Err(err) => {
+                tracing::warn!(
+                    run_id = run_id,
+                    status = status,
+                    error = %err,
+                    "failed to update run status"
+                );
+                return false;
             }
+        };
+        if rows == 0 {
+            return false;
         }
-        rows > 0
+
+        let context = run_event_context(&tx, run_id);
+        let result = try_insert_operations_event(
+            &tx,
+            context.as_ref().map(|context| context.user_id.as_str()),
+            context
+                .as_ref()
+                .and_then(|context| context.group_id.as_deref()),
+            None,
+            context
+                .as_ref()
+                .and_then(|context| context.task_id.as_deref()),
+            Some(run_id),
+            None,
+            None,
+            "run.status_changed",
+            "run",
+            run_id,
+            &serde_json::json!({
+                "status": status,
+                "failure_reason": failure_reason,
+                "finished_at": finished,
+            }),
+        )
+        .and_then(|_| {
+            if finished.is_some() {
+                release_resource_leases_for_run_tx_checked(&tx, run_id, now).map(|_| ())
+            } else {
+                Ok(())
+            }
+        })
+        .and_then(|_| tx.commit());
+
+        if let Err(err) = result {
+            tracing::warn!(
+                run_id = run_id,
+                status = status,
+                error = %err,
+                "failed to commit run status transaction"
+            );
+            return false;
+        }
+
+        true
     }
 
     // --- Steps ---
@@ -5137,9 +6355,13 @@ impl Database {
         insert_operations_event(
             &conn,
             context.as_ref().map(|context| context.user_id.as_str()),
-            context.as_ref().and_then(|context| context.group_id.as_deref()),
+            context
+                .as_ref()
+                .and_then(|context| context.group_id.as_deref()),
             None,
-            context.as_ref().and_then(|context| context.task_id.as_deref()),
+            context
+                .as_ref()
+                .and_then(|context| context.task_id.as_deref()),
             Some(run_id),
             Some(&id),
             None,
@@ -5197,7 +6419,18 @@ impl Database {
     /// Find all ready steps across all active runs in a single query.
     /// Returns (step_id, run_id, user_id, kind, work_kind, tier, risk, objective) tuples.
     /// This replaces the N+1 pattern of get_active_run_ids() + find_ready_steps() per run.
-    pub fn find_all_ready_steps(&self) -> Vec<(String, String, String, String, String, String, String, String)> {
+    pub fn find_all_ready_steps(
+        &self,
+    ) -> Vec<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+        String,
+    )> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
@@ -5242,29 +6475,37 @@ impl Database {
     pub fn lease_step(&self, step_id: &str, worker_id: &str, deadline_ms: i64) -> Option<i64> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET status = 'leased', assigned_worker = ?1, lease_deadline = ?2,
+        let rows = conn
+            .execute(
+                "UPDATE steps SET status = 'leased', assigned_worker = ?1, lease_deadline = ?2,
                  lease_gen = lease_gen + 1, attempt_count = attempt_count + 1,
                  updated_at = ?3, version = version + 1
              WHERE id = ?4 AND status IN ('pending', 'ready', 'orphaned')",
-            params![worker_id, deadline_ms, now, step_id],
-        ).unwrap_or(0);
+                params![worker_id, deadline_ms, now, step_id],
+            )
+            .unwrap_or(0);
         if rows == 0 {
             return None;
         }
-        let lease_gen = conn.query_row(
-            "SELECT lease_gen FROM steps WHERE id = ?1",
-            params![step_id],
-            |row| row.get::<_, i64>(0),
-        ).ok();
+        let lease_gen = conn
+            .query_row(
+                "SELECT lease_gen FROM steps WHERE id = ?1",
+                params![step_id],
+                |row| row.get::<_, i64>(0),
+            )
+            .ok();
         if let Some(lease_gen) = lease_gen {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
                 context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.group_id.as_deref()),
                 None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.task_id.as_deref()),
                 context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
@@ -5285,19 +6526,25 @@ impl Database {
     pub fn start_step(&self, step_id: &str, lease_gen: i64) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET status = 'running', updated_at = ?1, version = version + 1
+        let rows = conn
+            .execute(
+                "UPDATE steps SET status = 'running', updated_at = ?1, version = version + 1
              WHERE id = ?2 AND lease_gen = ?3 AND status IN ('leased', 'running')",
-            params![now, step_id, lease_gen],
-        ).unwrap_or(0);
+                params![now, step_id, lease_gen],
+            )
+            .unwrap_or(0);
         if rows > 0 {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
                 context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.group_id.as_deref()),
                 None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.task_id.as_deref()),
                 context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
@@ -5324,20 +6571,34 @@ impl Database {
     ) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET status = 'succeeded', output_summary = ?1, files_changed = ?2,
+        let rows = conn
+            .execute(
+                "UPDATE steps SET status = 'succeeded', output_summary = ?1, files_changed = ?2,
                  base_commit = ?3, head_commit = ?4, updated_at = ?5, version = version + 1
              WHERE id = ?6 AND lease_gen = ?7 AND status IN ('leased', 'running')",
-            params![output_summary, files_changed, base_commit, head_commit, now, step_id, lease_gen],
-        ).unwrap_or(0);
+                params![
+                    output_summary,
+                    files_changed,
+                    base_commit,
+                    head_commit,
+                    now,
+                    step_id,
+                    lease_gen
+                ],
+            )
+            .unwrap_or(0);
         if rows > 0 {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
                 context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.group_id.as_deref()),
                 None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.task_id.as_deref()),
                 context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
@@ -5357,7 +6618,13 @@ impl Database {
         rows > 0
     }
 
-    pub fn fail_step(&self, step_id: &str, lease_gen: i64, error: &str, _failure_kind: Option<&str>) -> bool {
+    pub fn fail_step(
+        &self,
+        step_id: &str,
+        lease_gen: i64,
+        error: &str,
+        _failure_kind: Option<&str>,
+    ) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let rows = conn.execute(
@@ -5370,9 +6637,13 @@ impl Database {
             insert_operations_event(
                 &conn,
                 context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.group_id.as_deref()),
                 None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.task_id.as_deref()),
                 context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
@@ -5389,7 +6660,12 @@ impl Database {
         rows > 0
     }
 
-    pub fn fail_unleased_step(&self, step_id: &str, error: &str, _failure_kind: Option<&str>) -> bool {
+    pub fn fail_unleased_step(
+        &self,
+        step_id: &str,
+        error: &str,
+        _failure_kind: Option<&str>,
+    ) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let rows = conn.execute(
@@ -5402,9 +6678,13 @@ impl Database {
             insert_operations_event(
                 &conn,
                 context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.group_id.as_deref()),
                 None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.task_id.as_deref()),
                 context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
@@ -5423,20 +6703,26 @@ impl Database {
     pub fn cancel_step(&self, step_id: &str, lease_gen: i64, reason: &str) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET status = 'cancelled', last_error = ?1, assigned_worker = NULL,
+        let rows = conn
+            .execute(
+                "UPDATE steps SET status = 'cancelled', last_error = ?1, assigned_worker = NULL,
                  lease_deadline = NULL, updated_at = ?2, version = version + 1
              WHERE id = ?3 AND lease_gen = ?4 AND status IN ('leased', 'running')",
-            params![reason, now, step_id, lease_gen],
-        ).unwrap_or(0);
+                params![reason, now, step_id, lease_gen],
+            )
+            .unwrap_or(0);
         if rows > 0 {
             let context = step_event_context(&conn, step_id);
             insert_operations_event(
                 &conn,
                 context.as_ref().map(|context| context.user_id.as_str()),
-                context.as_ref().and_then(|context| context.group_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.group_id.as_deref()),
                 None,
-                context.as_ref().and_then(|context| context.task_id.as_deref()),
+                context
+                    .as_ref()
+                    .and_then(|context| context.task_id.as_deref()),
                 context.as_ref().map(|context| context.run_id.as_str()),
                 Some(step_id),
                 None,
@@ -5456,23 +6742,49 @@ impl Database {
     pub fn cancel_assigned_step(&self, step_id: &str, reason: &str) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET status = 'cancelled', last_error = ?1, assigned_worker = NULL,
+        let rows = conn
+            .execute(
+                "UPDATE steps SET status = 'cancelled', last_error = ?1, assigned_worker = NULL,
                  lease_deadline = NULL, updated_at = ?2, version = version + 1
              WHERE id = ?3 AND status IN ('leased', 'running')",
-            params![reason, now, step_id],
-        ).unwrap_or(0);
+                params![reason, now, step_id],
+            )
+            .unwrap_or(0);
+        if rows > 0 {
+            insert_step_operations_event(
+                &conn,
+                step_id,
+                "step.cancelled",
+                &serde_json::json!({
+                    "status": "cancelled",
+                    "reason": reason,
+                    "source": "assigned_step",
+                }),
+            );
+        }
         rows > 0
     }
 
     pub fn mark_step_recovered(&self, step_id: &str) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET status = 'recovered', updated_at = ?1, version = version + 1
+        let rows = conn
+            .execute(
+                "UPDATE steps SET status = 'recovered', updated_at = ?1, version = version + 1
              WHERE id = ?2 AND status = 'failed'",
-            params![now, step_id],
-        ).unwrap_or(0);
+                params![now, step_id],
+            )
+            .unwrap_or(0);
+        if rows > 0 {
+            insert_step_operations_event(
+                &conn,
+                step_id,
+                "step.recovered",
+                &serde_json::json!({
+                    "status": "recovered",
+                }),
+            );
+        }
         rows > 0
     }
 
@@ -5487,8 +6799,9 @@ impl Database {
     ) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps
+        let rows = conn
+            .execute(
+                "UPDATE steps
              SET output_summary = ?1,
                  files_changed = ?2,
                  base_commit = ?3,
@@ -5498,8 +6811,17 @@ impl Database {
              WHERE id = ?6
                AND lease_gen = ?7
                AND status IN ('leased', 'running', 'failed')",
-            params![output_summary, files_changed, base_commit, head_commit, now, step_id, lease_gen],
-        ).unwrap_or(0);
+                params![
+                    output_summary,
+                    files_changed,
+                    base_commit,
+                    head_commit,
+                    now,
+                    step_id,
+                    lease_gen
+                ],
+            )
+            .unwrap_or(0);
         rows > 0
     }
 
@@ -5524,7 +6846,7 @@ impl Database {
         let now = Utc::now().timestamp_millis();
         let expired: Vec<ResourceLease> = conn
             .prepare(
-                "SELECT id, user_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
+                "SELECT id, user_id, authority_scope_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
                         repo_key, resource_key, mode, status, lease_gen, acquired_at, expires_at,
                         released_at, reason, metadata_json
                  FROM resource_leases
@@ -5566,6 +6888,7 @@ impl Database {
                 &lease.id,
                 &serde_json::json!({
                     "holder_type": lease.holder_type,
+                    "authority_scope_id": lease.authority_scope_id,
                     "resource_type": lease.resource_type,
                     "repo_key": lease.repo_key,
                     "resource_key": lease.resource_key,
@@ -5582,7 +6905,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
+                "SELECT id, user_id, authority_scope_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
                         repo_key, resource_key, mode, status, lease_gen, acquired_at, expires_at,
                         released_at, reason, metadata_json
                  FROM resource_leases
@@ -5624,10 +6947,17 @@ impl Database {
             "UPDATE step_attempts SET status = 'succeeded', finished_at = ?1
              WHERE step_id = ?2 AND lease_gen = ?3 AND status = 'started'",
             params![now, step_id, lease_gen],
-        ).ok();
+        )
+        .ok();
     }
 
-    pub fn fail_attempt(&self, step_id: &str, lease_gen: i64, failure_kind: Option<&str>, error: Option<&str>) {
+    pub fn fail_attempt(
+        &self,
+        step_id: &str,
+        lease_gen: i64,
+        failure_kind: Option<&str>,
+        error: Option<&str>,
+    ) {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         conn.execute(
@@ -5719,12 +7049,14 @@ impl Database {
         let cutoff = now_ms - window_ms;
 
         // Fetch individual events so we can apply per-event decay weights
-        let mut stmt = conn.prepare(
-            "SELECT provider, tier, timestamp, COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)
+        let mut stmt = conn
+            .prepare(
+                "SELECT provider, tier, timestamp, COALESCE(tokens_in, 0) + COALESCE(tokens_out, 0)
              FROM usage_events
              WHERE user_id = ?1 AND timestamp > ?2
-             ORDER BY provider, tier"
-        ).unwrap();
+             ORDER BY provider, tier",
+            )
+            .unwrap();
 
         let rows: Vec<(String, String, i64, i64)> = stmt
             .query_map(params![user_id, cutoff], |row| {
@@ -5759,17 +7091,26 @@ impl Database {
     pub fn provider_reliability(&self, user_id: &str, hours: i64) -> Vec<(String, i64, i64)> {
         let conn = self.conn.lock().unwrap();
         let cutoff = Utc::now().timestamp_millis() - (hours * 3600 * 1000);
-        let mut stmt = conn.prepare(
-            "SELECT d.provider, COUNT(*) as total, SUM(o.success) as successes
+        let mut stmt = conn
+            .prepare(
+                "SELECT d.provider, COUNT(*) as total, SUM(o.success) as successes
              FROM outcomes o
              JOIN decisions d ON o.decision_id = d.id
              WHERE o.timestamp > ?1 AND d.user_id = ?2
-             GROUP BY d.provider"
-        ).unwrap();
+             GROUP BY d.provider",
+            )
+            .unwrap();
 
         stmt.query_map(params![cutoff, user_id], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?, row.get::<_, i64>(2)?))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+            Ok((
+                row.get::<_, String>(0)?,
+                row.get::<_, i64>(1)?,
+                row.get::<_, i64>(2)?,
+            ))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     // --- Idempotency ---
@@ -5781,7 +7122,9 @@ impl Database {
             "SELECT result_json FROM idempotency_keys WHERE key = ?1 AND expires_at > ?2",
             params![key, now],
             |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten()
+        )
+        .ok()
+        .flatten()
     }
 
     pub fn set_idempotency(&self, key: &str, result: Option<&str>, ttl_ms: i64) {
@@ -5796,8 +7139,11 @@ impl Database {
     pub fn cleanup_expired_idempotency(&self) -> usize {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        conn.execute("DELETE FROM idempotency_keys WHERE expires_at < ?1", params![now])
-            .unwrap_or(0)
+        conn.execute(
+            "DELETE FROM idempotency_keys WHERE expires_at < ?1",
+            params![now],
+        )
+        .unwrap_or(0)
     }
 
     // --- Scheduler helpers ---
@@ -5819,6 +7165,19 @@ impl Database {
              VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7, ?8, ?8)",
             params![id, run_id, kind, work_kind, tier, risk, objective, created_at],
         ).expect("failed to create step");
+        insert_step_operations_event(
+            &conn,
+            id,
+            "step.planned",
+            &serde_json::json!({
+                "status": "pending",
+                "kind": kind,
+                "work_kind": work_kind,
+                "tier": tier,
+                "risk": risk,
+                "objective": objective,
+            }),
+        );
     }
 
     /// Returns (provider, kind, risk) for bandit outcome tracking.
@@ -5832,27 +7191,36 @@ impl Database {
              ORDER BY a.attempt_number DESC
              LIMIT 1",
             params![step_id],
-            |row| Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-            )),
-        ).ok()
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        )
+        .ok()
     }
 
-    pub fn get_step_details(&self, step_id: &str) -> Option<(String, String, String, String, String)> {
+    pub fn get_step_details(
+        &self,
+        step_id: &str,
+    ) -> Option<(String, String, String, String, String)> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT kind, work_kind, tier, risk, objective FROM steps WHERE id = ?1",
             params![step_id],
-            |row| Ok((
-                row.get::<_, String>(0)?,
-                row.get::<_, String>(1)?,
-                row.get::<_, String>(2)?,
-                row.get::<_, String>(3)?,
-                row.get::<_, String>(4)?,
-            )),
-        ).ok()
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                    row.get::<_, String>(4)?,
+                ))
+            },
+        )
+        .ok()
     }
 
     pub fn get_step_recipe_seed_json(&self, step_id: &str) -> Option<String> {
@@ -5861,7 +7229,9 @@ impl Database {
             "SELECT recipe_seed_json FROM steps WHERE id = ?1",
             params![step_id],
             |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten()
+        )
+        .ok()
+        .flatten()
     }
 
     pub fn get_run_user_id(&self, run_id: &str) -> Option<String> {
@@ -5870,7 +7240,8 @@ impl Database {
             "SELECT user_id FROM runs WHERE id = ?1",
             params![run_id],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     /// Check if a run belongs to the given user. Returns true if the run exists and is owned by user_id.
@@ -5880,11 +7251,17 @@ impl Database {
             "SELECT 1 FROM runs WHERE id = ?1 AND user_id = ?2",
             params![run_id, user_id],
             |_| Ok(()),
-        ).is_ok()
+        )
+        .is_ok()
     }
 
     /// List runs for a specific user, ordered by creation time descending.
-    pub fn list_user_runs(&self, user_id: &str, limit: usize, offset: usize) -> Vec<serde_json::Value> {
+    pub fn list_user_runs(
+        &self,
+        user_id: &str,
+        limit: usize,
+        offset: usize,
+    ) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, goal, status, profile, created_at, updated_at, started_at, finished_at, heal_attempts,
@@ -5907,7 +7284,10 @@ impl Database {
                 "group_id": row.get::<_, Option<String>>(10)?,
                 "conversation_id": row.get::<_, Option<String>>(11)?,
             }))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn get_run_goal(&self, run_id: &str) -> Option<String> {
@@ -5916,7 +7296,8 @@ impl Database {
             "SELECT goal FROM runs WHERE id = ?1",
             params![run_id],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     /// Return timing metadata for a single run (used for PR body generation).
@@ -5942,7 +7323,8 @@ impl Database {
                     "conversation_id": row.get::<_, Option<String>>(10)?,
                 }))
             },
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn get_run_heal_count(&self, run_id: &str) -> i32 {
@@ -5951,16 +7333,36 @@ impl Database {
             "SELECT heal_attempts FROM runs WHERE id = ?1",
             params![run_id],
             |row| row.get::<_, i32>(0),
-        ).unwrap_or(0)
+        )
+        .unwrap_or(0)
     }
 
     pub fn increment_heal_count(&self, run_id: &str) {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        conn.execute(
-            "UPDATE runs SET heal_attempts = heal_attempts + 1, updated_at = ?1 WHERE id = ?2",
-            params![now, run_id],
-        ).ok();
+        let rows = conn
+            .execute(
+                "UPDATE runs SET heal_attempts = heal_attempts + 1, updated_at = ?1 WHERE id = ?2",
+                params![now, run_id],
+            )
+            .unwrap_or(0);
+        if rows > 0 {
+            let heal_attempts = conn
+                .query_row(
+                    "SELECT heal_attempts FROM runs WHERE id = ?1",
+                    params![run_id],
+                    |row| row.get::<_, i32>(0),
+                )
+                .unwrap_or(0);
+            insert_run_operations_event(
+                &conn,
+                run_id,
+                "run.heal_incremented",
+                &serde_json::json!({
+                    "heal_attempts": heal_attempts,
+                }),
+            );
+        }
     }
 
     pub fn get_step_last_error(&self, step_id: &str) -> Option<String> {
@@ -5969,30 +7371,39 @@ impl Database {
             "SELECT last_error FROM steps WHERE id = ?1",
             params![step_id],
             |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten()
+        )
+        .ok()
+        .flatten()
     }
 
     pub fn get_all_step_statuses(&self, run_id: &str) -> Vec<(String, String)> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, status FROM steps WHERE run_id = ?1 ORDER BY created_at ASC, id ASC"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, status FROM steps WHERE run_id = ?1 ORDER BY created_at ASC, id ASC",
+            )
+            .unwrap();
         stmt.query_map(params![run_id], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn get_run_step_snapshots(&self, run_id: &str) -> Vec<RunStepSnapshot> {
         let conn = self.conn.lock().unwrap();
 
         let mut predecessors_by_step: HashMap<String, Vec<String>> = HashMap::new();
-        let mut predecessor_stmt = conn.prepare(
-            "SELECT sd.step_id, sd.depends_on_id
+        let mut predecessor_stmt = conn
+            .prepare(
+                "SELECT sd.step_id, sd.depends_on_id
              FROM step_dependencies sd
              JOIN steps s ON s.id = sd.step_id
              WHERE s.run_id = ?1
-             ORDER BY sd.step_id ASC, sd.depends_on_id ASC"
-        ).unwrap();
+             ORDER BY sd.step_id ASC, sd.depends_on_id ASC",
+            )
+            .unwrap();
         for row in predecessor_stmt
             .query_map(params![run_id], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -6004,40 +7415,48 @@ impl Database {
         }
 
         let mut verifier_by_step: HashMap<String, VerifierReport> = HashMap::new();
-        let mut verifier_stmt = conn.prepare(
-            "SELECT id, step_id, run_id, lease_gen, worker_id, verifier, status, verdict,
+        let mut verifier_stmt = conn
+            .prepare(
+                "SELECT id, step_id, run_id, lease_gen, worker_id, verifier, status, verdict,
                     evidence_json, created_at, updated_at
              FROM verifier_reports
              WHERE run_id = ?1
-             ORDER BY step_id ASC, created_at DESC"
-        ).unwrap();
+             ORDER BY step_id ASC, created_at DESC",
+            )
+            .unwrap();
         for report in verifier_stmt
-            .query_map(params![run_id], |row| Ok(VerifierReport {
-                id: row.get(0)?,
-                step_id: row.get(1)?,
-                run_id: row.get(2)?,
-                lease_gen: row.get(3)?,
-                worker_id: row.get(4)?,
-                verifier: row.get(5)?,
-                status: row.get(6)?,
-                verdict: row.get(7)?,
-                evidence_json: row.get(8)?,
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
-            }))
+            .query_map(params![run_id], |row| {
+                Ok(VerifierReport {
+                    id: row.get(0)?,
+                    step_id: row.get(1)?,
+                    run_id: row.get(2)?,
+                    lease_gen: row.get(3)?,
+                    worker_id: row.get(4)?,
+                    verifier: row.get(5)?,
+                    status: row.get(6)?,
+                    verdict: row.get(7)?,
+                    evidence_json: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                })
+            })
             .unwrap()
             .filter_map(|r| r.ok())
         {
-            verifier_by_step.entry(report.step_id.clone()).or_insert(report);
+            verifier_by_step
+                .entry(report.step_id.clone())
+                .or_insert(report);
         }
 
         let mut contract_by_step: HashMap<String, TaskContract> = HashMap::new();
-        let mut contract_stmt = conn.prepare(
-            "SELECT step_id, contract_json
+        let mut contract_stmt = conn
+            .prepare(
+                "SELECT step_id, contract_json
              FROM step_work_contracts
              WHERE run_id = ?1
-             ORDER BY step_id ASC, lease_gen DESC, created_at DESC"
-        ).unwrap();
+             ORDER BY step_id ASC, lease_gen DESC, created_at DESC",
+            )
+            .unwrap();
         for (step_id, contract_json) in contract_stmt
             .query_map(params![run_id], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
@@ -6063,13 +7482,15 @@ impl Database {
         }
 
         let mut attempt_by_step: HashMap<String, RunStepAttemptSnapshot> = HashMap::new();
-        let mut attempt_stmt = conn.prepare(
-            "SELECT step_id, attempt_number, worker_id, lease_gen, status, provider, model,
+        let mut attempt_stmt = conn
+            .prepare(
+                "SELECT step_id, attempt_number, worker_id, lease_gen, status, provider, model,
                     started_at, finished_at, failure_kind, error_summary
              FROM step_attempts
              WHERE run_id = ?1
-             ORDER BY step_id ASC, attempt_number DESC"
-        ).unwrap();
+             ORDER BY step_id ASC, attempt_number DESC",
+            )
+            .unwrap();
         for attempt in attempt_stmt
             .query_map(params![run_id], |row| {
                 Ok((
@@ -6126,7 +7547,10 @@ impl Database {
                 files_changed: row.get(14)?,
                 last_error: row.get(15)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn get_step_run_id(&self, step_id: &str) -> Option<String> {
@@ -6135,14 +7559,15 @@ impl Database {
             "SELECT run_id FROM steps WHERE id = ?1",
             params![step_id],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn get_active_run_ids(&self) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id FROM runs WHERE status IN ('planning', 'running')"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT id FROM runs WHERE status IN ('planning', 'running')")
+            .unwrap();
         stmt.query_map([], |row| row.get::<_, String>(0))
             .unwrap()
             .filter_map(|r| r.ok())
@@ -6156,7 +7581,8 @@ impl Database {
              ORDER BY last_reported DESC LIMIT 1",
             params![user_id, provider],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn get_user_profile(&self, user_id: &str) -> Option<String> {
@@ -6165,7 +7591,8 @@ impl Database {
             "SELECT active_profile FROM user_profiles WHERE user_id = ?1",
             params![user_id],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn get_user_auto_mode(&self, user_id: &str) -> Option<String> {
@@ -6174,7 +7601,8 @@ impl Database {
             "SELECT auto_mode FROM user_profiles WHERE user_id = ?1",
             params![user_id],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     pub fn record_score_evidence(
@@ -6190,7 +7618,8 @@ impl Database {
             "INSERT INTO score_evidence (decision_id, evaluator, evidence_json, score, timestamp)
              VALUES (?1, ?2, ?3, ?4, ?5)",
             params![decision_id, evaluator, evidence_json, score, timestamp],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn get_step_predecessors(&self, step_id: &str) -> Vec<String> {
@@ -6206,20 +7635,25 @@ impl Database {
 
     pub fn get_run_step_dependency_edges(&self, run_id: &str) -> Vec<StepDependencyEdge> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT sd.step_id, sd.depends_on_id, sd.edge_type
+        let mut stmt = conn
+            .prepare(
+                "SELECT sd.step_id, sd.depends_on_id, sd.edge_type
              FROM step_dependencies sd
              JOIN steps s ON s.id = sd.step_id
              WHERE s.run_id = ?1
-             ORDER BY sd.step_id ASC, sd.depends_on_id ASC"
-        ).unwrap();
+             ORDER BY sd.step_id ASC, sd.depends_on_id ASC",
+            )
+            .unwrap();
         stmt.query_map(params![run_id], |row| {
             Ok(StepDependencyEdge {
                 step_id: row.get::<_, String>(0)?,
                 depends_on_id: row.get::<_, String>(1)?,
                 edge_type: row.get::<_, String>(2)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn get_step_output_summary(&self, step_id: &str) -> Option<String> {
@@ -6228,7 +7662,9 @@ impl Database {
             "SELECT output_summary FROM steps WHERE id = ?1",
             params![step_id],
             |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten()
+        )
+        .ok()
+        .flatten()
     }
 
     pub fn get_step_files_changed(&self, step_id: &str) -> Option<String> {
@@ -6237,7 +7673,9 @@ impl Database {
             "SELECT files_changed FROM steps WHERE id = ?1",
             params![step_id],
             |row| row.get::<_, Option<String>>(0),
-        ).ok().flatten()
+        )
+        .ok()
+        .flatten()
     }
 
     pub fn record_verifier_report(
@@ -6251,28 +7689,34 @@ impl Database {
         verdict: &str,
         evidence_json: &str,
     ) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
-        conn.execute(
-            "INSERT INTO verifier_reports (
+        let tx = conn.transaction().ok()?;
+        if tx
+            .execute(
+                "INSERT INTO verifier_reports (
                 id, step_id, run_id, lease_gen, worker_id, verifier, status, verdict,
                 evidence_json, created_at, updated_at
              )
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
-            params![
-                id,
-                step_id,
-                run_id,
-                lease_gen,
-                worker_id,
-                verifier,
-                status,
-                verdict,
-                evidence_json,
-                now
-            ],
-        ).ok()?;
+                params![
+                    id,
+                    step_id,
+                    run_id,
+                    lease_gen,
+                    worker_id,
+                    verifier,
+                    status,
+                    verdict,
+                    evidence_json,
+                    now
+                ],
+            )
+            .is_err()
+        {
+            return None;
+        }
 
         let step_verification_status = match (status, verdict) {
             ("verified", "pass") => "verified_pass",
@@ -6282,24 +7726,45 @@ impl Database {
             ("error", _) => "verification_error",
             _ => "unverified",
         };
-        let verified_at = if status == "verified" { Some(now) } else { None };
+        let verified_at = if status == "verified" {
+            Some(now)
+        } else {
+            None
+        };
 
-        conn.execute(
-            "UPDATE steps
+        let updated = tx
+            .execute(
+                "UPDATE steps
              SET verification_status = ?1,
                  verifier_report_id = ?2,
                  verified_at = ?3,
                  updated_at = ?4
-             WHERE id = ?5",
-            params![step_verification_status, id, verified_at, now, step_id],
-        ).ok();
-        let context = step_event_context(&conn, step_id);
-        insert_operations_event(
-            &conn,
+             WHERE id = ?5 AND run_id = ?6",
+                params![
+                    step_verification_status,
+                    id,
+                    verified_at,
+                    now,
+                    step_id,
+                    run_id
+                ],
+            )
+            .ok()?;
+        if updated == 0 {
+            return None;
+        }
+
+        let context = step_event_context(&tx, step_id);
+        if try_insert_operations_event(
+            &tx,
             context.as_ref().map(|context| context.user_id.as_str()),
-            context.as_ref().and_then(|context| context.group_id.as_deref()),
+            context
+                .as_ref()
+                .and_then(|context| context.group_id.as_deref()),
             None,
-            context.as_ref().and_then(|context| context.task_id.as_deref()),
+            context
+                .as_ref()
+                .and_then(|context| context.task_id.as_deref()),
             Some(run_id),
             Some(step_id),
             None,
@@ -6315,7 +7780,13 @@ impl Database {
                 "verdict": verdict,
                 "step_verification_status": step_verification_status,
             }),
-        );
+        )
+        .is_err()
+        {
+            return None;
+        }
+
+        tx.commit().ok()?;
 
         Some(id)
     }
@@ -6330,20 +7801,79 @@ impl Database {
              ORDER BY created_at DESC
              LIMIT 1",
             params![step_id],
-            |row| Ok(VerifierReport {
-                id: row.get(0)?,
-                step_id: row.get(1)?,
-                run_id: row.get(2)?,
-                lease_gen: row.get(3)?,
-                worker_id: row.get(4)?,
-                verifier: row.get(5)?,
-                status: row.get(6)?,
-                verdict: row.get(7)?,
-                evidence_json: row.get(8)?,
-                created_at: row.get(9)?,
-                updated_at: row.get(10)?,
-            }),
-        ).ok()
+            |row| {
+                Ok(VerifierReport {
+                    id: row.get(0)?,
+                    step_id: row.get(1)?,
+                    run_id: row.get(2)?,
+                    lease_gen: row.get(3)?,
+                    worker_id: row.get(4)?,
+                    verifier: row.get(5)?,
+                    status: row.get(6)?,
+                    verdict: row.get(7)?,
+                    evidence_json: row.get(8)?,
+                    created_at: row.get(9)?,
+                    updated_at: row.get(10)?,
+                })
+            },
+        )
+        .ok()
+    }
+
+    pub fn get_verifier_report_for_run_step(
+        &self,
+        user_id: &str,
+        run_id: &str,
+        step_id: &str,
+        report_id: &str,
+    ) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let report = conn
+            .query_row(
+                "SELECT vr.id, vr.step_id, vr.run_id, vr.lease_gen, vr.worker_id, vr.verifier,
+                        vr.status, vr.verdict, vr.evidence_json, vr.created_at, vr.updated_at
+                 FROM verifier_reports vr
+                 JOIN runs r ON r.id = vr.run_id
+                 WHERE r.user_id = ?1
+                    AND vr.run_id = ?2
+                    AND vr.step_id = ?3
+                    AND vr.id = ?4",
+                params![user_id, run_id, step_id, report_id],
+                |row| {
+                    Ok(VerifierReport {
+                        id: row.get(0)?,
+                        step_id: row.get(1)?,
+                        run_id: row.get(2)?,
+                        lease_gen: row.get(3)?,
+                        worker_id: row.get(4)?,
+                        verifier: row.get(5)?,
+                        status: row.get(6)?,
+                        verdict: row.get(7)?,
+                        evidence_json: row.get(8)?,
+                        created_at: row.get(9)?,
+                        updated_at: row.get(10)?,
+                    })
+                },
+            )
+            .ok()?;
+        let evidence = serde_json::from_str::<serde_json::Value>(&report.evidence_json)
+            .unwrap_or_else(|_| serde_json::json!({}));
+
+        Some(serde_json::json!({
+            "report": {
+                "id": report.id,
+                "step_id": report.step_id,
+                "run_id": report.run_id,
+                "lease_gen": report.lease_gen,
+                "worker_id": report.worker_id,
+                "verifier": report.verifier,
+                "status": report.status,
+                "verdict": report.verdict,
+                "created_at": report.created_at,
+                "updated_at": report.updated_at,
+            },
+            "evidence": evidence,
+        }))
     }
 
     pub fn record_step_work_contract(
@@ -6390,18 +7920,16 @@ impl Database {
         rows > 0
     }
 
-    pub fn get_step_work_contract(
-        &self,
-        step_id: &str,
-        lease_gen: i64,
-    ) -> Option<TaskContract> {
+    pub fn get_step_work_contract(&self, step_id: &str, lease_gen: i64) -> Option<TaskContract> {
         let conn = self.conn.lock().unwrap();
-        let contract_json: String = conn.query_row(
-            "SELECT contract_json FROM step_work_contracts
+        let contract_json: String = conn
+            .query_row(
+                "SELECT contract_json FROM step_work_contracts
              WHERE step_id = ?1 AND lease_gen = ?2",
-            params![step_id, lease_gen],
-            |row| row.get(0),
-        ).ok()?;
+                params![step_id, lease_gen],
+                |row| row.get(0),
+            )
+            .ok()?;
 
         serde_json::from_str(&contract_json)
             .map_err(|err| {
@@ -6418,14 +7946,16 @@ impl Database {
 
     pub fn get_latest_step_work_contract(&self, step_id: &str) -> Option<TaskContract> {
         let conn = self.conn.lock().unwrap();
-        let contract_json: String = conn.query_row(
-            "SELECT contract_json FROM step_work_contracts
+        let contract_json: String = conn
+            .query_row(
+                "SELECT contract_json FROM step_work_contracts
              WHERE step_id = ?1
              ORDER BY lease_gen DESC, created_at DESC
              LIMIT 1",
-            params![step_id],
-            |row| row.get(0),
-        ).ok()?;
+                params![step_id],
+                |row| row.get(0),
+            )
+            .ok()?;
 
         serde_json::from_str(&contract_json)
             .map_err(|err| {
@@ -6445,7 +7975,8 @@ impl Database {
             "SELECT profile FROM runs WHERE id = ?1",
             params![run_id],
             |row| row.get(0),
-        ).ok()
+        )
+        .ok()
     }
 
     // --- Attempt details (for usage recording) ---
@@ -6462,7 +7993,8 @@ impl Database {
              ORDER BY attempt_number DESC LIMIT 1",
             params![step_id, lease_gen],
             |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
-        ).ok()
+        )
+        .ok()
     }
 
     // --- Worker sessions ---
@@ -6474,7 +8006,8 @@ impl Database {
             "INSERT INTO worker_sessions (id, worker_id, connected_at, last_heartbeat)
              VALUES (?1, ?2, ?3, ?3)",
             params![session_id, worker_id, now],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn disconnect_worker_session(&self, session_id: &str) {
@@ -6483,7 +8016,8 @@ impl Database {
         conn.execute(
             "UPDATE worker_sessions SET disconnected_at = ?1 WHERE id = ?2",
             params![now, session_id],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn set_worker_grace_deadline(&self, worker_id: &str, deadline_ms: i64) {
@@ -6492,7 +8026,8 @@ impl Database {
             "UPDATE worker_sessions SET grace_deadline = ?1
              WHERE worker_id = ?2 AND disconnected_at IS NOT NULL AND grace_deadline IS NULL",
             params![deadline_ms, worker_id],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn update_heartbeat(&self, worker_id: &str) {
@@ -6502,22 +8037,28 @@ impl Database {
             "UPDATE worker_sessions SET last_heartbeat = ?1
              WHERE worker_id = ?2 AND disconnected_at IS NULL",
             params![now, worker_id],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn workers_past_grace(&self) -> Vec<(String, String)> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let mut stmt = conn.prepare(
-            "SELECT ws.worker_id, s.id FROM worker_sessions ws
+        let mut stmt = conn
+            .prepare(
+                "SELECT ws.worker_id, s.id FROM worker_sessions ws
              JOIN steps s ON s.assigned_worker = ws.worker_id AND s.status IN ('leased', 'running')
              WHERE ws.disconnected_at IS NOT NULL
              AND ws.grace_deadline IS NOT NULL
-             AND ws.grace_deadline < ?1"
-        ).unwrap();
+             AND ws.grace_deadline < ?1",
+            )
+            .unwrap();
         stmt.query_map(params![now], |row| {
             Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     // --- User profile mutations ---
@@ -6530,7 +8071,8 @@ impl Database {
              VALUES (?1, ?2, 'normal', ?3)
              ON CONFLICT(user_id) DO UPDATE SET active_profile = ?2, updated_at = ?3",
             params![user_id, profile, now],
-        ).ok();
+        )
+        .ok();
     }
 
     pub fn get_full_user_profile(&self, user_id: &str) -> Option<(String, String)> {
@@ -6539,14 +8081,16 @@ impl Database {
             "SELECT active_profile, auto_mode FROM user_profiles WHERE user_id = ?1",
             params![user_id],
             |row| Ok((row.get(0)?, row.get(1)?)),
-        ).ok()
+        )
+        .ok()
     }
 
     /// List runs with active (non-terminal) status for the MC snapshot.
     pub fn list_active_runs(&self) -> Vec<ActiveRunSummary> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT r.id, r.goal, r.status, r.created_at,
+        let mut stmt = conn
+            .prepare(
+                "SELECT r.id, r.goal, r.status, r.created_at,
                     COUNT(s.id) as step_count,
                     SUM(CASE WHEN s.status = 'succeeded' THEN 1 ELSE 0 END) as steps_completed,
                     SUM(CASE WHEN s.status = 'failed' THEN 1 ELSE 0 END) as steps_failed
@@ -6555,8 +8099,9 @@ impl Database {
              WHERE r.status IN ('pending', 'running', 'leased')
              GROUP BY r.id
              ORDER BY r.created_at DESC
-             LIMIT 50"
-        ).unwrap();
+             LIMIT 50",
+            )
+            .unwrap();
         stmt.query_map([], |row| {
             Ok(ActiveRunSummary {
                 id: row.get(0)?,
@@ -6567,17 +8112,26 @@ impl Database {
                 steps_completed: row.get::<_, i64>(5)? as usize,
                 steps_failed: row.get::<_, i64>(6)? as usize,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     // --- Admin queries ---
 
-    pub fn list_all_runs(&self, limit: usize, offset: usize) -> Vec<(String, String, String, String, String)> {
+    pub fn list_all_runs(
+        &self,
+        limit: usize,
+        offset: usize,
+    ) -> Vec<(String, String, String, String, String)> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, user_id, goal, status, created_at FROM runs
-             ORDER BY created_at DESC LIMIT ?1 OFFSET ?2"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, user_id, goal, status, created_at FROM runs
+             ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
+            )
+            .unwrap();
         stmt.query_map(params![limit as i64, offset as i64], |row| {
             Ok((
                 row.get::<_, String>(0)?,
@@ -6586,16 +8140,17 @@ impl Database {
                 row.get::<_, String>(3)?,
                 row.get::<_, i64>(4)?.to_string(),
             ))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
-    pub fn list_decisions(
-        &self,
-        limit: usize,
-        user_id: Option<&str>,
-    ) -> Vec<serde_json::Value> {
+    pub fn list_decisions(&self, limit: usize, user_id: Option<&str>) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
-        let (sql, params_vec): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(uid) = user_id {
+        let (sql, params_vec): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(uid) =
+            user_id
+        {
             (
                 "SELECT id, user_id, run_id, step_id, timestamp, intent, risk, tier, provider, model, rationale, profile
                  FROM decisions WHERE user_id = ?1 ORDER BY timestamp DESC LIMIT ?2",
@@ -6610,7 +8165,8 @@ impl Database {
         };
 
         let mut stmt = conn.prepare(sql).unwrap();
-        let params_refs: Vec<&dyn rusqlite::types::ToSql> = params_vec.iter().map(|p| p.as_ref()).collect();
+        let params_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_vec.iter().map(|p| p.as_ref()).collect();
         stmt.query_map(params_refs.as_slice(), |row| {
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
@@ -6626,43 +8182,62 @@ impl Database {
                 "rationale": row.get::<_, String>(10)?,
                 "profile": row.get::<_, String>(11)?,
             }))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn system_stats(&self) -> serde_json::Value {
         let conn = self.conn.lock().unwrap();
 
-        let total_runs: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM runs", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let total_runs: i64 = conn
+            .query_row("SELECT COUNT(*) FROM runs", [], |r| r.get(0))
+            .unwrap_or(0);
 
-        let active_runs: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM runs WHERE status IN ('planning', 'running')", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let active_runs: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM runs WHERE status IN ('planning', 'running')",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
 
-        let total_steps: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM steps", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let total_steps: i64 = conn
+            .query_row("SELECT COUNT(*) FROM steps", [], |r| r.get(0))
+            .unwrap_or(0);
 
-        let succeeded_steps: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM steps WHERE status = 'succeeded'", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let succeeded_steps: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM steps WHERE status = 'succeeded'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
 
-        let failed_steps: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM steps WHERE status = 'failed'", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let failed_steps: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM steps WHERE status = 'failed'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
 
-        let total_decisions: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM decisions", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let total_decisions: i64 = conn
+            .query_row("SELECT COUNT(*) FROM decisions", [], |r| r.get(0))
+            .unwrap_or(0);
 
-        let connected_workers: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM workers WHERE status = 'connected'", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let connected_workers: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM workers WHERE status = 'connected'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
 
-        let total_users: i64 = conn.query_row(
-            "SELECT COUNT(DISTINCT user_id) FROM runs", [], |r| r.get(0)
-        ).unwrap_or(0);
+        let total_users: i64 = conn
+            .query_row("SELECT COUNT(DISTINCT user_id) FROM runs", [], |r| r.get(0))
+            .unwrap_or(0);
 
         serde_json::json!({
             "runs": { "total": total_runs, "active": active_runs },
@@ -6675,14 +8250,16 @@ impl Database {
 
     pub fn get_worker_list(&self) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT w.id, w.user_id, w.status, w.last_seen,
+        let mut stmt = conn
+            .prepare(
+                "SELECT w.id, w.user_id, w.status, w.last_seen,
                     GROUP_CONCAT(pc.provider, ',') as providers
              FROM workers w
              LEFT JOIN provider_capabilities pc ON pc.worker_id = w.id
              GROUP BY w.id
-             ORDER BY w.last_seen DESC"
-        ).unwrap();
+             ORDER BY w.last_seen DESC",
+            )
+            .unwrap();
         stmt.query_map([], |row| {
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
@@ -6693,7 +8270,10 @@ impl Database {
                     .map(|s| s.split(',').map(String::from).collect::<Vec<_>>())
                     .unwrap_or_default(),
             }))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     // --- Steps assigned to a worker (for orphaning on disconnect) ---
@@ -6729,22 +8309,36 @@ impl Database {
     pub fn renew_lease(&self, step_id: &str, lease_gen: i64, new_deadline: i64) -> bool {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        let rows = conn.execute(
-            "UPDATE steps SET lease_deadline = ?1, updated_at = ?2
+        let rows = conn
+            .execute(
+                "UPDATE steps SET lease_deadline = ?1, updated_at = ?2
              WHERE id = ?3 AND lease_gen = ?4 AND status IN ('leased', 'running')",
-            params![new_deadline, now, step_id, lease_gen],
-        ).unwrap_or(0);
+                params![new_deadline, now, step_id, lease_gen],
+            )
+            .unwrap_or(0);
         rows > 0
     }
 
     pub fn set_step_earliest_dispatch(&self, step_id: &str, earliest_ms: i64) {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        conn.execute(
-            "UPDATE steps SET earliest_dispatch_at = ?1, updated_at = ?2
+        let rows = conn
+            .execute(
+                "UPDATE steps SET earliest_dispatch_at = ?1, updated_at = ?2
              WHERE id = ?3",
-            params![earliest_ms, now, step_id],
-        ).ok();
+                params![earliest_ms, now, step_id],
+            )
+            .unwrap_or(0);
+        if rows > 0 {
+            insert_step_operations_event(
+                &conn,
+                step_id,
+                "step.dispatch_deferred",
+                &serde_json::json!({
+                    "earliest_dispatch_at": earliest_ms,
+                }),
+            );
+        }
     }
 
     pub fn unlease_step(&self, step_id: &str, lease_gen: i64) -> bool {
@@ -6756,18 +8350,40 @@ impl Database {
              WHERE id = ?2 AND lease_gen = ?3 AND status = 'leased'",
             params![now, step_id, lease_gen],
         ).unwrap_or(0);
+        if rows > 0 {
+            insert_step_operations_event(
+                &conn,
+                step_id,
+                "step.unleased",
+                &serde_json::json!({
+                    "status": "pending",
+                    "lease_gen": lease_gen,
+                }),
+            );
+        }
         rows > 0
     }
 
     pub fn orphan_step(&self, step_id: &str) {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        conn.execute(
+        let rows = conn.execute(
             "UPDATE steps SET status = 'orphaned', assigned_worker = NULL, lease_deadline = NULL,
                  updated_at = ?1, version = version + 1
              WHERE id = ?2 AND status IN ('leased', 'running')",
             params![now, step_id],
-        ).ok();
+        )
+        .unwrap_or(0);
+        if rows > 0 {
+            insert_step_operations_event(
+                &conn,
+                step_id,
+                "step.orphaned",
+                &serde_json::json!({
+                    "status": "orphaned",
+                }),
+            );
+        }
     }
 
     /// Cascade failure from a failed step to all downstream steps that depend on it
@@ -6785,12 +8401,14 @@ impl Database {
 
         while let Some(current_id) = queue.pop_front() {
             // Find all steps that depend on current_id with success_required edge
-            let mut stmt = conn.prepare(
-                "SELECT sd.step_id FROM step_dependencies sd
+            let mut stmt = conn
+                .prepare(
+                    "SELECT sd.step_id FROM step_dependencies sd
                  JOIN steps s ON s.id = sd.step_id
                  WHERE sd.depends_on_id = ?1 AND sd.edge_type = 'success_required'
-                 AND s.status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped')"
-            ).unwrap();
+                 AND s.status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped')",
+                )
+                .unwrap();
 
             let dependents: Vec<String> = stmt
                 .query_map(params![current_id], |row| row.get::<_, String>(0))
@@ -6804,14 +8422,27 @@ impl Database {
                 }
                 visited.insert(dep_id.clone());
 
-                conn.execute(
+                let rows = conn.execute(
                     "UPDATE steps SET status = 'skipped', updated_at = ?1, version = version + 1
                      WHERE id = ?2 AND status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped')",
                     params![now, dep_id],
-                ).ok();
+                ).unwrap_or(0);
 
-                skipped.push(dep_id.clone());
-                queue.push_back(dep_id);
+                if rows > 0 {
+                    insert_step_operations_event(
+                        &conn,
+                        &dep_id,
+                        "step.skipped",
+                        &serde_json::json!({
+                            "status": "skipped",
+                            "failed_step_id": failed_step_id,
+                            "blocked_by_step_id": current_id,
+                            "edge_type": "success_required",
+                        }),
+                    );
+                    skipped.push(dep_id.clone());
+                    queue.push_back(dep_id);
+                }
             }
         }
 
@@ -6825,24 +8456,36 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         // Per-provider breakdown
-        let mut stmt = conn.prepare(
-            "SELECT provider,
+        let mut stmt = conn
+            .prepare(
+                "SELECT provider,
                     COALESCE(SUM(COALESCE(tokens_in, 0)), 0),
                     COALESCE(SUM(COALESCE(tokens_out, 0)), 0),
                     COUNT(*)
              FROM usage_events
              WHERE user_id = ?1 AND timestamp > ?2
-             GROUP BY provider"
-        ).unwrap();
+             GROUP BY provider",
+            )
+            .unwrap();
 
-        let by_provider: Vec<ProviderUsage> = stmt.query_map(params![user_id, since_ms], |row| {
-            let provider: String = row.get(0)?;
-            let tokens_in: i64 = row.get(1)?;
-            let tokens_out: i64 = row.get(2)?;
-            let step_count: i64 = row.get(3)?;
-            let cost = estimate_cost_by_provider(&provider, tokens_in, tokens_out);
-            Ok(ProviderUsage { provider, tokens_in, tokens_out, cost_estimate: cost, step_count })
-        }).unwrap().filter_map(|r| r.ok()).collect();
+        let by_provider: Vec<ProviderUsage> = stmt
+            .query_map(params![user_id, since_ms], |row| {
+                let provider: String = row.get(0)?;
+                let tokens_in: i64 = row.get(1)?;
+                let tokens_out: i64 = row.get(2)?;
+                let step_count: i64 = row.get(3)?;
+                let cost = estimate_cost_by_provider(&provider, tokens_in, tokens_out);
+                Ok(ProviderUsage {
+                    provider,
+                    tokens_in,
+                    tokens_out,
+                    cost_estimate: cost,
+                    step_count,
+                })
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
 
         let total_tokens_in = by_provider.iter().map(|p| p.tokens_in).sum();
         let total_tokens_out = by_provider.iter().map(|p| p.tokens_out).sum();
@@ -6863,16 +8506,18 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let cutoff_ms = Utc::now().timestamp_millis() - (days as i64 * 86_400_000);
 
-        let mut stmt = conn.prepare(
-            "SELECT DATE(timestamp / 1000, 'unixepoch') as day,
+        let mut stmt = conn
+            .prepare(
+                "SELECT DATE(timestamp / 1000, 'unixepoch') as day,
                     COALESCE(SUM(COALESCE(tokens_in, 0)), 0),
                     COALESCE(SUM(COALESCE(tokens_out, 0)), 0),
                     COUNT(*)
              FROM usage_events
              WHERE user_id = ?1 AND timestamp > ?2
              GROUP BY day
-             ORDER BY day ASC"
-        ).unwrap();
+             ORDER BY day ASC",
+            )
+            .unwrap();
 
         stmt.query_map(params![user_id, cutoff_ms], |row| {
             let date: String = row.get(0)?;
@@ -6881,32 +8526,53 @@ impl Database {
             let step_count: i64 = row.get(3)?;
             // Use a blended rate for daily aggregation
             let cost_estimate = estimate_cost_by_provider("claude", tokens_in, tokens_out);
-            Ok(DailyUsage { date, tokens_in, tokens_out, cost_estimate, step_count })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+            Ok(DailyUsage {
+                date,
+                tokens_in,
+                tokens_out,
+                cost_estimate,
+                step_count,
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     /// Get system-wide usage summary since a given timestamp (admin).
     pub fn get_system_usage_summary(&self, since_ms: i64) -> UsageSummary {
         let conn = self.conn.lock().unwrap();
 
-        let mut stmt = conn.prepare(
-            "SELECT provider,
+        let mut stmt = conn
+            .prepare(
+                "SELECT provider,
                     COALESCE(SUM(COALESCE(tokens_in, 0)), 0),
                     COALESCE(SUM(COALESCE(tokens_out, 0)), 0),
                     COUNT(*)
              FROM usage_events
              WHERE timestamp > ?1
-             GROUP BY provider"
-        ).unwrap();
+             GROUP BY provider",
+            )
+            .unwrap();
 
-        let by_provider: Vec<ProviderUsage> = stmt.query_map(params![since_ms], |row| {
-            let provider: String = row.get(0)?;
-            let tokens_in: i64 = row.get(1)?;
-            let tokens_out: i64 = row.get(2)?;
-            let step_count: i64 = row.get(3)?;
-            let cost = estimate_cost_by_provider(&provider, tokens_in, tokens_out);
-            Ok(ProviderUsage { provider, tokens_in, tokens_out, cost_estimate: cost, step_count })
-        }).unwrap().filter_map(|r| r.ok()).collect();
+        let by_provider: Vec<ProviderUsage> = stmt
+            .query_map(params![since_ms], |row| {
+                let provider: String = row.get(0)?;
+                let tokens_in: i64 = row.get(1)?;
+                let tokens_out: i64 = row.get(2)?;
+                let step_count: i64 = row.get(3)?;
+                let cost = estimate_cost_by_provider(&provider, tokens_in, tokens_out);
+                Ok(ProviderUsage {
+                    provider,
+                    tokens_in,
+                    tokens_out,
+                    cost_estimate: cost,
+                    step_count,
+                })
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
 
         let total_tokens_in = by_provider.iter().map(|p| p.tokens_in).sum();
         let total_tokens_out = by_provider.iter().map(|p| p.tokens_out).sum();
@@ -6927,9 +8593,9 @@ impl Database {
         let conn = self.conn.lock().unwrap();
 
         // Get distinct users with usage in the window
-        let mut user_stmt = conn.prepare(
-            "SELECT DISTINCT user_id FROM usage_events WHERE timestamp > ?1"
-        ).unwrap();
+        let mut user_stmt = conn
+            .prepare("SELECT DISTINCT user_id FROM usage_events WHERE timestamp > ?1")
+            .unwrap();
 
         let user_ids: Vec<String> = user_stmt
             .query_map(params![since_ms], |row| row.get::<_, String>(0))
@@ -6985,8 +8651,8 @@ impl Database {
     pub fn get_user_daily_cost(&self, user_id: &str) -> (f64, i64) {
         let now = Utc::now();
         let midnight = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
-        let midnight_ms = chrono::DateTime::<Utc>::from_naive_utc_and_offset(midnight, Utc)
-            .timestamp_millis();
+        let midnight_ms =
+            chrono::DateTime::<Utc>::from_naive_utc_and_offset(midnight, Utc).timestamp_millis();
         let summary = self.get_user_usage_summary(user_id, midnight_ms);
         (summary.total_cost_estimate, summary.step_count)
     }
@@ -6994,7 +8660,12 @@ impl Database {
     /// Get a user's usage cost for the current month (since 1st of month UTC).
     pub fn get_user_monthly_cost(&self, user_id: &str) -> f64 {
         let now = Utc::now();
-        let first_of_month = now.date_naive().with_day(1).unwrap().and_hms_opt(0, 0, 0).unwrap();
+        let first_of_month = now
+            .date_naive()
+            .with_day(1)
+            .unwrap()
+            .and_hms_opt(0, 0, 0)
+            .unwrap();
         let first_ms = chrono::DateTime::<Utc>::from_naive_utc_and_offset(first_of_month, Utc)
             .timestamp_millis();
         let summary = self.get_user_usage_summary(user_id, first_ms);
@@ -7010,17 +8681,20 @@ impl Database {
                     trial_end, current_period_start, current_period_end
              FROM subscriptions WHERE clerk_user_id = ?1",
             params![clerk_user_id],
-            |row| Ok(SubscriptionRecord {
-                clerk_user_id: row.get(0)?,
-                stripe_customer_id: row.get(1)?,
-                stripe_subscription_id: row.get(2)?,
-                plan_type: row.get(3)?,
-                status: row.get(4)?,
-                trial_end: row.get(5)?,
-                current_period_start: row.get(6)?,
-                current_period_end: row.get(7)?,
-            }),
-        ).ok()
+            |row| {
+                Ok(SubscriptionRecord {
+                    clerk_user_id: row.get(0)?,
+                    stripe_customer_id: row.get(1)?,
+                    stripe_subscription_id: row.get(2)?,
+                    plan_type: row.get(3)?,
+                    status: row.get(4)?,
+                    trial_end: row.get(5)?,
+                    current_period_start: row.get(6)?,
+                    current_period_end: row.get(7)?,
+                })
+            },
+        )
+        .ok()
     }
 
     pub fn upsert_subscription(&self, sub: &SubscriptionRecord) {
@@ -7040,27 +8714,34 @@ impl Database {
                 sub.current_period_start,
                 sub.current_period_end,
             ],
-        ).expect("failed to upsert subscription");
+        )
+        .expect("failed to upsert subscription");
     }
 
-    pub fn get_subscription_by_customer(&self, stripe_customer_id: &str) -> Option<SubscriptionRecord> {
+    pub fn get_subscription_by_customer(
+        &self,
+        stripe_customer_id: &str,
+    ) -> Option<SubscriptionRecord> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT clerk_user_id, stripe_customer_id, stripe_subscription_id, plan_type, status,
                     trial_end, current_period_start, current_period_end
              FROM subscriptions WHERE stripe_customer_id = ?1",
             params![stripe_customer_id],
-            |row| Ok(SubscriptionRecord {
-                clerk_user_id: row.get(0)?,
-                stripe_customer_id: row.get(1)?,
-                stripe_subscription_id: row.get(2)?,
-                plan_type: row.get(3)?,
-                status: row.get(4)?,
-                trial_end: row.get(5)?,
-                current_period_start: row.get(6)?,
-                current_period_end: row.get(7)?,
-            }),
-        ).ok()
+            |row| {
+                Ok(SubscriptionRecord {
+                    clerk_user_id: row.get(0)?,
+                    stripe_customer_id: row.get(1)?,
+                    stripe_subscription_id: row.get(2)?,
+                    plan_type: row.get(3)?,
+                    status: row.get(4)?,
+                    trial_end: row.get(5)?,
+                    current_period_start: row.get(6)?,
+                    current_period_end: row.get(7)?,
+                })
+            },
+        )
+        .ok()
     }
 
     pub fn get_credit_balance(&self, clerk_user_id: &str) -> CreditBalanceRecord {
@@ -7069,12 +8750,15 @@ impl Database {
             "SELECT subscription_remaining, subscription_total, pack_remaining
              FROM credit_balances WHERE clerk_user_id = ?1",
             params![clerk_user_id],
-            |row| Ok(CreditBalanceRecord {
-                subscription_remaining: row.get(0)?,
-                subscription_total: row.get(1)?,
-                pack_remaining: row.get(2)?,
-            }),
-        ).unwrap_or(CreditBalanceRecord {
+            |row| {
+                Ok(CreditBalanceRecord {
+                    subscription_remaining: row.get(0)?,
+                    subscription_total: row.get(1)?,
+                    pack_remaining: row.get(2)?,
+                })
+            },
+        )
+        .unwrap_or(CreditBalanceRecord {
             subscription_remaining: 200.0,
             subscription_total: 200.0,
             pack_remaining: 0.0,
@@ -7150,11 +8834,13 @@ impl Database {
         conn.execute("COMMIT", [])
             .map_err(|e| format!("failed to commit transaction: {e}"))?;
 
-        let sub_total = conn.query_row(
-            "SELECT subscription_total FROM credit_balances WHERE clerk_user_id = ?1",
-            params![clerk_user_id],
-            |row| row.get::<_, f64>(0),
-        ).unwrap_or(200.0);
+        let sub_total = conn
+            .query_row(
+                "SELECT subscription_total FROM credit_balances WHERE clerk_user_id = ?1",
+                params![clerk_user_id],
+                |row| row.get::<_, f64>(0),
+            )
+            .unwrap_or(200.0);
 
         Ok(CreditBalanceRecord {
             subscription_remaining: new_sub_rem,
@@ -7211,13 +8897,19 @@ impl Database {
         rows > 0
     }
 
-    pub fn get_billing_history(&self, clerk_user_id: &str, limit: i64) -> Vec<BillingHistoryRecord> {
+    pub fn get_billing_history(
+        &self,
+        clerk_user_id: &str,
+        limit: i64,
+    ) -> Vec<BillingHistoryRecord> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT id, amount_cents, description, status, created_at
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, amount_cents, description, status, created_at
              FROM billing_history WHERE clerk_user_id = ?1
-             ORDER BY created_at DESC LIMIT ?2"
-        ).unwrap();
+             ORDER BY created_at DESC LIMIT ?2",
+            )
+            .unwrap();
 
         stmt.query_map(params![clerk_user_id, limit], |row| {
             Ok(BillingHistoryRecord {
@@ -7227,7 +8919,10 @@ impl Database {
                 status: row.get(3)?,
                 created_at: row.get(4)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn get_referral_code(&self, code: &str) -> Option<ReferralCodeRecord> {
@@ -7236,14 +8931,17 @@ impl Database {
             "SELECT code, creator_user_id, uses_remaining, total_uses, weeks_earned
              FROM referral_codes WHERE code = ?1",
             params![code],
-            |row| Ok(ReferralCodeRecord {
-                code: row.get(0)?,
-                creator_user_id: row.get(1)?,
-                uses_remaining: row.get(2)?,
-                total_uses: row.get(3)?,
-                weeks_earned: row.get(4)?,
-            }),
-        ).ok()
+            |row| {
+                Ok(ReferralCodeRecord {
+                    code: row.get(0)?,
+                    creator_user_id: row.get(1)?,
+                    uses_remaining: row.get(2)?,
+                    total_uses: row.get(3)?,
+                    weeks_earned: row.get(4)?,
+                })
+            },
+        )
+        .ok()
     }
 
     pub fn get_user_referral_code(&self, user_id: &str) -> Option<ReferralCodeRecord> {
@@ -7252,14 +8950,17 @@ impl Database {
             "SELECT code, creator_user_id, uses_remaining, total_uses, weeks_earned
              FROM referral_codes WHERE creator_user_id = ?1",
             params![user_id],
-            |row| Ok(ReferralCodeRecord {
-                code: row.get(0)?,
-                creator_user_id: row.get(1)?,
-                uses_remaining: row.get(2)?,
-                total_uses: row.get(3)?,
-                weeks_earned: row.get(4)?,
-            }),
-        ).ok()
+            |row| {
+                Ok(ReferralCodeRecord {
+                    code: row.get(0)?,
+                    creator_user_id: row.get(1)?,
+                    uses_remaining: row.get(2)?,
+                    total_uses: row.get(3)?,
+                    weeks_earned: row.get(4)?,
+                })
+            },
+        )
+        .ok()
     }
 
     pub fn create_user_referral_code(&self, user_id: &str) -> ReferralCodeRecord {
@@ -7275,13 +8976,14 @@ impl Database {
             params![code, user_id],
         ).ok();
         drop(conn);
-        self.get_user_referral_code(user_id).unwrap_or(ReferralCodeRecord {
-            code,
-            creator_user_id: user_id.to_string(),
-            uses_remaining: 50,
-            total_uses: 0,
-            weeks_earned: 0,
-        })
+        self.get_user_referral_code(user_id)
+            .unwrap_or(ReferralCodeRecord {
+                code,
+                creator_user_id: user_id.to_string(),
+                uses_remaining: 50,
+                total_uses: 0,
+                weeks_earned: 0,
+            })
     }
 
     pub fn consume_referral(&self, code: &str) -> bool {
@@ -7299,7 +9001,8 @@ impl Database {
         conn.execute(
             "UPDATE referral_codes SET weeks_earned = weeks_earned + 1 WHERE code = ?1",
             params![code],
-        ).ok();
+        )
+        .ok();
     }
 
     // --- Promo Codes ---
@@ -7365,7 +9068,10 @@ impl Database {
                 description: row.get(10)?,
                 discount_options: row.get(11)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn get_promo_code(&self, code: &str) -> Option<PromoCode> {
@@ -7429,7 +9135,9 @@ impl Database {
 
     pub fn delete_promo_code(&self, id: &str) -> bool {
         let conn = self.conn.lock().unwrap();
-        conn.execute("DELETE FROM promo_codes WHERE id = ?1", params![id]).unwrap_or(0) > 0
+        conn.execute("DELETE FROM promo_codes WHERE id = ?1", params![id])
+            .unwrap_or(0)
+            > 0
     }
 
     pub fn validate_promo_code(&self, code: &str, user_id: &str) -> Result<PromoCode, String> {
@@ -7470,7 +9178,8 @@ impl Database {
         conn.execute(
             "UPDATE promo_codes SET current_uses = current_uses + 1 WHERE id = ?1",
             params![promo.id],
-        ).map_err(|e| format!("usage update failed: {e}"))?;
+        )
+        .map_err(|e| format!("usage update failed: {e}"))?;
         Ok(promo)
     }
 
@@ -7487,7 +9196,8 @@ impl Database {
             ),
         };
         let mut stmt = conn.prepare(sql).unwrap();
-        let param_refs: Vec<&dyn rusqlite::types::ToSql> = params.iter().map(|v| v.as_ref()).collect();
+        let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+            params.iter().map(|v| v.as_ref()).collect();
         stmt.query_map(param_refs.as_slice(), |row| {
             Ok(CodeRedemption {
                 id: row.get(0)?,
@@ -7496,7 +9206,10 @@ impl Database {
                 user_id: row.get(3)?,
                 redeemed_at: row.get(4)?,
             })
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     // --- Context Flow Artifacts ---
@@ -7527,7 +9240,20 @@ impl Database {
         ).expect("failed to store context artifact");
     }
 
-    pub fn get_context_artifacts_for_run(&self, run_id: &str) -> Vec<(String, String, String, String, String, Vec<String>, f32, u32, i64)> {
+    pub fn get_context_artifacts_for_run(
+        &self,
+        run_id: &str,
+    ) -> Vec<(
+        String,
+        String,
+        String,
+        String,
+        String,
+        Vec<String>,
+        f32,
+        u32,
+        i64,
+    )> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, producer_step_id, kind, content, summary, files_changed, confidence, tokens, created_at
@@ -7550,7 +9276,10 @@ impl Database {
                 row.get(7)?, // tokens
                 row.get(8)?, // created_at
             ))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn cleanup_context_artifacts_for_run(&self, run_id: &str) {
@@ -7558,10 +9287,13 @@ impl Database {
         conn.execute(
             "DELETE FROM context_flow_artifacts WHERE producer_run_id = ?1",
             params![run_id],
-        ).expect("failed to cleanup context artifacts");
+        )
+        .expect("failed to cleanup context artifacts");
     }
 
-    pub fn get_context_artifact_stats(&self) -> (usize, std::collections::HashMap<String, usize>, f32) {
+    pub fn get_context_artifact_stats(
+        &self,
+    ) -> (usize, std::collections::HashMap<String, usize>, f32) {
         let conn = self.conn.lock().unwrap();
 
         // Total count
@@ -7572,9 +9304,9 @@ impl Database {
             .unwrap_or(0);
 
         // Count by kind
-        let mut stmt = conn.prepare(
-            "SELECT kind, COUNT(*) FROM context_flow_artifacts GROUP BY kind"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare("SELECT kind, COUNT(*) FROM context_flow_artifacts GROUP BY kind")
+            .unwrap();
         let kind_counts: std::collections::HashMap<String, usize> = stmt
             .query_map([], |row| {
                 Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)? as usize))
@@ -7585,9 +9317,11 @@ impl Database {
 
         // Average tokens
         let avg_tokens: f32 = conn
-            .query_row("SELECT AVG(CAST(tokens AS REAL)) FROM context_flow_artifacts", [], |row| {
-                Ok(row.get::<_, f64>(0)? as f32)
-            })
+            .query_row(
+                "SELECT AVG(CAST(tokens AS REAL)) FROM context_flow_artifacts",
+                [],
+                |row| Ok(row.get::<_, f64>(0)? as f32),
+            )
             .unwrap_or(0.0);
 
         (total, kind_counts, avg_tokens)
@@ -7595,17 +9329,17 @@ impl Database {
 
     pub fn get_recent_runs_with_artifacts(&self, limit: usize) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT DISTINCT producer_run_id FROM context_flow_artifacts
-             ORDER BY created_at DESC LIMIT ?1"
-        ).unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT DISTINCT producer_run_id FROM context_flow_artifacts
+             ORDER BY created_at DESC LIMIT ?1",
+            )
+            .unwrap();
 
-        stmt.query_map([limit], |row| {
-            Ok(row.get::<_, String>(0)?)
-        })
-        .unwrap()
-        .filter_map(|r| r.ok())
-        .collect()
+        stmt.query_map([limit], |row| Ok(row.get::<_, String>(0)?))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
     }
 
     // ─── HeyVera Social Layer ──────────────────────────────────────────────────
@@ -9742,18 +11476,35 @@ mod tests {
 
         assert_eq!(events.len(), 2);
         assert!(events.iter().all(|event| event.entity_type == "deployment"));
-        assert!(events
-            .iter()
-            .all(|event| event.scope_id.as_deref() == Some("cortex")));
-        assert!(events
-            .iter()
-            .any(|event| event.entity_id == "first" && event.payload["commit"] == "abc1234"));
-        assert!(events
-            .iter()
-            .any(|event| event.entity_id == "second" && event.payload["commit"] == "def5678"));
+        assert!(
+            events
+                .iter()
+                .all(|event| event.scope_id.as_deref() == Some("cortex"))
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.entity_id == "first" && event.payload["commit"] == "abc1234")
+        );
+        assert!(
+            events
+                .iter()
+                .any(|event| event.entity_id == "second" && event.payload["commit"] == "def5678")
+        );
     }
 
-    fn test_step(id: &str) -> (String, String, String, Option<String>, String, String, String, i64) {
+    fn test_step(
+        id: &str,
+    ) -> (
+        String,
+        String,
+        String,
+        Option<String>,
+        String,
+        String,
+        String,
+        i64,
+    ) {
         (
             id.to_string(),
             "execute".to_string(),
@@ -9764,6 +11515,86 @@ mod tests {
             "Apply change".to_string(),
             Utc::now().timestamp_millis(),
         )
+    }
+
+    #[test]
+    fn upsert_group_task_state_with_events_persists_projection_and_event() {
+        let db = test_db();
+        let state = task_state("task-1", "First task");
+        db.upsert_group_task_state_with_events(
+            "user-1",
+            "group-1",
+            &state,
+            &[CortexTaskStateEvent {
+                task_id: Some("task-1".to_string()),
+                event_type: "task.created".to_string(),
+                entity_type: "task".to_string(),
+                entity_id: "task-1".to_string(),
+                payload: serde_json::json!({ "task": { "id": "task-1" } }),
+            }],
+            None,
+        )
+        .expect("atomic task state write");
+
+        let projection = db
+            .get_cortex_task_projection("user-1", "group-1", "task-1", 25)
+            .expect("task projection");
+
+        assert_eq!(projection["task"]["id"], "task-1");
+        assert!(
+            projection["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|event| {
+                    event["event_type"] == "task.created"
+                        && event["entity_type"] == "task"
+                        && event["entity_id"] == "task-1"
+                        && event["task_id"] == "task-1"
+                })
+        );
+    }
+
+    #[test]
+    fn upsert_group_task_state_with_events_rolls_back_when_attachment_fails() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "First task"));
+        let next_state = task_state("task-2", "Second task");
+
+        let result = db.upsert_group_task_state_with_events(
+            "user-1",
+            "group-1",
+            &next_state,
+            &[CortexTaskStateEvent {
+                task_id: Some("task-2".to_string()),
+                event_type: "task.created".to_string(),
+                entity_type: "task".to_string(),
+                entity_id: "task-2".to_string(),
+                payload: serde_json::json!({ "task": { "id": "task-2" } }),
+            }],
+            Some(("missing-task", "conversation-1")),
+        );
+
+        assert!(result.is_err());
+        assert!(
+            db.get_cortex_task_projection("user-1", "group-1", "task-2", 25)
+                .is_none()
+        );
+        let state = db
+            .get_group_task_state("user-1", "group-1")
+            .expect("previous state remains");
+        assert_eq!(state["tasks"][0]["id"], "task-1");
+
+        let summary = db.get_group_operations_summary("user-1", "group-1", 25);
+        assert!(
+            !summary["recent_events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(
+                    |event| event["event_type"] == "task.created" && event["entity_id"] == "task-2"
+                )
+        );
     }
 
     #[test]
@@ -9807,14 +11638,30 @@ mod tests {
         assert_eq!(latest_run_id.as_deref(), Some(run_id.as_str()));
         assert_eq!(conversation_id.as_deref(), Some(conversation.id.as_str()));
 
-        assert!(conn
-            .query_row(
+        assert!(
+            conn.query_row(
                 "SELECT 1 FROM cortex_task_chats
                  WHERE user_id = ?1 AND group_id = ?2 AND task_id = ?3 AND conversation_id = ?4",
                 params!["user-1", "group-1", "task-1", conversation.id],
                 |_| Ok(())
             )
-            .is_ok());
+            .is_ok()
+        );
+        drop(conn);
+
+        let events = db.list_run_operations_events(&run_id, 25);
+        assert!(events.iter().any(|event| {
+            event.event_type == "run.created"
+                && event.entity_type == "run"
+                && event.entity_id == run_id
+                && event.task_id.as_deref() == Some("task-1")
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "chat.attached"
+                && event.entity_type == "chat"
+                && event.entity_id == conversation.id
+                && event.task_id.as_deref() == Some("task-1")
+        }));
     }
 
     #[test]
@@ -9927,7 +11774,10 @@ mod tests {
             None,
             None,
             None,
-            &[path_lease_in_repo("github:claw-net/claw-net", "src/main.rs")],
+            &[path_lease_in_repo(
+                "github:claw-net/claw-net",
+                "src/main.rs",
+            )],
             &[test_step("step-b")],
             &[],
         );
@@ -9988,6 +11838,17 @@ mod tests {
 
         assert!(db.update_run_status(&run_id, "succeeded", None));
         assert!(db.list_active_resource_leases_for_run(&run_id).is_empty());
+        let events = db.list_run_operations_events(&run_id, 25);
+        assert!(events.iter().any(|event| {
+            event.event_type == "run.status_changed"
+                && event.entity_type == "run"
+                && event.payload["status"] == "succeeded"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "resource_lease.released"
+                && event.entity_type == "resource_lease"
+                && event.payload["resource_key"] == "src/main.rs"
+        }));
 
         let second = db.create_run_with_steps_and_resource_leases(
             "user-1",
@@ -10002,6 +11863,144 @@ mod tests {
             &[],
         );
         assert!(second.is_ok());
+    }
+
+    #[test]
+    fn scheduler_mutations_record_operations_events() {
+        let db = test_db();
+        let run_id = db.create_run("user-1", "Exercise scheduler event coverage", "auto", &[]);
+        for worker_id in ["worker-1", "worker-2", "worker-3", "worker-4"] {
+            db.register_worker(worker_id, "user-1");
+        }
+
+        let planned_step_id = "planned-by-scheduler";
+        db.create_step_with_id(
+            planned_step_id,
+            &run_id,
+            "heal",
+            "heal",
+            "standard",
+            "medium",
+            "Repair failed work",
+            Utc::now().timestamp_millis(),
+        );
+        db.set_step_earliest_dispatch(planned_step_id, 12_345);
+
+        let unleased_step = db.create_step(&run_id, "implement", "standard", "medium", "Unlease");
+        let lease_gen = db
+            .lease_step(
+                &unleased_step,
+                "worker-1",
+                Utc::now().timestamp_millis() + 60_000,
+            )
+            .expect("lease step");
+        assert!(db.unlease_step(&unleased_step, lease_gen));
+
+        let cancelled_step = db.create_step(&run_id, "test", "standard", "medium", "Cancel");
+        let cancelled_lease_gen = db
+            .lease_step(
+                &cancelled_step,
+                "worker-2",
+                Utc::now().timestamp_millis() + 60_000,
+            )
+            .expect("lease step");
+        assert!(db.start_step(&cancelled_step, cancelled_lease_gen));
+        assert!(db.cancel_assigned_step(&cancelled_step, "worker shutdown"));
+
+        let orphaned_step = db.create_step(&run_id, "review", "standard", "medium", "Orphan");
+        let orphaned_lease_gen = db
+            .lease_step(
+                &orphaned_step,
+                "worker-3",
+                Utc::now().timestamp_millis() + 60_000,
+            )
+            .expect("lease step");
+        assert!(db.start_step(&orphaned_step, orphaned_lease_gen));
+        db.orphan_step(&orphaned_step);
+
+        let recovered_step = db.create_step(&run_id, "fix", "standard", "medium", "Recover");
+        let recovered_lease_gen = db
+            .lease_step(
+                &recovered_step,
+                "worker-4",
+                Utc::now().timestamp_millis() + 60_000,
+            )
+            .expect("lease step");
+        assert!(db.fail_step(&recovered_step, recovered_lease_gen, "boom", None));
+        assert!(db.mark_step_recovered(&recovered_step));
+
+        db.increment_heal_count(&run_id);
+        db.record_run_branch(&run_id, "cortex/run-123");
+
+        let events = db.list_run_operations_events(&run_id, 100);
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.planned"
+                && event.entity_id == planned_step_id
+                && event.payload["work_kind"] == "heal"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.dispatch_deferred"
+                && event.entity_id == planned_step_id
+                && event.payload["earliest_dispatch_at"] == 12_345
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.unleased"
+                && event.entity_id == unleased_step
+                && event.payload["status"] == "pending"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.cancelled"
+                && event.entity_id == cancelled_step
+                && event.payload["reason"] == "worker shutdown"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.orphaned"
+                && event.entity_id == orphaned_step
+                && event.payload["status"] == "orphaned"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.recovered"
+                && event.entity_id == recovered_step
+                && event.payload["status"] == "recovered"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "run.heal_incremented"
+                && event.entity_id == run_id
+                && event.payload["heal_attempts"] == 1
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "run.branch_recorded"
+                && event.entity_id == run_id
+                && event.payload["branch_name"] == "cortex/run-123"
+        }));
+    }
+
+    #[test]
+    fn cascade_failure_records_skipped_step_events() {
+        let db = test_db();
+        let run_id = db.create_run("user-1", "Cascade failure", "auto", &[]);
+        let root_step = db.create_step(&run_id, "implement", "standard", "medium", "Root");
+        let child_step = db.create_step(&run_id, "test", "standard", "medium", "Child");
+        let grandchild_step = db.create_step(&run_id, "review", "standard", "medium", "Grandchild");
+        db.add_step_dependency(&child_step, &root_step, "success_required");
+        db.add_step_dependency(&grandchild_step, &child_step, "success_required");
+
+        let skipped = db.cascade_failure(&root_step);
+
+        assert_eq!(skipped, vec![child_step.clone(), grandchild_step.clone()]);
+        let events = db.list_run_operations_events(&run_id, 100);
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.skipped"
+                && event.entity_id == child_step
+                && event.payload["failed_step_id"] == root_step
+                && event.payload["blocked_by_step_id"] == root_step
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.skipped"
+                && event.entity_id == grandchild_step
+                && event.payload["failed_step_id"] == root_step
+                && event.payload["blocked_by_step_id"] == child_step
+        }));
     }
 
     #[test]
@@ -10077,7 +12076,10 @@ mod tests {
             &[test_step("step-b")],
             &[],
         );
-        assert!(matches!(same_task, Err(CreateRunError::ResourceConflict(_))));
+        assert!(matches!(
+            same_task,
+            Err(CreateRunError::ResourceConflict(_))
+        ));
 
         let other_task = db.create_run_with_steps_and_resource_leases(
             "user-1",
@@ -10120,13 +12122,51 @@ mod tests {
         assert_eq!(projection["task"]["conversation_id"], conversation.id);
         assert_eq!(projection["runs"][0]["id"], run_id);
         assert_eq!(projection["chats"][0]["id"], conversation.id);
-        assert!(projection["events"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|event| event["event_type"] == "run.created"
-                && event["run_id"] == run_id
-                && event["task_id"] == "task-1"));
+        assert!(
+            projection["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|event| event["event_type"] == "run.created"
+                    && event["run_id"] == run_id
+                    && event["task_id"] == "task-1")
+        );
+        assert!(
+            projection["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|event| event["event_type"] == "chat.attached"
+                    && event["run_id"] == run_id
+                    && event["entity_id"] == conversation.id
+                    && event["task_id"] == "task-1")
+        );
+    }
+
+    #[test]
+    fn attach_cortex_task_chat_updates_projection_and_records_event() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "First task"));
+        let conversation = db.create_conversation("user-1", Some("Durable Project Chat"));
+
+        assert!(db.attach_cortex_task_chat("user-1", "group-1", "task-1", &conversation.id));
+
+        let projection = db
+            .get_cortex_task_projection("user-1", "group-1", "task-1", 100)
+            .expect("task projection");
+
+        assert_eq!(projection["task"]["conversation_id"], conversation.id);
+        assert_eq!(projection["chats"][0]["id"], conversation.id);
+        assert!(
+            projection["events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|event| event["event_type"] == "chat.attached"
+                    && event["entity_type"] == "chat"
+                    && event["entity_id"] == conversation.id
+                    && event["task_id"] == "task-1")
+        );
     }
 
     #[test]
@@ -10150,9 +12190,11 @@ mod tests {
         assert_eq!(request.task_id.as_deref(), Some("task-1"));
         assert_eq!(request.priority, "urgent");
 
-        let user_requests = db.list_cortex_approval_requests("user-1", "group-1", Some("pending"), 10);
+        let user_requests =
+            db.list_cortex_approval_requests("user-1", "group-1", Some("pending"), 10);
         assert_eq!(user_requests.len(), 1);
-        let other_user_requests = db.list_cortex_approval_requests("user-2", "group-1", Some("pending"), 10);
+        let other_user_requests =
+            db.list_cortex_approval_requests("user-2", "group-1", Some("pending"), 10);
         assert!(other_user_requests.is_empty());
 
         let resolved = db
@@ -10167,18 +12209,53 @@ mod tests {
         assert_eq!(resolved.status, "approved");
         assert_eq!(resolved.decision.as_ref().unwrap()["note"], "looks good");
         assert!(resolved.resolved_at.is_some());
-        assert!(db
-            .resolve_cortex_approval_request(
+        assert!(
+            db.resolve_cortex_approval_request(
                 "user-1",
                 "group-1",
                 &request.id,
                 "rejected",
                 &serde_json::json!({}),
             )
-            .is_none());
+            .is_none()
+        );
 
         let pending = db.list_cortex_approval_requests("user-1", "group-1", Some("pending"), 10);
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn operations_summary_counts_cancelled_approvals() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "First task"));
+
+        let request = db.create_cortex_approval_request(
+            "user-1",
+            "group-1",
+            Some("task-1"),
+            None,
+            None,
+            "Cancel stale ask",
+            "This ask is no longer needed.",
+            "normal",
+            "task-manager",
+        );
+
+        db.resolve_cortex_approval_request(
+            "user-1",
+            "group-1",
+            &request.id,
+            "cancelled",
+            &serde_json::json!({ "source": "test" }),
+        )
+        .expect("approval cancels");
+
+        let group_summary = db.get_group_operations_summary("user-1", "group-1", 25);
+        assert_eq!(group_summary["approvals"]["pending"], 0);
+        assert_eq!(group_summary["approvals"]["cancelled"], 1);
+
+        let personal_summary = db.get_personal_operations_summary("user-1", 25);
+        assert_eq!(personal_summary["approvals"]["cancelled"], 1);
     }
 
     #[test]
@@ -10206,13 +12283,15 @@ mod tests {
 
         let summary = db.get_group_operations_summary("user-1", "group-1", 25);
         assert_eq!(summary["approvals"]["pending"], 1);
-        assert!(summary["attention"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["kind"] == "approval_pending"
-                && item["approval_id"] == approval.id
-                && item["task_id"] == "task-1"));
+        assert!(
+            summary["attention"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["kind"] == "approval_pending"
+                    && item["approval_id"] == approval.id
+                    && item["task_id"] == "task-1")
+        );
     }
 
     #[test]
@@ -10283,11 +12362,7 @@ mod tests {
         )
         .expect("approval resolves");
 
-        assert!(db.has_approved_cortex_step_approval(
-            "user-1",
-            "step-risky",
-            "autonomy.dispatch"
-        ));
+        assert!(db.has_approved_cortex_step_approval("user-1", "step-risky", "autonomy.dispatch"));
         assert_eq!(
             db.latest_cortex_step_approval_status("user-1", "step-risky", "autonomy.dispatch")
                 .map(|(_, status)| status)
@@ -10302,31 +12377,39 @@ mod tests {
     #[test]
     fn get_group_operations_summary_counts_user_scoped_backend_state() {
         let db = test_db();
-        db.upsert_group_task_state("user-1", "group-1", &task_state_with_tasks(serde_json::json!([
-            {
-                "id": "task-urgent",
-                "groupId": "group-1",
-                "title": "Urgent queued task",
-                "status": "created",
-                "priority": "urgent",
-                "assigneeId": null,
-                "createdAt": "2026-05-25T00:00:00Z",
-                "updatedAt": "2026-05-25T00:00:00Z",
-                "createdBy": "You"
-            },
-            {
-                "id": "task-active",
-                "groupId": "group-1",
-                "title": "Active backend task",
-                "status": "in-progress",
-                "priority": "normal",
-                "assigneeId": "user-1",
-                "createdAt": "2026-05-25T00:00:00Z",
-                "updatedAt": "2026-05-25T00:00:00Z",
-                "createdBy": "You"
-            }
-        ])));
-        db.upsert_group_task_state("user-2", "group-1", &task_state("task-other-user", "Other user task"));
+        db.upsert_group_task_state(
+            "user-1",
+            "group-1",
+            &task_state_with_tasks(serde_json::json!([
+                {
+                    "id": "task-urgent",
+                    "groupId": "group-1",
+                    "title": "Urgent queued task",
+                    "status": "created",
+                    "priority": "urgent",
+                    "assigneeId": null,
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                },
+                {
+                    "id": "task-active",
+                    "groupId": "group-1",
+                    "title": "Active backend task",
+                    "status": "in-progress",
+                    "priority": "normal",
+                    "assigneeId": "user-1",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                }
+            ])),
+        );
+        db.upsert_group_task_state(
+            "user-2",
+            "group-1",
+            &task_state("task-other-user", "Other user task"),
+        );
 
         let run_id = db.create_run_with_metadata(
             "user-1",
@@ -10375,34 +12458,33 @@ mod tests {
             .iter()
             .any(|item| item["kind"] == "urgent_not_active"
                 && item["task_id"] == "task-urgent"));
-        assert!(summary["attention"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["kind"] == "failed_run"
-                && item["run_id"] == run_id));
-        assert!(summary["recent_events"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|event| event["actor_user_id"] == "user-1"));
-        assert!(summary["recent_events"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|event| event["event_type"] == "run.status_changed"
-                && event["scope_id"] == "group-1"
-                && event["task_id"] == "task-active"
-                && event["run_id"] == run_id));
-        assert!(summary["recent_events"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|event| event["event_type"] == "step.failed"
+        assert!(
+            summary["attention"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["kind"] == "failed_run" && item["run_id"] == run_id)
+        );
+        assert!(
+            summary["recent_events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|event| event["actor_user_id"] == "user-1")
+        );
+        assert!(summary["recent_events"].as_array().unwrap().iter().any(
+            |event| event["event_type"] == "run.status_changed"
                 && event["scope_id"] == "group-1"
                 && event["task_id"] == "task-active"
                 && event["run_id"] == run_id
-                && event["step_id"] == step_id));
+        ));
+        assert!(summary["recent_events"].as_array().unwrap().iter().any(
+            |event| event["event_type"] == "step.failed"
+                && event["scope_id"] == "group-1"
+                && event["task_id"] == "task-active"
+                && event["run_id"] == run_id
+                && event["step_id"] == step_id
+        ));
     }
 
     #[test]
@@ -10433,14 +12515,154 @@ mod tests {
         assert_eq!(summary["resource_leases"]["by_type"]["task"], 1);
         assert_eq!(summary["resource_leases"]["by_mode"]["write"], 1);
         assert_eq!(summary["resource_leases"]["by_mode"]["exclusive"], 1);
-        assert!(summary["resource_leases"]["leases"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|lease| lease["run_id"] == run_id
-                && lease["resource_type"] == "path"
-                && lease["repo_key"] == "github:hey-vera/heyvera"
-                && lease["resource_key"] == "src/main.rs"));
+        assert!(
+            summary["resource_leases"]["leases"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|lease| lease["run_id"] == run_id
+                    && lease["resource_type"] == "path"
+                    && lease["repo_key"] == "github:hey-vera/heyvera"
+                    && lease["resource_key"] == "src/main.rs")
+        );
+    }
+
+    #[test]
+    fn get_group_operations_graph_links_tasks_runs_steps_evidence_and_leases() {
+        let db = test_db();
+        db.upsert_group_task_state("user-1", "group-1", &task_state("task-1", "Ship graph"));
+        db.upsert_group_task_state(
+            "user-2",
+            "group-1",
+            &task_state("task-other-user", "Other graph"),
+        );
+        let conversation = db.create_conversation("user-1", Some("Project Chat"));
+        assert!(db.attach_cortex_task_chat("user-1", "group-1", "task-1", &conversation.id));
+
+        let run_id = db
+            .create_run_with_steps_and_resource_leases(
+                "user-1",
+                "Ship graph",
+                "auto",
+                &["src/main.rs".to_string()],
+                Some("task-1"),
+                Some("group-1"),
+                Some(&conversation.id),
+                &[path_lease_in_repo("github:hey-vera/heyvera", "src/main.rs")],
+                &[test_step("step-a"), test_step("step-b")],
+                &[(
+                    "step-b".to_string(),
+                    "step-a".to_string(),
+                    "success_required".to_string(),
+                )],
+            )
+            .expect("run");
+        let report_id = db
+            .record_verifier_report(
+                "step-a",
+                &run_id,
+                0,
+                None,
+                "test",
+                "verified",
+                "pass",
+                r#"{"ok":true}"#,
+            )
+            .expect("report");
+        let approval = db.create_cortex_approval_request_with_gate(
+            "user-1",
+            "group-1",
+            Some("task-1"),
+            Some("step-b"),
+            Some(&conversation.id),
+            Some(&run_id),
+            "approval",
+            "Approve merge",
+            "Ship it",
+            "high",
+            "cortex",
+        );
+        let other_run_id = db.create_run_with_metadata(
+            "user-2",
+            "Other user run",
+            "auto",
+            &[],
+            Some("task-other-user"),
+            Some("group-1"),
+            None,
+        );
+        let graph = db.get_group_operations_graph("user-1", "group-1", 50);
+        let nodes = graph["nodes"].as_array().unwrap();
+        let edges = graph["edges"].as_array().unwrap();
+
+        assert_eq!(graph["group_id"], "group-1");
+        assert!(nodes.iter().any(|node| {
+            node["id"] == "task:task-1"
+                && node["type"] == "task"
+                && node["completion"]["run_id"] == run_id
+        }));
+        assert!(nodes.iter().any(
+            |node| node["id"] == format!("chat:{}", conversation.id) && node["type"] == "chat"
+        ));
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node["id"] == format!("run:{run_id}") && node["type"] == "run")
+        );
+        assert!(
+            nodes
+                .iter()
+                .any(|node| node["id"] == "step:step-a" && node["type"] == "step")
+        );
+        assert!(nodes.iter().any(|node| {
+            node["id"] == format!("evidence:{report_id}")
+                && node["type"] == "evidence"
+                && node["step_id"] == "step-a"
+        }));
+        assert!(nodes.iter().any(|node| {
+            node["id"] == format!("approval:{}", approval.id)
+                && node["type"] == "approval"
+                && node["step_id"] == "step-b"
+        }));
+        assert!(nodes.iter().any(|node| {
+            node["type"] == "resource_lease"
+                && node["run_id"] == run_id
+                && node["resource_key"] == "src/main.rs"
+        }));
+        assert!(
+            nodes.iter().all(
+                |node| node["run_id"] != other_run_id && node["entity_id"] != "task-other-user"
+            )
+        );
+
+        assert!(edges.iter().any(|edge| {
+            edge["from"] == "task:task-1"
+                && edge["to"] == format!("run:{run_id}")
+                && edge["type"] == "task_run"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge["from"] == "step:step-a"
+                && edge["to"] == "step:step-b"
+                && edge["type"] == "step_dependency"
+                && edge["edge_type"] == "success_required"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge["from"] == "step:step-a"
+                && edge["to"] == format!("evidence:{report_id}")
+                && edge["type"] == "step_evidence"
+        }));
+        assert!(edges.iter().any(|edge| {
+            edge["from"] == "step:step-b"
+                && edge["to"] == format!("approval:{}", approval.id)
+                && edge["type"] == "step_approval"
+        }));
+        assert!(
+            graph["recent_events"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|event| event["actor_user_id"] == "user-1")
+        );
     }
 
     #[test]
@@ -10491,7 +12713,11 @@ mod tests {
                 }
             ])),
         );
-        db.upsert_group_task_state("user-2", "group-derived", &task_state("other-task", "Other"));
+        db.upsert_group_task_state(
+            "user-2",
+            "group-derived",
+            &task_state("other-task", "Other"),
+        );
 
         let run_id = db
             .create_run_with_steps_and_resource_leases(
@@ -10521,25 +12747,31 @@ mod tests {
         assert_eq!(summary["runs"]["active"], 1);
         assert_eq!(summary["resource_leases"]["active"], 1);
         assert_eq!(summary["resource_leases"]["by_type"]["path"], 1);
-        assert!(summary["groups"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|group| group["group_id"] == "group-derived"
-                && group["source"] == "derived"
-                && group["tasks"]["total"] == 1));
-        assert!(summary["groups"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|group| group["group_id"] == "group-registered"
-                && group["name"] == "Registered group"
-                && group["resource_leases"]["active"] == 1));
-        assert!(summary["attention"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .all(|item| item["group_id"].as_str().is_some()));
+        assert!(
+            summary["groups"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|group| group["group_id"] == "group-derived"
+                    && group["source"] == "derived"
+                    && group["tasks"]["total"] == 1)
+        );
+        assert!(
+            summary["groups"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|group| group["group_id"] == "group-registered"
+                    && group["name"] == "Registered group"
+                    && group["resource_leases"]["active"] == 1)
+        );
+        assert!(
+            summary["attention"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .all(|item| item["group_id"].as_str().is_some())
+        );
     }
 
     #[test]
@@ -10579,9 +12811,11 @@ mod tests {
 
         let scopes = db.list_authority_scopes_for_user("user-1");
         assert_eq!(scopes.len(), 2);
-        assert!(scopes
-            .iter()
-            .any(|scope| scope.id == "personal:user-1" && scope.kind == "personal"));
+        assert!(
+            scopes
+                .iter()
+                .any(|scope| scope.id == "personal:user-1" && scope.kind == "personal")
+        );
         let org = scopes
             .iter()
             .find(|scope| scope.id == "org:github:hey-vera")
@@ -10651,26 +12885,223 @@ mod tests {
             .iter()
             .find(|event| event.event_type == "run.created")
             .expect("run.created event");
-        assert_eq!(created.payload["authority"]["scope_id"], "org:github:hey-vera");
+        assert_eq!(
+            created.payload["authority"]["scope_id"],
+            "org:github:hey-vera"
+        );
         assert_eq!(created.payload["authority"]["handoff_id"], "handoff-1");
+    }
+
+    #[test]
+    fn run_creation_persists_pr_authority_context_and_write_lease() {
+        let db = test_db();
+        let run_id = db
+            .create_run_with_steps_and_resource_leases_with_authority(
+                "user-1",
+                "Ship org scoped PR",
+                "auto",
+                &["src/lib.rs".to_string()],
+                Some("task-1"),
+                Some("group-1"),
+                None,
+                &[path_lease_in_repo("github:hey-vera/heyvera", "src/lib.rs")],
+                &[test_step("step-authority-pr")],
+                &[],
+                Some(&serde_json::json!({
+                    "scope_id": "org:github:hey-vera",
+                    "scope_kind": "org",
+                    "role": "admin",
+                    "handoff_id": "handoff-1",
+                    "reason": "operator selected org context"
+                })),
+            )
+            .expect("run");
+
+        let context = db
+            .get_run_pr_authority_context(&run_id, "user-1")
+            .expect("PR authority context");
+        assert_eq!(context.repo_key.as_deref(), Some("github:hey-vera/heyvera"));
+        assert_eq!(
+            context.authority_scope_id.as_deref(),
+            Some("org:github:hey-vera")
+        );
+        assert_eq!(context.authority_context["handoff_id"], "handoff-1");
+        assert!(db.run_has_pr_write_lease(&run_id, Some("github:hey-vera/heyvera")));
+
+        let leases = db.list_active_resource_leases_for_run(&run_id);
+        assert_eq!(
+            leases[0].authority_scope_id.as_deref(),
+            Some("org:github:hey-vera")
+        );
+    }
+
+    #[test]
+    fn org_authority_resource_leases_conflict_across_users_same_scope() {
+        let db = test_db();
+        let authority_context = serde_json::json!({
+            "scope_id": "org:github:hey-vera",
+            "scope_kind": "org",
+            "role": "admin",
+            "handoff_id": "handoff-1",
+        });
+
+        let first = db
+            .create_run_with_steps_and_resource_leases_with_authority(
+                "user-1",
+                "Ship first org change",
+                "auto",
+                &["src/lib.rs".to_string()],
+                Some("task-1"),
+                Some("group-1"),
+                None,
+                &[path_lease_in_repo("github:hey-vera/heyvera", "src/lib.rs")],
+                &[test_step("step-org-a")],
+                &[],
+                Some(&authority_context),
+            )
+            .expect("first run");
+
+        let second = db.create_run_with_steps_and_resource_leases_with_authority(
+            "user-2",
+            "Ship conflicting org change",
+            "auto",
+            &["src/lib.rs".to_string()],
+            Some("task-2"),
+            Some("group-1"),
+            None,
+            &[path_lease_in_repo("github:hey-vera/heyvera", "src/lib.rs")],
+            &[test_step("step-org-b")],
+            &[],
+            Some(&authority_context),
+        );
+
+        match second {
+            Err(CreateRunError::ResourceConflict(conflict)) => {
+                assert_eq!(conflict.run_id, first);
+                assert_eq!(conflict.resource_key, "src/lib.rs");
+            }
+            other => panic!("expected org-scoped resource conflict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn personal_resource_leases_do_not_conflict_across_users() {
+        let db = test_db();
+        db.create_run_with_steps_and_resource_leases_with_authority(
+            "user-1",
+            "Ship personal first change",
+            "auto",
+            &["src/lib.rs".to_string()],
+            None,
+            Some("group-1"),
+            None,
+            &[path_lease_in_repo("github:hey-vera/heyvera", "src/lib.rs")],
+            &[test_step("step-personal-a")],
+            &[],
+            Some(&serde_json::json!({
+                "scope_id": "personal:user-1",
+                "scope_kind": "personal",
+                "role": "owner",
+            })),
+        )
+        .expect("first personal run");
+
+        let second = db.create_run_with_steps_and_resource_leases_with_authority(
+            "user-2",
+            "Ship personal second change",
+            "auto",
+            &["src/lib.rs".to_string()],
+            None,
+            Some("group-2"),
+            None,
+            &[path_lease_in_repo("github:hey-vera/heyvera", "src/lib.rs")],
+            &[test_step("step-personal-b")],
+            &[],
+            Some(&serde_json::json!({
+                "scope_id": "personal:user-2",
+                "scope_kind": "personal",
+                "role": "owner",
+            })),
+        );
+
+        assert!(second.is_ok());
+    }
+
+    #[test]
+    fn run_pr_write_lease_ignores_read_and_expired_leases() {
+        let db = test_db();
+        let read_lease = ResourceLeaseRequest {
+            resource_type: "path".to_string(),
+            repo_key: "github:hey-vera/heyvera".to_string(),
+            resource_key: "src/lib.rs".to_string(),
+            mode: "read".to_string(),
+            reason: Some("read-only inspection".to_string()),
+            metadata: serde_json::json!({}),
+        };
+        let run_id = db
+            .create_run_with_steps_and_resource_leases(
+                "user-1",
+                "Inspect only",
+                "auto",
+                &["src/lib.rs".to_string()],
+                None,
+                Some("group-1"),
+                None,
+                &[read_lease],
+                &[test_step("step-read-only")],
+                &[],
+            )
+            .expect("run");
+        assert!(!db.run_has_pr_write_lease(&run_id, Some("github:hey-vera/heyvera")));
+
+        let write_run_id = db
+            .create_run_with_steps_and_resource_leases(
+                "user-1",
+                "Write then expire",
+                "auto",
+                &["src/other.rs".to_string()],
+                None,
+                Some("group-1"),
+                None,
+                &[path_lease_in_repo(
+                    "github:hey-vera/heyvera",
+                    "src/other.rs",
+                )],
+                &[test_step("step-expired")],
+                &[],
+            )
+            .expect("run");
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE resource_leases SET status = 'expired' WHERE run_id = ?1",
+                params![write_run_id],
+            )
+            .unwrap();
+        }
+        assert!(!db.run_has_pr_write_lease(&write_run_id, Some("github:hey-vera/heyvera")));
     }
 
     #[test]
     fn get_cortex_task_projection_reports_evidence_gated_completion() {
         let db = test_db();
-        db.upsert_group_task_state("user-1", "group-1", &task_state_with_tasks(serde_json::json!([
-            {
-                "id": "task-1",
-                "groupId": "group-1",
-                "title": "Verified task",
-                "status": "done",
-                "priority": "normal",
-                "assigneeId": "user-1",
-                "createdAt": "2026-05-25T00:00:00Z",
-                "updatedAt": "2026-05-25T00:00:00Z",
-                "createdBy": "You"
-            }
-        ])));
+        db.upsert_group_task_state(
+            "user-1",
+            "group-1",
+            &task_state_with_tasks(serde_json::json!([
+                {
+                    "id": "task-1",
+                    "groupId": "group-1",
+                    "title": "Verified task",
+                    "status": "done",
+                    "priority": "normal",
+                    "assigneeId": "user-1",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                }
+            ])),
+        );
         let run_id = db.create_run_with_metadata(
             "user-1",
             "Ship verified task",
@@ -10685,12 +13116,22 @@ mod tests {
             let conn = db.conn.lock().unwrap();
             conn.execute(
                 "UPDATE steps
-                 SET status = 'succeeded', verification_status = 'verified_pass'
+                 SET status = 'succeeded'
                  WHERE id = ?1",
                 params![step_id],
             )
             .unwrap();
         }
+        db.record_verifier_report(
+            &step_id,
+            &run_id,
+            0,
+            None,
+            "test",
+            "verified",
+            "pass",
+            r#"{"verifier_report":{"verdict":"success"}}"#,
+        );
         assert!(db.update_run_status(&run_id, "succeeded", None));
 
         let projection = db
@@ -10701,29 +13142,34 @@ mod tests {
         assert_eq!(projection["task"]["completion"]["gated_done"], true);
         assert_eq!(projection["task"]["completion"]["reason"], "passed");
         assert_eq!(projection["task"]["completion"]["run_id"], run_id);
-        assert_eq!(projection["task"]["completion"]["steps"]["verified_pass"], 1);
+        assert_eq!(
+            projection["task"]["completion"]["steps"]["verified_pass"],
+            1
+        );
     }
 
     #[test]
     fn cortex_task_has_evidence_backed_completion_requires_verified_success() {
         let db = test_db();
-        db.upsert_group_task_state("user-1", "group-1", &task_state_with_tasks(serde_json::json!([
-            {
-                "id": "task-1",
-                "groupId": "group-1",
-                "title": "Verified task",
-                "status": "in-progress",
-                "priority": "normal",
-                "assigneeId": "user-1",
-                "createdAt": "2026-05-25T00:00:00Z",
-                "updatedAt": "2026-05-25T00:00:00Z",
-                "createdBy": "You"
-            }
-        ])));
+        db.upsert_group_task_state(
+            "user-1",
+            "group-1",
+            &task_state_with_tasks(serde_json::json!([
+                {
+                    "id": "task-1",
+                    "groupId": "group-1",
+                    "title": "Verified task",
+                    "status": "in-progress",
+                    "priority": "normal",
+                    "assigneeId": "user-1",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                }
+            ])),
+        );
 
-        assert!(!db.cortex_task_has_evidence_backed_completion(
-            "user-1", "group-1", "task-1"
-        ));
+        assert!(!db.cortex_task_has_evidence_backed_completion("user-1", "group-1", "task-1"));
 
         let run_id = db.create_run_with_metadata(
             "user-1",
@@ -10736,10 +13182,147 @@ mod tests {
         );
         let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
         assert!(db.update_run_status(&run_id, "succeeded", None));
-        assert!(!db.cortex_task_has_evidence_backed_completion(
-            "user-1", "group-1", "task-1"
-        ));
+        assert!(!db.cortex_task_has_evidence_backed_completion("user-1", "group-1", "task-1"));
 
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE steps
+                 SET status = 'succeeded'
+                 WHERE id = ?1",
+                params![step_id],
+            )
+            .unwrap();
+        }
+        db.record_verifier_report(
+            &step_id,
+            &run_id,
+            0,
+            None,
+            "test",
+            "verified",
+            "pass",
+            r#"{"verifier_report":{"verdict":"success"}}"#,
+        );
+
+        assert!(db.cortex_task_has_evidence_backed_completion("user-1", "group-1", "task-1"));
+    }
+
+    #[test]
+    fn record_verifier_report_updates_step_and_records_event_atomically() {
+        let db = test_db();
+        let run_id = db.create_run_with_metadata(
+            "user-1",
+            "Ship verified evidence",
+            "auto",
+            &[],
+            Some("task-1"),
+            Some("group-1"),
+            None,
+        );
+        let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
+
+        let report_id = db
+            .record_verifier_report(
+                &step_id,
+                &run_id,
+                0,
+                Some("worker-1"),
+                "test",
+                "verified",
+                "pass",
+                r#"{"verifier_report":{"verdict":"success"}}"#,
+            )
+            .expect("verifier report");
+
+        let report = db
+            .get_latest_verifier_report(&step_id)
+            .expect("latest verifier report");
+        assert_eq!(report.id, report_id);
+        let conn = db.conn.lock().unwrap();
+        let (verification_status, verifier_report_id): (String, Option<String>) = conn
+            .query_row(
+                "SELECT verification_status, verifier_report_id FROM steps WHERE id = ?1",
+                params![step_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(verification_status, "verified_pass");
+        assert_eq!(verifier_report_id.as_deref(), Some(report_id.as_str()));
+        drop(conn);
+
+        let events = db.list_run_operations_events(&run_id, 25);
+        assert!(events.iter().any(|event| {
+            event.event_type == "verifier.reported"
+                && event.entity_type == "verifier_report"
+                && event.entity_id == report_id
+                && event.step_id.as_deref() == Some(step_id.as_str())
+                && event.payload["step_verification_status"] == "verified_pass"
+        }));
+    }
+
+    #[test]
+    fn record_verifier_report_rolls_back_for_missing_step() {
+        let db = test_db();
+        let report_id = db.record_verifier_report(
+            "missing-step",
+            "run-1",
+            0,
+            None,
+            "test",
+            "verified",
+            "pass",
+            r#"{"verifier_report":{"verdict":"success"}}"#,
+        );
+
+        assert!(report_id.is_none());
+        let conn = db.conn.lock().unwrap();
+        let reports: i64 = conn
+            .query_row("SELECT COUNT(*) FROM verifier_reports", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let events: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM operations_events WHERE event_type = 'verifier.reported'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(reports, 0);
+        assert_eq!(events, 0);
+    }
+
+    #[test]
+    fn cortex_task_completion_gate_does_not_trust_step_status_only() {
+        let db = test_db();
+        db.upsert_group_task_state(
+            "user-1",
+            "group-1",
+            &task_state_with_tasks(serde_json::json!([
+                {
+                    "id": "task-1",
+                    "groupId": "group-1",
+                    "title": "Spoofed task",
+                    "status": "in-progress",
+                    "priority": "normal",
+                    "assigneeId": "user-1",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                }
+            ])),
+        );
+        let run_id = db.create_run_with_metadata(
+            "user-1",
+            "Ship spoofed task",
+            "auto",
+            &[],
+            Some("task-1"),
+            Some("group-1"),
+            None,
+        );
+        let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
         {
             let conn = db.conn.lock().unwrap();
             conn.execute(
@@ -10750,39 +13333,73 @@ mod tests {
             )
             .unwrap();
         }
+        assert!(db.update_run_status(&run_id, "succeeded", None));
 
-        assert!(db.cortex_task_has_evidence_backed_completion(
-            "user-1", "group-1", "task-1"
-        ));
+        assert!(!db.cortex_task_has_evidence_backed_completion("user-1", "group-1", "task-1"));
+    }
+
+    #[test]
+    fn get_verifier_report_for_run_step_returns_owned_evidence() {
+        let db = test_db();
+        let run_id =
+            db.create_run_with_metadata("user-1", "Ship evidence", "auto", &[], None, None, None);
+        let step_id = db.create_step(&run_id, "verify", "standard", "medium", "Verify it");
+        let report_id = db
+            .record_verifier_report(
+                &step_id,
+                &run_id,
+                0,
+                Some("worker-1"),
+                "test",
+                "verified",
+                "pass",
+                r#"{"worker_completed":{"exit_code":0},"verifier_report":{"verdict":"success"}}"#,
+            )
+            .expect("report id");
+
+        let payload = db
+            .get_verifier_report_for_run_step("user-1", &run_id, &step_id, &report_id)
+            .expect("report payload");
+        assert_eq!(payload["report"]["id"], report_id);
+        assert_eq!(payload["report"]["status"], "verified");
+        assert_eq!(payload["evidence"]["worker_completed"]["exit_code"], 0);
+        assert!(
+            db.get_verifier_report_for_run_step("user-2", &run_id, &step_id, &report_id)
+                .is_none()
+        );
     }
 
     #[test]
     fn get_group_operations_summary_counts_evidence_gated_done() {
         let db = test_db();
-        db.upsert_group_task_state("user-1", "group-1", &task_state_with_tasks(serde_json::json!([
-            {
-                "id": "task-verified",
-                "groupId": "group-1",
-                "title": "Verified done task",
-                "status": "done",
-                "priority": "normal",
-                "assigneeId": "user-1",
-                "createdAt": "2026-05-25T00:00:00Z",
-                "updatedAt": "2026-05-25T00:00:00Z",
-                "createdBy": "You"
-            },
-            {
-                "id": "task-raw",
-                "groupId": "group-1",
-                "title": "Raw done task",
-                "status": "done",
-                "priority": "normal",
-                "assigneeId": "user-1",
-                "createdAt": "2026-05-25T00:00:00Z",
-                "updatedAt": "2026-05-25T00:00:00Z",
-                "createdBy": "You"
-            }
-        ])));
+        db.upsert_group_task_state(
+            "user-1",
+            "group-1",
+            &task_state_with_tasks(serde_json::json!([
+                {
+                    "id": "task-verified",
+                    "groupId": "group-1",
+                    "title": "Verified done task",
+                    "status": "done",
+                    "priority": "normal",
+                    "assigneeId": "user-1",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                },
+                {
+                    "id": "task-raw",
+                    "groupId": "group-1",
+                    "title": "Raw done task",
+                    "status": "done",
+                    "priority": "normal",
+                    "assigneeId": "user-1",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                }
+            ])),
+        );
         let run_id = db.create_run_with_metadata(
             "user-1",
             "Ship verified done task",
@@ -10797,12 +13414,22 @@ mod tests {
             let conn = db.conn.lock().unwrap();
             conn.execute(
                 "UPDATE steps
-                 SET status = 'succeeded', verification_status = 'verified_pass'
+                 SET status = 'succeeded'
                  WHERE id = ?1",
                 params![step_id],
             )
             .unwrap();
         }
+        db.record_verifier_report(
+            &step_id,
+            &run_id,
+            0,
+            None,
+            "test",
+            "verified",
+            "pass",
+            r#"{"verifier_report":{"verdict":"success"}}"#,
+        );
         assert!(db.update_run_status(&run_id, "succeeded", None));
 
         let summary = db.get_group_operations_summary("user-1", "group-1", 25);
@@ -10811,12 +13438,14 @@ mod tests {
         assert_eq!(summary["tasks"]["completion"]["gated_done_available"], true);
         assert_eq!(summary["tasks"]["completion"]["gated_done"], 1);
         assert_eq!(summary["tasks"]["completion"]["done_without_evidence"], 1);
-        assert!(summary["attention"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .any(|item| item["kind"] == "done_without_evidence"
-                && item["task_id"] == "task-raw"
-                && item["reason"] == "no_run"));
+        assert!(
+            summary["attention"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|item| item["kind"] == "done_without_evidence"
+                    && item["task_id"] == "task-raw"
+                    && item["reason"] == "no_run")
+        );
     }
 }

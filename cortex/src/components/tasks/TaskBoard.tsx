@@ -100,6 +100,10 @@ function formatAttentionKind(kind?: string | null) {
   return kind.replaceAll('_', ' ');
 }
 
+function countNonApprovalAttention(summary: GroupOperationsSummary) {
+  return summary.attention.filter((item) => item.kind !== 'approval_pending').length;
+}
+
 function backendSignalsFromSummary(summary: GroupOperationsSummary): Record<string, TaskBackendSignal> {
   const signals: Record<string, TaskBackendSignal> = {};
 
@@ -175,7 +179,7 @@ function boardSummaryFromOperations(summary: GroupOperationsSummary): BoardBacke
     open: summary.tasks.open,
     active: summary.tasks.active + summary.runs.active,
     rawDone: summary.tasks.done_raw,
-    attention: summary.attention.length,
+    attention: countNonApprovalAttention(summary),
     failedRuns: summary.runs.failed,
     failedSteps: summary.steps.failed,
     orphanedSteps: summary.steps.orphaned,
@@ -512,7 +516,7 @@ export default function TaskBoard({
               open: nextBoardSummary.open + summary.tasks.open,
               active: nextBoardSummary.active + summary.tasks.active + summary.runs.active,
               rawDone: nextBoardSummary.rawDone + summary.tasks.done_raw,
-              attention: nextBoardSummary.attention + summary.attention.length,
+              attention: nextBoardSummary.attention + countNonApprovalAttention(summary),
               failedRuns: nextBoardSummary.failedRuns + summary.runs.failed,
               failedSteps: nextBoardSummary.failedSteps + summary.steps.failed,
               orphanedSteps: nextBoardSummary.orphanedSteps + summary.steps.orphaned,

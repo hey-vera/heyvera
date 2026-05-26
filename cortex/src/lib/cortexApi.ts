@@ -1098,6 +1098,7 @@ export interface GroupOperationsSummary {
     pending: number;
     approved: number;
     rejected: number;
+    cancelled?: number;
   };
   resource_leases?: {
     active: number;
@@ -1106,6 +1107,57 @@ export interface GroupOperationsSummary {
     leases: GroupOperationsResourceLease[];
   };
   attention: GroupOperationsAttentionItem[];
+  recent_events: RunOperationEvent[];
+}
+
+export type OperationsGraphNodeType =
+  | 'task'
+  | 'run'
+  | 'step'
+  | 'chat'
+  | 'evidence'
+  | 'approval'
+  | 'resource_lease'
+  | string;
+
+export interface OperationsGraphNode {
+  id: string;
+  type: OperationsGraphNodeType;
+  entity_id: string;
+  group_id?: string | null;
+  task_id?: string | null;
+  run_id?: string | null;
+  step_id?: string | null;
+  conversation_id?: string | null;
+  label?: string | null;
+  status?: string | null;
+  priority?: string | null;
+  kind?: string | null;
+  work_kind?: string | null;
+  risk?: string | null;
+  tier?: string | null;
+  verification_status?: string | null;
+  verifier_report_id?: string | null;
+  verdict?: string | null;
+  lease_stale?: boolean;
+  [key: string]: unknown;
+}
+
+export interface OperationsGraphEdge {
+  id: string;
+  from: string;
+  to: string;
+  type: string;
+  edge_type?: string;
+  [key: string]: unknown;
+}
+
+export interface GroupOperationsGraph {
+  group_id: string;
+  scope: 'group';
+  generated_at: number;
+  nodes: OperationsGraphNode[];
+  edges: OperationsGraphEdge[];
   recent_events: RunOperationEvent[];
 }
 
@@ -1264,6 +1316,12 @@ export async function getTaskProjection(groupId: string, taskId: string): Promis
 export async function getGroupOperationsSummary(groupId: string): Promise<GroupOperationsSummary> {
   return requestJson<GroupOperationsSummary>(
     `/api/groups/${encodeURIComponent(groupId)}/operations/summary`,
+  );
+}
+
+export async function getGroupOperationsGraph(groupId: string): Promise<GroupOperationsGraph> {
+  return requestJson<GroupOperationsGraph>(
+    `/api/groups/${encodeURIComponent(groupId)}/operations/graph`,
   );
 }
 

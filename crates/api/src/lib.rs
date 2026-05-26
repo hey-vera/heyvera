@@ -154,15 +154,15 @@ fn cors_layer() -> CorsLayer {
                 .allow_headers(AllowHeaders::any())
         }
         _ => {
+            if is_production_env() {
+                panic!("CORTEX_ALLOWED_ORIGINS is required when CORTEX_ENV/APP_ENV/ENVIRONMENT is production");
+            }
             tracing::info!("CORS: permissive (set CORTEX_ALLOWED_ORIGINS to restrict)");
             CorsLayer::permissive()
         }
     }
 }
 
-// ─── Task #46: Observability ────────────────────────────────────────────────
-
-/// Deploy metadata — public endpoint returning version and service info.
 async fn deploy_metadata() -> impl axum::response::IntoResponse {
     axum::Json(serde_json::json!({
         "version": env!("CARGO_PKG_VERSION"),
@@ -171,15 +171,9 @@ async fn deploy_metadata() -> impl axum::response::IntoResponse {
     }))
 }
 
-/// Request ID extension — holds the UUID for the current request.
 #[derive(Clone, Debug)]
 pub struct RequestId(pub String);
 
-/// Middleware: generates a UUID request ID, sets X-Request-Id header, attaches
-/// RequestId extension, and logs method/path/status/duration.
-/// Also propagates the W3C `traceparent` header: if the incoming request contains
-/// a valid `traceparent`, it is echoed back on the response so downstream clients
-/// can correlate traces across service boundaries.
 async fn request_id_middleware(
     req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
@@ -189,14 +183,12 @@ async fn request_id_middleware(
     let path = req.uri().path().to_string();
     let start = std::time::Instant::now();
 
-    // Extract incoming W3C traceparent for propagation
     let incoming_traceparent = req
         .headers()
         .get("traceparent")
         .and_then(|v| v.to_str().ok())
         .map(|s| s.to_string());
 
-    // Attach request ID as extension so handlers can access it
     let (mut parts, body) = req.into_parts();
     parts.extensions.insert(RequestId(request_id.clone()));
     let req = axum::http::Request::from_parts(parts, body);
@@ -214,7 +206,6 @@ async fn request_id_middleware(
         "request completed"
     );
 
-    // Set X-Request-Id response header
     let (mut parts, body) = response.into_parts();
     parts.headers.insert(
         "x-request-id",
@@ -223,7 +214,6 @@ async fn request_id_middleware(
         }),
     );
 
-    // Propagate W3C traceparent back to caller if it was present on the request
     if let Some(traceparent) = incoming_traceparent {
         if let Ok(val) = axum::http::HeaderValue::from_str(&traceparent) {
             parts.headers.insert("traceparent", val);
@@ -231,6 +221,13 @@ async fn request_id_middleware(
     }
 
     axum::response::Response::from_parts(parts, body)
+}
+
+fn is_production_env() -> bool {
+    ["CORTEX_ENV", "APP_ENV", "ENVIRONMENT"]
+        .iter()
+        .filter_map(|key| std::env::var(key).ok())
+        .any(|value| value.eq_ignore_ascii_case("production"))
 }
 
 /// Build the full axum Router with all routes, given an initialized AppState.
@@ -244,6 +241,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/runs/estimate", post(routes::estimate_run))
         .route("/api/runs/{id}", get(routes::get_run))
         .route("/api/runs/{id}/events", get(routes::get_run_events))
+        .route(
+            "/api/runs/{run_id}/steps/{step_id}/verifier-report/{report_id}",
+            get(routes::get_verifier_report),
+        )
         .route("/api/runs/{id}/pr", post(routes::create_pr))
         .route("/api/runs/{id}/stream", get(run_stream::stream_run))
         // Chat intelligence
@@ -262,6 +263,29 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(middleware::from_fn_with_state(
             state.clone(),
             ratelimit::rate_limit_middleware,
+        ));
+
+    let admin_routes = Router::new()
+        .route("/api/admin/workers", get(admin::get_workers))
+        .route("/api/admin/stats", get(admin::system_stats))
+        .route("/api/admin/decisions", get(admin::list_decisions))
+        .route("/api/admin/runs", get(admin::list_all_runs))
+        .route("/api/admin/runs/{id}", get(admin::get_run_detail))
+        .route("/api/admin/pressure", get(admin::pressure_dashboard))
+        .route("/api/admin/usage", get(usage_api::admin_usage))
+        .route("/api/admin/usage/users", get(usage_api::admin_usage_users))
+        .route("/api/admin/codes", get(admin::list_promo_codes).post(admin::create_promo_code))
+        .route("/api/admin/codes/{id}", patch(admin::update_promo_code).delete(admin::delete_promo_code))
+        .route("/api/admin/redemptions", get(admin::list_redemptions))
+        .route("/api/admin/accounts/{clerk_user_id}/suspend", post(admin::suspend_account))
+        .route("/api/admin/accounts/{clerk_user_id}/unsuspend", post(admin::unsuspend_account))
+        .route("/api/admin/cleanup-orphaned-media", post(admin::cleanup_orphaned_media))
+        .route("/api/admin/reports", get(moderation::list_reports))
+        .route("/api/admin/audit-log", get(admin::get_audit_log))
+        .route("/api/admin/reconcile-counters", post(admin::reconcile_counters))
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            admin::require_admin_middleware,
         ));
 
     // Non-rate-limited routes
@@ -362,10 +386,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/groups/{group_id}/tasks", put(integrations::update_group_tasks))
         .route("/api/groups/{group_id}/tasks/actions", post(integrations::apply_group_task_actions))
         .route("/api/groups/{group_id}/tasks/{task_id}", patch(integrations::patch_group_task))
+        .route("/api/groups/{group_id}/tasks/{task_id}/chats", post(integrations::attach_group_task_chat))
         .route("/api/groups/{group_id}/tasks/{task_id}/projection", get(integrations::get_group_task_projection))
         .route("/api/operations/summary", get(integrations::get_personal_operations_summary))
         .route("/api/authority/scopes", get(integrations::list_authority_scopes))
         .route("/api/groups/{group_id}/operations/summary", get(integrations::get_group_operations_summary))
+        .route("/api/groups/{group_id}/operations/graph", get(integrations::get_group_operations_graph))
         .route("/api/groups/{group_id}/approvals", get(integrations::list_group_approval_requests))
         .route("/api/groups/{group_id}/approvals", post(integrations::create_group_approval_request))
         .route("/api/groups/{group_id}/approvals/{request_id}", patch(integrations::resolve_group_approval_request))
@@ -382,35 +408,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Usage
         .route("/api/usage", get(usage_api::get_usage))
         .route("/api/usage/daily", get(usage_api::get_daily_usage))
-        // Admin / Observability
-        .route("/api/admin/workers", get(admin::get_workers))
-        .route("/api/admin/stats", get(admin::system_stats))
-        .route("/api/admin/decisions", get(admin::list_decisions))
-        .route("/api/admin/runs", get(admin::list_all_runs))
-        .route("/api/admin/runs/{id}", get(admin::get_run_detail))
-        .route("/api/admin/pressure", get(admin::pressure_dashboard))
-        .route("/api/admin/usage", get(usage_api::admin_usage))
-        .route("/api/admin/usage/users", get(usage_api::admin_usage_users))
-        // Admin — Promo Codes
-        .route("/api/admin/codes", get(admin::list_promo_codes).post(admin::create_promo_code))
-        .route("/api/admin/codes/{id}", patch(admin::update_promo_code).delete(admin::delete_promo_code))
-        .route("/api/admin/redemptions", get(admin::list_redemptions))
-        // Admin — Account suspension
-        .route("/api/admin/accounts/{clerk_user_id}/suspend", post(admin::suspend_account))
-        .route("/api/admin/accounts/{clerk_user_id}/unsuspend", post(admin::unsuspend_account))
-        // Admin — Orphaned media cleanup
-        .route("/api/admin/cleanup-orphaned-media", post(admin::cleanup_orphaned_media))
-        // Admin — Moderation reports
-        .route("/api/admin/reports", get(moderation::list_reports))
-        // Admin — Audit log
-        .route("/api/admin/audit-log", get(admin::get_audit_log))
-        // Admin — Counter reconciliation
-        .route("/api/admin/reconcile-counters", post(admin::reconcile_counters))
         // Worker WebSocket
         .route("/api/ws", get(ws::ws_handler))
         // Mission Control WebSocket (frontend observers) + snapshot
         .route("/api/mc", get(mission_control::mc_handler))
         .route("/api/mc/snapshot", get(mission_control::mc_snapshot))
+        .merge(admin_routes)
         // Merge rate-limited routes
         .merge(rate_limited)
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB max request body
