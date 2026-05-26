@@ -13,6 +13,7 @@ import {
   RefreshCcw,
   ShieldCheck,
   UserCircle2,
+  XCircle,
 } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TaskActivity, TaskManagerTask, TaskMember, TaskStatus } from '../../types';
@@ -21,6 +22,8 @@ import {
   getRun,
   getRunEvents,
   getTaskProjection,
+  resolveGroupApproval,
+  type CortexApprovalRequest,
   type RunOperationEvent,
   type RunStep,
   type RunSummary,
@@ -237,8 +240,10 @@ export default function TaskInspector({
   const [projection, setProjection] = useState<TaskProjection | null>(null);
   const [isLoadingRun, setIsLoadingRun] = useState(false);
   const [isLoadingProjection, setIsLoadingProjection] = useState(false);
+  const [resolvingApprovalId, setResolvingApprovalId] = useState<string | null>(null);
   const [runLoadError, setRunLoadError] = useState<string | null>(null);
   const [projectionError, setProjectionError] = useState<string | null>(null);
+  const [approvalActionError, setApprovalActionError] = useState<string | null>(null);
   const latestRunId = task?.latestRunId
     ?? projection?.task.latest_run_id
     ?? projection?.runs[0]?.id
@@ -321,6 +326,38 @@ export default function TaskInspector({
     }
   }, [latestRunId]);
 
+  const resolvePendingApproval = useCallback(async (
+    approval: CortexApprovalRequest,
+    status: 'approved' | 'rejected',
+  ) => {
+    if (!taskGroupId) return;
+    setResolvingApprovalId(approval.id);
+    setApprovalActionError(null);
+    try {
+      const resolved = await resolveGroupApproval(taskGroupId, approval.id, status, {
+        source: 'task_inspector',
+        task_id: approval.task_id ?? taskId,
+        run_id: approval.run_id ?? null,
+        step_id: approval.step_id ?? null,
+      });
+      setProjection((current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          approvals: current.approvals.map((candidate) => (
+            candidate.id === resolved.id ? resolved : candidate
+          )),
+        };
+      });
+      await refreshTaskProjection();
+      await refreshRunProjection();
+    } catch (error) {
+      setApprovalActionError(error instanceof Error ? error.message : 'Could not resolve approval.');
+    } finally {
+      setResolvingApprovalId(null);
+    }
+  }, [refreshRunProjection, refreshTaskProjection, taskGroupId, taskId]);
+
   useEffect(() => {
     void refreshRunProjection();
   }, [refreshRunProjection]);
@@ -363,6 +400,8 @@ export default function TaskInspector({
   const pendingApprovals = projection?.approvals.filter((approval) => approval.status === 'pending') ?? [];
   const approvedApprovals = projection?.approvals.filter((approval) => approval.status === 'approved') ?? [];
   const rejectedApprovals = projection?.approvals.filter((approval) => approval.status === 'rejected') ?? [];
+  const primaryPendingApproval = pendingApprovals[0] ?? null;
+  const isResolvingPrimaryApproval = Boolean(primaryPendingApproval && resolvingApprovalId === primaryPendingApproval.id);
   const latestAuthorityEvent = projectionEvents.find((event) => eventAuthorityLabel(event));
 
   return (
@@ -497,12 +536,50 @@ export default function TaskInspector({
                   <p className="text-xs font-semibold text-rose-200">{rejectedApprovals.length}</p>
                 </div>
               </div>
-              {pendingApprovals[0] && (
+              {primaryPendingApproval && (
                 <div className="rounded-md border border-amber-300/20 bg-amber-300/10 px-2 py-1.5">
-                  <p className="truncate text-[11px] font-medium text-amber-100">{pendingApprovals[0].title}</p>
+                  <p className="truncate text-[11px] font-medium text-amber-100">{primaryPendingApproval.title}</p>
                   <p className="mt-0.5 truncate text-[10px] capitalize text-amber-200/80">
-                    {pendingApprovals[0].ask_type} · {pendingApprovals[0].priority}
+                    {primaryPendingApproval.ask_type} · {primaryPendingApproval.priority}
                   </p>
+                  {primaryPendingApproval.body && (
+                    <p className="mt-1 line-clamp-2 text-[10px] leading-4 text-amber-100/80">
+                      {primaryPendingApproval.body}
+                    </p>
+                  )}
+                  <div className="mt-2 grid grid-cols-2 gap-1.5">
+                    <button
+                      type="button"
+                      disabled={Boolean(resolvingApprovalId)}
+                      onClick={() => void resolvePendingApproval(primaryPendingApproval, 'approved')}
+                      className="inline-flex h-7 items-center justify-center gap-1 rounded-md bg-[var(--accent)] px-2 text-[10px] font-medium text-black transition hover:brightness-110 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isResolvingPrimaryApproval ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="h-3 w-3" />
+                      )}
+                      Approve
+                    </button>
+                    <button
+                      type="button"
+                      disabled={Boolean(resolvingApprovalId)}
+                      onClick={() => void resolvePendingApproval(primaryPendingApproval, 'rejected')}
+                      className="inline-flex h-7 items-center justify-center gap-1 rounded-md border border-white/8 bg-black/15 px-2 text-[10px] font-medium text-[var(--muted-strong)] transition hover:bg-white/[0.06] hover:text-white active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+                    >
+                      {isResolvingPrimaryApproval ? (
+                        <Loader2 className="h-3 w-3 animate-spin" />
+                      ) : (
+                        <XCircle className="h-3 w-3" />
+                      )}
+                      Reject
+                    </button>
+                  </div>
+                </div>
+              )}
+              {approvalActionError && (
+                <div className="rounded-md border border-red-300/20 bg-red-400/10 px-2 py-1.5 text-[11px] leading-4 text-red-100">
+                  {approvalActionError}
                 </div>
               )}
             </div>
