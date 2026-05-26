@@ -506,6 +506,14 @@ pub async fn get_group_operations_summary(
     Ok(Json(db.get_group_operations_summary(&user.user_id, &group_id, 25)))
 }
 
+pub async fn get_personal_operations_summary(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+) -> ApiResult<Json<serde_json::Value>> {
+    let db = db_ref(&state)?;
+    Ok(Json(db.get_personal_operations_summary(&user.user_id, 50)))
+}
+
 #[derive(Deserialize)]
 pub struct ApprovalRequestQuery {
     pub status: Option<String>,
