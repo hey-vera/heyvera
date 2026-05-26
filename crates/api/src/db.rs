@@ -146,6 +146,7 @@ pub struct RunStepAttemptSnapshot {
 pub struct ResourceLease {
     pub id: String,
     pub user_id: String,
+    pub authority_scope_id: Option<String>,
     pub group_id: Option<String>,
     pub task_id: Option<String>,
     pub run_id: String,
@@ -282,7 +283,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 26;
+const SCHEMA_VERSION: i64 = 27;
 const RUN_RESOURCE_LEASE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 fn apply_migrations(conn: &Connection) {
@@ -378,6 +379,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 26 {
         migrate_v26(conn);
+    }
+    if current < 27 {
+        migrate_v27(conn);
     }
 }
 
@@ -1380,6 +1384,37 @@ fn migrate_v26(conn: &Connection) {
     tracing::info!("applied migration v26: Cortex run authority metadata");
 }
 
+fn migrate_v27(conn: &Connection) {
+    conn.execute(
+        "ALTER TABLE resource_leases ADD COLUMN authority_scope_id TEXT",
+        [],
+    )
+    .ok();
+    conn.execute_batch(
+        "CREATE INDEX IF NOT EXISTS idx_resource_leases_authority_active
+            ON resource_leases(authority_scope_id, status, resource_type, repo_key, resource_key, expires_at);
+
+        UPDATE resource_leases
+        SET authority_scope_id = (
+            SELECT runs.authority_scope_id
+            FROM runs
+            WHERE runs.id = resource_leases.run_id
+        )
+        WHERE authority_scope_id IS NULL
+          AND EXISTS (
+              SELECT 1
+              FROM runs
+              WHERE runs.id = resource_leases.run_id
+                AND runs.authority_scope_id IS NOT NULL
+          );
+
+        UPDATE schema_version SET version = 27;",
+    )
+    .expect("migration v27 failed");
+
+    tracing::info!("applied migration v27: authority-scoped resource leases");
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CortexGroup {
     pub id: String,
@@ -1869,25 +1904,26 @@ fn cortex_completion_gate(
 }
 
 fn resource_lease_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<ResourceLease> {
-    let metadata_raw: String = row.get(17)?;
+    let metadata_raw: String = row.get(18)?;
     Ok(ResourceLease {
         id: row.get(0)?,
         user_id: row.get(1)?,
-        group_id: row.get(2)?,
-        task_id: row.get(3)?,
-        run_id: row.get(4)?,
-        step_id: row.get(5)?,
-        holder_type: row.get(6)?,
-        resource_type: row.get(7)?,
-        repo_key: row.get(8)?,
-        resource_key: row.get(9)?,
-        mode: row.get(10)?,
-        status: row.get(11)?,
-        lease_gen: row.get(12)?,
-        acquired_at: row.get(13)?,
-        expires_at: row.get(14)?,
-        released_at: row.get(15)?,
-        reason: row.get(16)?,
+        authority_scope_id: row.get(2)?,
+        group_id: row.get(3)?,
+        task_id: row.get(4)?,
+        run_id: row.get(5)?,
+        step_id: row.get(6)?,
+        holder_type: row.get(7)?,
+        resource_type: row.get(8)?,
+        repo_key: row.get(9)?,
+        resource_key: row.get(10)?,
+        mode: row.get(11)?,
+        status: row.get(12)?,
+        lease_gen: row.get(13)?,
+        acquired_at: row.get(14)?,
+        expires_at: row.get(15)?,
+        released_at: row.get(16)?,
+        reason: row.get(17)?,
         metadata: serde_json::from_str(&metadata_raw).unwrap_or_else(|_| serde_json::json!({})),
     })
 }
@@ -1988,26 +2024,55 @@ fn path_keys_overlap(a: &str, b: &str) -> bool {
 fn find_resource_lease_conflict_tx(
     conn: &Connection,
     user_id: &str,
+    authority_scope_id: Option<&str>,
     request: &ResourceLeaseRequest,
     now: i64,
 ) -> Result<Option<ResourceLeaseConflict>, rusqlite::Error> {
-    let mut stmt = conn.prepare(
-        "SELECT id, run_id, step_id, holder_type, resource_type, repo_key, resource_key, mode, expires_at
-         FROM resource_leases
-         WHERE user_id = ?1
-           AND status = 'active'
-           AND expires_at > ?2
-           AND resource_type = ?3
-           AND repo_key = ?4
-           AND mode IN ('write', 'exclusive')
-         ORDER BY acquired_at ASC",
-    )?;
-    let candidates = stmt
-        .query_map(
+    let candidates: Vec<ResourceLeaseConflict> = if let Some(authority_scope_id) =
+        authority_scope_id
+    {
+        let mut stmt = conn.prepare(
+            "SELECT id, run_id, step_id, holder_type, resource_type, repo_key, resource_key, mode, expires_at
+             FROM resource_leases
+             WHERE authority_scope_id = ?1
+               AND status = 'active'
+               AND expires_at > ?2
+               AND resource_type = ?3
+               AND repo_key = ?4
+               AND mode IN ('write', 'exclusive')
+             ORDER BY acquired_at ASC",
+        )?;
+        stmt.query_map(
+            params![
+                authority_scope_id,
+                now,
+                request.resource_type,
+                request.repo_key
+            ],
+            resource_conflict_from_row,
+        )?
+        .filter_map(|row| row.ok())
+        .collect()
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT id, run_id, step_id, holder_type, resource_type, repo_key, resource_key, mode, expires_at
+             FROM resource_leases
+             WHERE user_id = ?1
+               AND authority_scope_id IS NULL
+               AND status = 'active'
+               AND expires_at > ?2
+               AND resource_type = ?3
+               AND repo_key = ?4
+               AND mode IN ('write', 'exclusive')
+             ORDER BY acquired_at ASC",
+        )?;
+        stmt.query_map(
             params![user_id, now, request.resource_type, request.repo_key],
             resource_conflict_from_row,
         )?
-        .filter_map(|row| row.ok());
+        .filter_map(|row| row.ok())
+        .collect()
+    };
 
     for candidate in candidates {
         let conflicts = if request.resource_type == "path" {
@@ -2026,6 +2091,7 @@ fn find_resource_lease_conflict_tx(
 fn acquire_run_resource_leases_tx(
     conn: &Connection,
     user_id: &str,
+    authority_scope_id: Option<&str>,
     group_id: Option<&str>,
     task_id: Option<&str>,
     run_id: &str,
@@ -2043,8 +2109,9 @@ fn acquire_run_resource_leases_tx(
     .ok();
 
     for request in requests {
-        if let Some(conflict) = find_resource_lease_conflict_tx(conn, user_id, request, now)
-            .map_err(|err| CreateRunError::Database(err.to_string()))?
+        if let Some(conflict) =
+            find_resource_lease_conflict_tx(conn, user_id, authority_scope_id, request, now)
+                .map_err(|err| CreateRunError::Database(err.to_string()))?
         {
             return Err(CreateRunError::ResourceConflict(conflict));
         }
@@ -2056,14 +2123,15 @@ fn acquire_run_resource_leases_tx(
             serde_json::to_string(&request.metadata).unwrap_or_else(|_| "{}".to_string());
         conn.execute(
             "INSERT INTO resource_leases (
-                id, user_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
-                repo_key, resource_key, mode, status, lease_gen, acquired_at, expires_at, reason,
-                metadata_json
+                id, user_id, authority_scope_id, group_id, task_id, run_id, step_id,
+                holder_type, resource_type, repo_key, resource_key, mode, status,
+                lease_gen, acquired_at, expires_at, reason, metadata_json
              )
-             VALUES (?1, ?2, ?3, ?4, ?5, NULL, 'run', ?6, ?7, ?8, ?9, 'active', 1, ?10, ?11, ?12, ?13)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, NULL, 'run', ?7, ?8, ?9, ?10, 'active', 1, ?11, ?12, ?13, ?14)",
             params![
                 id,
                 user_id,
+                authority_scope_id,
                 group_id,
                 task_id,
                 run_id,
@@ -2093,6 +2161,7 @@ fn acquire_run_resource_leases_tx(
             &id,
             &serde_json::json!({
                 "holder_type": "run",
+                "authority_scope_id": authority_scope_id,
                 "resource_type": request.resource_type,
                 "repo_key": request.repo_key,
                 "resource_key": request.resource_key,
@@ -2128,7 +2197,7 @@ fn release_resource_leases_for_run_tx(
 ) -> Vec<ResourceLease> {
     let leases: Vec<ResourceLease> = conn
         .prepare(
-            "SELECT id, user_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
+            "SELECT id, user_id, authority_scope_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
                     repo_key, resource_key, mode, status, lease_gen, acquired_at, expires_at,
                     released_at, reason, metadata_json
              FROM resource_leases
@@ -2170,6 +2239,7 @@ fn release_resource_leases_for_run_tx(
             &lease.id,
             &serde_json::json!({
                 "holder_type": lease.holder_type,
+                "authority_scope_id": lease.authority_scope_id,
                 "resource_type": lease.resource_type,
                 "repo_key": lease.repo_key,
                 "resource_key": lease.resource_key,
@@ -3989,7 +4059,7 @@ impl Database {
 
         let mut leases_stmt = conn
             .prepare(
-                "SELECT id, user_id, group_id, task_id, run_id, step_id, holder_type,
+                "SELECT id, user_id, authority_scope_id, group_id, task_id, run_id, step_id, holder_type,
                         resource_type, repo_key, resource_key, mode, status, lease_gen,
                         acquired_at, expires_at, released_at, reason, metadata_json
                  FROM resource_leases
@@ -4028,6 +4098,7 @@ impl Database {
                     attention.push(serde_json::json!({
                         "kind": "stale_resource_lease",
                         "lease_id": lease.id,
+                        "authority_scope_id": lease.authority_scope_id,
                         "task_id": lease.task_id,
                         "run_id": lease.run_id,
                         "step_id": lease.step_id,
@@ -4040,6 +4111,7 @@ impl Database {
                 }
                 serde_json::json!({
                     "id": lease.id,
+                    "authority_scope_id": lease.authority_scope_id,
                     "group_id": lease.group_id,
                     "task_id": lease.task_id,
                     "run_id": lease.run_id,
@@ -4832,9 +4904,15 @@ impl Database {
         conn.execute("BEGIN IMMEDIATE", [])
             .map_err(|err| CreateRunError::Database(err.to_string()))?;
 
+        let repo_key = run_repo_key_from_resource_leases(resource_leases);
+        let authority_scope_id = authority_scope_id_from_context(authority_context);
+        let authority_context_json = authority_context
+            .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string()));
+
         if let Err(err) = acquire_run_resource_leases_tx(
             &conn,
             user_id,
+            authority_scope_id,
             group_id,
             task_id,
             &run_id,
@@ -4844,11 +4922,6 @@ impl Database {
             conn.execute("ROLLBACK", []).ok();
             return Err(err);
         }
-
-        let repo_key = run_repo_key_from_resource_leases(resource_leases);
-        let authority_scope_id = authority_scope_id_from_context(authority_context);
-        let authority_context_json = authority_context
-            .map(|value| serde_json::to_string(value).unwrap_or_else(|_| "{}".to_string()));
 
         conn.execute(
             "INSERT INTO runs (
@@ -5587,7 +5660,7 @@ impl Database {
         let now = Utc::now().timestamp_millis();
         let expired: Vec<ResourceLease> = conn
             .prepare(
-                "SELECT id, user_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
+                "SELECT id, user_id, authority_scope_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
                         repo_key, resource_key, mode, status, lease_gen, acquired_at, expires_at,
                         released_at, reason, metadata_json
                  FROM resource_leases
@@ -5629,6 +5702,7 @@ impl Database {
                 &lease.id,
                 &serde_json::json!({
                     "holder_type": lease.holder_type,
+                    "authority_scope_id": lease.authority_scope_id,
                     "resource_type": lease.resource_type,
                     "repo_key": lease.repo_key,
                     "resource_key": lease.resource_key,
@@ -5645,7 +5719,7 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
-                "SELECT id, user_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
+                "SELECT id, user_id, authority_scope_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
                         repo_key, resource_key, mode, status, lease_gen, acquired_at, expires_at,
                         released_at, reason, metadata_json
                  FROM resource_leases
@@ -9133,6 +9207,104 @@ mod tests {
         );
         assert_eq!(context.authority_context["handoff_id"], "handoff-1");
         assert!(db.run_has_pr_write_lease(&run_id, Some("github:hey-vera/heyvera")));
+
+        let leases = db.list_active_resource_leases_for_run(&run_id);
+        assert_eq!(
+            leases[0].authority_scope_id.as_deref(),
+            Some("org:github:hey-vera")
+        );
+    }
+
+    #[test]
+    fn org_authority_resource_leases_conflict_across_users_same_scope() {
+        let db = test_db();
+        let authority_context = serde_json::json!({
+            "scope_id": "org:github:hey-vera",
+            "scope_kind": "org",
+            "role": "admin",
+            "handoff_id": "handoff-1",
+        });
+
+        let first = db
+            .create_run_with_steps_and_resource_leases_with_authority(
+                "user-1",
+                "Ship first org change",
+                "auto",
+                &["src/lib.rs".to_string()],
+                Some("task-1"),
+                Some("group-1"),
+                None,
+                &[path_lease_in_repo("github:hey-vera/heyvera", "src/lib.rs")],
+                &[test_step("step-org-a")],
+                &[],
+                Some(&authority_context),
+            )
+            .expect("first run");
+
+        let second = db.create_run_with_steps_and_resource_leases_with_authority(
+            "user-2",
+            "Ship conflicting org change",
+            "auto",
+            &["src/lib.rs".to_string()],
+            Some("task-2"),
+            Some("group-1"),
+            None,
+            &[path_lease_in_repo("github:hey-vera/heyvera", "src/lib.rs")],
+            &[test_step("step-org-b")],
+            &[],
+            Some(&authority_context),
+        );
+
+        match second {
+            Err(CreateRunError::ResourceConflict(conflict)) => {
+                assert_eq!(conflict.run_id, first);
+                assert_eq!(conflict.resource_key, "src/lib.rs");
+            }
+            other => panic!("expected org-scoped resource conflict, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn personal_resource_leases_do_not_conflict_across_users() {
+        let db = test_db();
+        db.create_run_with_steps_and_resource_leases_with_authority(
+            "user-1",
+            "Ship personal first change",
+            "auto",
+            &["src/lib.rs".to_string()],
+            None,
+            Some("group-1"),
+            None,
+            &[path_lease_in_repo("github:hey-vera/heyvera", "src/lib.rs")],
+            &[test_step("step-personal-a")],
+            &[],
+            Some(&serde_json::json!({
+                "scope_id": "personal:user-1",
+                "scope_kind": "personal",
+                "role": "owner",
+            })),
+        )
+        .expect("first personal run");
+
+        let second = db.create_run_with_steps_and_resource_leases_with_authority(
+            "user-2",
+            "Ship personal second change",
+            "auto",
+            &["src/lib.rs".to_string()],
+            None,
+            Some("group-2"),
+            None,
+            &[path_lease_in_repo("github:hey-vera/heyvera", "src/lib.rs")],
+            &[test_step("step-personal-b")],
+            &[],
+            Some(&serde_json::json!({
+                "scope_id": "personal:user-2",
+                "scope_kind": "personal",
+                "role": "owner",
+            })),
+        );
+
+        assert!(second.is_ok());
     }
 
     #[test]
