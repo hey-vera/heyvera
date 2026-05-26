@@ -2055,7 +2055,26 @@ mod tests {
             None,
         );
         let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
-        db.record_verifier_report(&step_id, &run_id, 1, None, "test", "verified", "pass", "{}");
+        db.register_worker("worker-1", "user-1");
+        let lease_gen = db
+            .lease_step(
+                &step_id,
+                "worker-1",
+                chrono::Utc::now().timestamp_millis() + 60_000,
+            )
+            .unwrap();
+        assert!(db.start_step(&step_id, lease_gen));
+        db.record_verifier_report(
+            &step_id,
+            &run_id,
+            lease_gen,
+            Some("worker-1"),
+            "test",
+            "verified",
+            "pass",
+            "{}",
+        );
+        assert!(db.complete_step(&step_id, lease_gen, None, None, None, None));
         assert!(db.update_run_status(&run_id, "succeeded", None));
         let (next, _, _) = apply_task_patch(
             "group-1",
