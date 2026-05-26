@@ -401,6 +401,66 @@ pub async fn get_group_task_projection(
     Ok(Json(projection))
 }
 
+#[derive(Deserialize)]
+pub struct AttachTaskChatRequest {
+    pub conversation_id: String,
+}
+
+pub async fn attach_group_task_chat(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path((group_id, task_id)): Path<(String, String)>,
+    Json(request): Json<AttachTaskChatRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let conversation_id = request.conversation_id.trim();
+    if conversation_id.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "conversation_id is required".into(),
+            }),
+        ));
+    }
+
+    let db = db_ref(&state)?;
+    if !db.cortex_task_exists(&user.user_id, &group_id, &task_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "task not found".into(),
+            }),
+        ));
+    }
+    if !db.conversation_exists(&user.user_id, conversation_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "conversation not found".into(),
+            }),
+        ));
+    }
+    if !db.attach_cortex_task_chat(&user.user_id, &group_id, &task_id, conversation_id) {
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "task not found".into(),
+            }),
+        ));
+    }
+
+    let projection = db
+        .get_cortex_task_projection(&user.user_id, &group_id, &task_id, 100)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "task not found".into(),
+                }),
+            )
+        })?;
+    Ok(Json(projection))
+}
+
 pub async fn create_group_task(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
@@ -471,6 +531,22 @@ pub async fn patch_group_task(
     Json(patch): Json<serde_json::Value>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let db = db_ref(&state)?;
+    let attached_conversation_id = patch
+        .get("projectChatConversationId")
+        .and_then(|value| value.as_str())
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(conversation_id) = attached_conversation_id.as_deref() {
+        if !db.conversation_exists(&user.user_id, conversation_id) {
+            return Err((
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "conversation not found".into(),
+                }),
+            ));
+        }
+    }
     let current = db
         .get_group_task_state(&user.user_id, &group_id)
         .and_then(|value| normalize_task_state(&group_id, &value).ok())
@@ -494,6 +570,9 @@ pub async fn patch_group_task(
         &event_type,
         &event_payload,
     );
+    if let Some(conversation_id) = attached_conversation_id.as_deref() {
+        db.attach_cortex_task_chat(&user.user_id, &group_id, &task_id, conversation_id);
+    }
     Ok(Json(saved))
 }
 
