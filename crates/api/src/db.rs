@@ -2264,11 +2264,11 @@ fn authority_scope_id_from_context(authority_context: Option<&serde_json::Value>
         .filter(|value| !value.trim().is_empty())
 }
 
-fn release_resource_leases_for_run_tx(
+fn release_resource_leases_for_run_tx_checked(
     conn: &Connection,
     run_id: &str,
     now: i64,
-) -> Vec<ResourceLease> {
+) -> rusqlite::Result<Vec<ResourceLease>> {
     let leases: Vec<ResourceLease> = conn
         .prepare(
             "SELECT id, user_id, authority_scope_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
@@ -2276,18 +2276,12 @@ fn release_resource_leases_for_run_tx(
                     released_at, reason, metadata_json
              FROM resource_leases
              WHERE run_id = ?1 AND status = 'active'",
-        )
-        .ok()
-        .map(|mut stmt| {
-            stmt.query_map(params![run_id], resource_lease_from_row)
-                .unwrap()
-                .filter_map(|row| row.ok())
-                .collect()
-        })
-        .unwrap_or_default();
+        )?
+        .query_map(params![run_id], resource_lease_from_row)?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
 
     if leases.is_empty() {
-        return leases;
+        return Ok(leases);
     }
 
     conn.execute(
@@ -2295,11 +2289,10 @@ fn release_resource_leases_for_run_tx(
          SET status = 'released', released_at = ?1
          WHERE run_id = ?2 AND status = 'active'",
         params![now, run_id],
-    )
-    .ok();
+    )?;
 
     for lease in &leases {
-        insert_operations_event(
+        try_insert_operations_event(
             conn,
             Some(&lease.user_id),
             lease.group_id.as_deref(),
@@ -2320,10 +2313,10 @@ fn release_resource_leases_for_run_tx(
                 "mode": lease.mode,
                 "released_at": now,
             }),
-        );
+        )?;
     }
 
-    leases
+    Ok(leases)
 }
 
 struct OperationEventContext {
@@ -5261,47 +5254,88 @@ impl Database {
         status: &str,
         failure_reason: Option<&str>,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
         let finished = if matches!(status, "succeeded" | "failed" | "cancelled") {
             Some(now)
         } else {
             None
         };
-        let rows = conn.execute(
+        let tx = match conn.transaction() {
+            Ok(tx) => tx,
+            Err(err) => {
+                tracing::warn!(
+                    run_id = run_id,
+                    status = status,
+                    error = %err,
+                    "failed to begin run status transaction"
+                );
+                return false;
+            }
+        };
+        let rows = match tx.execute(
             "UPDATE runs SET status = ?1, failure_reason = ?2, finished_at = ?3, updated_at = ?4, version = version + 1
              WHERE id = ?5",
             params![status, failure_reason, finished, now, run_id],
-        ).unwrap_or(0);
-        if rows > 0 {
-            let context = run_event_context(&conn, run_id);
-            insert_operations_event(
-                &conn,
-                context.as_ref().map(|context| context.user_id.as_str()),
-                context
-                    .as_ref()
-                    .and_then(|context| context.group_id.as_deref()),
-                None,
-                context
-                    .as_ref()
-                    .and_then(|context| context.task_id.as_deref()),
-                Some(run_id),
-                None,
-                None,
-                "run.status_changed",
-                "run",
-                run_id,
-                &serde_json::json!({
-                    "status": status,
-                    "failure_reason": failure_reason,
-                    "finished_at": finished,
-                }),
-            );
-            if finished.is_some() {
-                release_resource_leases_for_run_tx(&conn, run_id, now);
+        ) {
+            Ok(rows) => rows,
+            Err(err) => {
+                tracing::warn!(
+                    run_id = run_id,
+                    status = status,
+                    error = %err,
+                    "failed to update run status"
+                );
+                return false;
             }
+        };
+        if rows == 0 {
+            return false;
         }
-        rows > 0
+
+        let context = run_event_context(&tx, run_id);
+        let result = try_insert_operations_event(
+            &tx,
+            context.as_ref().map(|context| context.user_id.as_str()),
+            context
+                .as_ref()
+                .and_then(|context| context.group_id.as_deref()),
+            None,
+            context
+                .as_ref()
+                .and_then(|context| context.task_id.as_deref()),
+            Some(run_id),
+            None,
+            None,
+            "run.status_changed",
+            "run",
+            run_id,
+            &serde_json::json!({
+                "status": status,
+                "failure_reason": failure_reason,
+                "finished_at": finished,
+            }),
+        )
+        .and_then(|_| {
+            if finished.is_some() {
+                release_resource_leases_for_run_tx_checked(&tx, run_id, now).map(|_| ())
+            } else {
+                Ok(())
+            }
+        })
+        .and_then(|_| tx.commit());
+
+        if let Err(err) = result {
+            tracing::warn!(
+                run_id = run_id,
+                status = status,
+                error = %err,
+                "failed to commit run status transaction"
+            );
+            return false;
+        }
+
+        true
     }
 
     // --- Steps ---
@@ -8620,6 +8654,17 @@ mod tests {
 
         assert!(db.update_run_status(&run_id, "succeeded", None));
         assert!(db.list_active_resource_leases_for_run(&run_id).is_empty());
+        let events = db.list_run_operations_events(&run_id, 25);
+        assert!(events.iter().any(|event| {
+            event.event_type == "run.status_changed"
+                && event.entity_type == "run"
+                && event.payload["status"] == "succeeded"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "resource_lease.released"
+                && event.entity_type == "resource_lease"
+                && event.payload["resource_key"] == "src/main.rs"
+        }));
 
         let second = db.create_run_with_steps_and_resource_leases(
             "user-1",
