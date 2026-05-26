@@ -1637,6 +1637,61 @@ fn resource_conflict_from_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<Resou
     })
 }
 
+fn json_i64(value: &serde_json::Value, path: &[&str]) -> i64 {
+    let mut current = value;
+    for key in path {
+        let Some(next) = current.get(*key) else {
+            return 0;
+        };
+        current = next;
+    }
+    current
+        .as_i64()
+        .unwrap_or_else(|| current.as_u64().map(|value| value as i64).unwrap_or(0))
+}
+
+fn append_group_scoped_items(
+    target: &mut Vec<serde_json::Value>,
+    summary: &serde_json::Value,
+    field: &str,
+    group_id: &str,
+) {
+    let Some(items) = summary.get(field).and_then(|value| value.as_array()) else {
+        return;
+    };
+    for item in items {
+        let mut item = item.clone();
+        if let Some(object) = item.as_object_mut() {
+            object
+                .entry("group_id".to_string())
+                .or_insert_with(|| serde_json::Value::String(group_id.to_string()));
+        }
+        target.push(item);
+    }
+}
+
+fn json_sort_timestamp(value: &serde_json::Value, preferred_key: &str) -> i64 {
+    [preferred_key, "updated_at", "created_at", "expires_at"]
+        .into_iter()
+        .filter_map(|key| value.get(key))
+        .find_map(|value| {
+            value.as_i64().or_else(|| {
+                value.as_str().and_then(|raw| {
+                    chrono::DateTime::parse_from_rfc3339(raw)
+                        .ok()
+                        .map(|parsed| parsed.timestamp_millis())
+                })
+            })
+        })
+        .unwrap_or(0)
+}
+
+fn sort_json_array_desc(items: &mut [serde_json::Value], preferred_key: &str) {
+    items.sort_by(|left, right| {
+        json_sort_timestamp(right, preferred_key).cmp(&json_sort_timestamp(left, preferred_key))
+    });
+}
+
 fn path_keys_overlap(a: &str, b: &str) -> bool {
     a == "."
         || b == "."
@@ -2135,6 +2190,7 @@ impl Database {
             params![id, user_id, name, kind, description, members, accent, source, external_id],
         ).expect("failed to upsert cortex group");
 
+        drop(conn);
         self.get_group(user_id, id).unwrap_or_else(|| CortexGroup {
             id: id.to_string(),
             name: name.to_string(),
@@ -2183,6 +2239,38 @@ impl Database {
                 external_id: row.get(7)?,
             }),
         ).ok()
+    }
+
+    pub fn list_user_operation_group_ids(&self, user_id: &str) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let mut ids = HashSet::new();
+
+        let queries = [
+            "SELECT id FROM cortex_groups WHERE user_id = ?1",
+            "SELECT group_id FROM group_task_state WHERE user_id = ?1",
+            "SELECT group_id FROM cortex_tasks WHERE user_id = ?1",
+            "SELECT group_id FROM runs WHERE user_id = ?1 AND group_id IS NOT NULL",
+            "SELECT group_id FROM cortex_approval_requests WHERE user_id = ?1",
+            "SELECT group_id FROM resource_leases WHERE user_id = ?1 AND group_id IS NOT NULL",
+        ];
+
+        for query in queries {
+            let Ok(mut stmt) = conn.prepare(query) else {
+                continue;
+            };
+            let Ok(rows) = stmt.query_map(params![user_id], |row| row.get::<_, String>(0)) else {
+                continue;
+            };
+            for id in rows.filter_map(|row| row.ok()) {
+                if !id.trim().is_empty() {
+                    ids.insert(id);
+                }
+            }
+        }
+
+        let mut ids = ids.into_iter().collect::<Vec<_>>();
+        ids.sort();
+        ids
     }
 
     pub fn get_group_task_state(&self, user_id: &str, group_id: &str) -> Option<serde_json::Value> {
@@ -3279,6 +3367,205 @@ impl Database {
             },
             "attention": attention,
             "recent_events": recent_events,
+        })
+    }
+
+    pub fn get_personal_operations_summary(
+        &self,
+        user_id: &str,
+        event_limit: usize,
+    ) -> serde_json::Value {
+        let generated_at = Utc::now().timestamp_millis();
+        let group_ids = self.list_user_operation_group_ids(user_id);
+        let groups_by_id = self
+            .list_groups(user_id)
+            .into_iter()
+            .map(|group| (group.id.clone(), group))
+            .collect::<HashMap<_, _>>();
+
+        let mut task_total = 0;
+        let mut task_open = 0;
+        let mut task_active = 0;
+        let mut task_done_raw = 0;
+        let mut task_urgent = 0;
+        let mut task_unassigned = 0;
+        let mut task_without_run = 0;
+        let mut task_created = 0;
+        let mut task_assigned = 0;
+        let mut task_in_progress = 0;
+        let mut task_done = 0;
+        let mut task_gated_done = 0;
+        let mut task_done_without_evidence = 0;
+        let mut runs_total = 0;
+        let mut runs_active = 0;
+        let mut runs_failed = 0;
+        let mut runs_succeeded = 0;
+        let mut steps_total = 0;
+        let mut steps_active = 0;
+        let mut steps_failed = 0;
+        let mut steps_orphaned = 0;
+        let mut steps_verified_pass = 0;
+        let mut steps_verified_fail = 0;
+        let mut approvals_total = 0;
+        let mut approvals_pending = 0;
+        let mut approvals_approved = 0;
+        let mut approvals_rejected = 0;
+        let mut resource_leases_active = 0;
+        let mut resource_leases_path = 0;
+        let mut resource_leases_task = 0;
+        let mut resource_leases_repo = 0;
+        let mut resource_leases_read = 0;
+        let mut resource_leases_write = 0;
+        let mut resource_leases_exclusive = 0;
+        let mut active_groups = 0;
+        let mut group_summaries = Vec::new();
+        let mut attention = Vec::new();
+        let mut recent_events = Vec::new();
+        let mut active_resource_leases = Vec::new();
+
+        for group_id in &group_ids {
+            let summary = self.get_group_operations_summary(user_id, group_id, event_limit);
+            let group_active = json_i64(&summary, &["tasks", "open"])
+                + json_i64(&summary, &["runs", "active"])
+                + json_i64(&summary, &["approvals", "pending"])
+                + json_i64(&summary, &["resource_leases", "active"]);
+            if group_active > 0 {
+                active_groups += 1;
+            }
+
+            task_total += json_i64(&summary, &["tasks", "total"]);
+            task_open += json_i64(&summary, &["tasks", "open"]);
+            task_active += json_i64(&summary, &["tasks", "active"]);
+            task_done_raw += json_i64(&summary, &["tasks", "done_raw"]);
+            task_urgent += json_i64(&summary, &["tasks", "urgent"]);
+            task_unassigned += json_i64(&summary, &["tasks", "unassigned"]);
+            task_without_run += json_i64(&summary, &["tasks", "without_run"]);
+            task_created += json_i64(&summary, &["tasks", "by_status", "created"]);
+            task_assigned += json_i64(&summary, &["tasks", "by_status", "assigned"]);
+            task_in_progress += json_i64(&summary, &["tasks", "by_status", "in_progress"]);
+            task_done += json_i64(&summary, &["tasks", "by_status", "done"]);
+            task_gated_done += json_i64(&summary, &["tasks", "completion", "gated_done"]);
+            task_done_without_evidence +=
+                json_i64(&summary, &["tasks", "completion", "done_without_evidence"]);
+            runs_total += json_i64(&summary, &["runs", "total"]);
+            runs_active += json_i64(&summary, &["runs", "active"]);
+            runs_failed += json_i64(&summary, &["runs", "failed"]);
+            runs_succeeded += json_i64(&summary, &["runs", "succeeded"]);
+            steps_total += json_i64(&summary, &["steps", "total"]);
+            steps_active += json_i64(&summary, &["steps", "active"]);
+            steps_failed += json_i64(&summary, &["steps", "failed"]);
+            steps_orphaned += json_i64(&summary, &["steps", "orphaned"]);
+            steps_verified_pass += json_i64(&summary, &["steps", "verified_pass"]);
+            steps_verified_fail += json_i64(&summary, &["steps", "verified_fail"]);
+            approvals_total += json_i64(&summary, &["approvals", "total"]);
+            approvals_pending += json_i64(&summary, &["approvals", "pending"]);
+            approvals_approved += json_i64(&summary, &["approvals", "approved"]);
+            approvals_rejected += json_i64(&summary, &["approvals", "rejected"]);
+            resource_leases_active += json_i64(&summary, &["resource_leases", "active"]);
+            resource_leases_path += json_i64(&summary, &["resource_leases", "by_type", "path"]);
+            resource_leases_task += json_i64(&summary, &["resource_leases", "by_type", "task"]);
+            resource_leases_repo += json_i64(&summary, &["resource_leases", "by_type", "repo"]);
+            resource_leases_read += json_i64(&summary, &["resource_leases", "by_mode", "read"]);
+            resource_leases_write += json_i64(&summary, &["resource_leases", "by_mode", "write"]);
+            resource_leases_exclusive +=
+                json_i64(&summary, &["resource_leases", "by_mode", "exclusive"]);
+
+            append_group_scoped_items(&mut attention, &summary, "attention", group_id);
+            append_group_scoped_items(&mut recent_events, &summary, "recent_events", group_id);
+            if let Some(leases) = summary
+                .get("resource_leases")
+                .and_then(|value| value.get("leases"))
+                .and_then(|value| value.as_array())
+            {
+                active_resource_leases.extend(leases.iter().cloned());
+            }
+
+            let group = groups_by_id.get(group_id);
+            group_summaries.push(serde_json::json!({
+                "group_id": group_id,
+                "name": group.map(|group| group.name.as_str()).unwrap_or(group_id),
+                "kind": group.map(|group| group.kind.as_str()).unwrap_or("project"),
+                "source": group.map(|group| group.source.as_str()).unwrap_or("derived"),
+                "accent": group.map(|group| group.accent.as_str()).unwrap_or("#9cc7b8"),
+                "active": group_active,
+                "tasks": summary["tasks"].clone(),
+                "runs": summary["runs"].clone(),
+                "steps": summary["steps"].clone(),
+                "approvals": summary["approvals"].clone(),
+                "resource_leases": summary["resource_leases"].clone(),
+                "attention": summary["attention"].clone(),
+            }));
+        }
+
+        sort_json_array_desc(&mut attention, "updated_at");
+        sort_json_array_desc(&mut recent_events, "created_at");
+        attention.truncate(25);
+        recent_events.truncate(event_limit.clamp(1, 100));
+        active_resource_leases.truncate(100);
+
+        serde_json::json!({
+            "scope": "personal",
+            "generated_at": generated_at,
+            "groups_total": group_ids.len(),
+            "active_groups": active_groups,
+            "tasks": {
+                "total": task_total,
+                "open": task_open,
+                "active": task_active,
+                "done_raw": task_done_raw,
+                "urgent": task_urgent,
+                "unassigned": task_unassigned,
+                "without_run": task_without_run,
+                "by_status": {
+                    "created": task_created,
+                    "assigned": task_assigned,
+                    "in_progress": task_in_progress,
+                    "done": task_done,
+                },
+                "completion": {
+                    "gated_done_available": true,
+                    "raw_done": task_done_raw,
+                    "gated_done": task_gated_done,
+                    "done_without_evidence": task_done_without_evidence,
+                },
+            },
+            "runs": {
+                "total": runs_total,
+                "active": runs_active,
+                "failed": runs_failed,
+                "succeeded": runs_succeeded,
+            },
+            "steps": {
+                "total": steps_total,
+                "active": steps_active,
+                "failed": steps_failed,
+                "orphaned": steps_orphaned,
+                "verified_pass": steps_verified_pass,
+                "verified_fail": steps_verified_fail,
+            },
+            "approvals": {
+                "total": approvals_total,
+                "pending": approvals_pending,
+                "approved": approvals_approved,
+                "rejected": approvals_rejected,
+            },
+            "resource_leases": {
+                "active": resource_leases_active,
+                "by_type": {
+                    "path": resource_leases_path,
+                    "task": resource_leases_task,
+                    "repo": resource_leases_repo,
+                },
+                "by_mode": {
+                    "read": resource_leases_read,
+                    "write": resource_leases_write,
+                    "exclusive": resource_leases_exclusive,
+                },
+                "leases": active_resource_leases,
+            },
+            "attention": attention,
+            "recent_events": recent_events,
+            "groups": group_summaries,
         })
     }
 
@@ -7105,6 +7392,105 @@ mod tests {
                 && lease["resource_type"] == "path"
                 && lease["repo_key"] == "github:hey-vera/heyvera"
                 && lease["resource_key"] == "src/main.rs"));
+    }
+
+    #[test]
+    fn get_personal_operations_summary_aggregates_user_groups() {
+        let db = test_db();
+        db.upsert_group(
+            "user-1",
+            "group-registered",
+            "Registered group",
+            "team",
+            "Tracked group",
+            2,
+            "#9cc7b8",
+            "manual",
+            Some("registered"),
+        );
+        db.upsert_group_task_state(
+            "user-1",
+            "group-derived",
+            &task_state_with_tasks(serde_json::json!([
+                {
+                    "id": "task-derived",
+                    "groupId": "group-derived",
+                    "title": "Derived open task",
+                    "status": "created",
+                    "priority": "urgent",
+                    "assigneeId": null,
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                }
+            ])),
+        );
+        db.upsert_group_task_state(
+            "user-1",
+            "group-registered",
+            &task_state_with_tasks(serde_json::json!([
+                {
+                    "id": "task-registered",
+                    "groupId": "group-registered",
+                    "title": "Registered active task",
+                    "status": "in-progress",
+                    "priority": "normal",
+                    "assigneeId": "user-1",
+                    "createdAt": "2026-05-25T00:00:00Z",
+                    "updatedAt": "2026-05-25T00:00:00Z",
+                    "createdBy": "You"
+                }
+            ])),
+        );
+        db.upsert_group_task_state("user-2", "group-derived", &task_state("other-task", "Other"));
+
+        let run_id = db
+            .create_run_with_steps_and_resource_leases(
+                "user-1",
+                "Ship registered task",
+                "auto",
+                &["src/lib.rs".to_string()],
+                Some("task-registered"),
+                Some("group-registered"),
+                None,
+                &[path_lease_in_repo("github:hey-vera/heyvera", "src/lib.rs")],
+                &[test_step("step-registered")],
+                &[],
+            )
+            .expect("leased run");
+        assert!(db.update_run_status(&run_id, "running", None));
+
+        let summary = db.get_personal_operations_summary("user-1", 25);
+
+        assert_eq!(summary["scope"], "personal");
+        assert_eq!(summary["groups_total"], 2);
+        assert_eq!(summary["active_groups"], 2);
+        assert_eq!(summary["tasks"]["total"], 2);
+        assert_eq!(summary["tasks"]["open"], 2);
+        assert_eq!(summary["tasks"]["urgent"], 1);
+        assert_eq!(summary["runs"]["total"], 1);
+        assert_eq!(summary["runs"]["active"], 1);
+        assert_eq!(summary["resource_leases"]["active"], 1);
+        assert_eq!(summary["resource_leases"]["by_type"]["path"], 1);
+        assert!(summary["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|group| group["group_id"] == "group-derived"
+                && group["source"] == "derived"
+                && group["tasks"]["total"] == 1));
+        assert!(summary["groups"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|group| group["group_id"] == "group-registered"
+                && group["name"] == "Registered group"
+                && group["resource_leases"]["active"] == 1));
+        assert!(summary["attention"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|item| item["group_id"].as_str().is_some()));
     }
 
     #[test]
