@@ -14,6 +14,7 @@ import {
 import type { Post } from '../api/types';
 import { LoadingState, EmptyState, ErrorState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
+import { TabbedCompose } from '../components/shared/TabbedCompose';
 import { useAuth } from '../hooks/useAuth';
 
 const TABS = ['For you', 'Following'] as const;
@@ -254,62 +255,38 @@ export function HomePage() {
         </div>
       </div>
 
-      <div className="border-b px-4 py-3" style={{ borderColor: 'var(--border-primary)' }}>
-        <div className="flex gap-3">
-          <div className="h-10 w-10 flex-shrink-0 rounded-full" style={{ backgroundColor: 'var(--border-primary)' }} />
-
-          <div className="flex-1">
-            <textarea
-              value={content}
-              onChange={(event) => setContent(event.target.value.slice(0, 280))}
-              placeholder="What's happening?"
-              rows={2}
-              className="w-full resize-none bg-transparent text-[20px] leading-normal outline-none"
-              style={{ color: 'var(--text-primary)' }}
-            />
-
-            <div className="mt-2 flex items-center justify-between border-t pt-2" style={{ borderColor: 'var(--border-primary)' }}>
-              <span className="text-[13px]" style={{ color: content.length > 260 ? 'var(--color-danger)' : 'var(--text-secondary)' }}>
-                {content.length}/280
-              </span>
-
+      <TabbedCompose
+        content={content}
+        onContentChange={setContent}
+        onSubmitPost={submitPost}
+        posting={posting}
+        composeNotice={composeNotice}
+        getToken={getToken}
+        isSignedIn={isSignedIn}
+        authEnabled={authEnabled}
+        signInButton={
+          authEnabled ? (
+            <SignInButton mode="modal">
               <button
                 type="button"
-                onClick={submitPost}
-                disabled={!content.trim() || posting}
-                className="rounded-full px-4 py-1.5 text-[15px] font-bold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-primary)' }}
+                className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover:bg-white/10"
+                style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
               >
-                {posting ? 'Posting' : 'Post'}
+                Sign in
               </button>
-            </div>
-            {composeNotice && (
-              <div className="mt-3 flex flex-wrap items-center gap-3 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-                <span>{composeNotice}</span>
-                {composeNotice === 'Sign in to post.' && authEnabled ? (
-                  <SignInButton mode="modal">
-                    <button
-                      type="button"
-                      className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover:bg-white/10"
-                      style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
-                    >
-                      Sign in
-                    </button>
-                  </SignInButton>
-                ) : composeNotice === 'Create your profile before posting.' ? (
-                  <a
-                    href="/profile"
-                    className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover:bg-white/10"
-                    style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
-                  >
-                    Go to profile
-                  </a>
-                ) : null}
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
+            </SignInButton>
+          ) : undefined
+        }
+        profileLink={
+          <a
+            href="/profile"
+            className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover:bg-white/10"
+            style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
+          >
+            Go to profile
+          </a>
+        }
+      />
 
       {pendingFeed && newPostCount > 0 && (
         <button

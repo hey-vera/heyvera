@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { SignInButton, useClerk, UserButton } from '@clerk/clerk-react';
 import {
   ArrowLeft,
@@ -7,6 +7,7 @@ import {
   ChevronRight,
   CreditCard,
   Database,
+  Edit3,
   Lock,
   Mail,
   MessageCircle,
@@ -24,8 +25,11 @@ import {
 import type { LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
+import { useMyProfile } from '../hooks/useMyProfile';
+import { updateProfile } from '../api/social';
+import type { Profile } from '../api/social';
 
-type Section = 'account' | 'privacy' | 'notifications' | 'billing' | 'display' | 'data';
+type Section = 'profile' | 'account' | 'privacy' | 'notifications' | 'billing' | 'display' | 'data';
 
 interface SectionMeta {
   id: Section;
@@ -62,6 +66,13 @@ interface ActionControl extends BaseControl {
 type SettingControl = ToggleControl | ChoiceControl | ActionControl;
 
 const SECTIONS: SectionMeta[] = [
+  {
+    id: 'profile',
+    label: 'Profile',
+    description: 'Edit your display name, bio, avatar, and other public info.',
+    Icon: Edit3,
+    controls: [],
+  },
   {
     id: 'account',
     label: 'Account',
@@ -387,10 +398,234 @@ function AccountSummary() {
   );
 }
 
+interface ProfileFormFields {
+  displayName: string;
+  bio: string;
+  avatarUrl: string;
+  bannerUrl: string;
+  location: string;
+  website: string;
+}
+
+function profileToFormFields(profile: Profile): ProfileFormFields {
+  return {
+    displayName: profile.displayName,
+    bio: profile.bio,
+    avatarUrl: profile.avatarUrl ?? '',
+    bannerUrl: profile.bannerUrl ?? '',
+    location: profile.location ?? '',
+    website: profile.websiteUrl ?? '',
+  };
+}
+
+function ProfileEditor({
+  getToken,
+}: {
+  getToken: () => Promise<string | null>;
+}) {
+  const { data, loading, error, notFound, refetch } = useMyProfile(getToken);
+  const [form, setForm] = useState<ProfileFormFields>({
+    displayName: '',
+    bio: '',
+    avatarUrl: '',
+    bannerUrl: '',
+    location: '',
+    website: '',
+  });
+  const [initialForm, setInitialForm] = useState<ProfileFormFields>(form);
+  const [saving, setSaving] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  useEffect(() => {
+    if (data?.profile) {
+      const fields = profileToFormFields(data.profile);
+      setForm(fields);
+      setInitialForm(fields);
+    }
+  }, [data]);
+
+  const hasChanges =
+    form.displayName !== initialForm.displayName ||
+    form.bio !== initialForm.bio ||
+    form.avatarUrl !== initialForm.avatarUrl ||
+    form.bannerUrl !== initialForm.bannerUrl ||
+    form.location !== initialForm.location ||
+    form.website !== initialForm.website;
+
+  const handleSave = async () => {
+    setSaving(true);
+    setFeedback(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setFeedback({ type: 'error', message: 'You must be signed in to update your profile.' });
+        return;
+      }
+
+      // Only send changed fields
+      const patch: Record<string, string> = {};
+      if (form.displayName !== initialForm.displayName) patch.displayName = form.displayName;
+      if (form.bio !== initialForm.bio) patch.bio = form.bio;
+      if (form.avatarUrl !== initialForm.avatarUrl) patch.avatarUrl = form.avatarUrl;
+      if (form.bannerUrl !== initialForm.bannerUrl) patch.bannerUrl = form.bannerUrl;
+      if (form.location !== initialForm.location) patch.location = form.location;
+      if (form.website !== initialForm.website) patch.websiteUrl = form.website;
+
+      if (Object.keys(patch).length === 0) return;
+
+      await updateProfile(token, patch);
+      setFeedback({ type: 'success', message: 'Profile updated successfully.' });
+      setInitialForm(form);
+      refetch();
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Failed to update profile.';
+      setFeedback({ type: 'error', message });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="px-4 py-8 text-center text-[var(--text-secondary)]">
+        Loading profile...
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="px-4 py-8 text-center text-[var(--color-danger)]">
+        Failed to load profile: {error.message}
+      </div>
+    );
+  }
+
+  if (notFound || !data) {
+    return (
+      <div className="px-4 py-8 text-center text-[var(--text-secondary)]">
+        No profile found. Create one from your profile page first.
+      </div>
+    );
+  }
+
+  const fieldClass =
+    'mt-1 w-full rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-elevated)] px-3 py-2 text-[15px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]';
+
+  return (
+    <div className="divide-y divide-[var(--border-primary)]">
+      {feedback ? (
+        <div
+          className={`px-4 py-3 text-[13px] ${
+            feedback.type === 'success'
+              ? 'text-[var(--accent)]'
+              : 'text-[var(--color-danger)]'
+          }`}
+        >
+          {feedback.message}
+        </div>
+      ) : null}
+
+      <div className="px-4 py-4">
+        <label className="block text-[13px] font-bold text-[var(--text-secondary)]">
+          Display name
+          <input
+            type="text"
+            value={form.displayName}
+            onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
+            className={fieldClass}
+            placeholder="Your display name"
+          />
+        </label>
+      </div>
+
+      <div className="px-4 py-4">
+        <label className="block text-[13px] font-bold text-[var(--text-secondary)]">
+          Bio
+          <textarea
+            value={form.bio}
+            onChange={(e) => setForm((f) => ({ ...f, bio: e.target.value }))}
+            className={`${fieldClass} min-h-[80px] resize-y`}
+            placeholder="Tell people about yourself"
+            rows={3}
+          />
+        </label>
+      </div>
+
+      <div className="px-4 py-4">
+        <label className="block text-[13px] font-bold text-[var(--text-secondary)]">
+          Avatar URL
+          <input
+            type="url"
+            value={form.avatarUrl}
+            onChange={(e) => setForm((f) => ({ ...f, avatarUrl: e.target.value }))}
+            className={fieldClass}
+            placeholder="https://example.com/avatar.jpg"
+          />
+        </label>
+      </div>
+
+      <div className="px-4 py-4">
+        <label className="block text-[13px] font-bold text-[var(--text-secondary)]">
+          Banner URL
+          <input
+            type="url"
+            value={form.bannerUrl}
+            onChange={(e) => setForm((f) => ({ ...f, bannerUrl: e.target.value }))}
+            className={fieldClass}
+            placeholder="https://example.com/banner.jpg"
+          />
+        </label>
+      </div>
+
+      <div className="px-4 py-4">
+        <label className="block text-[13px] font-bold text-[var(--text-secondary)]">
+          Location
+          <input
+            type="text"
+            value={form.location}
+            onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
+            className={fieldClass}
+            placeholder="City, Country"
+          />
+        </label>
+      </div>
+
+      <div className="px-4 py-4">
+        <label className="block text-[13px] font-bold text-[var(--text-secondary)]">
+          Website
+          <input
+            type="url"
+            value={form.website}
+            onChange={(e) => setForm((f) => ({ ...f, website: e.target.value }))}
+            className={fieldClass}
+            placeholder="https://yoursite.com"
+          />
+        </label>
+      </div>
+
+      <div className="px-4 py-4">
+        <button
+          type="button"
+          disabled={!hasChanges || saving}
+          onClick={() => void handleSave()}
+          className={`rounded-full px-5 py-2 text-[15px] font-bold transition-colors ${
+            hasChanges && !saving
+              ? 'bg-[var(--accent)] text-white hover:opacity-90'
+              : 'cursor-not-allowed bg-[var(--bg-elevated)] text-[var(--text-secondary)]'
+          }`}
+        >
+          {saving ? 'Saving...' : 'Save changes'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const navigate = useNavigate();
-  const { authEnabled, isSignedIn } = useAuth();
-  const [activeSection, setActiveSection] = useState<Section>('account');
+  const { authEnabled, isSignedIn, getToken } = useAuth();
+  const [activeSection, setActiveSection] = useState<Section>('profile');
   const [showPanelOnMobile, setShowPanelOnMobile] = useState(false);
   const [toggles, setToggles] = useState<Record<string, boolean>>(INITIAL_TOGGLES);
   const [choices, setChoices] = useState<Record<string, string>>(INITIAL_CHOICES);
@@ -497,6 +732,15 @@ export function SettingsPage() {
           </div>
 
           <div className="divide-y divide-[var(--border-primary)]">
+            {currentSection.id === 'profile' ? (
+              isSignedIn ? (
+                <ProfileEditor getToken={getToken} />
+              ) : (
+                <div className="px-4 py-8 text-center text-[var(--text-secondary)]">
+                  Sign in to edit your profile.
+                </div>
+              )
+            ) : null}
             {currentSection.id === 'account' ? <AccountSummary /> : null}
             {notice ? (
               <div className="border-b border-[var(--border-primary)] px-4 py-3 text-[13px] text-[var(--text-secondary)]">

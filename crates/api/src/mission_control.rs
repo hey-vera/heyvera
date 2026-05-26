@@ -426,14 +426,14 @@ async fn authenticate_mc(state: &AppState, token: &str) -> Result<String, String
         return Err("missing token query parameter — connect with ?token=<jwt>".into());
     }
 
-    let keys = clerk::get_or_refresh_jwks_pub(&state.jwks_cache, clerk_secret, false).await?;
+    let keys = clerk::get_or_refresh_jwks_pub(&state.jwks_cache, &state.jwks_stampede, clerk_secret, false).await?;
 
     match clerk::verify_token_pub(token, &keys) {
         Ok(user_id) => Ok(user_id),
         Err(_) => {
             // Retry with fresh JWKS (key rotation)
             let keys =
-                clerk::get_or_refresh_jwks_pub(&state.jwks_cache, clerk_secret, true).await?;
+                clerk::get_or_refresh_jwks_pub(&state.jwks_cache, &state.jwks_stampede, clerk_secret, true).await?;
             clerk::verify_token_pub(token, &keys)
         }
     }

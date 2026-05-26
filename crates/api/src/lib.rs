@@ -1,8 +1,10 @@
 mod admin;
+pub mod api_error;
 mod auth;
 pub mod billing;
 mod chat;
 pub mod clerk;
+mod clerk_webhooks;
 mod context_api;
 mod context_flow;
 mod conversations;
@@ -10,8 +12,12 @@ mod deploy_status;
 pub mod db;
 pub mod github;
 mod integrations;
+pub mod media;
+mod messaging;
 pub mod mission_control;
+mod moderation;
 // pub mod memory; // removed for Context-Flow Pipeline deployment
+pub mod notifications;
 // mod orchestrator; // removed for Context-Flow Pipeline deployment
 mod ratelimit;
 pub mod storage;
@@ -30,6 +36,8 @@ mod user;
 mod validate;
 pub mod vera;
 mod ws;
+
+pub use api_error::ApiError;
 
 use std::sync::Arc;
 
@@ -100,6 +108,37 @@ async fn soma_identity(
     }
 }
 
+/// GET /v1/health — public health check
+async fn v1_health() -> impl axum::response::IntoResponse {
+    let timestamp = chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
+    axum::Json(serde_json::json!({
+        "status": "ok",
+        "service": "heyvera-social",
+        "version": "0.1.0",
+        "timestamp": timestamp,
+    }))
+}
+
+/// GET /v1/ready — readiness probe; checks DB accessibility
+async fn v1_ready(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+) -> impl axum::response::IntoResponse {
+    let db_ok = match &state.db {
+        Some(database) => database.health_check(),
+        None => false,
+    };
+    let ready = db_ok;
+    let status = if ready {
+        axum::http::StatusCode::OK
+    } else {
+        axum::http::StatusCode::SERVICE_UNAVAILABLE
+    };
+    (status, axum::Json(serde_json::json!({
+        "ready": ready,
+        "db": db_ok,
+    })))
+}
+
 fn cors_layer() -> CorsLayer {
     let allowed_origins = std::env::var("CORTEX_ALLOWED_ORIGINS").ok();
     match allowed_origins {
@@ -122,6 +161,66 @@ fn cors_layer() -> CorsLayer {
             CorsLayer::permissive()
         }
     }
+}
+
+async fn deploy_metadata() -> impl axum::response::IntoResponse {
+    axum::Json(serde_json::json!({
+        "version": env!("CARGO_PKG_VERSION"),
+        "service": "cortex-api",
+        "build_time": option_env!("BUILD_TIME").unwrap_or("unknown"),
+    }))
+}
+
+#[derive(Clone, Debug)]
+pub struct RequestId(pub String);
+
+async fn request_id_middleware(
+    req: axum::http::Request<axum::body::Body>,
+    next: axum::middleware::Next,
+) -> axum::response::Response {
+    let request_id = uuid::Uuid::new_v4().to_string();
+    let method = req.method().clone();
+    let path = req.uri().path().to_string();
+    let start = std::time::Instant::now();
+
+    let incoming_traceparent = req
+        .headers()
+        .get("traceparent")
+        .and_then(|v| v.to_str().ok())
+        .map(|s| s.to_string());
+
+    let (mut parts, body) = req.into_parts();
+    parts.extensions.insert(RequestId(request_id.clone()));
+    let req = axum::http::Request::from_parts(parts, body);
+
+    let response = next.run(req).await;
+    let duration_ms = start.elapsed().as_millis() as u64;
+    let status = response.status().as_u16();
+
+    tracing::info!(
+        request_id = %request_id,
+        method = %method,
+        path = %path,
+        status = status,
+        duration_ms = duration_ms,
+        "request completed"
+    );
+
+    let (mut parts, body) = response.into_parts();
+    parts.headers.insert(
+        "x-request-id",
+        axum::http::HeaderValue::from_str(&request_id).unwrap_or_else(|_| {
+            axum::http::HeaderValue::from_static("unknown")
+        }),
+    );
+
+    if let Some(traceparent) = incoming_traceparent {
+        if let Ok(val) = axum::http::HeaderValue::from_str(&traceparent) {
+            parts.headers.insert("traceparent", val);
+        }
+    }
+
+    axum::response::Response::from_parts(parts, body)
 }
 
 fn is_production_env() -> bool {
@@ -178,6 +277,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/admin/codes", get(admin::list_promo_codes).post(admin::create_promo_code))
         .route("/api/admin/codes/{id}", patch(admin::update_promo_code).delete(admin::delete_promo_code))
         .route("/api/admin/redemptions", get(admin::list_redemptions))
+        .route("/api/admin/accounts/{clerk_user_id}/suspend", post(admin::suspend_account))
+        .route("/api/admin/accounts/{clerk_user_id}/unsuspend", post(admin::unsuspend_account))
+        .route("/api/admin/cleanup-orphaned-media", post(admin::cleanup_orphaned_media))
+        .route("/api/admin/reports", get(moderation::list_reports))
+        .route("/api/admin/audit-log", get(admin::get_audit_log))
+        .route("/api/admin/reconcile-counters", post(admin::reconcile_counters))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             admin::require_admin_middleware,
@@ -185,9 +290,13 @@ pub fn build_router(state: Arc<AppState>) -> Router {
 
     // Non-rate-limited routes
     Router::new()
+        // Public — v1 health/ready
+        .route("/v1/health", get(v1_health))
+        .route("/v1/ready", get(v1_ready))
         // Public
         .route("/api/health", get(routes::health))
         .route("/api/deploy-info", get(routes::deploy_info))
+        .route("/api/deploy-metadata", get(deploy_metadata))
         .route("/api/deploy-status", get(deploy_status::deploy_status))
         .route("/api/deployment/status", get(deploy_status::deploy_status))
         .route("/api/deployment/events", get(deploy_status::deployment_events))
@@ -204,14 +313,47 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/soma/me", get(soma_bridge::get_user_identity))
         .route("/api/soma/spend", get(soma_bridge::get_spend))
         .route("/api/soma/spend/{delegation_id}", get(soma_bridge::get_spend_detail))
-        // Social layer (HeyVera) — unified social + agent-assisted posting
+        // Social layer (HeyVera) — real DB-backed endpoints
         .route("/v1/social/trending", get(social::get_trending))
         .route("/v1/social/search", get(social::search))
         .route("/v1/social/profiles/featured", get(social::get_featured_profiles))
         .route("/v1/social/feed/home", get(social::get_home_feed))
+        .route("/v1/social/profiles", get(social::get_profiles).post(social::create_profile))
+        .route("/v1/social/communities", get(social::get_communities))
         .route("/v1/social/profile/me", get(social::get_my_profile))
-        .route("/v1/social/profiles", post(social::create_profile))
         .route("/v1/social/posts", post(social::create_post))
+        // Task #47: Media uploads
+        .route("/v1/social/media/upload-url", post(media::request_upload_url))
+        .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
+        // Task #30: Social action endpoints
+        .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
+        .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
+        .route("/v1/social/posts/{id}/bookmark", post(social::bookmark_post).delete(social::unbookmark_post))
+        .route("/v1/social/follows/{handle}", post(social::follow_by_handle).delete(social::unfollow_by_handle))
+        // Task #31: User profile endpoints
+        .route("/v1/social/users/{handle}", get(social::get_user_profile))
+        .route("/v1/social/users/{handle}/posts", get(social::get_user_posts))
+        // Task #32: Single post + following feed
+        .route("/v1/social/posts/{id}", get(social::get_single_post).delete(social::delete_post))
+        .route("/v1/social/feed/following", get(social::get_following_feed))
+        // Task #33: /me/profile CRUD
+        .route("/v1/social/me/profile", get(social::get_me_profile).post(social::create_me_profile).patch(social::update_me_profile))
+        // Task #34: Notifications
+        .route("/v1/social/notifications", get(notifications::get_notifications))
+        .route("/v1/social/notifications/read", post(notifications::mark_notifications_read))
+        // Task #36: Community feed
+        .route("/v1/social/communities/{id}/feed", get(social::get_community_feed))
+        // Community membership
+        .route("/v1/social/communities/{id}/join", post(social::join_community))
+        .route("/v1/social/communities/{id}/leave", delete(social::leave_community))
+        .route("/v1/social/communities/{id}/members", get(social::list_community_members))
+        // Task #35: Conversations & Messages
+        .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
+        .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))
+        // Task #45: Block/Mute/Report
+        .route("/v1/social/users/{id}/block", post(moderation::block_user).delete(moderation::unblock_user))
+        .route("/v1/social/users/{id}/mute", post(moderation::mute_user).delete(moderation::unmute_user))
+        .route("/v1/social/report", post(moderation::create_report))
         // Protected — lightweight
         .route("/api/providers", get(routes::get_providers))
         .route("/api/ledger", get(routes::get_ledger))
@@ -261,6 +403,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/billing/history", get(billing::get_billing_history))
         // Stripe webhook (no auth — verified by signature)
         .route("/api/stripe/webhook", post(billing::stripe_webhook))
+        // Clerk webhook (no auth — verified by svix signature)
+        .route("/api/clerk/webhooks", post(clerk_webhooks::clerk_webhook))
         // Usage
         .route("/api/usage", get(usage_api::get_usage))
         .route("/api/usage/daily", get(usage_api::get_daily_usage))
@@ -278,5 +422,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             soma::soma_headers_middleware,
         ))
         .layer(cors_layer())
+        .layer(middleware::from_fn(request_id_middleware))
         .with_state(state)
 }
