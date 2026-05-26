@@ -1,13 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
 
-const port = 4173;
+const port = 5001;
 
 export default defineConfig({
   testDir: './tests',
   fullyParallel: true,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
-    baseURL: `http://127.0.0.1:${port}`,
+    baseURL: `http://localhost:${port}`,
     trace: 'on-first-retry',
   },
   projects: [
@@ -15,27 +15,30 @@ export default defineConfig({
       name: 'mobile',
       use: {
         browserName: 'chromium',
-        ...devices['iPhone 13'],
+        viewport: { width: 375, height: 667 },
+        isMobile: true,
+        hasTouch: true,
       },
     },
     {
       name: 'tablet',
       use: {
         browserName: 'chromium',
-        ...devices['iPad Pro 11'],
+        viewport: { width: 768, height: 1024 },
+        isMobile: true,
+        hasTouch: true,
       },
     },
     {
       name: 'desktop',
       use: {
         browserName: 'chromium',
-        ...devices['Desktop Chrome'],
-        viewport: { width: 1440, height: 1100 },
+        viewport: { width: 1440, height: 900 },
       },
     },
   ],
   webServer: {
-    command: `npm run dev -- --host 127.0.0.1 --port ${port}`,
+    command: `npm run dev -- --host localhost --port ${port}`,
     port,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,

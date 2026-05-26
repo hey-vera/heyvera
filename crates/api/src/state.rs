@@ -18,7 +18,7 @@ use tokio::process::ChildStdin;
 use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
 
-use crate::clerk::JwksCache;
+use crate::clerk::{JwksCache, JwksStampedeGuard};
 use crate::db::Database;
 use crate::github::GitHubClient;
 use crate::mission_control::{McSubscriber, MissionControlEvent, SubscriberId};
@@ -43,6 +43,7 @@ pub struct AppState {
     pub workspace_dir: PathBuf,
     pub clerk_secret_key: Option<String>,
     pub jwks_cache: RwLock<JwksCache>,
+    pub jwks_stampede: JwksStampedeGuard,
     pub pending_auths: RwLock<HashMap<String, ChildStdin>>,
     pub db: Option<Database>,
     pub workers: RwLock<HashMap<String, ConnectedWorker>>,
@@ -265,6 +266,7 @@ impl AppState {
             workspace_dir,
             clerk_secret_key,
             jwks_cache: RwLock::new(JwksCache::empty()),
+            jwks_stampede: JwksStampedeGuard::new(),
             pending_auths: RwLock::new(HashMap::new()),
             db: Some(db),
             workers: RwLock::new(HashMap::new()),

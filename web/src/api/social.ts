@@ -299,9 +299,13 @@ export async function searchSocial(
   posts: FeedPost[];
   profiles: Array<{ id: string; handle: string; displayName: string; avatarUrl: string | null; bio: string }>;
 }> {
-  const params = new URLSearchParams({ q: query });
-  if (type !== "all") params.set("type", type);
-  return apiFetch(`/search?${params.toString()}`);
+  try {
+    const params = new URLSearchParams({ q: query });
+    if (type !== "all") params.set("type", type);
+    return await apiFetch(`/search?${params.toString()}`);
+  } catch {
+    return { posts: [], profiles: [] };
+  }
 }
 
 // ─── Public: trending ───────────────────────────────────────────────────────
@@ -309,7 +313,11 @@ export async function searchSocial(
 export async function fetchTrending(): Promise<{
   topics: Array<{ tag: string; postCount: number }>;
 }> {
-  return apiFetch("/trending");
+  try {
+    return await apiFetch("/trending");
+  } catch {
+    return { topics: [] };
+  }
 }
 
 // ─── Authenticated: notifications ───────────────────────────────────────────

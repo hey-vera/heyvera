@@ -292,7 +292,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 27;
+const SCHEMA_VERSION: i64 = 33;
 const RUN_RESOURCE_LEASE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 fn apply_migrations(conn: &Connection) {
@@ -391,6 +391,29 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 27 {
         migrate_v27(conn);
+    }
+    // Ensure social tables exist regardless of version. Handles version collision
+    // where production DB ran main-branch v26-v27 (authority metadata) and skipped
+    // social table creation that the feature branch put at the same version numbers.
+    ensure_social_tables(conn);
+
+    if current < 28 {
+        migrate_v28(conn);
+    }
+    if current < 29 {
+        migrate_v29(conn);
+    }
+    if current < 30 {
+        migrate_v30(conn);
+    }
+    if current < 31 {
+        migrate_v31(conn);
+    }
+    if current < 32 {
+        migrate_v32(conn);
+    }
+    if current < 33 {
+        migrate_v33(conn);
     }
 }
 
@@ -1422,6 +1445,250 @@ fn migrate_v27(conn: &Connection) {
     .expect("migration v27 failed");
 
     tracing::info!("applied migration v27: authority-scoped resource leases");
+}
+
+fn ensure_social_tables(conn: &Connection) {
+    let has_social_posts: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='social_posts'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0) > 0;
+
+    if has_social_posts {
+        return;
+    }
+
+    tracing::info!("social tables missing — creating all social tables");
+
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS social_profiles (
+            id TEXT PRIMARY KEY, clerk_user_id TEXT NOT NULL, handle TEXT NOT NULL,
+            display_name TEXT NOT NULL, bio TEXT NOT NULL DEFAULT '', avatar_url TEXT,
+            banner_url TEXT, location TEXT, website_url TEXT,
+            proof_state TEXT NOT NULL DEFAULT 'pending', continuity_state TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_profiles_clerk ON social_profiles(clerk_user_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_profiles_handle ON social_profiles(handle);
+
+        CREATE TABLE IF NOT EXISTS social_linked_agents (
+            id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            agent_name TEXT NOT NULL, agent_slug TEXT NOT NULL, agent_key TEXT NOT NULL,
+            agent_type TEXT NOT NULL DEFAULT 'general', link_state TEXT NOT NULL DEFAULT 'active',
+            visibility TEXT NOT NULL DEFAULT 'public', proof_state TEXT NOT NULL DEFAULT 'pending',
+            is_primary INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_linked_agents_profile ON social_linked_agents(profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_posts (
+            id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            linked_agent_id TEXT REFERENCES social_linked_agents(id), body TEXT NOT NULL,
+            visibility TEXT NOT NULL DEFAULT 'public', proof_state TEXT NOT NULL DEFAULT 'pending',
+            author_mode TEXT NOT NULL DEFAULT 'person',
+            reply_to_post_id TEXT REFERENCES social_posts(id), quote_post_id TEXT REFERENCES social_posts(id),
+            community_id TEXT, deleted_at TEXT DEFAULT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_posts_profile ON social_posts(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_posts_created ON social_posts(created_at);
+        CREATE INDEX IF NOT EXISTS idx_social_posts_community ON social_posts(community_id);
+
+        CREATE TABLE IF NOT EXISTS social_follows (
+            id TEXT PRIMARY KEY, follower_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            following_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_follows_pair ON social_follows(follower_profile_id, following_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_follows_follower ON social_follows(follower_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_follows_following ON social_follows(following_profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_communities (
+            id TEXT PRIMARY KEY, creator_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            slug TEXT NOT NULL, name TEXT NOT NULL, description TEXT NOT NULL DEFAULT '',
+            visibility TEXT NOT NULL DEFAULT 'public',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_communities_slug ON social_communities(slug);
+        CREATE INDEX IF NOT EXISTS idx_social_communities_creator ON social_communities(creator_profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_community_memberships (
+            id TEXT PRIMARY KEY, community_id TEXT NOT NULL REFERENCES social_communities(id),
+            profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            joined_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_memberships_pair ON social_community_memberships(community_id, profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_memberships_profile ON social_community_memberships(profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_longform (
+            id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            linked_agent_id TEXT REFERENCES social_linked_agents(id),
+            title TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL,
+            format_type TEXT NOT NULL DEFAULT 'essay', visibility TEXT NOT NULL DEFAULT 'public',
+            proof_state TEXT NOT NULL DEFAULT 'pending', author_mode TEXT NOT NULL DEFAULT 'person',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_longform_profile ON social_longform(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_longform_created ON social_longform(created_at);
+
+        CREATE TABLE IF NOT EXISTS social_likes (
+            profile_id TEXT NOT NULL, post_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (profile_id, post_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_likes_post ON social_likes(post_id);
+
+        CREATE TABLE IF NOT EXISTS social_bookmarks (
+            profile_id TEXT NOT NULL, post_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (profile_id, post_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_bookmarks_post ON social_bookmarks(post_id);
+
+        CREATE TABLE IF NOT EXISTS social_reposts (
+            profile_id TEXT NOT NULL, post_id TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            PRIMARY KEY (profile_id, post_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_reposts_post ON social_reposts(post_id);
+
+        CREATE TABLE IF NOT EXISTS pulse_drafts (
+            id TEXT PRIMARY KEY, profile_id TEXT NOT NULL, body TEXT NOT NULL,
+            visibility TEXT NOT NULL DEFAULT 'public', author_mode TEXT NOT NULL DEFAULT 'person',
+            linked_agent_id TEXT, status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_pulse_drafts_profile ON pulse_drafts(profile_id);
+        CREATE INDEX IF NOT EXISTS idx_pulse_drafts_status ON pulse_drafts(status);
+
+        CREATE TABLE IF NOT EXISTS pulse_audit_log (
+            id TEXT PRIMARY KEY, draft_id TEXT NOT NULL, action TEXT NOT NULL,
+            actor_profile_id TEXT NOT NULL, details_json TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_pulse_audit_log_draft ON pulse_audit_log(draft_id);
+
+        CREATE TABLE IF NOT EXISTS social_notifications (
+            id TEXT PRIMARY KEY, recipient_profile_id TEXT NOT NULL, actor_profile_id TEXT NOT NULL,
+            notification_type TEXT NOT NULL, post_id TEXT, read INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_notifications_recipient ON social_notifications(recipient_profile_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_social_notifications_read ON social_notifications(recipient_profile_id, read);
+
+        CREATE TABLE IF NOT EXISTS social_media_objects (
+            id TEXT PRIMARY KEY, owner_profile_id TEXT NOT NULL, filename TEXT NOT NULL,
+            content_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, media_type TEXT NOT NULL DEFAULT 'image',
+            storage_key TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_media_objects_owner ON social_media_objects(owner_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_media_objects_status ON social_media_objects(status, created_at);
+
+        CREATE TABLE IF NOT EXISTS social_post_media (
+            post_id TEXT NOT NULL, media_id TEXT NOT NULL, position INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (post_id, media_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_post_media_post ON social_post_media(post_id);
+        CREATE INDEX IF NOT EXISTS idx_social_post_media_media ON social_post_media(media_id);
+
+        CREATE TABLE IF NOT EXISTS webhook_events (
+            id TEXT PRIMARY KEY, event_type TEXT NOT NULL, timestamp INTEGER NOT NULL,
+            processed_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_webhook_events_type ON webhook_events(event_type);
+
+        CREATE TABLE IF NOT EXISTS accounts (
+            clerk_user_id TEXT PRIMARY KEY, email TEXT NOT NULL DEFAULT '',
+            display_name TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'active',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_accounts_email ON accounts(email);
+        CREATE INDEX IF NOT EXISTS idx_accounts_status ON accounts(status);
+
+        CREATE TABLE IF NOT EXISTS social_conversations (
+            id TEXT PRIMARY KEY, created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE TABLE IF NOT EXISTS social_conversation_participants (
+            conversation_id TEXT NOT NULL, profile_id TEXT NOT NULL,
+            joined_at TEXT NOT NULL DEFAULT (datetime('now')), PRIMARY KEY (conversation_id, profile_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_conv_participants_profile ON social_conversation_participants(profile_id);
+        CREATE TABLE IF NOT EXISTS social_messages (
+            id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, sender_profile_id TEXT NOT NULL,
+            content TEXT NOT NULL, created_at TEXT NOT NULL DEFAULT (datetime('now')), read INTEGER NOT NULL DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_messages_conversation ON social_messages(conversation_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_social_messages_sender ON social_messages(sender_profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_blocks (
+            blocker_profile_id TEXT NOT NULL, blocked_profile_id TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (blocker_profile_id, blocked_profile_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_blocks_blocker ON social_blocks(blocker_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_blocks_blocked ON social_blocks(blocked_profile_id);
+        CREATE TABLE IF NOT EXISTS social_mutes (
+            muter_profile_id TEXT NOT NULL, muted_profile_id TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')), UNIQUE (muter_profile_id, muted_profile_id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_mutes_muter ON social_mutes(muter_profile_id);
+        CREATE TABLE IF NOT EXISTS social_reports (
+            id TEXT PRIMARY KEY, reporter_profile_id TEXT NOT NULL, target_type TEXT NOT NULL,
+            target_id TEXT NOT NULL, reason TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_reports_reporter ON social_reports(reporter_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_reports_status ON social_reports(status);
+
+        CREATE TABLE IF NOT EXISTS audit_log (
+            id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, actor_type TEXT NOT NULL DEFAULT 'user',
+            action TEXT NOT NULL, target_type TEXT, target_id TEXT, details TEXT, ip_address TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
+
+        UPDATE schema_version SET version = 33;"
+    ).expect("social tables creation failed");
+
+    tracing::info!("social tables created successfully");
+}
+
+fn migrate_v28(conn: &Connection) {}
+fn migrate_v29(conn: &Connection) {}
+fn migrate_v30(conn: &Connection) {}
+fn migrate_v31(conn: &Connection) {}
+
+fn migrate_v32(conn: &Connection) {
+    let has_deleted_at: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('social_posts') WHERE name='deleted_at'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0) > 0;
+
+    if !has_deleted_at {
+        conn.execute_batch(
+            "ALTER TABLE social_posts ADD COLUMN deleted_at TEXT DEFAULT NULL;"
+        ).expect("migration v32 failed");
+        tracing::info!("applied migration v32: soft-delete for social_posts");
+    }
+    conn.execute_batch("UPDATE schema_version SET version = 32;").ok();
+}
+
+fn migrate_v33(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS audit_log (
+            id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, actor_type TEXT NOT NULL DEFAULT 'user',
+            action TEXT NOT NULL, target_type TEXT, target_id TEXT, details TEXT, ip_address TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_log_actor ON audit_log(actor_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at);
+        UPDATE schema_version SET version = 33;"
+    ).expect("migration v33 failed");
+    tracing::info!("applied migration v33: audit_log table");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -9073,6 +9340,2059 @@ impl Database {
             .unwrap()
             .filter_map(|r| r.ok())
             .collect()
+    }
+
+    // ─── HeyVera Social Layer ──────────────────────────────────────────────────
+
+    pub fn social_find_profile_by_clerk_id(&self, clerk_user_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
+                    location, website_url, proof_state, continuity_state, created_at, updated_at
+             FROM social_profiles WHERE clerk_user_id = ?1"
+        ).ok()?;
+        stmt.query_row([clerk_user_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "accountId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(2)?,
+                "displayName": row.get::<_, String>(3)?,
+                "bio": row.get::<_, String>(4)?,
+                "avatarUrl": row.get::<_, Option<String>>(5)?,
+                "bannerUrl": row.get::<_, Option<String>>(6)?,
+                "location": row.get::<_, Option<String>>(7)?,
+                "websiteUrl": row.get::<_, Option<String>>(8)?,
+                "proofState": row.get::<_, String>(9)?,
+                "continuityState": row.get::<_, String>(10)?,
+                "createdAt": row.get::<_, String>(11)?,
+                "updatedAt": row.get::<_, String>(12)?,
+            }))
+        }).ok()
+    }
+
+    pub fn social_find_profile_by_handle(&self, handle: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
+                    location, website_url, proof_state, continuity_state, created_at, updated_at
+             FROM social_profiles WHERE handle = ?1"
+        ).ok()?;
+        stmt.query_row([handle], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "accountId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(2)?,
+                "displayName": row.get::<_, String>(3)?,
+                "bio": row.get::<_, String>(4)?,
+                "avatarUrl": row.get::<_, Option<String>>(5)?,
+                "bannerUrl": row.get::<_, Option<String>>(6)?,
+                "location": row.get::<_, Option<String>>(7)?,
+                "websiteUrl": row.get::<_, Option<String>>(8)?,
+                "proofState": row.get::<_, String>(9)?,
+                "continuityState": row.get::<_, String>(10)?,
+                "createdAt": row.get::<_, String>(11)?,
+                "updatedAt": row.get::<_, String>(12)?,
+            }))
+        }).ok()
+    }
+
+    pub fn social_list_profiles(&self, limit: i64) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
+                    p.banner_url, p.location, p.website_url, p.proof_state, p.continuity_state,
+                    p.created_at, p.updated_at,
+                    la.agent_name, la.agent_slug, la.link_state
+             FROM social_profiles p
+             LEFT JOIN social_linked_agents la ON la.profile_id = p.id AND la.is_primary = 1
+             ORDER BY p.created_at DESC LIMIT ?1"
+        ).unwrap();
+        stmt.query_map([limit], |row| {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "accountId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(2)?,
+                "displayName": row.get::<_, String>(3)?,
+                "bio": row.get::<_, String>(4)?,
+                "avatarUrl": row.get::<_, Option<String>>(5)?,
+                "bannerUrl": row.get::<_, Option<String>>(6)?,
+                "location": row.get::<_, Option<String>>(7)?,
+                "websiteUrl": row.get::<_, Option<String>>(8)?,
+                "proofState": row.get::<_, String>(9)?,
+                "continuityState": row.get::<_, String>(10)?,
+                "createdAt": row.get::<_, String>(11)?,
+                "updatedAt": row.get::<_, String>(12)?,
+                "primaryAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                        "linkState": row.get::<_, Option<String>>(15)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn social_get_first_profile(&self) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
+                    p.banner_url, p.location, p.website_url, p.proof_state, p.continuity_state,
+                    p.created_at, p.updated_at,
+                    la.agent_name, la.agent_slug, la.link_state
+             FROM social_profiles p
+             LEFT JOIN social_linked_agents la ON la.profile_id = p.id AND la.is_primary = 1
+             ORDER BY p.created_at ASC LIMIT 1"
+        ).ok()?;
+        stmt.query_row([], |row| {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "accountId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(2)?,
+                "displayName": row.get::<_, String>(3)?,
+                "bio": row.get::<_, String>(4)?,
+                "avatarUrl": row.get::<_, Option<String>>(5)?,
+                "bannerUrl": row.get::<_, Option<String>>(6)?,
+                "location": row.get::<_, Option<String>>(7)?,
+                "websiteUrl": row.get::<_, Option<String>>(8)?,
+                "proofState": row.get::<_, String>(9)?,
+                "continuityState": row.get::<_, String>(10)?,
+                "createdAt": row.get::<_, String>(11)?,
+                "updatedAt": row.get::<_, String>(12)?,
+                "primaryAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                        "linkState": row.get::<_, Option<String>>(15)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        }).ok()
+    }
+
+    pub fn social_create_profile(&self, clerk_user_id: &str, handle: &str, display_name: &str, bio: &str) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO social_profiles (id, clerk_user_id, handle, display_name, bio) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, clerk_user_id, handle, display_name, bio],
+        ).expect("insert profile");
+        drop(conn);
+        self.social_find_profile_by_clerk_id(clerk_user_id).unwrap()
+    }
+
+    pub fn social_get_linked_agents(&self, profile_id: &str) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, profile_id, agent_name, agent_slug, agent_key, agent_type,
+                    link_state, visibility, proof_state, is_primary, created_at, updated_at
+             FROM social_linked_agents WHERE profile_id = ?1
+             ORDER BY is_primary DESC, created_at ASC"
+        ).unwrap();
+        stmt.query_map([profile_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "profileId": row.get::<_, String>(1)?,
+                "agentName": row.get::<_, String>(2)?,
+                "agentSlug": row.get::<_, String>(3)?,
+                "agentKey": row.get::<_, String>(4)?,
+                "agentType": row.get::<_, String>(5)?,
+                "linkState": row.get::<_, String>(6)?,
+                "visibility": row.get::<_, String>(7)?,
+                "proofState": row.get::<_, String>(8)?,
+                "isPrimary": row.get::<_, i64>(9)? == 1,
+                "createdAt": row.get::<_, String>(10)?,
+                "updatedAt": row.get::<_, String>(11)?,
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn social_list_feed_posts(&self, limit: i64, offset: i64, filter: Option<&str>) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let filter_clause = match filter {
+            Some(f) if f != "all" => format!("AND sp.author_mode = '{}'", f.replace('\'', "''")),
+            _ => String::new(),
+        };
+        let sql = format!(
+            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                    sp.created_at, sp.updated_at,
+                    p.handle, p.display_name,
+                    la.agent_name, la.agent_slug
+             FROM social_posts sp
+             JOIN social_profiles p ON p.id = sp.profile_id
+             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+             WHERE sp.visibility = 'public' {filter_clause}
+             ORDER BY sp.created_at DESC LIMIT ?1 OFFSET ?2"
+        );
+        let mut stmt = conn.prepare(&sql).unwrap();
+        stmt.query_map(params![limit, offset], |row| {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": row.get::<_, String>(9)?,
+                "updatedAt": row.get::<_, String>(10)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn social_create_post(&self, profile_id: &str, body: &str, visibility: &str, author_mode: &str, linked_agent_id: Option<&str>, reply_to: Option<&str>, quote: Option<&str>) -> serde_json::Value {
+        let _t = std::time::Instant::now();
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO social_posts (id, profile_id, body, visibility, author_mode, linked_agent_id, reply_to_post_id, quote_post_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, profile_id, body, visibility, author_mode, linked_agent_id, reply_to, quote],
+        ).expect("insert post");
+        let mut stmt = conn.prepare(
+            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                    sp.created_at, sp.updated_at,
+                    p.handle, p.display_name,
+                    la.agent_name, la.agent_slug
+             FROM social_posts sp
+             JOIN social_profiles p ON p.id = sp.profile_id
+             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+             WHERE sp.id = ?1"
+        ).unwrap();
+        let post = stmt.query_row([&id], |row| {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": row.get::<_, String>(9)?,
+                "updatedAt": row.get::<_, String>(10)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        }).unwrap();
+        tracing::info!(method = "social_create_post", duration_ms = _t.elapsed().as_millis(), "db query");
+        post
+    }
+
+    pub fn social_search_posts(&self, query: &str, limit: i64) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let pattern = format!("%{query}%");
+        let mut stmt = conn.prepare(
+            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                    sp.created_at, sp.updated_at,
+                    p.handle, p.display_name,
+                    la.agent_name, la.agent_slug
+             FROM social_posts sp
+             JOIN social_profiles p ON p.id = sp.profile_id
+             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+             WHERE sp.visibility = 'public' AND sp.body LIKE ?1
+             ORDER BY sp.created_at DESC LIMIT ?2"
+        ).unwrap();
+        stmt.query_map(params![pattern, limit], |row| {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": row.get::<_, String>(9)?,
+                "updatedAt": row.get::<_, String>(10)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn social_search_profiles(&self, query: &str, limit: i64) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let pattern = format!("%{query}%");
+        let mut stmt = conn.prepare(
+            "SELECT id, handle, display_name, avatar_url, bio
+             FROM social_profiles WHERE handle LIKE ?1 OR display_name LIKE ?1
+             ORDER BY created_at DESC LIMIT ?2"
+        ).unwrap();
+        stmt.query_map(params![pattern, limit], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "handle": row.get::<_, String>(1)?,
+                "displayName": row.get::<_, String>(2)?,
+                "avatarUrl": row.get::<_, Option<String>>(3)?,
+                "bio": row.get::<_, String>(4)?,
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn social_get_trending_hashtags(&self, limit: usize) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT body FROM social_posts WHERE visibility = 'public' AND created_at >= datetime('now', '-7 days')"
+        ).unwrap();
+        let bodies: Vec<String> = stmt.query_map([], |row| row.get(0))
+            .unwrap().filter_map(|r| r.ok()).collect();
+
+        let mut counts: HashMap<String, i64> = HashMap::new();
+        for body in &bodies {
+            for word in body.split_whitespace() {
+                if word.starts_with('#') && word.len() > 1 {
+                    let tag: String = word.chars()
+                        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '#')
+                        .collect::<String>()
+                        .to_lowercase();
+                    if tag.len() > 1 {
+                        *counts.entry(tag).or_insert(0) += 1;
+                    }
+                }
+            }
+        }
+
+        let mut tags: Vec<_> = counts.into_iter().collect();
+        tags.sort_by(|a, b| b.1.cmp(&a.1));
+        tags.truncate(limit);
+        tags.into_iter().map(|(tag, count)| serde_json::json!({ "tag": tag, "postCount": count })).collect()
+    }
+
+    pub fn social_list_communities(&self, limit: i64) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT sc.id, sc.slug, sc.name, sc.description, sc.visibility, sc.created_at, sc.updated_at,
+                    sc.creator_profile_id, p.handle, p.display_name
+             FROM social_communities sc
+             JOIN social_profiles p ON p.id = sc.creator_profile_id
+             WHERE sc.visibility = 'public'
+             ORDER BY sc.created_at DESC LIMIT ?1"
+        ).unwrap();
+        stmt.query_map([limit], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "slug": row.get::<_, String>(1)?,
+                "name": row.get::<_, String>(2)?,
+                "description": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "createdAt": row.get::<_, String>(5)?,
+                "updatedAt": row.get::<_, String>(6)?,
+                "creator": {
+                    "profileId": row.get::<_, String>(7)?,
+                    "handle": row.get::<_, String>(8)?,
+                    "displayName": row.get::<_, String>(9)?,
+                },
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn social_get_profile_stats(&self, profile_id: &str) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let count = |sql: &str| -> i64 {
+            conn.query_row(sql, [profile_id], |r| r.get(0)).unwrap_or(0)
+        };
+        serde_json::json!({
+            "postCount": count("SELECT COUNT(*) FROM social_posts WHERE profile_id = ?1"),
+            "followerCount": count("SELECT COUNT(*) FROM social_follows WHERE following_profile_id = ?1"),
+            "followingCount": count("SELECT COUNT(*) FROM social_follows WHERE follower_profile_id = ?1"),
+            "linkedAgentCount": count("SELECT COUNT(*) FROM social_linked_agents WHERE profile_id = ?1"),
+            "communityCount": count("SELECT COUNT(*) FROM social_communities WHERE creator_profile_id = ?1"),
+            "longformCount": count("SELECT COUNT(*) FROM social_longform WHERE profile_id = ?1"),
+        })
+    }
+
+    pub fn social_like(&self, profile_id: &str, post_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("INSERT OR IGNORE INTO social_likes (profile_id, post_id) VALUES (?1, ?2)", params![profile_id, post_id]).ok();
+    }
+
+    pub fn social_unlike(&self, profile_id: &str, post_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM social_likes WHERE profile_id = ?1 AND post_id = ?2", params![profile_id, post_id]).ok();
+    }
+
+    pub fn social_bookmark(&self, profile_id: &str, post_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("INSERT OR IGNORE INTO social_bookmarks (profile_id, post_id) VALUES (?1, ?2)", params![profile_id, post_id]).ok();
+    }
+
+    pub fn social_unbookmark(&self, profile_id: &str, post_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM social_bookmarks WHERE profile_id = ?1 AND post_id = ?2", params![profile_id, post_id]).ok();
+    }
+
+    pub fn social_repost(&self, profile_id: &str, post_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("INSERT OR IGNORE INTO social_reposts (profile_id, post_id) VALUES (?1, ?2)", params![profile_id, post_id]).ok();
+    }
+
+    pub fn social_unrepost(&self, profile_id: &str, post_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM social_reposts WHERE profile_id = ?1 AND post_id = ?2", params![profile_id, post_id]).ok();
+    }
+
+    pub fn social_post_exists(&self, post_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT 1 FROM social_posts WHERE id = ?1 AND deleted_at IS NULL", [post_id], |_| Ok(())).is_ok()
+    }
+
+    /// Return the profile_id of the post author, or None if not found / deleted.
+    pub fn social_get_post_author_profile_id(&self, post_id: &str) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT profile_id FROM social_posts WHERE id = ?1 AND deleted_at IS NULL",
+            [post_id],
+            |r| r.get(0),
+        ).ok()
+    }
+
+    /// Soft-delete a post by setting deleted_at.
+    pub fn social_soft_delete_post(&self, post_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE social_posts SET deleted_at = datetime('now') WHERE id = ?1",
+            [post_id],
+        ).ok();
+    }
+
+    pub fn social_follow(&self, follower_id: &str, following_id: &str) -> String {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT OR IGNORE INTO social_follows (id, follower_profile_id, following_profile_id) VALUES (?1, ?2, ?3)",
+            params![id, follower_id, following_id],
+        ).ok();
+        let actual_id: String = conn.query_row(
+            "SELECT id FROM social_follows WHERE follower_profile_id = ?1 AND following_profile_id = ?2",
+            params![follower_id, following_id], |r| r.get(0),
+        ).unwrap_or(id);
+        actual_id
+    }
+
+    pub fn social_unfollow(&self, follower_id: &str, following_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM social_follows WHERE follower_profile_id = ?1 AND following_profile_id = ?2",
+            params![follower_id, following_id],
+        ).ok();
+    }
+
+    pub fn social_get_follow_status(&self, follower_id: &str, following_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM social_follows WHERE follower_profile_id = ?1 AND following_profile_id = ?2",
+            params![follower_id, following_id], |_| Ok(()),
+        ).is_ok()
+    }
+
+    // ─── Block / Mute / Report DB methods ────────────────────────────────────
+
+    pub fn social_block_user(&self, blocker_id: &str, blocked_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO social_blocks (blocker_profile_id, blocked_profile_id) VALUES (?1, ?2)",
+            params![blocker_id, blocked_id],
+        ).ok();
+    }
+
+    pub fn social_unblock_user(&self, blocker_id: &str, blocked_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM social_blocks WHERE blocker_profile_id = ?1 AND blocked_profile_id = ?2",
+            params![blocker_id, blocked_id],
+        ).ok();
+    }
+
+    pub fn social_is_blocked(&self, blocker_id: &str, blocked_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM social_blocks WHERE blocker_profile_id = ?1 AND blocked_profile_id = ?2",
+            params![blocker_id, blocked_id], |_| Ok(()),
+        ).is_ok()
+    }
+
+    pub fn social_get_blocked_ids(&self, profile_id: &str) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT blocked_profile_id FROM social_blocks WHERE blocker_profile_id = ?1"
+        ).unwrap();
+        stmt.query_map([profile_id], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
+    }
+
+    pub fn social_mute_user(&self, muter_id: &str, muted_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO social_mutes (muter_profile_id, muted_profile_id) VALUES (?1, ?2)",
+            params![muter_id, muted_id],
+        ).ok();
+    }
+
+    pub fn social_unmute_user(&self, muter_id: &str, muted_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM social_mutes WHERE muter_profile_id = ?1 AND muted_profile_id = ?2",
+            params![muter_id, muted_id],
+        ).ok();
+    }
+
+    pub fn social_is_muted(&self, muter_id: &str, muted_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM social_mutes WHERE muter_profile_id = ?1 AND muted_profile_id = ?2",
+            params![muter_id, muted_id], |_| Ok(()),
+        ).is_ok()
+    }
+
+    pub fn social_get_muted_ids(&self, profile_id: &str) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT muted_profile_id FROM social_mutes WHERE muter_profile_id = ?1"
+        ).unwrap();
+        stmt.query_map([profile_id], |row| row.get(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
+    }
+
+    pub fn social_create_report(&self, reporter_id: &str, target_type: &str, target_id: &str, reason: &str) -> serde_json::Value {
+        let id = Uuid::new_v4().to_string();
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO social_reports (id, reporter_profile_id, target_type, target_id, reason) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, reporter_id, target_type, target_id, reason],
+        ).ok();
+        serde_json::json!({
+            "id": id,
+            "reporterProfileId": reporter_id,
+            "targetType": target_type,
+            "targetId": target_id,
+            "reason": reason,
+            "status": "pending",
+        })
+    }
+
+    pub fn social_list_reports(&self) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, reporter_profile_id, target_type, target_id, reason, status, created_at
+             FROM social_reports ORDER BY created_at DESC"
+        ).unwrap();
+        stmt.query_map([], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "reporterProfileId": row.get::<_, String>(1)?,
+                "targetType": row.get::<_, String>(2)?,
+                "targetId": row.get::<_, String>(3)?,
+                "reason": row.get::<_, String>(4)?,
+                "status": row.get::<_, String>(5)?,
+                "createdAt": row.get::<_, String>(6)?,
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    // ─── Wave 1: Social action + profile + feed DB methods ──────────────────
+
+    pub fn social_update_profile(
+        &self,
+        profile_id: &str,
+        display_name: Option<&str>,
+        bio: Option<&str>,
+        avatar_url: Option<&str>,
+        banner_url: Option<&str>,
+        location: Option<&str>,
+        website_url: Option<&str>,
+    ) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut sets = Vec::new();
+        let mut values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+        let mut idx = 1u32;
+
+        if let Some(v) = display_name {
+            sets.push(format!("display_name = ?{idx}"));
+            values.push(Box::new(v.to_string()));
+            idx += 1;
+        }
+        if let Some(v) = bio {
+            sets.push(format!("bio = ?{idx}"));
+            values.push(Box::new(v.to_string()));
+            idx += 1;
+        }
+        if let Some(v) = avatar_url {
+            sets.push(format!("avatar_url = ?{idx}"));
+            values.push(Box::new(v.to_string()));
+            idx += 1;
+        }
+        if let Some(v) = banner_url {
+            sets.push(format!("banner_url = ?{idx}"));
+            values.push(Box::new(v.to_string()));
+            idx += 1;
+        }
+        if let Some(v) = location {
+            sets.push(format!("location = ?{idx}"));
+            values.push(Box::new(v.to_string()));
+            idx += 1;
+        }
+        if let Some(v) = website_url {
+            sets.push(format!("website_url = ?{idx}"));
+            values.push(Box::new(v.to_string()));
+            idx += 1;
+        }
+
+        if sets.is_empty() {
+            drop(conn);
+            return self.social_find_profile_by_clerk_id_via_id(profile_id);
+        }
+
+        sets.push(format!("updated_at = datetime('now')"));
+        let sql = format!(
+            "UPDATE social_profiles SET {} WHERE id = ?{}",
+            sets.join(", "),
+            idx
+        );
+        values.push(Box::new(profile_id.to_string()));
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = values.iter().map(|b| b.as_ref()).collect();
+        conn.execute(&sql, params_ref.as_slice()).ok();
+        drop(conn);
+        self.social_find_profile_by_clerk_id_via_id(profile_id)
+    }
+
+    fn social_find_profile_by_clerk_id_via_id(&self, profile_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
+                    location, website_url, proof_state, continuity_state, created_at, updated_at
+             FROM social_profiles WHERE id = ?1"
+        ).ok()?;
+        stmt.query_row([profile_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "accountId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(2)?,
+                "displayName": row.get::<_, String>(3)?,
+                "bio": row.get::<_, String>(4)?,
+                "avatarUrl": row.get::<_, Option<String>>(5)?,
+                "bannerUrl": row.get::<_, Option<String>>(6)?,
+                "location": row.get::<_, Option<String>>(7)?,
+                "websiteUrl": row.get::<_, Option<String>>(8)?,
+                "proofState": row.get::<_, String>(9)?,
+                "continuityState": row.get::<_, String>(10)?,
+                "createdAt": row.get::<_, String>(11)?,
+                "updatedAt": row.get::<_, String>(12)?,
+            }))
+        }).ok()
+    }
+
+    pub fn social_get_profile_by_handle_with_viewer(
+        &self,
+        handle: &str,
+        viewer_profile_id: Option<&str>,
+    ) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
+                    location, website_url, proof_state, continuity_state, created_at, updated_at
+             FROM social_profiles WHERE handle = ?1"
+        ).ok()?;
+        let profile = stmt.query_row([handle], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "accountId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(2)?,
+                "displayName": row.get::<_, String>(3)?,
+                "bio": row.get::<_, String>(4)?,
+                "avatarUrl": row.get::<_, Option<String>>(5)?,
+                "bannerUrl": row.get::<_, Option<String>>(6)?,
+                "location": row.get::<_, Option<String>>(7)?,
+                "websiteUrl": row.get::<_, Option<String>>(8)?,
+                "proofState": row.get::<_, String>(9)?,
+                "continuityState": row.get::<_, String>(10)?,
+                "createdAt": row.get::<_, String>(11)?,
+                "updatedAt": row.get::<_, String>(12)?,
+            }))
+        }).ok()?;
+
+        let profile_id = profile["id"].as_str().unwrap_or("");
+
+        // Stats
+        let count = |sql: &str| -> i64 {
+            conn.query_row(sql, [profile_id], |r| r.get(0)).unwrap_or(0)
+        };
+        let stats = serde_json::json!({
+            "postCount": count("SELECT COUNT(*) FROM social_posts WHERE profile_id = ?1"),
+            "followerCount": count("SELECT COUNT(*) FROM social_follows WHERE following_profile_id = ?1"),
+            "followingCount": count("SELECT COUNT(*) FROM social_follows WHERE follower_profile_id = ?1"),
+        });
+
+        // Viewer-relative flags
+        let (is_following, is_followed_by) = match viewer_profile_id {
+            Some(vid) if !vid.is_empty() && vid != profile_id => {
+                let fwd = conn.query_row(
+                    "SELECT 1 FROM social_follows WHERE follower_profile_id = ?1 AND following_profile_id = ?2",
+                    params![vid, profile_id], |_| Ok(()),
+                ).is_ok();
+                let rev = conn.query_row(
+                    "SELECT 1 FROM social_follows WHERE follower_profile_id = ?1 AND following_profile_id = ?2",
+                    params![profile_id, vid], |_| Ok(()),
+                ).is_ok();
+                (fwd, rev)
+            }
+            _ => (false, false),
+        };
+
+        let mut obj = profile;
+        if let Some(m) = obj.as_object_mut() {
+            m.insert("stats".into(), stats);
+            m.insert("isFollowing".into(), serde_json::json!(is_following));
+            m.insert("isFollowedBy".into(), serde_json::json!(is_followed_by));
+        }
+        Some(obj)
+    }
+
+    pub fn social_get_user_posts(
+        &self,
+        profile_id: &str,
+        limit: i64,
+        cursor: i64,
+    ) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                    sp.created_at, sp.updated_at,
+                    p.handle, p.display_name,
+                    la.agent_name, la.agent_slug
+             FROM social_posts sp
+             JOIN social_profiles p ON p.id = sp.profile_id
+             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+             WHERE sp.profile_id = ?1 AND sp.visibility = 'public' AND sp.deleted_at IS NULL
+             ORDER BY sp.created_at DESC LIMIT ?2 OFFSET ?3"
+        ).unwrap();
+        stmt.query_map(params![profile_id, limit, cursor], |row| {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": row.get::<_, String>(9)?,
+                "updatedAt": row.get::<_, String>(10)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    pub fn social_get_post_by_id(
+        &self,
+        post_id: &str,
+        viewer_profile_id: Option<&str>,
+    ) -> Option<serde_json::Value> {
+        let _t = std::time::Instant::now();
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                    sp.created_at, sp.updated_at,
+                    p.handle, p.display_name,
+                    la.agent_name, la.agent_slug
+             FROM social_posts sp
+             JOIN social_profiles p ON p.id = sp.profile_id
+             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+             WHERE sp.id = ?1 AND sp.deleted_at IS NULL"
+        ).ok()?;
+        let mut post = stmt.query_row([post_id], |row| {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": row.get::<_, String>(9)?,
+                "updatedAt": row.get::<_, String>(10)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        }).ok()?;
+
+        // Engagement counts
+        let like_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM social_likes WHERE post_id = ?1", [post_id], |r| r.get(0),
+        ).unwrap_or(0);
+        let repost_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM social_reposts WHERE post_id = ?1", [post_id], |r| r.get(0),
+        ).unwrap_or(0);
+        let bookmark_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM social_bookmarks WHERE post_id = ?1", [post_id], |r| r.get(0),
+        ).unwrap_or(0);
+        let reply_count: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM social_posts WHERE reply_to_post_id = ?1 AND deleted_at IS NULL", [post_id], |r| r.get(0),
+        ).unwrap_or(0);
+
+        // Viewer-relative booleans
+        let (liked, bookmarked, reposted) = match viewer_profile_id {
+            Some(vid) if !vid.is_empty() => {
+                let l = conn.query_row(
+                    "SELECT 1 FROM social_likes WHERE profile_id = ?1 AND post_id = ?2",
+                    params![vid, post_id], |_| Ok(()),
+                ).is_ok();
+                let b = conn.query_row(
+                    "SELECT 1 FROM social_bookmarks WHERE profile_id = ?1 AND post_id = ?2",
+                    params![vid, post_id], |_| Ok(()),
+                ).is_ok();
+                let r = conn.query_row(
+                    "SELECT 1 FROM social_reposts WHERE profile_id = ?1 AND post_id = ?2",
+                    params![vid, post_id], |_| Ok(()),
+                ).is_ok();
+                (l, b, r)
+            }
+            _ => (false, false, false),
+        };
+
+        if let Some(m) = post.as_object_mut() {
+            m.insert("likeCount".into(), serde_json::json!(like_count));
+            m.insert("repostCount".into(), serde_json::json!(repost_count));
+            m.insert("bookmarkCount".into(), serde_json::json!(bookmark_count));
+            m.insert("replyCount".into(), serde_json::json!(reply_count));
+            m.insert("liked".into(), serde_json::json!(liked));
+            m.insert("bookmarked".into(), serde_json::json!(bookmarked));
+            m.insert("reposted".into(), serde_json::json!(reposted));
+        }
+        tracing::info!(method = "social_get_post_by_id", duration_ms = _t.elapsed().as_millis(), "db query");
+        Some(post)
+    }
+
+    pub fn social_get_following_feed(
+        &self,
+        profile_id: &str,
+        limit: i64,
+        cursor: i64,
+        blocked_ids: &[String],
+        muted_ids: &[String],
+    ) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let excluded: Vec<String> = blocked_ids.iter().chain(muted_ids.iter()).cloned().collect();
+        let exclude_clause = if excluded.is_empty() {
+            String::new()
+        } else {
+            let placeholders: Vec<String> = (1..=excluded.len()).map(|i| format!("?{}", i + 3)).collect();
+            format!("AND sp.profile_id NOT IN ({})", placeholders.join(", "))
+        };
+        let sql = format!(
+            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                    sp.created_at, sp.updated_at,
+                    p.handle, p.display_name,
+                    la.agent_name, la.agent_slug
+             FROM social_posts sp
+             JOIN social_profiles p ON p.id = sp.profile_id
+             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+             WHERE sp.visibility = 'public' AND sp.deleted_at IS NULL
+               AND sp.profile_id IN (
+                   SELECT following_profile_id FROM social_follows WHERE follower_profile_id = ?1
+               )
+               {exclude_clause}
+             ORDER BY sp.created_at DESC LIMIT ?2 OFFSET ?3"
+        );
+        let mut stmt = conn.prepare(&sql).unwrap();
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": row.get::<_, String>(9)?,
+                "updatedAt": row.get::<_, String>(10)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        };
+        if excluded.is_empty() {
+            stmt.query_map(params![profile_id, limit, cursor], map_row)
+                .unwrap().filter_map(|r| r.ok()).collect()
+        } else {
+            let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
+                Box::new(profile_id.to_string()),
+                Box::new(limit),
+                Box::new(cursor),
+            ];
+            for id in &excluded {
+                all_params.push(Box::new(id.clone()));
+            }
+            let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|b| b.as_ref()).collect();
+            stmt.query_map(params_ref.as_slice(), map_row)
+                .unwrap().filter_map(|r| r.ok()).collect()
+        }
+    }
+
+    // ─── Wave 2: Notifications, community feed, keyset cursors ────────────────
+
+    pub fn social_create_notification(
+        &self,
+        recipient_profile_id: &str,
+        actor_profile_id: &str,
+        notification_type: &str,
+        post_id: Option<&str>,
+    ) {
+        // Don't notify yourself
+        if recipient_profile_id == actor_profile_id {
+            return;
+        }
+        let conn = self.conn.lock().unwrap();
+        let id = format!("notif_{}", Uuid::new_v4());
+        conn.execute(
+            "INSERT INTO social_notifications (id, recipient_profile_id, actor_profile_id, notification_type, post_id)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, recipient_profile_id, actor_profile_id, notification_type, post_id],
+        ).ok();
+    }
+
+    pub fn social_get_notifications(
+        &self,
+        profile_id: &str,
+        limit: i64,
+        cursor_created_at: Option<&str>,
+        cursor_id: Option<&str>,
+    ) -> Vec<serde_json::Value> {
+        let _t = std::time::Instant::now();
+        let conn = self.conn.lock().unwrap();
+        let (sql, use_cursor) = if cursor_created_at.is_some() && cursor_id.is_some() {
+            (
+                "SELECT n.id, n.notification_type, n.post_id, n.read, n.created_at,
+                        p.id as actor_id, p.handle, p.display_name, p.avatar_url
+                 FROM social_notifications n
+                 JOIN social_profiles p ON p.id = n.actor_profile_id
+                 WHERE n.recipient_profile_id = ?1
+                   AND (n.created_at < ?2 OR (n.created_at = ?2 AND n.id < ?3))
+                 ORDER BY n.created_at DESC, n.id DESC LIMIT ?4".to_string(),
+                true,
+            )
+        } else {
+            (
+                "SELECT n.id, n.notification_type, n.post_id, n.read, n.created_at,
+                        p.id as actor_id, p.handle, p.display_name, p.avatar_url
+                 FROM social_notifications n
+                 JOIN social_profiles p ON p.id = n.actor_profile_id
+                 WHERE n.recipient_profile_id = ?1
+                 ORDER BY n.created_at DESC, n.id DESC LIMIT ?2".to_string(),
+                false,
+            )
+        };
+
+        let mut stmt = conn.prepare(&sql).unwrap();
+        let rows: Vec<serde_json::Value> = if use_cursor {
+            stmt.query_map(
+                params![profile_id, cursor_created_at.unwrap(), cursor_id.unwrap(), limit],
+                |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, String>(0)?,
+                        "type": row.get::<_, String>(1)?,
+                        "post": row.get::<_, Option<String>>(2)?,
+                        "read": row.get::<_, i64>(3)? != 0,
+                        "created_at": row.get::<_, String>(4)?,
+                        "actors": [serde_json::json!({
+                            "id": row.get::<_, String>(5)?,
+                            "handle": row.get::<_, String>(6)?,
+                            "display_name": row.get::<_, String>(7)?,
+                            "avatar_url": row.get::<_, Option<String>>(8)?,
+                        })],
+                    }))
+                },
+            ).unwrap().filter_map(|r| r.ok()).collect()
+        } else {
+            stmt.query_map(
+                params![profile_id, limit],
+                |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, String>(0)?,
+                        "type": row.get::<_, String>(1)?,
+                        "post": row.get::<_, Option<String>>(2)?,
+                        "read": row.get::<_, i64>(3)? != 0,
+                        "created_at": row.get::<_, String>(4)?,
+                        "actors": [serde_json::json!({
+                            "id": row.get::<_, String>(5)?,
+                            "handle": row.get::<_, String>(6)?,
+                            "display_name": row.get::<_, String>(7)?,
+                            "avatar_url": row.get::<_, Option<String>>(8)?,
+                        })],
+                    }))
+                },
+            ).unwrap().filter_map(|r| r.ok()).collect()
+        };
+        tracing::info!(method = "social_get_notifications", duration_ms = _t.elapsed().as_millis(), row_count = rows.len(), "db query");
+        rows
+    }
+
+    pub fn social_mark_notifications_read(&self, profile_id: &str) -> i64 {
+        let conn = self.conn.lock().unwrap();
+        let updated = conn.execute(
+            "UPDATE social_notifications SET read = 1 WHERE recipient_profile_id = ?1 AND read = 0",
+            [profile_id],
+        ).unwrap_or(0) as i64;
+        updated
+    }
+
+    pub fn social_get_community_feed(
+        &self,
+        community_id: &str,
+        limit: i64,
+        cursor_created_at: Option<&str>,
+        cursor_id: Option<&str>,
+        blocked_ids: &[String],
+        muted_ids: &[String],
+    ) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let excluded: Vec<String> = blocked_ids.iter().chain(muted_ids.iter()).cloned().collect();
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": row.get::<_, String>(9)?,
+                "updatedAt": row.get::<_, String>(10)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        };
+        let exclude_clause = if excluded.is_empty() { String::new() } else {
+            let start = if cursor_created_at.is_some() { 5 } else { 3 };
+            let ph: Vec<String> = (0..excluded.len()).map(|i| format!("?{}", start + i)).collect();
+            format!("AND sp.profile_id NOT IN ({})", ph.join(", "))
+        };
+        if cursor_created_at.is_some() && cursor_id.is_some() {
+            let sql = format!(
+                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                        sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                        sp.created_at, sp.updated_at, p.handle, p.display_name,
+                        la.agent_name, la.agent_slug
+                 FROM social_posts sp
+                 JOIN social_profiles p ON p.id = sp.profile_id
+                 LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                 WHERE sp.community_id = ?1 AND sp.visibility = 'public' AND sp.deleted_at IS NULL
+                   AND (sp.created_at < ?2 OR (sp.created_at = ?2 AND sp.id < ?3))
+                   {exclude_clause}
+                 ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?4"
+            );
+            let mut stmt = conn.prepare(&sql).unwrap();
+            if excluded.is_empty() {
+                stmt.query_map(params![community_id, cursor_created_at.unwrap(), cursor_id.unwrap(), limit], map_row)
+                    .unwrap().filter_map(|r| r.ok()).collect()
+            } else {
+                let mut p: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
+                    Box::new(community_id.to_string()), Box::new(cursor_created_at.unwrap().to_string()),
+                    Box::new(cursor_id.unwrap().to_string()), Box::new(limit),
+                ];
+                for id in &excluded { p.push(Box::new(id.clone())); }
+                let pr: Vec<&dyn rusqlite::types::ToSql> = p.iter().map(|b| b.as_ref()).collect();
+                stmt.query_map(pr.as_slice(), map_row).unwrap().filter_map(|r| r.ok()).collect()
+            }
+        } else {
+            let sql = format!(
+                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                        sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                        sp.created_at, sp.updated_at, p.handle, p.display_name,
+                        la.agent_name, la.agent_slug
+                 FROM social_posts sp
+                 JOIN social_profiles p ON p.id = sp.profile_id
+                 LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                 WHERE sp.community_id = ?1 AND sp.visibility = 'public' AND sp.deleted_at IS NULL
+                   {exclude_clause}
+                 ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?2"
+            );
+            let mut stmt = conn.prepare(&sql).unwrap();
+            if excluded.is_empty() {
+                stmt.query_map(params![community_id, limit], map_row).unwrap().filter_map(|r| r.ok()).collect()
+            } else {
+                let mut p: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(community_id.to_string()), Box::new(limit)];
+                for id in &excluded { p.push(Box::new(id.clone())); }
+                let pr: Vec<&dyn rusqlite::types::ToSql> = p.iter().map(|b| b.as_ref()).collect();
+                stmt.query_map(pr.as_slice(), map_row).unwrap().filter_map(|r| r.ok()).collect()
+            }
+        }
+    }
+
+    /// Keyset-paginated home feed: uses (created_at, id) cursor instead of offset
+    pub fn social_list_feed_posts_keyset(
+        &self,
+        limit: i64,
+        cursor_created_at: Option<&str>,
+        cursor_id: Option<&str>,
+        filter: Option<&str>,
+        blocked_ids: &[String],
+        muted_ids: &[String],
+    ) -> Vec<serde_json::Value> {
+        let _t = std::time::Instant::now();
+        let conn = self.conn.lock().unwrap();
+        let filter_clause = match filter {
+            Some(f) if f != "all" => format!("AND sp.author_mode = '{}'", f.replace('\'', "''")),
+            _ => String::new(),
+        };
+        let excluded: Vec<String> = blocked_ids.iter().chain(muted_ids.iter()).cloned().collect();
+        let exclude_clause = if excluded.is_empty() { String::new() } else {
+            let start = if cursor_created_at.is_some() { 4 } else { 2 };
+            let ph: Vec<String> = (0..excluded.len()).map(|i| format!("?{}", start + i)).collect();
+            format!("AND sp.profile_id NOT IN ({})", ph.join(", "))
+        };
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": row.get::<_, String>(9)?,
+                "updatedAt": row.get::<_, String>(10)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        };
+        let rows: Vec<serde_json::Value> = if cursor_created_at.is_some() && cursor_id.is_some() {
+            let sql = format!(
+                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                        sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                        sp.created_at, sp.updated_at, p.handle, p.display_name,
+                        la.agent_name, la.agent_slug
+                 FROM social_posts sp
+                 JOIN social_profiles p ON p.id = sp.profile_id
+                 LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                 WHERE sp.visibility = 'public' AND sp.deleted_at IS NULL {filter_clause}
+                   AND (sp.created_at < ?1 OR (sp.created_at = ?1 AND sp.id < ?2))
+                   {exclude_clause}
+                 ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?3"
+            );
+            let mut stmt = conn.prepare(&sql).unwrap();
+            if excluded.is_empty() {
+                stmt.query_map(params![cursor_created_at.unwrap(), cursor_id.unwrap(), limit], map_row)
+                    .unwrap().filter_map(|r| r.ok()).collect()
+            } else {
+                let mut p: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
+                    Box::new(cursor_created_at.unwrap().to_string()),
+                    Box::new(cursor_id.unwrap().to_string()),
+                    Box::new(limit),
+                ];
+                for id in &excluded { p.push(Box::new(id.clone())); }
+                let pr: Vec<&dyn rusqlite::types::ToSql> = p.iter().map(|b| b.as_ref()).collect();
+                stmt.query_map(pr.as_slice(), map_row).unwrap().filter_map(|r| r.ok()).collect()
+            }
+        } else {
+            let sql = format!(
+                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                        sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                        sp.created_at, sp.updated_at, p.handle, p.display_name,
+                        la.agent_name, la.agent_slug
+                 FROM social_posts sp
+                 JOIN social_profiles p ON p.id = sp.profile_id
+                 LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                 WHERE sp.visibility = 'public' AND sp.deleted_at IS NULL {filter_clause}
+                   {exclude_clause}
+                 ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?1"
+            );
+            let mut stmt = conn.prepare(&sql).unwrap();
+            if excluded.is_empty() {
+                stmt.query_map(params![limit], map_row).unwrap().filter_map(|r| r.ok()).collect()
+            } else {
+                let mut p: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(limit)];
+                for id in &excluded { p.push(Box::new(id.clone())); }
+                let pr: Vec<&dyn rusqlite::types::ToSql> = p.iter().map(|b| b.as_ref()).collect();
+                stmt.query_map(pr.as_slice(), map_row).unwrap().filter_map(|r| r.ok()).collect()
+            }
+        };
+        tracing::info!(method = "social_list_feed_posts_keyset", duration_ms = _t.elapsed().as_millis(), row_count = rows.len(), "db query");
+        rows
+    }
+
+    /// Keyset-paginated search posts
+    pub fn social_search_posts_keyset(
+        &self,
+        query: &str,
+        limit: i64,
+        cursor_created_at: Option<&str>,
+        cursor_id: Option<&str>,
+        blocked_ids: &[String],
+        muted_ids: &[String],
+    ) -> Vec<serde_json::Value> {
+        let _t = std::time::Instant::now();
+        let conn = self.conn.lock().unwrap();
+        let pattern = format!("%{query}%");
+        let excluded: Vec<String> = blocked_ids.iter().chain(muted_ids.iter()).cloned().collect();
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": row.get::<_, String>(9)?,
+                "updatedAt": row.get::<_, String>(10)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        };
+        let exclude_clause = if excluded.is_empty() { String::new() } else {
+            let start = if cursor_created_at.is_some() { 5 } else { 3 };
+            let ph: Vec<String> = (0..excluded.len()).map(|i| format!("?{}", start + i)).collect();
+            format!("AND sp.profile_id NOT IN ({})", ph.join(", "))
+        };
+        let rows: Vec<serde_json::Value> = if cursor_created_at.is_some() && cursor_id.is_some() {
+            let sql = format!(
+                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                        sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                        sp.created_at, sp.updated_at, p.handle, p.display_name,
+                        la.agent_name, la.agent_slug
+                 FROM social_posts sp
+                 JOIN social_profiles p ON p.id = sp.profile_id
+                 LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                 WHERE sp.visibility = 'public' AND sp.deleted_at IS NULL AND sp.body LIKE ?1
+                   AND (sp.created_at < ?2 OR (sp.created_at = ?2 AND sp.id < ?3))
+                   {exclude_clause}
+                 ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?4"
+            );
+            let mut stmt = conn.prepare(&sql).unwrap();
+            if excluded.is_empty() {
+                stmt.query_map(params![pattern, cursor_created_at.unwrap(), cursor_id.unwrap(), limit], map_row)
+                    .unwrap().filter_map(|r| r.ok()).collect()
+            } else {
+                let mut p: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
+                    Box::new(pattern.clone()), Box::new(cursor_created_at.unwrap().to_string()),
+                    Box::new(cursor_id.unwrap().to_string()), Box::new(limit),
+                ];
+                for id in &excluded { p.push(Box::new(id.clone())); }
+                let pr: Vec<&dyn rusqlite::types::ToSql> = p.iter().map(|b| b.as_ref()).collect();
+                stmt.query_map(pr.as_slice(), map_row).unwrap().filter_map(|r| r.ok()).collect()
+            }
+        } else {
+            let sql = format!(
+                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                        sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                        sp.created_at, sp.updated_at, p.handle, p.display_name,
+                        la.agent_name, la.agent_slug
+                 FROM social_posts sp
+                 JOIN social_profiles p ON p.id = sp.profile_id
+                 LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                 WHERE sp.visibility = 'public' AND sp.deleted_at IS NULL AND sp.body LIKE ?1
+                   {exclude_clause}
+                 ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?2"
+            );
+            let mut stmt = conn.prepare(&sql).unwrap();
+            if excluded.is_empty() {
+                stmt.query_map(params![pattern, limit], map_row).unwrap().filter_map(|r| r.ok()).collect()
+            } else {
+                let mut p: Vec<Box<dyn rusqlite::types::ToSql>> = vec![Box::new(pattern.clone()), Box::new(limit)];
+                for id in &excluded { p.push(Box::new(id.clone())); }
+                let pr: Vec<&dyn rusqlite::types::ToSql> = p.iter().map(|b| b.as_ref()).collect();
+                stmt.query_map(pr.as_slice(), map_row).unwrap().filter_map(|r| r.ok()).collect()
+            }
+        };
+        tracing::info!(method = "social_search_posts_keyset", duration_ms = _t.elapsed().as_millis(), row_count = rows.len(), "db query");
+        rows
+    }
+
+    // ─── Wave 4: Media uploads ─────────────────────────────────────────────────
+
+    /// Create a media object in pending status, generating a storage key.
+    pub fn social_create_media_object(
+        &self,
+        owner_profile_id: &str,
+        filename: &str,
+        content_type: &str,
+        size_bytes: i64,
+        media_type: &str,
+    ) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let id = format!("media_{}", Uuid::new_v4());
+        // Storage key: media/{profile_id}/{media_id}/{filename}
+        let storage_key = format!("media/{}/{}/{}", owner_profile_id, id, filename);
+        conn.execute(
+            "INSERT INTO social_media_objects (id, owner_profile_id, filename, content_type, size_bytes, media_type, storage_key, status)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending')",
+            params![id, owner_profile_id, filename, content_type, size_bytes, media_type, storage_key],
+        ).expect("insert media object");
+        serde_json::json!({
+            "id": id,
+            "ownerProfileId": owner_profile_id,
+            "filename": filename,
+            "contentType": content_type,
+            "sizeBytes": size_bytes,
+            "mediaType": media_type,
+            "storageKey": storage_key,
+            "status": "pending",
+        })
+    }
+
+    /// Finalize a media object (mark as "ready").
+    pub fn social_finalize_media_object(&self, media_id: &str) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE social_media_objects SET status = 'ready', updated_at = datetime('now') WHERE id = ?1",
+            params![media_id],
+        ).expect("finalize media object");
+        let mut stmt = conn.prepare(
+            "SELECT id, owner_profile_id, filename, content_type, size_bytes, media_type, storage_key, status, created_at, updated_at
+             FROM social_media_objects WHERE id = ?1"
+        ).unwrap();
+        stmt.query_row([media_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "ownerProfileId": row.get::<_, String>(1)?,
+                "filename": row.get::<_, String>(2)?,
+                "contentType": row.get::<_, String>(3)?,
+                "sizeBytes": row.get::<_, i64>(4)?,
+                "mediaType": row.get::<_, String>(5)?,
+                "storageKey": row.get::<_, String>(6)?,
+                "status": row.get::<_, String>(7)?,
+                "createdAt": row.get::<_, String>(8)?,
+                "updatedAt": row.get::<_, String>(9)?,
+            }))
+        }).unwrap()
+    }
+
+    /// Get a media object by ID.
+    pub fn social_get_media_object(&self, media_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, owner_profile_id, filename, content_type, size_bytes, media_type, storage_key, status, created_at, updated_at
+             FROM social_media_objects WHERE id = ?1"
+        ).unwrap();
+        stmt.query_row([media_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "ownerProfileId": row.get::<_, String>(1)?,
+                "filename": row.get::<_, String>(2)?,
+                "contentType": row.get::<_, String>(3)?,
+                "sizeBytes": row.get::<_, i64>(4)?,
+                "mediaType": row.get::<_, String>(5)?,
+                "storageKey": row.get::<_, String>(6)?,
+                "status": row.get::<_, String>(7)?,
+                "createdAt": row.get::<_, String>(8)?,
+                "updatedAt": row.get::<_, String>(9)?,
+            }))
+        }).ok()
+    }
+
+    /// Link media objects to a post. Only links media that is owned by the given profile
+    /// and in "ready" status.
+    pub fn social_link_media_to_post(
+        &self,
+        post_id: &str,
+        media_ids: &[String],
+        owner_profile_id: &str,
+    ) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let mut linked = Vec::new();
+        for (position, media_id) in media_ids.iter().enumerate() {
+            // Verify ownership and ready status
+            let owned: bool = conn.query_row(
+                "SELECT COUNT(*) > 0 FROM social_media_objects WHERE id = ?1 AND owner_profile_id = ?2 AND status = 'ready'",
+                params![media_id, owner_profile_id],
+                |row| row.get(0),
+            ).unwrap_or(false);
+            if owned {
+                conn.execute(
+                    "INSERT OR IGNORE INTO social_post_media (post_id, media_id, position) VALUES (?1, ?2, ?3)",
+                    params![post_id, media_id, position as i64],
+                ).ok();
+                // Mark media as "attached"
+                conn.execute(
+                    "UPDATE social_media_objects SET status = 'attached', updated_at = datetime('now') WHERE id = ?1",
+                    params![media_id],
+                ).ok();
+                linked.push(media_id.clone());
+            }
+        }
+        linked
+    }
+
+    /// Get media objects attached to a post.
+    pub fn social_get_post_media(&self, post_id: &str) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT m.id, m.filename, m.content_type, m.size_bytes, m.media_type, m.storage_key, pm.position
+             FROM social_media_objects m
+             JOIN social_post_media pm ON pm.media_id = m.id
+             WHERE pm.post_id = ?1
+             ORDER BY pm.position ASC"
+        ).unwrap();
+        stmt.query_map(params![post_id], |row| {
+            let storage_key: String = row.get(5)?;
+            // Resolve public URL inline
+            let public_url = std::env::var("STORAGE_PUBLIC_URL")
+                .map(|domain| format!("{}/{}", domain.trim_end_matches('/'), storage_key))
+                .unwrap_or_else(|_| {
+                    match (std::env::var("STORAGE_ENDPOINT"), std::env::var("STORAGE_BUCKET")) {
+                        (Ok(ep), Ok(bucket)) => format!("{}/{}/{}", ep.trim_end_matches('/'), bucket, storage_key),
+                        _ => format!("/media/{}", storage_key),
+                    }
+                });
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "filename": row.get::<_, String>(1)?,
+                "contentType": row.get::<_, String>(2)?,
+                "sizeBytes": row.get::<_, i64>(3)?,
+                "mediaType": row.get::<_, String>(4)?,
+                "url": public_url,
+                "position": row.get::<_, i64>(6)?,
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    /// Find orphaned media objects (pending for more than 1 hour) eligible for cleanup.
+    pub fn social_get_orphaned_media(&self, limit: i64) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, owner_profile_id, storage_key, created_at
+             FROM social_media_objects
+             WHERE status = 'pending'
+               AND created_at < datetime('now', '-1 hour')
+             ORDER BY created_at ASC
+             LIMIT ?1"
+        ).unwrap();
+        stmt.query_map(params![limit], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "ownerProfileId": row.get::<_, String>(1)?,
+                "storageKey": row.get::<_, String>(2)?,
+                "createdAt": row.get::<_, String>(3)?,
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    /// Delete orphaned media objects by IDs (mark as "deleted").
+    pub fn social_delete_orphaned_media(&self, media_ids: &[String]) -> usize {
+        let conn = self.conn.lock().unwrap();
+        let mut count = 0;
+        for id in media_ids {
+            let updated = conn.execute(
+                "UPDATE social_media_objects SET status = 'deleted', updated_at = datetime('now')
+                 WHERE id = ?1 AND status = 'pending'",
+                params![id],
+            ).unwrap_or(0);
+            count += updated;
+        }
+        count
+    }
+
+    // --- Community membership ---
+
+    /// Join a community (insert membership row; no-op if already a member).
+    pub fn social_join_community(&self, community_id: &str, profile_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let id = format!("cmem_{}", Uuid::new_v4());
+        let inserted = conn.execute(
+            "INSERT OR IGNORE INTO social_community_memberships (id, community_id, profile_id)
+             VALUES (?1, ?2, ?3)",
+            params![id, community_id, profile_id],
+        ).unwrap_or(0);
+        inserted > 0
+    }
+
+    /// Leave a community (delete membership row).
+    pub fn social_leave_community(&self, community_id: &str, profile_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let deleted = conn.execute(
+            "DELETE FROM social_community_memberships
+             WHERE community_id = ?1 AND profile_id = ?2",
+            params![community_id, profile_id],
+        ).unwrap_or(0);
+        deleted > 0
+    }
+
+    /// List members of a community, most-recently-joined first.
+    pub fn social_list_community_members(&self, community_id: &str, limit: i64) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT p.id, p.handle, p.display_name, p.avatar_url, m.joined_at
+             FROM social_community_memberships m
+             JOIN social_profiles p ON p.id = m.profile_id
+             WHERE m.community_id = ?1
+             ORDER BY m.joined_at DESC
+             LIMIT ?2"
+        ).unwrap();
+        stmt.query_map(params![community_id, limit], |row| {
+            Ok(serde_json::json!({
+                "profileId": row.get::<_, String>(0)?,
+                "handle": row.get::<_, String>(1)?,
+                "displayName": row.get::<_, String>(2)?,
+                "avatarUrl": row.get::<_, Option<String>>(3)?,
+                "joinedAt": row.get::<_, String>(4)?,
+            }))
+        }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    /// Check whether a profile is a member of a community.
+    pub fn social_is_community_member(&self, community_id: &str, profile_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM social_community_memberships
+             WHERE community_id = ?1 AND profile_id = ?2",
+            params![community_id, profile_id],
+            |_| Ok(()),
+        ).is_ok()
+    }
+
+    // --- Webhook events (idempotency) ---
+
+    /// Check if a webhook event has already been processed.
+    pub fn is_webhook_event_processed(&self, event_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM webhook_events WHERE id = ?1",
+                params![event_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        count > 0
+    }
+
+    /// Record a webhook event as processed.
+    pub fn record_webhook_event(&self, event_id: &str, event_type: &str, timestamp: i64) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT OR IGNORE INTO webhook_events (id, event_type, timestamp) VALUES (?1, ?2, ?3)",
+            params![event_id, event_type, timestamp],
+        )
+        .ok();
+    }
+
+    // --- Accounts (Clerk user mapping) ---
+
+    /// Create or update an account record from a Clerk webhook.
+    pub fn upsert_account(
+        &self,
+        clerk_user_id: &str,
+        email: &str,
+        display_name: &str,
+        status: &str,
+    ) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO accounts (clerk_user_id, email, display_name, status)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(clerk_user_id) DO UPDATE SET
+                email = excluded.email,
+                display_name = excluded.display_name,
+                status = excluded.status,
+                updated_at = datetime('now')",
+            params![clerk_user_id, email, display_name, status],
+        )
+        .ok();
+    }
+
+    /// Mark an account as deleted.
+    pub fn mark_account_deleted(&self, clerk_user_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE accounts SET status = 'deleted', updated_at = datetime('now')
+             WHERE clerk_user_id = ?1",
+            params![clerk_user_id],
+        )
+        .ok();
+    }
+
+    /// Suspend an account — sets status to "suspended".
+    pub fn admin_suspend_account(&self, clerk_user_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let updated = conn.execute(
+            "UPDATE accounts SET status = 'suspended', updated_at = datetime('now')
+             WHERE clerk_user_id = ?1",
+            params![clerk_user_id],
+        ).unwrap_or(0);
+        updated > 0
+    }
+
+    /// Unsuspend an account — sets status back to "active".
+    pub fn admin_unsuspend_account(&self, clerk_user_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let updated = conn.execute(
+            "UPDATE accounts SET status = 'active', updated_at = datetime('now')
+             WHERE clerk_user_id = ?1 AND status = 'suspended'",
+            params![clerk_user_id],
+        ).unwrap_or(0);
+        updated > 0
+    }
+
+    // --- Health check ---
+
+    /// Run a simple SELECT 1 to verify the database is accessible.
+    pub fn health_check(&self) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row("SELECT 1", [], |_| Ok(())).is_ok()
+    }
+
+    // --- Conversations & Messages (Task #35) ---
+
+    /// Check if a profile is a participant of a conversation.
+    fn is_conversation_participant_inner(conn: &Connection, conversation_id: &str, profile_id: &str) -> bool {
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM social_conversation_participants
+                 WHERE conversation_id = ?1 AND profile_id = ?2",
+                params![conversation_id, profile_id],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        count > 0
+    }
+
+    /// List conversations where the user is a participant, with last message and unread count.
+    pub fn social_list_conversations(&self, profile_id: &str) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+
+        let mut conv_stmt = conn.prepare(
+            "SELECT c.id, c.created_at, c.updated_at
+             FROM social_conversations c
+             JOIN social_conversation_participants cp ON cp.conversation_id = c.id
+             WHERE cp.profile_id = ?1
+             ORDER BY c.updated_at DESC"
+        ).unwrap();
+
+        let conv_rows: Vec<(String, String, String)> = conv_stmt
+            .query_map(params![profile_id], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        let mut conversations = Vec::new();
+        for (conv_id, _created_at, _updated_at) in &conv_rows {
+            // Get participants
+            let mut part_stmt = conn.prepare(
+                "SELECT p.id, p.handle, p.display_name, p.avatar_url
+                 FROM social_conversation_participants cp
+                 JOIN social_profiles p ON p.id = cp.profile_id
+                 WHERE cp.conversation_id = ?1"
+            ).unwrap();
+            let participants: Vec<serde_json::Value> = part_stmt
+                .query_map(params![conv_id], |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, String>(0)?,
+                        "display_name": row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                        "handle": row.get::<_, String>(1)?,
+                        "avatar_url": row.get::<_, Option<String>>(3)?,
+                        "verified": false,
+                    }))
+                })
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect();
+
+            // Get last message
+            let last_message: serde_json::Value = conn.query_row(
+                "SELECT m.id, m.sender_profile_id, m.content, m.created_at, m.read,
+                        p.handle, p.display_name, p.avatar_url
+                 FROM social_messages m
+                 JOIN social_profiles p ON p.id = m.sender_profile_id
+                 WHERE m.conversation_id = ?1
+                 ORDER BY m.created_at DESC LIMIT 1",
+                params![conv_id],
+                |row| {
+                    Ok(serde_json::json!({
+                        "id": row.get::<_, String>(0)?,
+                        "sender": {
+                            "id": row.get::<_, String>(1)?,
+                            "handle": row.get::<_, String>(5)?,
+                            "display_name": row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                            "avatar_url": row.get::<_, Option<String>>(7)?,
+                            "verified": false,
+                        },
+                        "content": row.get::<_, String>(2)?,
+                        "created_at": row.get::<_, String>(3)?,
+                        "read": row.get::<_, i64>(4)? == 1,
+                    }))
+                },
+            ).unwrap_or(serde_json::Value::Null);
+
+            // Unread count (messages not sent by this user and not read)
+            let unread_count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM social_messages
+                 WHERE conversation_id = ?1 AND sender_profile_id != ?2 AND read = 0",
+                params![conv_id, profile_id],
+                |r| r.get(0),
+            ).unwrap_or(0);
+
+            conversations.push(serde_json::json!({
+                "id": conv_id,
+                "participants": participants,
+                "last_message": last_message,
+                "unread_count": unread_count,
+                "pinned": false,
+            }));
+        }
+
+        conversations
+    }
+
+    /// Create a conversation with the given participant profile IDs.
+    pub fn social_create_conversation(&self, participant_profile_ids: &[String]) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let conv_id = Uuid::new_v4().to_string();
+
+        conn.execute(
+            "INSERT INTO social_conversations (id) VALUES (?1)",
+            params![conv_id],
+        ).expect("insert conversation");
+
+        for pid in participant_profile_ids {
+            conn.execute(
+                "INSERT INTO social_conversation_participants (conversation_id, profile_id) VALUES (?1, ?2)",
+                params![conv_id, pid],
+            ).expect("insert conversation participant");
+        }
+
+        // Build participants list
+        let mut part_stmt = conn.prepare(
+            "SELECT p.id, p.handle, p.display_name, p.avatar_url
+             FROM social_conversation_participants cp
+             JOIN social_profiles p ON p.id = cp.profile_id
+             WHERE cp.conversation_id = ?1"
+        ).unwrap();
+        let participants: Vec<serde_json::Value> = part_stmt
+            .query_map(params![conv_id], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "display_name": row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    "handle": row.get::<_, String>(1)?,
+                    "avatar_url": row.get::<_, Option<String>>(3)?,
+                    "verified": false,
+                }))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        serde_json::json!({
+            "id": conv_id,
+            "participants": participants,
+            "last_message": null,
+            "unread_count": 0,
+            "pinned": false,
+        })
+    }
+
+    /// List messages in a conversation. Returns None if the user is not a participant.
+    pub fn social_list_messages(&self, conversation_id: &str, profile_id: &str, limit: i64) -> Option<Vec<serde_json::Value>> {
+        let conn = self.conn.lock().unwrap();
+
+        if !Self::is_conversation_participant_inner(&conn, conversation_id, profile_id) {
+            return None;
+        }
+
+        let mut stmt = conn.prepare(
+            "SELECT m.id, m.sender_profile_id, m.content, m.created_at, m.read,
+                    p.handle, p.display_name, p.avatar_url
+             FROM social_messages m
+             JOIN social_profiles p ON p.id = m.sender_profile_id
+             WHERE m.conversation_id = ?1
+             ORDER BY m.created_at ASC
+             LIMIT ?2"
+        ).unwrap();
+
+        let messages: Vec<serde_json::Value> = stmt
+            .query_map(params![conversation_id, limit], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "sender": {
+                        "id": row.get::<_, String>(1)?,
+                        "handle": row.get::<_, String>(5)?,
+                        "display_name": row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                        "avatar_url": row.get::<_, Option<String>>(7)?,
+                        "verified": false,
+                    },
+                    "content": row.get::<_, String>(2)?,
+                    "created_at": row.get::<_, String>(3)?,
+                    "read": row.get::<_, i64>(4)? == 1,
+                }))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        Some(messages)
+    }
+
+    /// Send a message in a conversation. Returns None if the sender is not a participant.
+    pub fn social_send_message(&self, conversation_id: &str, sender_profile_id: &str, content: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+
+        if !Self::is_conversation_participant_inner(&conn, conversation_id, sender_profile_id) {
+            return None;
+        }
+
+        let msg_id = Uuid::new_v4().to_string();
+
+        conn.execute(
+            "INSERT INTO social_messages (id, conversation_id, sender_profile_id, content)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![msg_id, conversation_id, sender_profile_id, content],
+        ).expect("insert message");
+
+        // Update conversation updated_at
+        conn.execute(
+            "UPDATE social_conversations SET updated_at = datetime('now') WHERE id = ?1",
+            params![conversation_id],
+        ).expect("update conversation timestamp");
+
+        // Fetch sender profile for response
+        let sender: serde_json::Value = conn.query_row(
+            "SELECT id, handle, display_name, avatar_url FROM social_profiles WHERE id = ?1",
+            params![sender_profile_id],
+            |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "handle": row.get::<_, String>(1)?,
+                    "display_name": row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                    "avatar_url": row.get::<_, Option<String>>(3)?,
+                    "verified": false,
+                }))
+            },
+        ).unwrap_or(serde_json::Value::Null);
+
+        // Fetch the created message
+        let message: serde_json::Value = conn.query_row(
+            "SELECT id, content, created_at, read FROM social_messages WHERE id = ?1",
+            params![msg_id],
+            |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "sender": sender.clone(),
+                    "content": row.get::<_, String>(1)?,
+                    "created_at": row.get::<_, String>(2)?,
+                    "read": row.get::<_, i64>(3)? == 1,
+                }))
+            },
+        ).unwrap();
+
+        Some(message)
+    }
+
+    /// Mark all messages in a conversation as read for a given profile (messages not sent by them).
+    pub fn social_mark_messages_read(&self, conversation_id: &str, profile_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE social_messages SET read = 1
+             WHERE conversation_id = ?1 AND sender_profile_id != ?2 AND read = 0",
+            params![conversation_id, profile_id],
+        ).ok();
+    }
+
+    // ─── Audit Log ────────────────────────────────────────────────────────────
+
+    /// Record an audit log entry for a moderation or admin action.
+    #[allow(clippy::too_many_arguments)]
+    pub fn audit_log(
+        &self,
+        actor_id: &str,
+        actor_type: &str,
+        action: &str,
+        target_type: Option<&str>,
+        target_id: Option<&str>,
+        details: Option<&str>,
+        ip_address: Option<&str>,
+    ) {
+        let conn = self.conn.lock().unwrap();
+        let id = format!("audit_{}", Uuid::new_v4());
+        conn.execute(
+            "INSERT INTO audit_log (id, actor_id, actor_type, action, target_type, target_id, details, ip_address)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+            params![id, actor_id, actor_type, action, target_type, target_id, details, ip_address],
+        ).ok();
+    }
+
+    /// Return recent audit log entries, paginated (50 per page).
+    pub fn audit_log_list(&self, page: i64) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let offset = page.saturating_sub(1) * 50;
+        let mut stmt = conn.prepare(
+            "SELECT id, actor_id, actor_type, action, target_type, target_id, details, ip_address, created_at
+             FROM audit_log ORDER BY created_at DESC LIMIT 50 OFFSET ?1"
+        ).unwrap();
+        stmt.query_map(params![offset], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "actorId": row.get::<_, String>(1)?,
+                "actorType": row.get::<_, String>(2)?,
+                "action": row.get::<_, String>(3)?,
+                "targetType": row.get::<_, Option<String>>(4)?,
+                "targetId": row.get::<_, Option<String>>(5)?,
+                "details": row.get::<_, Option<String>>(6)?,
+                "ipAddress": row.get::<_, Option<String>>(7)?,
+                "createdAt": row.get::<_, String>(8)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    // ─── Counter Reconciliation ───────────────────────────────────────────────
+
+    /// Reconcile denormalized counter columns on social_posts from actual table counts.
+    /// Returns the number of posts updated.
+    pub fn social_reconcile_counters(&self) -> usize {
+        let conn = self.conn.lock().unwrap();
+        // Check if the counter columns exist (they may not in older schemas)
+        let has_counters = conn.query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('social_posts') WHERE name IN ('like_count','repost_count','bookmark_count','reply_count')",
+            [],
+            |r| r.get::<_, i64>(0),
+        ).unwrap_or(0) == 4;
+
+        if !has_counters {
+            tracing::warn!("social_posts does not have counter columns; skipping reconciliation");
+            return 0;
+        }
+
+        let result = conn.execute_batch(
+            "UPDATE social_posts SET
+                like_count     = (SELECT COUNT(*) FROM social_likes     WHERE post_id = social_posts.id),
+                repost_count   = (SELECT COUNT(*) FROM social_reposts   WHERE post_id = social_posts.id),
+                bookmark_count = (SELECT COUNT(*) FROM social_bookmarks WHERE post_id = social_posts.id),
+                reply_count    = (SELECT COUNT(*) FROM social_posts replies WHERE replies.reply_to_post_id = social_posts.id AND replies.deleted_at IS NULL)
+             WHERE deleted_at IS NULL;"
+        );
+
+        match result {
+            Ok(_) => {
+                let updated: i64 = conn.query_row(
+                    "SELECT COUNT(*) FROM social_posts WHERE deleted_at IS NULL",
+                    [],
+                    |r| r.get(0),
+                ).unwrap_or(0);
+                tracing::info!("reconciled counters for {} posts", updated);
+                updated as usize
+            }
+            Err(e) => {
+                tracing::error!("counter reconciliation failed: {e}");
+                0
+            }
+        }
     }
 }
 

@@ -61,6 +61,12 @@ api.heyvera.org {
 		reverse_proxy localhost:3001
 	}
 
+	# Social endpoints → Rust backend
+	handle /v1/social/* {
+		reverse_proxy localhost:3001
+	}
+
+	# Other v1 endpoints → Node.js backend
 	handle /v1/* {
 		reverse_proxy localhost:3402
 	}

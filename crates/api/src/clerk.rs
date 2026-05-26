@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use axum::extract::FromRef;
 use axum::extract::FromRequestParts;
@@ -7,7 +8,7 @@ use axum::http::StatusCode;
 use axum::Json;
 use jsonwebtoken::{decode, decode_header, Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
-use tokio::sync::RwLock;
+use tokio::sync::{Notify, RwLock};
 
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
@@ -23,11 +24,35 @@ fn local_auth_allowed() -> bool {
         .unwrap_or(false)
 }
 
+/// Configurable TTL for the JWKS cache (default 5 minutes).
+fn jwks_ttl_secs() -> u64 {
+    std::env::var("CORTEX_JWKS_TTL_SECS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+        .unwrap_or(300)
+}
+
+/// Expected issuer prefix for Clerk JWTs.
+fn clerk_issuer_prefix() -> Option<String> {
+    std::env::var("CLERK_ISSUER").ok()
+}
+
+/// Authorized party (azp) claim — the Clerk frontend API key or app ID.
+fn clerk_authorized_party() -> Option<String> {
+    std::env::var("CLERK_AUTHORIZED_PARTY").ok()
+}
+
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 struct ClerkClaims {
     sub: String,
     exp: usize,
+    /// Issuer — should match the Clerk instance URL.
+    #[serde(default)]
+    iss: Option<String>,
+    /// Authorized party — frontend app that generated the token.
+    #[serde(default)]
+    azp: Option<String>,
     #[serde(flatten)]
     _extra: std::collections::HashMap<String, serde_json::Value>,
 }
@@ -60,32 +85,72 @@ impl JwksCache {
     }
 
     fn is_stale(&self) -> bool {
-        self.fetched_at.elapsed() > std::time::Duration::from_secs(3600)
+        self.fetched_at.elapsed() > std::time::Duration::from_secs(jwks_ttl_secs())
+    }
+}
+
+/// Stampede guard: prevents multiple concurrent JWKS fetches.
+/// When a cache miss occurs, the first caller fetches while others wait on the Notify.
+pub struct JwksStampedeGuard {
+    pub fetching: AtomicBool,
+    pub notify: Notify,
+}
+
+impl JwksStampedeGuard {
+    pub fn new() -> Self {
+        Self {
+            fetching: AtomicBool::new(false),
+            notify: Notify::new(),
+        }
     }
 }
 
 pub async fn fetch_jwks(clerk_secret_key: &str) -> Result<Vec<JwkKey>, String> {
+    let start = std::time::Instant::now();
     let client = reqwest::Client::new();
     let res = client
         .get("https://api.clerk.com/v1/jwks")
         .bearer_auth(clerk_secret_key)
         .send()
         .await
-        .map_err(|e| format!("JWKS fetch failed: {e}"))?;
+        .map_err(|e| {
+            tracing::warn!(
+                method = "jwks_fetch",
+                duration_ms = start.elapsed().as_millis() as u64,
+                error = %e,
+                "JWKS fetch failed"
+            );
+            format!("JWKS fetch failed: {e}")
+        })?;
 
     if !res.status().is_success() {
-        return Err(format!("JWKS fetch returned {}", res.status()));
+        let status = res.status();
+        tracing::warn!(
+            method = "jwks_fetch",
+            duration_ms = start.elapsed().as_millis() as u64,
+            http_status = status.as_u16(),
+            "JWKS fetch returned non-success status"
+        );
+        return Err(format!("JWKS fetch returned {}", status));
     }
 
     let jwks: JwksResponse = res.json().await.map_err(|e| format!("JWKS parse failed: {e}"))?;
+    tracing::info!(
+        method = "jwks_fetch",
+        duration_ms = start.elapsed().as_millis() as u64,
+        key_count = jwks.keys.len(),
+        "JWKS refresh"
+    );
     Ok(jwks.keys)
 }
 
 async fn get_or_refresh_jwks(
     cache: &RwLock<JwksCache>,
+    stampede: &JwksStampedeGuard,
     clerk_secret_key: &str,
     force: bool,
 ) -> Result<Vec<JwkKey>, String> {
+    // Fast path: return cached keys if fresh
     {
         let c = cache.read().await;
         if !force && !c.is_stale() && !c.keys.is_empty() {
@@ -93,19 +158,45 @@ async fn get_or_refresh_jwks(
         }
     }
 
-    let keys = fetch_jwks(clerk_secret_key).await?;
-    let mut c = cache.write().await;
-    c.keys = keys.clone();
-    c.fetched_at = std::time::Instant::now();
-    Ok(keys)
+    // Stampede protection: only one caller fetches, others wait
+    if stampede.fetching.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+        // We won the race — fetch JWKS
+        let result = fetch_jwks(clerk_secret_key).await;
+        match result {
+            Ok(keys) => {
+                let mut c = cache.write().await;
+                c.keys = keys.clone();
+                c.fetched_at = std::time::Instant::now();
+                drop(c);
+                stampede.fetching.store(false, Ordering::SeqCst);
+                stampede.notify.notify_waiters();
+                Ok(keys)
+            }
+            Err(e) => {
+                stampede.fetching.store(false, Ordering::SeqCst);
+                stampede.notify.notify_waiters();
+                Err(e)
+            }
+        }
+    } else {
+        // Another caller is fetching — wait for notification then read cache
+        stampede.notify.notified().await;
+        let c = cache.read().await;
+        if c.keys.is_empty() {
+            Err("JWKS fetch by another request failed".to_string())
+        } else {
+            Ok(c.keys.clone())
+        }
+    }
 }
 
 pub async fn get_or_refresh_jwks_pub(
     cache: &RwLock<JwksCache>,
+    stampede: &JwksStampedeGuard,
     clerk_secret_key: &str,
     force: bool,
 ) -> Result<Vec<JwkKey>, String> {
-    get_or_refresh_jwks(cache, clerk_secret_key, force).await
+    get_or_refresh_jwks(cache, stampede, clerk_secret_key, force).await
 }
 
 pub fn verify_token_pub(token: &str, keys: &[JwkKey]) -> Result<String, String> {
@@ -133,8 +224,26 @@ fn verify_token(token: &str, keys: &[JwkKey]) -> Result<ClerkClaims, String> {
     validation.validate_exp = true;
     validation.validate_aud = false;
 
+    // If CLERK_ISSUER is set, validate the issuer claim
+    if let Some(expected_iss) = clerk_issuer_prefix() {
+        validation.set_issuer(&[&expected_iss]);
+    }
+
     let token_data = decode::<ClerkClaims>(token, &decoding_key, &validation)
         .map_err(|e| format!("JWT verification failed: {e}"))?;
+
+    // Validate authorized party (azp) if configured
+    if let Some(expected_azp) = clerk_authorized_party() {
+        match &token_data.claims.azp {
+            Some(azp) if azp == &expected_azp => {}
+            Some(azp) => {
+                return Err(format!("JWT azp mismatch: expected {expected_azp}, got {azp}"));
+            }
+            None => {
+                return Err("JWT missing azp claim".to_string());
+            }
+        }
+    }
 
     Ok(token_data.claims)
 }
@@ -147,11 +256,11 @@ pub async fn verify_clerk_jwt(token: &str, state: &Arc<AppState>) -> Result<Stri
         .as_ref()
         .ok_or("clerk auth not configured")?;
 
-    let keys = get_or_refresh_jwks(&state.jwks_cache, clerk_secret, false).await?;
+    let keys = get_or_refresh_jwks(&state.jwks_cache, &state.jwks_stampede, clerk_secret, false).await?;
     match verify_token(token, &keys) {
         Ok(claims) => Ok(claims.sub),
         Err(_) => {
-            let keys = get_or_refresh_jwks(&state.jwks_cache, clerk_secret, true).await?;
+            let keys = get_or_refresh_jwks(&state.jwks_cache, &state.jwks_stampede, clerk_secret, true).await?;
             verify_token(token, &keys).map(|c| c.sub)
         }
     }
@@ -218,8 +327,8 @@ where
             }
         };
 
-        // Try with cached JWKS first
-        let keys = get_or_refresh_jwks(&app_state.jwks_cache, &clerk_secret, false)
+        // Try with cached JWKS first (with stampede protection)
+        let keys = get_or_refresh_jwks(&app_state.jwks_cache, &app_state.jwks_stampede, &clerk_secret, false)
             .await
             .map_err(|e| {
                 (
@@ -234,7 +343,7 @@ where
             }),
             Err(_first_err) => {
                 // Key rotation: retry with fresh JWKS
-                let keys = match get_or_refresh_jwks(&app_state.jwks_cache, &clerk_secret, true).await {
+                let keys = match get_or_refresh_jwks(&app_state.jwks_cache, &app_state.jwks_stampede, &clerk_secret, true).await {
                     Ok(keys) => keys,
                     Err(_) => {
                         return Err((
