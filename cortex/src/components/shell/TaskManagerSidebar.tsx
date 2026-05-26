@@ -338,7 +338,12 @@ export default function TaskManagerSidebar({
                 </p>
               </div>
             </div>
-            <OperationsGraphPanel groupId={group.id} groupName={group.name} />
+            <OperationsGraphPanel
+              groupId={group.id}
+              groupName={group.name}
+              focusedTaskId={selectedTask?.id ?? null}
+              onFocusTask={setSelectedTaskId}
+            />
             <TaskBoard
               tasks={taskManager.state.tasks}
               members={taskManager.state.members}
