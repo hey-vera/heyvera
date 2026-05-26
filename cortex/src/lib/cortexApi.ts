@@ -511,6 +511,18 @@ export interface GitHubRepo {
   html_url: string;
   private: boolean;
   language: string | null;
+  default_branch?: string | null;
+  owner?: {
+    login: string;
+    type: string;
+  } | null;
+  permissions?: {
+    admin?: boolean;
+    maintain?: boolean;
+    push?: boolean;
+    triage?: boolean;
+    pull?: boolean;
+  } | null;
 }
 
 export async function getGitHubStatus(): Promise<GitHubStatus> {
@@ -1127,6 +1139,38 @@ export interface PersonalOperationsSummary {
   groups: PersonalOperationsGroupSummary[];
 }
 
+export type CortexAuthorityScopeKind = 'personal' | 'team' | 'org' | 'company' | string;
+
+export interface CortexAuthorityResource {
+  id: string;
+  scope_id: string;
+  resource_type: string;
+  resource_key: string;
+  access: 'read' | 'write' | 'admin' | string;
+  policy: Record<string, unknown>;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface CortexAuthorityScope {
+  id: string;
+  kind: CortexAuthorityScopeKind;
+  name: string;
+  description: string;
+  source: string;
+  external_id?: string | null;
+  status: string;
+  role: 'owner' | 'admin' | 'member' | 'viewer' | string;
+  policy: Record<string, unknown>;
+  created_at: number;
+  updated_at: number;
+  resources: CortexAuthorityResource[];
+}
+
+export interface CortexAuthorityScopesResponse {
+  scopes: CortexAuthorityScope[];
+}
+
 export interface RunListItem {
   id: string;
   goal: string;
@@ -1141,6 +1185,7 @@ export interface RunListItem {
 export interface CreateRunResponse {
   run_id: string;
   steps: number;
+  authority_scope_id?: string | null;
 }
 
 export interface CreateRunOptions {
@@ -1148,6 +1193,9 @@ export interface CreateRunOptions {
   taskId?: string | null;
   groupId?: string | null;
   conversationId?: string | null;
+  authorityScopeId?: string | null;
+  authorityHandoffId?: string | null;
+  authorityReason?: string | null;
 }
 
 export function repoKeyFromLabel(repo?: string | null): string | undefined {
@@ -1192,6 +1240,9 @@ export async function createRun(
       task_id: options.taskId ?? undefined,
       group_id: options.groupId ?? undefined,
       conversation_id: options.conversationId ?? undefined,
+      authority_scope_id: options.authorityScopeId ?? undefined,
+      authority_handoff_id: options.authorityHandoffId ?? undefined,
+      authority_reason: options.authorityReason ?? undefined,
     }),
   });
 }
@@ -1218,6 +1269,10 @@ export async function getGroupOperationsSummary(groupId: string): Promise<GroupO
 
 export async function getPersonalOperationsSummary(): Promise<PersonalOperationsSummary> {
   return requestJson<PersonalOperationsSummary>('/api/operations/summary');
+}
+
+export async function getAuthorityScopes(): Promise<CortexAuthorityScopesResponse> {
+  return requestJson<CortexAuthorityScopesResponse>('/api/authority/scopes');
 }
 
 export async function listGroupApprovals(

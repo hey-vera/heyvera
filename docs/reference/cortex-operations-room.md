@@ -30,6 +30,7 @@ Supporting entities:
 - `Ask`: human decision request.
 - `Lease`: exclusive claim over a branch, path, issue, PR, migration, deployment, or other conflict-prone resource.
 - `Authority`: the personal or org context under which a write is allowed.
+- `AuthorityScope`: backend-owned personal, team, org, or future portfolio boundary with memberships, resources, and policy.
 
 ## Surface Ownership
 
@@ -100,9 +101,11 @@ pending -> ready -> leased -> running -> verifying -> completed
 5. Treat Live Map as read-only until leases and authority checks exist.
 6. Keep personal and org scopes on the same engine.
 7. Require explicit org-context handoff before mutating org resources from Personal Operations.
-8. Add append-only events before making Task Manager the production source of truth.
-9. Add resource leases before parallel autonomous writes.
-10. Record verifier evidence before rewarding routing/provider decisions.
+8. Require run creation against non-personal repo resources to name the authority scope; if policy requires handoff, require a handoff id before dispatch.
+9. Treat multi-org operations as read aggregation until single-org authority, handoff, audit, approval, and leases are enforced.
+10. Add append-only events before making Task Manager the production source of truth.
+11. Add resource leases before parallel autonomous writes.
+12. Record verifier evidence before rewarding routing/provider decisions.
 
 ## V1 Batter Cut
 
@@ -130,5 +133,7 @@ Defer until after foundation:
 ## Related Docs
 
 - proposal: `docs/proposals/cortex-operations-room-contract.md`
+- authority proposal: `docs/proposals/cortex-authority-and-scope-model.md`
+- authority ADR: `docs/decisions/ADR-0008-cortex-authority-and-scope-boundaries.md`
 - live map proposal: `docs/proposals/live-orchestration-mapping-view.md`
 - backlog source: `internal/backlog/cortex-operations-room-foundation-checklist.md`

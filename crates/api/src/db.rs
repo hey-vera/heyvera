@@ -273,7 +273,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 24;
+const SCHEMA_VERSION: i64 = 25;
 const RUN_RESOURCE_LEASE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 fn apply_migrations(conn: &Connection) {
@@ -358,6 +358,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 24 {
         migrate_v24(conn);
+    }
+    if current < 25 {
+        migrate_v25(conn);
     }
 }
 
@@ -1244,6 +1247,65 @@ fn migrate_v24(conn: &Connection) {
     tracing::info!("applied migration v24: Cortex resource leases");
 }
 
+fn migrate_v25(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS cortex_authority_scopes (
+            id TEXT PRIMARY KEY,
+            owner_user_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            source TEXT NOT NULL DEFAULT 'cortex',
+            external_id TEXT,
+            status TEXT NOT NULL DEFAULT 'active',
+            policy_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_cortex_authority_scopes_owner_source_external
+            ON cortex_authority_scopes(owner_user_id, source, external_id)
+            WHERE external_id IS NOT NULL;
+
+        CREATE INDEX IF NOT EXISTS idx_cortex_authority_scopes_owner_status
+            ON cortex_authority_scopes(owner_user_id, status, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS cortex_authority_memberships (
+            scope_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            role TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL,
+            PRIMARY KEY (scope_id, user_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_cortex_authority_memberships_user_status
+            ON cortex_authority_memberships(user_id, status, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS cortex_authority_resources (
+            id TEXT PRIMARY KEY,
+            scope_id TEXT NOT NULL,
+            resource_type TEXT NOT NULL,
+            resource_key TEXT NOT NULL,
+            access TEXT NOT NULL DEFAULT 'read',
+            policy_json TEXT NOT NULL DEFAULT '{}',
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+        );
+
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_cortex_authority_resources_scope_resource
+            ON cortex_authority_resources(scope_id, resource_type, resource_key);
+
+        CREATE INDEX IF NOT EXISTS idx_cortex_authority_resources_scope
+            ON cortex_authority_resources(scope_id, resource_type);
+
+        UPDATE schema_version SET version = 25;"
+    ).expect("migration v25 failed");
+
+    tracing::info!("applied migration v25: Cortex authority scopes");
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CortexGroup {
     pub id: String,
@@ -1254,6 +1316,34 @@ pub struct CortexGroup {
     pub accent: String,
     pub source: String,
     pub external_id: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct CortexAuthorityScope {
+    pub id: String,
+    pub owner_user_id: String,
+    pub kind: String,
+    pub name: String,
+    pub description: String,
+    pub source: String,
+    pub external_id: Option<String>,
+    pub status: String,
+    pub policy: serde_json::Value,
+    pub role: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq)]
+pub struct CortexAuthorityResource {
+    pub id: String,
+    pub scope_id: String,
+    pub resource_type: String,
+    pub resource_key: String,
+    pub access: String,
+    pub policy: serde_json::Value,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -1690,6 +1780,24 @@ fn sort_json_array_desc(items: &mut [serde_json::Value], preferred_key: &str) {
     items.sort_by(|left, right| {
         json_sort_timestamp(right, preferred_key).cmp(&json_sort_timestamp(left, preferred_key))
     });
+}
+
+fn authority_access_allows(actual: &str, required: &str) -> bool {
+    matches!(
+        (actual, required),
+        ("admin", _)
+            | ("write", "write")
+            | ("write", "read")
+            | ("read", "read")
+            | ("owner", _)
+    )
+}
+
+fn authority_role_allows(role: &str, required: &str) -> bool {
+    matches!(
+        (role, required),
+        ("owner", _) | ("admin", _) | ("member", "read") | ("member", "write") | ("viewer", "read")
+    )
 }
 
 fn path_keys_overlap(a: &str, b: &str) -> bool {
@@ -2239,6 +2347,392 @@ impl Database {
                 external_id: row.get(7)?,
             }),
         ).ok()
+    }
+
+    pub fn ensure_personal_authority_scope(&self, user_id: &str) -> CortexAuthorityScope {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let scope_id = format!("personal:{user_id}");
+        let policy = serde_json::json!({
+            "mutation_context": "personal",
+            "requires_org_handoff": false,
+            "allowed_actions": ["read", "plan", "queue", "run_personal"],
+            "approval_policy": "user"
+        });
+        let policy_json = serde_json::to_string(&policy).unwrap_or_else(|_| "{}".to_string());
+
+        conn.execute(
+            "INSERT INTO cortex_authority_scopes
+                (id, owner_user_id, kind, name, description, source, external_id, status, policy_json, created_at, updated_at)
+             VALUES (?1, ?2, 'personal', 'Personal Operations', 'Personal Cortex operations authority', 'cortex', ?3, 'active', ?4, ?5, ?5)
+             ON CONFLICT(id) DO UPDATE SET
+                name = excluded.name,
+                description = excluded.description,
+                status = 'active',
+                policy_json = excluded.policy_json,
+                updated_at = excluded.updated_at",
+            params![scope_id, user_id, user_id, policy_json, now],
+        )
+        .expect("failed to upsert personal authority scope");
+        conn.execute(
+            "INSERT INTO cortex_authority_memberships
+                (scope_id, user_id, role, status, created_at, updated_at)
+             VALUES (?1, ?2, 'owner', 'active', ?3, ?3)
+             ON CONFLICT(scope_id, user_id) DO UPDATE SET
+                role = excluded.role,
+                status = 'active',
+                updated_at = excluded.updated_at",
+            params![scope_id, user_id, now],
+        )
+        .expect("failed to upsert personal authority membership");
+
+        CortexAuthorityScope {
+            id: scope_id,
+            owner_user_id: user_id.to_string(),
+            kind: "personal".to_string(),
+            name: "Personal Operations".to_string(),
+            description: "Personal Cortex operations authority".to_string(),
+            source: "cortex".to_string(),
+            external_id: Some(user_id.to_string()),
+            status: "active".to_string(),
+            policy,
+            role: "owner".to_string(),
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    pub fn upsert_authority_scope(
+        &self,
+        owner_user_id: &str,
+        id: &str,
+        kind: &str,
+        name: &str,
+        description: &str,
+        source: &str,
+        external_id: Option<&str>,
+        policy: serde_json::Value,
+    ) -> CortexAuthorityScope {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let policy_json = serde_json::to_string(&policy).unwrap_or_else(|_| "{}".to_string());
+        conn.execute(
+            "INSERT INTO cortex_authority_scopes
+                (id, owner_user_id, kind, name, description, source, external_id, status, policy_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'active', ?8, ?9, ?9)
+             ON CONFLICT(id) DO UPDATE SET
+                kind = excluded.kind,
+                name = excluded.name,
+                description = excluded.description,
+                source = excluded.source,
+                external_id = excluded.external_id,
+                status = 'active',
+                policy_json = excluded.policy_json,
+                updated_at = excluded.updated_at",
+            params![
+                id,
+                owner_user_id,
+                kind,
+                name,
+                description,
+                source,
+                external_id,
+                policy_json,
+                now
+            ],
+        )
+        .expect("failed to upsert authority scope");
+        conn.execute(
+            "INSERT INTO cortex_authority_memberships
+                (scope_id, user_id, role, status, created_at, updated_at)
+             VALUES (?1, ?2, 'owner', 'active', ?3, ?3)
+             ON CONFLICT(scope_id, user_id) DO UPDATE SET
+                role = excluded.role,
+                status = 'active',
+                updated_at = excluded.updated_at",
+            params![id, owner_user_id, now],
+        )
+        .expect("failed to upsert authority owner membership");
+
+        CortexAuthorityScope {
+            id: id.to_string(),
+            owner_user_id: owner_user_id.to_string(),
+            kind: kind.to_string(),
+            name: name.to_string(),
+            description: description.to_string(),
+            source: source.to_string(),
+            external_id: external_id.map(String::from),
+            status: "active".to_string(),
+            policy,
+            role: "owner".to_string(),
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    pub fn add_authority_membership(&self, scope_id: &str, user_id: &str, role: &str) {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        conn.execute(
+            "INSERT INTO cortex_authority_memberships
+                (scope_id, user_id, role, status, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'active', ?4, ?4)
+             ON CONFLICT(scope_id, user_id) DO UPDATE SET
+                role = excluded.role,
+                status = 'active',
+                updated_at = excluded.updated_at",
+            params![scope_id, user_id, role, now],
+        )
+        .expect("failed to upsert authority membership");
+    }
+
+    pub fn upsert_authority_resource(
+        &self,
+        scope_id: &str,
+        resource_type: &str,
+        resource_key: &str,
+        access: &str,
+        policy: serde_json::Value,
+    ) -> CortexAuthorityResource {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().timestamp_millis();
+        let policy_json = serde_json::to_string(&policy).unwrap_or_else(|_| "{}".to_string());
+        conn.execute(
+            "INSERT INTO cortex_authority_resources
+                (id, scope_id, resource_type, resource_key, access, policy_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)
+             ON CONFLICT(scope_id, resource_type, resource_key) DO UPDATE SET
+                access = excluded.access,
+                policy_json = excluded.policy_json,
+                updated_at = excluded.updated_at",
+            params![id, scope_id, resource_type, resource_key, access, policy_json, now],
+        )
+        .expect("failed to upsert authority resource");
+
+        CortexAuthorityResource {
+            id,
+            scope_id: scope_id.to_string(),
+            resource_type: resource_type.to_string(),
+            resource_key: resource_key.to_string(),
+            access: access.to_string(),
+            policy,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
+    pub fn list_authority_scopes_for_user(&self, user_id: &str) -> Vec<CortexAuthorityScope> {
+        self.ensure_personal_authority_scope(user_id);
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT s.id, s.owner_user_id, s.kind, s.name, s.description, s.source,
+                        s.external_id, s.status, s.policy_json, m.role, s.created_at, s.updated_at
+                 FROM cortex_authority_scopes s
+                 JOIN cortex_authority_memberships m ON m.scope_id = s.id
+                 WHERE m.user_id = ?1 AND m.status = 'active' AND s.status = 'active'
+                 ORDER BY
+                    CASE s.kind WHEN 'personal' THEN 0 WHEN 'team' THEN 1 WHEN 'org' THEN 2 ELSE 3 END,
+                    s.updated_at DESC",
+            )
+            .unwrap();
+
+        stmt.query_map(params![user_id], |row| {
+            let policy_json: String = row.get(8)?;
+            Ok(CortexAuthorityScope {
+                id: row.get(0)?,
+                owner_user_id: row.get(1)?,
+                kind: row.get(2)?,
+                name: row.get(3)?,
+                description: row.get(4)?,
+                source: row.get(5)?,
+                external_id: row.get(6)?,
+                status: row.get(7)?,
+                policy: serde_json::from_str(&policy_json)
+                    .unwrap_or_else(|_| serde_json::json!({})),
+                role: row.get(9)?,
+                created_at: row.get(10)?,
+                updated_at: row.get(11)?,
+            })
+        })
+        .unwrap()
+        .filter_map(|row| row.ok())
+        .collect()
+    }
+
+    pub fn get_authority_scope_for_user(
+        &self,
+        user_id: &str,
+        scope_id: &str,
+    ) -> Option<CortexAuthorityScope> {
+        if scope_id == format!("personal:{user_id}") {
+            self.ensure_personal_authority_scope(user_id);
+        }
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT s.id, s.owner_user_id, s.kind, s.name, s.description, s.source,
+                    s.external_id, s.status, s.policy_json, m.role, s.created_at, s.updated_at
+             FROM cortex_authority_scopes s
+             JOIN cortex_authority_memberships m ON m.scope_id = s.id
+             WHERE m.user_id = ?1
+                AND s.id = ?2
+                AND m.status = 'active'
+                AND s.status = 'active'",
+            params![user_id, scope_id],
+            |row| {
+                let policy_json: String = row.get(8)?;
+                Ok(CortexAuthorityScope {
+                    id: row.get(0)?,
+                    owner_user_id: row.get(1)?,
+                    kind: row.get(2)?,
+                    name: row.get(3)?,
+                    description: row.get(4)?,
+                    source: row.get(5)?,
+                    external_id: row.get(6)?,
+                    status: row.get(7)?,
+                    policy: serde_json::from_str(&policy_json)
+                        .unwrap_or_else(|_| serde_json::json!({})),
+                    role: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
+            },
+        )
+        .ok()
+    }
+
+    pub fn authority_resource_allows(
+        &self,
+        user_id: &str,
+        scope_id: &str,
+        resource_type: &str,
+        resource_key: &str,
+        required_access: &str,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = match conn.prepare(
+            "SELECT m.role, r.access
+             FROM cortex_authority_scopes s
+             JOIN cortex_authority_memberships m ON m.scope_id = s.id
+             JOIN cortex_authority_resources r ON r.scope_id = s.id
+             WHERE m.user_id = ?1
+                AND s.id = ?2
+                AND m.status = 'active'
+                AND s.status = 'active'
+                AND r.resource_type = ?3
+                AND r.resource_key = ?4",
+        ) {
+            Ok(stmt) => stmt,
+            Err(_) => return false,
+        };
+        stmt.query_map(
+            params![user_id, scope_id, resource_type, resource_key],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .map(|rows| {
+            rows.filter_map(|row| row.ok()).any(|(role, access)| {
+                authority_role_allows(&role, required_access)
+                    && authority_access_allows(&access, required_access)
+            })
+        })
+        .unwrap_or(false)
+    }
+
+    pub fn find_non_personal_authority_resource_scope(
+        &self,
+        user_id: &str,
+        resource_type: &str,
+        resource_key: &str,
+    ) -> Option<CortexAuthorityScope> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT s.id, s.owner_user_id, s.kind, s.name, s.description, s.source,
+                    s.external_id, s.status, s.policy_json, m.role, s.created_at, s.updated_at
+             FROM cortex_authority_scopes s
+             JOIN cortex_authority_memberships m ON m.scope_id = s.id
+             JOIN cortex_authority_resources r ON r.scope_id = s.id
+             WHERE m.user_id = ?1
+                AND m.status = 'active'
+                AND s.status = 'active'
+                AND s.kind != 'personal'
+                AND r.resource_type = ?2
+                AND r.resource_key = ?3
+             ORDER BY
+                CASE s.kind WHEN 'team' THEN 0 WHEN 'org' THEN 1 ELSE 2 END,
+                s.updated_at DESC
+             LIMIT 1",
+            params![user_id, resource_type, resource_key],
+            |row| {
+                let policy_json: String = row.get(8)?;
+                Ok(CortexAuthorityScope {
+                    id: row.get(0)?,
+                    owner_user_id: row.get(1)?,
+                    kind: row.get(2)?,
+                    name: row.get(3)?,
+                    description: row.get(4)?,
+                    source: row.get(5)?,
+                    external_id: row.get(6)?,
+                    status: row.get(7)?,
+                    policy: serde_json::from_str(&policy_json)
+                        .unwrap_or_else(|_| serde_json::json!({})),
+                    role: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
+            },
+        )
+        .ok()
+    }
+
+    pub fn list_authority_resources_for_user(
+        &self,
+        user_id: &str,
+        scope_id: &str,
+    ) -> Vec<CortexAuthorityResource> {
+        let conn = self.conn.lock().unwrap();
+        let allowed = conn
+            .query_row(
+                "SELECT 1
+                 FROM cortex_authority_memberships m
+                 JOIN cortex_authority_scopes s ON s.id = m.scope_id
+                 WHERE m.user_id = ?1
+                    AND m.scope_id = ?2
+                    AND m.status = 'active'
+                    AND s.status = 'active'",
+                params![user_id, scope_id],
+                |_| Ok(()),
+            )
+            .is_ok();
+        if !allowed {
+            return Vec::new();
+        }
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, scope_id, resource_type, resource_key, access, policy_json, created_at, updated_at
+                 FROM cortex_authority_resources
+                 WHERE scope_id = ?1
+                 ORDER BY resource_type ASC, resource_key ASC",
+            )
+            .unwrap();
+        stmt.query_map(params![scope_id], |row| {
+            let policy_json: String = row.get(5)?;
+            Ok(CortexAuthorityResource {
+                id: row.get(0)?,
+                scope_id: row.get(1)?,
+                resource_type: row.get(2)?,
+                resource_key: row.get(3)?,
+                access: row.get(4)?,
+                policy: serde_json::from_str(&policy_json)
+                    .unwrap_or_else(|_| serde_json::json!({})),
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        })
+        .unwrap()
+        .filter_map(|row| row.ok())
+        .collect()
     }
 
     pub fn list_user_operation_group_ids(&self, user_id: &str) -> Vec<String> {
@@ -3937,6 +4431,35 @@ impl Database {
         steps: &[(String, String, String, Option<String>, String, String, String, i64)],
         edges: &[(String, String, String)],
     ) -> Result<String, CreateRunError> {
+        self.create_run_with_steps_and_resource_leases_with_authority(
+            user_id,
+            goal,
+            profile,
+            file_paths,
+            task_id,
+            group_id,
+            conversation_id,
+            resource_leases,
+            steps,
+            edges,
+            None,
+        )
+    }
+
+    pub fn create_run_with_steps_and_resource_leases_with_authority(
+        &self,
+        user_id: &str,
+        goal: &str,
+        profile: &str,
+        file_paths: &[String],
+        task_id: Option<&str>,
+        group_id: Option<&str>,
+        conversation_id: Option<&str>,
+        resource_leases: &[ResourceLeaseRequest],
+        steps: &[(String, String, String, Option<String>, String, String, String, i64)],
+        edges: &[(String, String, String)],
+        authority_context: Option<&serde_json::Value>,
+    ) -> Result<String, CreateRunError> {
         let conn = self.conn.lock().unwrap();
         let run_id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
@@ -3989,6 +4512,7 @@ impl Database {
                 "task_id": task_id,
                 "group_id": group_id,
                 "conversation_id": conversation_id,
+                "authority": authority_context,
             }),
         );
 
@@ -7491,6 +8015,119 @@ mod tests {
             .unwrap()
             .iter()
             .all(|item| item["group_id"].as_str().is_some()));
+    }
+
+    #[test]
+    fn authority_scopes_include_personal_and_authorized_org_resources() {
+        let db = test_db();
+        let personal = db.ensure_personal_authority_scope("user-1");
+        assert_eq!(personal.id, "personal:user-1");
+        assert_eq!(personal.kind, "personal");
+        assert_eq!(personal.role, "owner");
+
+        db.upsert_authority_scope(
+            "owner-1",
+            "org:github:hey-vera",
+            "org",
+            "HeyVera",
+            "GitHub organization authority",
+            "github",
+            Some("hey-vera"),
+            serde_json::json!({
+                "requires_org_handoff": true,
+                "allowed_actions": ["read", "plan"],
+                "write_policy": "approval_required"
+            }),
+        );
+        db.add_authority_membership("org:github:hey-vera", "user-1", "admin");
+        db.add_authority_membership("org:github:hey-vera", "user-2", "viewer");
+        db.upsert_authority_resource(
+            "org:github:hey-vera",
+            "github_repo",
+            "github:hey-vera/heyvera",
+            "write",
+            serde_json::json!({
+                "default_branch": "main",
+                "requires_lease": true
+            }),
+        );
+
+        let scopes = db.list_authority_scopes_for_user("user-1");
+        assert_eq!(scopes.len(), 2);
+        assert!(scopes
+            .iter()
+            .any(|scope| scope.id == "personal:user-1" && scope.kind == "personal"));
+        let org = scopes
+            .iter()
+            .find(|scope| scope.id == "org:github:hey-vera")
+            .expect("org scope");
+        assert_eq!(org.role, "admin");
+        assert_eq!(org.policy["requires_org_handoff"], true);
+
+        let resources = db.list_authority_resources_for_user("user-1", "org:github:hey-vera");
+        assert_eq!(resources.len(), 1);
+        assert_eq!(resources[0].resource_key, "github:hey-vera/heyvera");
+        assert_eq!(resources[0].access, "write");
+        assert!(db.authority_resource_allows(
+            "user-1",
+            "org:github:hey-vera",
+            "github_repo",
+            "github:hey-vera/heyvera",
+            "write"
+        ));
+        assert!(!db.authority_resource_allows(
+            "user-2",
+            "org:github:hey-vera",
+            "github_repo",
+            "github:hey-vera/heyvera",
+            "write"
+        ));
+        let discovered = db
+            .find_non_personal_authority_resource_scope(
+                "user-1",
+                "github_repo",
+                "github:hey-vera/heyvera",
+            )
+            .expect("non-personal resource scope");
+        assert_eq!(discovered.id, "org:github:hey-vera");
+        assert_eq!(discovered.kind, "org");
+
+        let unauthorized = db.list_authority_resources_for_user("user-3", "org:github:hey-vera");
+        assert!(unauthorized.is_empty());
+    }
+
+    #[test]
+    fn run_creation_records_authority_context_in_operations_event() {
+        let db = test_db();
+        let run_id = db
+            .create_run_with_steps_and_resource_leases_with_authority(
+                "user-1",
+                "Ship org scoped run",
+                "auto",
+                &["src/lib.rs".to_string()],
+                Some("task-1"),
+                Some("group-1"),
+                None,
+                &[],
+                &[test_step("step-authority")],
+                &[],
+                Some(&serde_json::json!({
+                    "scope_id": "org:github:hey-vera",
+                    "scope_kind": "org",
+                    "role": "admin",
+                    "handoff_id": "handoff-1",
+                    "reason": "operator selected org context"
+                })),
+            )
+            .expect("run");
+
+        let events = db.list_run_operations_events(&run_id, 10);
+        let created = events
+            .iter()
+            .find(|event| event.event_type == "run.created")
+            .expect("run.created event");
+        assert_eq!(created.payload["authority"]["scope_id"], "org:github:hey-vera");
+        assert_eq!(created.payload["authority"]["handoff_id"], "handoff-1");
     }
 
     #[test]
