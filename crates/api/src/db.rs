@@ -2401,6 +2401,60 @@ fn step_event_context(conn: &Connection, step_id: &str) -> Option<OperationEvent
     .ok()
 }
 
+fn insert_run_operations_event(
+    conn: &Connection,
+    run_id: &str,
+    event_type: &str,
+    payload: &serde_json::Value,
+) {
+    let context = run_event_context(conn, run_id);
+    insert_operations_event(
+        conn,
+        context.as_ref().map(|context| context.user_id.as_str()),
+        context
+            .as_ref()
+            .and_then(|context| context.group_id.as_deref()),
+        None,
+        context
+            .as_ref()
+            .and_then(|context| context.task_id.as_deref()),
+        Some(run_id),
+        None,
+        None,
+        event_type,
+        "run",
+        run_id,
+        payload,
+    );
+}
+
+fn insert_step_operations_event(
+    conn: &Connection,
+    step_id: &str,
+    event_type: &str,
+    payload: &serde_json::Value,
+) {
+    let context = step_event_context(conn, step_id);
+    insert_operations_event(
+        conn,
+        context.as_ref().map(|context| context.user_id.as_str()),
+        context
+            .as_ref()
+            .and_then(|context| context.group_id.as_deref()),
+        None,
+        context
+            .as_ref()
+            .and_then(|context| context.task_id.as_deref()),
+        context.as_ref().map(|context| context.run_id.as_str()),
+        Some(step_id),
+        None,
+        event_type,
+        "step",
+        step_id,
+        payload,
+    );
+}
+
 impl Database {
     pub fn open(path: &Path) -> Self {
         if let Some(parent) = path.parent() {
@@ -5194,11 +5248,22 @@ impl Database {
     pub fn record_run_branch(&self, run_id: &str, branch_name: &str) {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        conn.execute(
-            "UPDATE runs SET branch = ?1, updated_at = ?2 WHERE id = ?3",
-            params![branch_name, now, run_id],
-        )
-        .ok();
+        let rows = conn
+            .execute(
+                "UPDATE runs SET branch = ?1, updated_at = ?2 WHERE id = ?3",
+                params![branch_name, now, run_id],
+            )
+            .unwrap_or(0);
+        if rows > 0 {
+            insert_run_operations_event(
+                &conn,
+                run_id,
+                "run.branch_recorded",
+                &serde_json::json!({
+                    "branch_name": branch_name,
+                }),
+            );
+        }
     }
 
     /// Retrieve the branch name recorded for a run, if any.
@@ -5800,6 +5865,18 @@ impl Database {
                 params![reason, now, step_id],
             )
             .unwrap_or(0);
+        if rows > 0 {
+            insert_step_operations_event(
+                &conn,
+                step_id,
+                "step.cancelled",
+                &serde_json::json!({
+                    "status": "cancelled",
+                    "reason": reason,
+                    "source": "assigned_step",
+                }),
+            );
+        }
         rows > 0
     }
 
@@ -5813,6 +5890,16 @@ impl Database {
                 params![now, step_id],
             )
             .unwrap_or(0);
+        if rows > 0 {
+            insert_step_operations_event(
+                &conn,
+                step_id,
+                "step.recovered",
+                &serde_json::json!({
+                    "status": "recovered",
+                }),
+            );
+        }
         rows > 0
     }
 
@@ -6193,6 +6280,19 @@ impl Database {
              VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7, ?8, ?8)",
             params![id, run_id, kind, work_kind, tier, risk, objective, created_at],
         ).expect("failed to create step");
+        insert_step_operations_event(
+            &conn,
+            id,
+            "step.planned",
+            &serde_json::json!({
+                "status": "pending",
+                "kind": kind,
+                "work_kind": work_kind,
+                "tier": tier,
+                "risk": risk,
+                "objective": objective,
+            }),
+        );
     }
 
     /// Returns (provider, kind, risk) for bandit outcome tracking.
@@ -6355,11 +6455,29 @@ impl Database {
     pub fn increment_heal_count(&self, run_id: &str) {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        conn.execute(
-            "UPDATE runs SET heal_attempts = heal_attempts + 1, updated_at = ?1 WHERE id = ?2",
-            params![now, run_id],
-        )
-        .ok();
+        let rows = conn
+            .execute(
+                "UPDATE runs SET heal_attempts = heal_attempts + 1, updated_at = ?1 WHERE id = ?2",
+                params![now, run_id],
+            )
+            .unwrap_or(0);
+        if rows > 0 {
+            let heal_attempts = conn
+                .query_row(
+                    "SELECT heal_attempts FROM runs WHERE id = ?1",
+                    params![run_id],
+                    |row| row.get::<_, i32>(0),
+                )
+                .unwrap_or(0);
+            insert_run_operations_event(
+                &conn,
+                run_id,
+                "run.heal_incremented",
+                &serde_json::json!({
+                    "heal_attempts": heal_attempts,
+                }),
+            );
+        }
     }
 
     pub fn get_step_last_error(&self, step_id: &str) -> Option<String> {
@@ -7319,12 +7437,23 @@ impl Database {
     pub fn set_step_earliest_dispatch(&self, step_id: &str, earliest_ms: i64) {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        conn.execute(
-            "UPDATE steps SET earliest_dispatch_at = ?1, updated_at = ?2
+        let rows = conn
+            .execute(
+                "UPDATE steps SET earliest_dispatch_at = ?1, updated_at = ?2
              WHERE id = ?3",
-            params![earliest_ms, now, step_id],
-        )
-        .ok();
+                params![earliest_ms, now, step_id],
+            )
+            .unwrap_or(0);
+        if rows > 0 {
+            insert_step_operations_event(
+                &conn,
+                step_id,
+                "step.dispatch_deferred",
+                &serde_json::json!({
+                    "earliest_dispatch_at": earliest_ms,
+                }),
+            );
+        }
     }
 
     pub fn unlease_step(&self, step_id: &str, lease_gen: i64) -> bool {
@@ -7336,19 +7465,40 @@ impl Database {
              WHERE id = ?2 AND lease_gen = ?3 AND status = 'leased'",
             params![now, step_id, lease_gen],
         ).unwrap_or(0);
+        if rows > 0 {
+            insert_step_operations_event(
+                &conn,
+                step_id,
+                "step.unleased",
+                &serde_json::json!({
+                    "status": "pending",
+                    "lease_gen": lease_gen,
+                }),
+            );
+        }
         rows > 0
     }
 
     pub fn orphan_step(&self, step_id: &str) {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().timestamp_millis();
-        conn.execute(
+        let rows = conn.execute(
             "UPDATE steps SET status = 'orphaned', assigned_worker = NULL, lease_deadline = NULL,
                  updated_at = ?1, version = version + 1
              WHERE id = ?2 AND status IN ('leased', 'running')",
             params![now, step_id],
         )
-        .ok();
+        .unwrap_or(0);
+        if rows > 0 {
+            insert_step_operations_event(
+                &conn,
+                step_id,
+                "step.orphaned",
+                &serde_json::json!({
+                    "status": "orphaned",
+                }),
+            );
+        }
     }
 
     /// Cascade failure from a failed step to all downstream steps that depend on it
@@ -7387,14 +7537,27 @@ impl Database {
                 }
                 visited.insert(dep_id.clone());
 
-                conn.execute(
+                let rows = conn.execute(
                     "UPDATE steps SET status = 'skipped', updated_at = ?1, version = version + 1
                      WHERE id = ?2 AND status NOT IN ('succeeded', 'failed', 'recovered', 'cancelled', 'skipped')",
                     params![now, dep_id],
-                ).ok();
+                ).unwrap_or(0);
 
-                skipped.push(dep_id.clone());
-                queue.push_back(dep_id);
+                if rows > 0 {
+                    insert_step_operations_event(
+                        &conn,
+                        &dep_id,
+                        "step.skipped",
+                        &serde_json::json!({
+                            "status": "skipped",
+                            "failed_step_id": failed_step_id,
+                            "blocked_by_step_id": current_id,
+                            "edge_type": "success_required",
+                        }),
+                    );
+                    skipped.push(dep_id.clone());
+                    queue.push_back(dep_id);
+                }
             }
         }
 
@@ -8762,6 +8925,144 @@ mod tests {
             &[],
         );
         assert!(second.is_ok());
+    }
+
+    #[test]
+    fn scheduler_mutations_record_operations_events() {
+        let db = test_db();
+        let run_id = db.create_run("user-1", "Exercise scheduler event coverage", "auto", &[]);
+        for worker_id in ["worker-1", "worker-2", "worker-3", "worker-4"] {
+            db.register_worker(worker_id, "user-1");
+        }
+
+        let planned_step_id = "planned-by-scheduler";
+        db.create_step_with_id(
+            planned_step_id,
+            &run_id,
+            "heal",
+            "heal",
+            "standard",
+            "medium",
+            "Repair failed work",
+            Utc::now().timestamp_millis(),
+        );
+        db.set_step_earliest_dispatch(planned_step_id, 12_345);
+
+        let unleased_step = db.create_step(&run_id, "implement", "standard", "medium", "Unlease");
+        let lease_gen = db
+            .lease_step(
+                &unleased_step,
+                "worker-1",
+                Utc::now().timestamp_millis() + 60_000,
+            )
+            .expect("lease step");
+        assert!(db.unlease_step(&unleased_step, lease_gen));
+
+        let cancelled_step = db.create_step(&run_id, "test", "standard", "medium", "Cancel");
+        let cancelled_lease_gen = db
+            .lease_step(
+                &cancelled_step,
+                "worker-2",
+                Utc::now().timestamp_millis() + 60_000,
+            )
+            .expect("lease step");
+        assert!(db.start_step(&cancelled_step, cancelled_lease_gen));
+        assert!(db.cancel_assigned_step(&cancelled_step, "worker shutdown"));
+
+        let orphaned_step = db.create_step(&run_id, "review", "standard", "medium", "Orphan");
+        let orphaned_lease_gen = db
+            .lease_step(
+                &orphaned_step,
+                "worker-3",
+                Utc::now().timestamp_millis() + 60_000,
+            )
+            .expect("lease step");
+        assert!(db.start_step(&orphaned_step, orphaned_lease_gen));
+        db.orphan_step(&orphaned_step);
+
+        let recovered_step = db.create_step(&run_id, "fix", "standard", "medium", "Recover");
+        let recovered_lease_gen = db
+            .lease_step(
+                &recovered_step,
+                "worker-4",
+                Utc::now().timestamp_millis() + 60_000,
+            )
+            .expect("lease step");
+        assert!(db.fail_step(&recovered_step, recovered_lease_gen, "boom", None));
+        assert!(db.mark_step_recovered(&recovered_step));
+
+        db.increment_heal_count(&run_id);
+        db.record_run_branch(&run_id, "cortex/run-123");
+
+        let events = db.list_run_operations_events(&run_id, 100);
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.planned"
+                && event.entity_id == planned_step_id
+                && event.payload["work_kind"] == "heal"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.dispatch_deferred"
+                && event.entity_id == planned_step_id
+                && event.payload["earliest_dispatch_at"] == 12_345
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.unleased"
+                && event.entity_id == unleased_step
+                && event.payload["status"] == "pending"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.cancelled"
+                && event.entity_id == cancelled_step
+                && event.payload["reason"] == "worker shutdown"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.orphaned"
+                && event.entity_id == orphaned_step
+                && event.payload["status"] == "orphaned"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.recovered"
+                && event.entity_id == recovered_step
+                && event.payload["status"] == "recovered"
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "run.heal_incremented"
+                && event.entity_id == run_id
+                && event.payload["heal_attempts"] == 1
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "run.branch_recorded"
+                && event.entity_id == run_id
+                && event.payload["branch_name"] == "cortex/run-123"
+        }));
+    }
+
+    #[test]
+    fn cascade_failure_records_skipped_step_events() {
+        let db = test_db();
+        let run_id = db.create_run("user-1", "Cascade failure", "auto", &[]);
+        let root_step = db.create_step(&run_id, "implement", "standard", "medium", "Root");
+        let child_step = db.create_step(&run_id, "test", "standard", "medium", "Child");
+        let grandchild_step = db.create_step(&run_id, "review", "standard", "medium", "Grandchild");
+        db.add_step_dependency(&child_step, &root_step, "success_required");
+        db.add_step_dependency(&grandchild_step, &child_step, "success_required");
+
+        let skipped = db.cascade_failure(&root_step);
+
+        assert_eq!(skipped, vec![child_step.clone(), grandchild_step.clone()]);
+        let events = db.list_run_operations_events(&run_id, 100);
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.skipped"
+                && event.entity_id == child_step
+                && event.payload["failed_step_id"] == root_step
+                && event.payload["blocked_by_step_id"] == root_step
+        }));
+        assert!(events.iter().any(|event| {
+            event.event_type == "step.skipped"
+                && event.entity_id == grandchild_step
+                && event.payload["failed_step_id"] == root_step
+                && event.payload["blocked_by_step_id"] == child_step
+        }));
     }
 
     #[test]
