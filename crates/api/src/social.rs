@@ -1,8 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, Query, State},
-    http::StatusCode,
+    extract::{Query, State},
     response::IntoResponse,
     Json,
 };
@@ -100,7 +99,7 @@ pub async fn search(
     Query(params): Query<SearchQuery>,
     State(_state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let _query = params.q.unwrap_or_default().trim();
+    let _query = params.q.unwrap_or_default();
     let _search_type = params.search_type.unwrap_or_else(|| "all".to_string());
 
     // Return empty results for now
