@@ -163,12 +163,6 @@ export type ProfileSummary = {
 
 // ─── API base URL ────────────────────────────────────────────────────────────
 //
-// When VITE_API_URL is set (e.g. "https://api.heyvera.org" or "/v1"), all
-// requests are prefixed with "<VITE_API_URL>/v1/social".
-// When unset the app falls back to the relative path "/v1/social", which works
-// both with the Vite dev-server proxy (dev) and a Cloudflare Pages /v1 proxy
-// rule (production). Never falls back to localhost.
-
 const API_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/v1/social`
   : "https://api.heyvera.org/v1/social";
