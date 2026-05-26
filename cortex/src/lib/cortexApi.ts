@@ -1127,6 +1127,38 @@ export interface PersonalOperationsSummary {
   groups: PersonalOperationsGroupSummary[];
 }
 
+export type CortexAuthorityScopeKind = 'personal' | 'team' | 'org' | 'company' | string;
+
+export interface CortexAuthorityResource {
+  id: string;
+  scope_id: string;
+  resource_type: string;
+  resource_key: string;
+  access: 'read' | 'write' | 'admin' | string;
+  policy: Record<string, unknown>;
+  created_at: number;
+  updated_at: number;
+}
+
+export interface CortexAuthorityScope {
+  id: string;
+  kind: CortexAuthorityScopeKind;
+  name: string;
+  description: string;
+  source: string;
+  external_id?: string | null;
+  status: string;
+  role: 'owner' | 'admin' | 'member' | 'viewer' | string;
+  policy: Record<string, unknown>;
+  created_at: number;
+  updated_at: number;
+  resources: CortexAuthorityResource[];
+}
+
+export interface CortexAuthorityScopesResponse {
+  scopes: CortexAuthorityScope[];
+}
+
 export interface RunListItem {
   id: string;
   goal: string;
@@ -1218,6 +1250,10 @@ export async function getGroupOperationsSummary(groupId: string): Promise<GroupO
 
 export async function getPersonalOperationsSummary(): Promise<PersonalOperationsSummary> {
   return requestJson<PersonalOperationsSummary>('/api/operations/summary');
+}
+
+export async function getAuthorityScopes(): Promise<CortexAuthorityScopesResponse> {
+  return requestJson<CortexAuthorityScopesResponse>('/api/authority/scopes');
 }
 
 export async function listGroupApprovals(

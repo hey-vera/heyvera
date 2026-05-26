@@ -206,6 +206,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/groups/{group_id}/tasks/{task_id}", patch(integrations::patch_group_task))
         .route("/api/groups/{group_id}/tasks/{task_id}/projection", get(integrations::get_group_task_projection))
         .route("/api/operations/summary", get(integrations::get_personal_operations_summary))
+        .route("/api/authority/scopes", get(integrations::list_authority_scopes))
         .route("/api/groups/{group_id}/operations/summary", get(integrations::get_group_operations_summary))
         .route("/api/groups/{group_id}/approvals", get(integrations::list_group_approval_requests))
         .route("/api/groups/{group_id}/approvals", post(integrations::create_group_approval_request))

@@ -514,6 +514,38 @@ pub async fn get_personal_operations_summary(
     Ok(Json(db.get_personal_operations_summary(&user.user_id, 50)))
 }
 
+pub async fn list_authority_scopes(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+) -> ApiResult<Json<serde_json::Value>> {
+    let db = db_ref(&state)?;
+    let scopes = db
+        .list_authority_scopes_for_user(&user.user_id)
+        .into_iter()
+        .map(|scope| {
+            let resources = db.list_authority_resources_for_user(&user.user_id, &scope.id);
+            serde_json::json!({
+                "id": scope.id,
+                "kind": scope.kind,
+                "name": scope.name,
+                "description": scope.description,
+                "source": scope.source,
+                "external_id": scope.external_id,
+                "status": scope.status,
+                "role": scope.role,
+                "policy": scope.policy,
+                "created_at": scope.created_at,
+                "updated_at": scope.updated_at,
+                "resources": resources,
+            })
+        })
+        .collect::<Vec<_>>();
+
+    Ok(Json(serde_json::json!({
+        "scopes": scopes,
+    })))
+}
+
 #[derive(Deserialize)]
 pub struct ApprovalRequestQuery {
     pub status: Option<String>,
