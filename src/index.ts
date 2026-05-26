@@ -87,11 +87,11 @@ app.route('/api/authn', authnRouter);
 // WebAuthn ceremony flow (§5.2) — manual in Phase 1
 app.route('/api/ceremony', ceremonyRouter);
 
-// Vera Socials layer
-app.route('/v1/social', socialRouter);
+// Vera Socials layer - temporarily disabled for debugging
+// app.route('/v1/social', socialRouter);
 
-// Pulse — agent-assisted publishing control layer
-app.route('/v1/pulse', pulseRouter);
+// Pulse — agent-assisted publishing control layer - temporarily disabled for debugging
+// app.route('/v1/pulse', pulseRouter);
 
 app.notFound((c) => c.json({ error: 'Not found', code: 'NOT_FOUND' }, 404));
 
