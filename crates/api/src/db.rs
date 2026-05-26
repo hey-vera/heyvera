@@ -6641,29 +6641,34 @@ impl Database {
         verdict: &str,
         evidence_json: &str,
     ) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let mut conn = self.conn.lock().unwrap();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
-        conn.execute(
-            "INSERT INTO verifier_reports (
+        let tx = conn.transaction().ok()?;
+        if tx
+            .execute(
+                "INSERT INTO verifier_reports (
                 id, step_id, run_id, lease_gen, worker_id, verifier, status, verdict,
                 evidence_json, created_at, updated_at
              )
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?10)",
-            params![
-                id,
-                step_id,
-                run_id,
-                lease_gen,
-                worker_id,
-                verifier,
-                status,
-                verdict,
-                evidence_json,
-                now
-            ],
-        )
-        .ok()?;
+                params![
+                    id,
+                    step_id,
+                    run_id,
+                    lease_gen,
+                    worker_id,
+                    verifier,
+                    status,
+                    verdict,
+                    evidence_json,
+                    now
+                ],
+            )
+            .is_err()
+        {
+            return None;
+        }
 
         let step_verification_status = match (status, verdict) {
             ("verified", "pass") => "verified_pass",
@@ -6679,19 +6684,31 @@ impl Database {
             None
         };
 
-        conn.execute(
-            "UPDATE steps
+        let updated = tx
+            .execute(
+                "UPDATE steps
              SET verification_status = ?1,
                  verifier_report_id = ?2,
                  verified_at = ?3,
                  updated_at = ?4
-             WHERE id = ?5",
-            params![step_verification_status, id, verified_at, now, step_id],
-        )
-        .ok();
-        let context = step_event_context(&conn, step_id);
-        insert_operations_event(
-            &conn,
+             WHERE id = ?5 AND run_id = ?6",
+                params![
+                    step_verification_status,
+                    id,
+                    verified_at,
+                    now,
+                    step_id,
+                    run_id
+                ],
+            )
+            .ok()?;
+        if updated == 0 {
+            return None;
+        }
+
+        let context = step_event_context(&tx, step_id);
+        if try_insert_operations_event(
+            &tx,
             context.as_ref().map(|context| context.user_id.as_str()),
             context
                 .as_ref()
@@ -6715,7 +6732,13 @@ impl Database {
                 "verdict": verdict,
                 "step_verification_status": step_verification_status,
             }),
-        );
+        )
+        .is_err()
+        {
+            return None;
+        }
+
+        tx.commit().ok()?;
 
         Some(id)
     }
@@ -9746,6 +9769,91 @@ mod tests {
         );
 
         assert!(db.cortex_task_has_evidence_backed_completion("user-1", "group-1", "task-1"));
+    }
+
+    #[test]
+    fn record_verifier_report_updates_step_and_records_event_atomically() {
+        let db = test_db();
+        let run_id = db.create_run_with_metadata(
+            "user-1",
+            "Ship verified evidence",
+            "auto",
+            &[],
+            Some("task-1"),
+            Some("group-1"),
+            None,
+        );
+        let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
+
+        let report_id = db
+            .record_verifier_report(
+                &step_id,
+                &run_id,
+                0,
+                Some("worker-1"),
+                "test",
+                "verified",
+                "pass",
+                r#"{"verifier_report":{"verdict":"success"}}"#,
+            )
+            .expect("verifier report");
+
+        let report = db
+            .get_latest_verifier_report(&step_id)
+            .expect("latest verifier report");
+        assert_eq!(report.id, report_id);
+        let conn = db.conn.lock().unwrap();
+        let (verification_status, verifier_report_id): (String, Option<String>) = conn
+            .query_row(
+                "SELECT verification_status, verifier_report_id FROM steps WHERE id = ?1",
+                params![step_id],
+                |row| Ok((row.get(0)?, row.get(1)?)),
+            )
+            .unwrap();
+        assert_eq!(verification_status, "verified_pass");
+        assert_eq!(verifier_report_id.as_deref(), Some(report_id.as_str()));
+        drop(conn);
+
+        let events = db.list_run_operations_events(&run_id, 25);
+        assert!(events.iter().any(|event| {
+            event.event_type == "verifier.reported"
+                && event.entity_type == "verifier_report"
+                && event.entity_id == report_id
+                && event.step_id.as_deref() == Some(step_id.as_str())
+                && event.payload["step_verification_status"] == "verified_pass"
+        }));
+    }
+
+    #[test]
+    fn record_verifier_report_rolls_back_for_missing_step() {
+        let db = test_db();
+        let report_id = db.record_verifier_report(
+            "missing-step",
+            "run-1",
+            0,
+            None,
+            "test",
+            "verified",
+            "pass",
+            r#"{"verifier_report":{"verdict":"success"}}"#,
+        );
+
+        assert!(report_id.is_none());
+        let conn = db.conn.lock().unwrap();
+        let reports: i64 = conn
+            .query_row("SELECT COUNT(*) FROM verifier_reports", [], |row| {
+                row.get(0)
+            })
+            .unwrap();
+        let events: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM operations_events WHERE event_type = 'verifier.reported'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(reports, 0);
+        assert_eq!(events, 0);
     }
 
     #[test]
