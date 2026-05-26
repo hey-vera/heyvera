@@ -1782,6 +1782,24 @@ fn sort_json_array_desc(items: &mut [serde_json::Value], preferred_key: &str) {
     });
 }
 
+fn authority_access_allows(actual: &str, required: &str) -> bool {
+    matches!(
+        (actual, required),
+        ("admin", _)
+            | ("write", "write")
+            | ("write", "read")
+            | ("read", "read")
+            | ("owner", _)
+    )
+}
+
+fn authority_role_allows(role: &str, required: &str) -> bool {
+    matches!(
+        (role, required),
+        ("owner", _) | ("admin", _) | ("member", "read") | ("member", "write") | ("viewer", "read")
+    )
+}
+
 fn path_keys_overlap(a: &str, b: &str) -> bool {
     a == "."
         || b == "."
@@ -2541,6 +2559,130 @@ impl Database {
         .unwrap()
         .filter_map(|row| row.ok())
         .collect()
+    }
+
+    pub fn get_authority_scope_for_user(
+        &self,
+        user_id: &str,
+        scope_id: &str,
+    ) -> Option<CortexAuthorityScope> {
+        if scope_id == format!("personal:{user_id}") {
+            self.ensure_personal_authority_scope(user_id);
+        }
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT s.id, s.owner_user_id, s.kind, s.name, s.description, s.source,
+                    s.external_id, s.status, s.policy_json, m.role, s.created_at, s.updated_at
+             FROM cortex_authority_scopes s
+             JOIN cortex_authority_memberships m ON m.scope_id = s.id
+             WHERE m.user_id = ?1
+                AND s.id = ?2
+                AND m.status = 'active'
+                AND s.status = 'active'",
+            params![user_id, scope_id],
+            |row| {
+                let policy_json: String = row.get(8)?;
+                Ok(CortexAuthorityScope {
+                    id: row.get(0)?,
+                    owner_user_id: row.get(1)?,
+                    kind: row.get(2)?,
+                    name: row.get(3)?,
+                    description: row.get(4)?,
+                    source: row.get(5)?,
+                    external_id: row.get(6)?,
+                    status: row.get(7)?,
+                    policy: serde_json::from_str(&policy_json)
+                        .unwrap_or_else(|_| serde_json::json!({})),
+                    role: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
+            },
+        )
+        .ok()
+    }
+
+    pub fn authority_resource_allows(
+        &self,
+        user_id: &str,
+        scope_id: &str,
+        resource_type: &str,
+        resource_key: &str,
+        required_access: &str,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = match conn.prepare(
+            "SELECT m.role, r.access
+             FROM cortex_authority_scopes s
+             JOIN cortex_authority_memberships m ON m.scope_id = s.id
+             JOIN cortex_authority_resources r ON r.scope_id = s.id
+             WHERE m.user_id = ?1
+                AND s.id = ?2
+                AND m.status = 'active'
+                AND s.status = 'active'
+                AND r.resource_type = ?3
+                AND r.resource_key = ?4",
+        ) {
+            Ok(stmt) => stmt,
+            Err(_) => return false,
+        };
+        stmt.query_map(
+            params![user_id, scope_id, resource_type, resource_key],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        )
+        .map(|rows| {
+            rows.filter_map(|row| row.ok()).any(|(role, access)| {
+                authority_role_allows(&role, required_access)
+                    && authority_access_allows(&access, required_access)
+            })
+        })
+        .unwrap_or(false)
+    }
+
+    pub fn find_non_personal_authority_resource_scope(
+        &self,
+        user_id: &str,
+        resource_type: &str,
+        resource_key: &str,
+    ) -> Option<CortexAuthorityScope> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT s.id, s.owner_user_id, s.kind, s.name, s.description, s.source,
+                    s.external_id, s.status, s.policy_json, m.role, s.created_at, s.updated_at
+             FROM cortex_authority_scopes s
+             JOIN cortex_authority_memberships m ON m.scope_id = s.id
+             JOIN cortex_authority_resources r ON r.scope_id = s.id
+             WHERE m.user_id = ?1
+                AND m.status = 'active'
+                AND s.status = 'active'
+                AND s.kind != 'personal'
+                AND r.resource_type = ?2
+                AND r.resource_key = ?3
+             ORDER BY
+                CASE s.kind WHEN 'team' THEN 0 WHEN 'org' THEN 1 ELSE 2 END,
+                s.updated_at DESC
+             LIMIT 1",
+            params![user_id, resource_type, resource_key],
+            |row| {
+                let policy_json: String = row.get(8)?;
+                Ok(CortexAuthorityScope {
+                    id: row.get(0)?,
+                    owner_user_id: row.get(1)?,
+                    kind: row.get(2)?,
+                    name: row.get(3)?,
+                    description: row.get(4)?,
+                    source: row.get(5)?,
+                    external_id: row.get(6)?,
+                    status: row.get(7)?,
+                    policy: serde_json::from_str(&policy_json)
+                        .unwrap_or_else(|_| serde_json::json!({})),
+                    role: row.get(9)?,
+                    created_at: row.get(10)?,
+                    updated_at: row.get(11)?,
+                })
+            },
+        )
+        .ok()
     }
 
     pub fn list_authority_resources_for_user(
@@ -4289,6 +4431,35 @@ impl Database {
         steps: &[(String, String, String, Option<String>, String, String, String, i64)],
         edges: &[(String, String, String)],
     ) -> Result<String, CreateRunError> {
+        self.create_run_with_steps_and_resource_leases_with_authority(
+            user_id,
+            goal,
+            profile,
+            file_paths,
+            task_id,
+            group_id,
+            conversation_id,
+            resource_leases,
+            steps,
+            edges,
+            None,
+        )
+    }
+
+    pub fn create_run_with_steps_and_resource_leases_with_authority(
+        &self,
+        user_id: &str,
+        goal: &str,
+        profile: &str,
+        file_paths: &[String],
+        task_id: Option<&str>,
+        group_id: Option<&str>,
+        conversation_id: Option<&str>,
+        resource_leases: &[ResourceLeaseRequest],
+        steps: &[(String, String, String, Option<String>, String, String, String, i64)],
+        edges: &[(String, String, String)],
+        authority_context: Option<&serde_json::Value>,
+    ) -> Result<String, CreateRunError> {
         let conn = self.conn.lock().unwrap();
         let run_id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
@@ -4341,6 +4512,7 @@ impl Database {
                 "task_id": task_id,
                 "group_id": group_id,
                 "conversation_id": conversation_id,
+                "authority": authority_context,
             }),
         );
 
@@ -7896,9 +8068,66 @@ mod tests {
         assert_eq!(resources.len(), 1);
         assert_eq!(resources[0].resource_key, "github:hey-vera/heyvera");
         assert_eq!(resources[0].access, "write");
+        assert!(db.authority_resource_allows(
+            "user-1",
+            "org:github:hey-vera",
+            "github_repo",
+            "github:hey-vera/heyvera",
+            "write"
+        ));
+        assert!(!db.authority_resource_allows(
+            "user-2",
+            "org:github:hey-vera",
+            "github_repo",
+            "github:hey-vera/heyvera",
+            "write"
+        ));
+        let discovered = db
+            .find_non_personal_authority_resource_scope(
+                "user-1",
+                "github_repo",
+                "github:hey-vera/heyvera",
+            )
+            .expect("non-personal resource scope");
+        assert_eq!(discovered.id, "org:github:hey-vera");
+        assert_eq!(discovered.kind, "org");
 
         let unauthorized = db.list_authority_resources_for_user("user-3", "org:github:hey-vera");
         assert!(unauthorized.is_empty());
+    }
+
+    #[test]
+    fn run_creation_records_authority_context_in_operations_event() {
+        let db = test_db();
+        let run_id = db
+            .create_run_with_steps_and_resource_leases_with_authority(
+                "user-1",
+                "Ship org scoped run",
+                "auto",
+                &["src/lib.rs".to_string()],
+                Some("task-1"),
+                Some("group-1"),
+                None,
+                &[],
+                &[test_step("step-authority")],
+                &[],
+                Some(&serde_json::json!({
+                    "scope_id": "org:github:hey-vera",
+                    "scope_kind": "org",
+                    "role": "admin",
+                    "handoff_id": "handoff-1",
+                    "reason": "operator selected org context"
+                })),
+            )
+            .expect("run");
+
+        let events = db.list_run_operations_events(&run_id, 10);
+        let created = events
+            .iter()
+            .find(|event| event.event_type == "run.created")
+            .expect("run.created event");
+        assert_eq!(created.payload["authority"]["scope_id"], "org:github:hey-vera");
+        assert_eq!(created.payload["authority"]["handoff_id"], "handoff-1");
     }
 
     #[test]

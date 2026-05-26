@@ -101,10 +101,11 @@ pending -> ready -> leased -> running -> verifying -> completed
 5. Treat Live Map as read-only until leases and authority checks exist.
 6. Keep personal and org scopes on the same engine.
 7. Require explicit org-context handoff before mutating org resources from Personal Operations.
-8. Treat multi-org operations as read aggregation until single-org authority, handoff, audit, approval, and leases are enforced.
-9. Add append-only events before making Task Manager the production source of truth.
-10. Add resource leases before parallel autonomous writes.
-11. Record verifier evidence before rewarding routing/provider decisions.
+8. Require run creation against non-personal repo resources to name the authority scope; if policy requires handoff, require a handoff id before dispatch.
+9. Treat multi-org operations as read aggregation until single-org authority, handoff, audit, approval, and leases are enforced.
+10. Add append-only events before making Task Manager the production source of truth.
+11. Add resource leases before parallel autonomous writes.
+12. Record verifier evidence before rewarding routing/provider decisions.
 
 ## V1 Batter Cut
 

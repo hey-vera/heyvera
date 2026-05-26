@@ -136,6 +136,12 @@ pub struct CreateRunRequest {
     pub group_id: Option<String>,
     #[serde(default)]
     pub conversation_id: Option<String>,
+    #[serde(default)]
+    pub authority_scope_id: Option<String>,
+    #[serde(default)]
+    pub authority_handoff_id: Option<String>,
+    #[serde(default)]
+    pub authority_reason: Option<String>,
 }
 
 fn default_profile() -> String {
@@ -146,6 +152,124 @@ fn default_profile() -> String {
 pub struct CreateRunResponse {
     pub run_id: String,
     pub steps: usize,
+    pub authority_scope_id: Option<String>,
+}
+
+fn trim_optional(value: Option<String>) -> Option<String> {
+    value.map(|value| value.trim().to_string()).filter(|value| !value.is_empty())
+}
+
+fn validate_optional_id(label: &str, value: Option<&str>) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if let Some(value) = value {
+        if value.len() > 256
+            || !value
+                .chars()
+                .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '-' | '_' | ':' | '.' | '/'))
+        {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: format!("invalid {label}"),
+                }),
+            ));
+        }
+    }
+    Ok(())
+}
+
+fn validate_run_authority(
+    db: &crate::db::Database,
+    user_id: &str,
+    authority_scope_id: Option<String>,
+    authority_handoff_id: Option<String>,
+    authority_reason: Option<String>,
+    repo_key: Option<&str>,
+) -> Result<Option<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    validate_optional_id("authority_scope_id", authority_scope_id.as_deref())?;
+    validate_optional_id("authority_handoff_id", authority_handoff_id.as_deref())?;
+    let authority_scope_id = trim_optional(authority_scope_id);
+    let authority_handoff_id = trim_optional(authority_handoff_id);
+    let authority_reason = trim_optional(authority_reason);
+
+    if let Some(repo_key) = repo_key {
+        if authority_scope_id.is_none() {
+            if let Some(scope) =
+                db.find_non_personal_authority_resource_scope(user_id, "github_repo", repo_key)
+            {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    Json(ErrorResponse {
+                        error: format!(
+                            "authority_scope_id is required for {} work on {repo_key}",
+                            scope.kind
+                        ),
+                    }),
+                ));
+            }
+        }
+    }
+
+    let Some(scope_id) = authority_scope_id else {
+        db.ensure_personal_authority_scope(user_id);
+        return Ok(Some(serde_json::json!({
+            "scope_id": format!("personal:{user_id}"),
+            "scope_kind": "personal",
+            "role": "owner",
+            "handoff_id": null,
+            "reason": authority_reason,
+        })));
+    };
+
+    let scope = db
+        .get_authority_scope_for_user(user_id, &scope_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "authority_scope_id is not available to this user".into(),
+                }),
+            )
+        })?;
+
+    if scope.kind != "personal" {
+        let repo_key = repo_key.ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "repo_key is required for non-personal authority runs".into(),
+                }),
+            )
+        })?;
+        if !db.authority_resource_allows(user_id, &scope.id, "github_repo", repo_key, "write") {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "authority scope does not grant write access to repo_key".into(),
+                }),
+            ));
+        }
+        let requires_handoff = scope
+            .policy
+            .get("requires_org_handoff")
+            .and_then(|value| value.as_bool())
+            .unwrap_or(false);
+        if requires_handoff && authority_handoff_id.is_none() {
+            return Err((
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "authority_handoff_id is required for this authority scope".into(),
+                }),
+            ));
+        }
+    }
+
+    Ok(Some(serde_json::json!({
+        "scope_id": scope.id,
+        "scope_kind": scope.kind,
+        "role": scope.role,
+        "handoff_id": authority_handoff_id,
+        "reason": authority_reason,
+    })))
 }
 
 pub async fn create_run(
@@ -200,16 +324,16 @@ pub async fn create_run(
         ));
     }
 
-    if req.task_id.is_some() || req.conversation_id.is_some() {
-        let db = state.db.as_ref().ok_or_else(|| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: "database not available".into(),
-                }),
-            )
-        })?;
+    let db = state.db.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "database not available".into(),
+            }),
+        )
+    })?;
 
+    if req.task_id.is_some() || req.conversation_id.is_some() {
         if let (Some(task_id), Some(group_id)) = (req.task_id.as_deref(), req.group_id.as_deref()) {
             if !db.cortex_task_exists(&user.user_id, group_id, task_id) {
                 return Err((
@@ -232,6 +356,20 @@ pub async fn create_run(
             }
         }
     }
+
+    let authority_context = validate_run_authority(
+        db,
+        &user.user_id,
+        req.authority_scope_id.clone(),
+        req.authority_handoff_id.clone(),
+        req.authority_reason.clone(),
+        req.repo_key.as_deref(),
+    )?;
+    let response_authority_scope_id = authority_context
+        .as_ref()
+        .and_then(|value| value.get("scope_id"))
+        .and_then(|value| value.as_str())
+        .map(String::from);
 
     let scheduler_tx = state.scheduler_tx.read().await;
     let tx = scheduler_tx.as_ref().ok_or_else(|| {
@@ -256,6 +394,7 @@ pub async fn create_run(
         req.task_id.as_deref(),
         req.group_id.as_deref(),
         req.conversation_id.as_deref(),
+        authority_context,
     )
     .await
     .map_err(|e| {
@@ -277,7 +416,11 @@ pub async fn create_run(
         .map(|db| db.get_all_step_statuses(&run_id).len())
         .unwrap_or(0);
 
-    Ok(Json(CreateRunResponse { run_id, steps }))
+    Ok(Json(CreateRunResponse {
+        run_id,
+        steps,
+        authority_scope_id: response_authority_scope_id,
+    }))
 }
 
 // --- User-scoped run listing ---

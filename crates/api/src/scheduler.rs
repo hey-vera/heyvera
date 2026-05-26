@@ -1691,6 +1691,7 @@ pub async fn create_run_from_goal(
     task_id: Option<&str>,
     group_id: Option<&str>,
     conversation_id: Option<&str>,
+    authority_context: Option<serde_json::Value>,
 ) -> Result<String, String> {
     use cortex_engine::decomposer::decompose_goal;
 
@@ -1745,7 +1746,7 @@ pub async fn create_run_from_goal(
     let normalized_repo_key = normalize_repo_key(repo_key);
     let resource_leases =
         build_resource_lease_requests(file_paths, Some(&normalized_repo_key), task_id, group_id);
-    let run_id = db.create_run_with_steps_and_resource_leases(
+    let run_id = db.create_run_with_steps_and_resource_leases_with_authority(
         user_id,
         goal,
         profile,
@@ -1756,6 +1757,7 @@ pub async fn create_run_from_goal(
         &resource_leases,
         &steps,
         &edges,
+        authority_context.as_ref(),
     )
     .map_err(|err| err.message())?;
 
