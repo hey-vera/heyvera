@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
     response::IntoResponse,
     Json,
 };
@@ -109,9 +110,12 @@ pub async fn list_reports(
     user: ClerkUser,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    if !admin::is_admin(&state, &user.user_id) {
-        return Json(serde_json::json!({ "error": "admin access required", "code": "FORBIDDEN" }));
+    if admin::authorize_admin(&state, &user).await.is_err() {
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": "admin access required", "code": "FORBIDDEN" })),
+        );
     }
     let reports = db(&state).social_list_reports();
-    Json(serde_json::json!({ "reports": reports }))
+    (StatusCode::OK, Json(serde_json::json!({ "reports": reports })))
 }

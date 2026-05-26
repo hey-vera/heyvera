@@ -7,6 +7,7 @@ import {
   Loader2,
   MessageSquareText,
   RefreshCw,
+  Search,
   ShieldCheck,
   ZoomIn,
   ZoomOut,
@@ -20,6 +21,8 @@ import {
 interface OperationsGraphPanelProps {
   groupId: string;
   groupName: string;
+  focusedTaskId?: string | null;
+  onFocusTask?: (taskId: string) => void;
 }
 
 type Point = { x: number; y: number };
@@ -180,13 +183,23 @@ function DetailRow({ label, value }: { label: string; value: unknown }) {
   );
 }
 
-export default function OperationsGraphPanel({ groupId, groupName }: OperationsGraphPanelProps) {
+export default function OperationsGraphPanel({
+  groupId,
+  groupName,
+  focusedTaskId,
+  onFocusTask,
+}: OperationsGraphPanelProps) {
   const { graph, loading, error, refresh } = useGroupOperationsGraph(groupId);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [zoom, setZoom] = useState(0.82);
   const layout = useMemo(() => buildLayout(graph), [graph]);
   const selectedNode =
     layout.nodes.find((node) => node.id === selectedNodeId) ?? layout.nodes[0] ?? null;
+  const selectedTaskId = typeof selectedNode?.task_id === 'string'
+    ? selectedNode.task_id
+    : selectedNode?.type === 'task'
+      ? selectedNode.entity_id
+      : null;
 
   useEffect(() => {
     if (selectedNodeId && layout.nodes.some((node) => node.id === selectedNodeId)) return;
@@ -212,6 +225,16 @@ export default function OperationsGraphPanel({ groupId, groupName }: OperationsG
       ))
       .slice(0, 4);
   }, [graph, selectedNode]);
+
+  const handleSelectNode = useCallback((node: OperationsGraphNode) => {
+    setSelectedNodeId(node.id);
+    const taskId = typeof node.task_id === 'string'
+      ? node.task_id
+      : node.type === 'task'
+        ? node.entity_id
+        : null;
+    if (taskId) onFocusTask?.(taskId);
+  }, [onFocusTask]);
 
   return (
     <section className="rounded-xl border border-white/8 bg-white/[0.025] p-3">
@@ -326,7 +349,7 @@ export default function OperationsGraphPanel({ groupId, groupName }: OperationsG
                       node={node}
                       position={position}
                       selected={node.id === selectedNode?.id}
-                      onSelect={(next) => setSelectedNodeId(next.id)}
+                      onSelect={handleSelectNode}
                     />
                   );
                 })}
@@ -367,6 +390,22 @@ export default function OperationsGraphPanel({ groupId, groupName }: OperationsG
                 <DetailRow label="Risk" value={selectedNode.risk} />
                 <DetailRow label="Worker" value={selectedNode.assigned_worker} />
                 <DetailRow label="Verify" value={selectedNode.verification_status ?? selectedNode.verdict} />
+
+                {selectedTaskId && (
+                  <button
+                    type="button"
+                    onClick={() => onFocusTask?.(selectedTaskId)}
+                    className={[
+                      'inline-flex h-8 w-full items-center justify-center gap-2 rounded-md border px-2 text-xs font-medium transition active:scale-[0.99]',
+                      selectedTaskId === focusedTaskId
+                        ? 'border-[var(--accent)]/30 bg-[var(--accent)]/15 text-[var(--accent)]'
+                        : 'border-white/8 bg-white/[0.04] text-[var(--muted-strong)] hover:bg-white/[0.08] hover:text-white',
+                    ].join(' ')}
+                  >
+                    <Search className="h-3.5 w-3.5" />
+                    {selectedTaskId === focusedTaskId ? 'Focused in board' : 'Focus task in board'}
+                  </button>
+                )}
 
                 <div className="pt-2">
                   <div className="mb-2 text-[11px] font-semibold uppercase text-[var(--muted)]">Recent events</div>
