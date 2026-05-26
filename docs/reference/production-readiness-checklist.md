@@ -36,7 +36,7 @@
 - [x] **Frontend API fix** — Updated to use absolute API URLs  
   - Issue: Cloudflare Pages `/v1/*` proxy not working properly
   - Solution: Frontend now uses `https://api.heyvera.org/v1/*` directly
-  - Status: PR #260 auto-merging, will deploy automatically
+  - Status: PR #260 merging, will deploy automatically
 
 ## 🎯 Next Steps  
 

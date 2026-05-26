@@ -64,6 +64,9 @@ interface BoardBackendSummary {
   gatedDone: number;
   doneWithoutEvidence: number;
   pendingApprovals: number;
+  activeLeases: number;
+  pathLeases: number;
+  taskLeases: number;
 }
 
 function formatAge(timestamp: string) {
@@ -180,6 +183,9 @@ function boardSummaryFromOperations(summary: GroupOperationsSummary): BoardBacke
     gatedDone: summary.tasks.completion.gated_done ?? 0,
     doneWithoutEvidence: summary.tasks.completion.done_without_evidence ?? 0,
     pendingApprovals: summary.approvals?.pending ?? 0,
+    activeLeases: summary.resource_leases?.active ?? 0,
+    pathLeases: summary.resource_leases?.by_type.path ?? 0,
+    taskLeases: summary.resource_leases?.by_type.task ?? 0,
   };
 }
 
@@ -515,6 +521,9 @@ export default function TaskBoard({
               doneWithoutEvidence: nextBoardSummary.doneWithoutEvidence
                 + (summary.tasks.completion.done_without_evidence ?? 0),
               pendingApprovals: nextBoardSummary.pendingApprovals + (summary.approvals?.pending ?? 0),
+              activeLeases: nextBoardSummary.activeLeases + (summary.resource_leases?.active ?? 0),
+              pathLeases: nextBoardSummary.pathLeases + (summary.resource_leases?.by_type.path ?? 0),
+              taskLeases: nextBoardSummary.taskLeases + (summary.resource_leases?.by_type.task ?? 0),
             };
           }
         } catch {
@@ -585,8 +594,18 @@ export default function TaskBoard({
               <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2">
                 <p className="text-[10px] uppercase text-[var(--muted)]">Execution</p>
                 <p className="mt-0.5 text-sm font-semibold text-white">
-                  {boardSummary.failedRuns} run fail · {boardSummary.failedSteps + boardSummary.orphanedSteps} step issue
+                  {boardSummary.activeLeases} lock{boardSummary.activeLeases === 1 ? '' : 's'} · {boardSummary.failedSteps + boardSummary.orphanedSteps} step issue
                 </p>
+                {boardSummary.activeLeases > 0 && (
+                  <p className="mt-0.5 text-[10px] text-[var(--muted)]">
+                    {boardSummary.pathLeases} path · {boardSummary.taskLeases} task
+                  </p>
+                )}
+                {boardSummary.failedRuns > 0 && (
+                  <p className="mt-0.5 text-[10px] text-red-100">
+                    {boardSummary.failedRuns} failed run{boardSummary.failedRuns === 1 ? '' : 's'}
+                  </p>
+                )}
               </div>
             </div>
           )}
