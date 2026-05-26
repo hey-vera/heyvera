@@ -61,6 +61,13 @@ pub async fn authorize_admin(
     ))
 }
 
+pub async fn resolve_admin(
+    state: &AppState,
+    user: &ClerkUser,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    authorize_admin(state, user).await
+}
+
 pub async fn require_admin_middleware(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
