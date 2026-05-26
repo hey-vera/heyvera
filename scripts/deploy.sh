@@ -151,6 +151,7 @@ echo "[meta] Wrote deploy metadata to ${DEPLOY_META_FILE}"
 
 echo "[clawnet] Building Node/Hono API..."
 npm ci
+rm -rf dist
 npm run build
 
 echo "[site] Syncing site/ to $WWW_DIR"
