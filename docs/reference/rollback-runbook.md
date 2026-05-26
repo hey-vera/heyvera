@@ -105,7 +105,160 @@ CORTEX_BILLING_ENFORCED=false
 
 ---
 
-## 4. Emergency Contacts / Escalation
+## 4. Incident Response
+
+### Escalation steps
+
+1. **Detect** — Alert fires (PagerDuty/Uptime Robot) or user report lands in #ops.
+2. **Triage** — Check `/v1/health` and `/v1/ready`. Determine blast radius: one user, one feature, or all users?
+3. **Fix** — Apply the matching remediation below. Prefer reversible actions first (feature flag, rollback) over surgery.
+4. **Verify** — Confirm the fix with the verification steps for that scenario. Check `/v1/health` returns `200`.
+5. **Postmortem** — Post a brief summary to #ops: what broke, when, why, and what changes to prevent recurrence.
+
+---
+
+### Common failure scenarios
+
+#### DB corruption (SQLite WAL issues, locked database)
+
+**Symptoms:** API returns `500` on any write endpoint; logs show `database is locked`, `disk I/O error`, or `SQLITE_CORRUPT`; WAL file unusually large.
+
+**Diagnosis:**
+```bash
+# Check WAL size (healthy: <100MB; bloated: multiple GB)
+ls -lh /home/deploy/cortex-data/cortex.db-wal
+
+# Integrity check (safe read-only operation)
+sqlite3 /home/deploy/cortex-data/cortex.db "PRAGMA integrity_check;"
+
+# Look for lock holder
+lsof /home/deploy/cortex-data/cortex.db
+```
+
+**Remediation:**
+```bash
+# 1. Stop the server to release locks
+systemctl stop cortex-api
+
+# 2. Checkpoint the WAL back into the main db (if db is intact)
+sqlite3 /home/deploy/cortex-data/cortex.db "PRAGMA wal_checkpoint(TRUNCATE);"
+
+# 3. If integrity_check reports errors, restore from last backup:
+cp /home/deploy/cortex-data/cortex.db /home/deploy/cortex-data/cortex.db.corrupted-$(date +%Y%m%d-%H%M%S)
+gunzip -c /home/deploy/cortex-data/backups/cortex-<LATEST>.db.gz > /home/deploy/cortex-data/cortex.db
+
+# 4. Restart
+systemctl start cortex-api
+```
+
+**Verify:** `curl http://localhost:3402/v1/health` returns `200`; write a test record via API.
+
+---
+
+#### Auth outage (Clerk down, JWKS cache expired)
+
+**Symptoms:** All authenticated requests return `401`; logs show `Failed to fetch JWKS`, `JWT verification failed`, or `clock skew too large`.
+
+**Diagnosis:**
+```bash
+# Check Clerk status
+curl -s https://status.clerk.com/api/v2/summary.json | jq '.status.description'
+
+# Check if JWKS endpoint is reachable from the server
+curl -v https://<your-clerk-frontend-api>/.well-known/jwks.json
+
+# Check server clock drift (Clerk rejects tokens >5 min skew)
+date -u && curl -sI https://api.clerk.com | grep -i date
+```
+
+**Remediation:**
+- **Clerk is down:** No code fix possible. Monitor [status.clerk.com](https://status.clerk.com). Set `CLERK_SECRET_KEY` to empty to disable auth enforcement in dev; do not do this in production. ETA: Clerk SLA is 99.9%.
+- **JWKS cache expired:** Restart the API process to force a fresh JWKS fetch. The backend caches JWKS on startup.
+- **Clock skew:** Sync NTP: `sudo timedatectl set-ntp true && sudo timedatectl`.
+
+**Verify:** A valid Clerk JWT returns `200` from a protected endpoint.
+
+---
+
+#### Storage failure (R2/S3 unreachable, presigned URLs failing)
+
+**Symptoms:** File uploads/downloads return `5xx`; presigned URLs return `403` or `RequestExpired`; logs show `connection refused` or `timeout` to storage endpoint.
+
+**Diagnosis:**
+```bash
+# Confirm R2/S3 reachability
+curl -I https://<account-id>.r2.cloudflarestorage.com
+
+# Check presigned URL expiry config (default should be 3600s)
+grep -r "presigned\|expires_in" crates/
+
+# Confirm credentials are still valid
+aws s3 ls s3://<bucket>/ --no-sign-request   # or with credentials
+```
+
+**Remediation:**
+- **R2/S3 provider outage:** Monitor [Cloudflare status](https://www.cloudflarestatus.com) / AWS status. No code fix; serve cached content where possible.
+- **Expired presigned URLs:** These are time-limited by design. Re-request a fresh presigned URL from the API. If the API itself can't generate them (bad credentials), rotate the R2/S3 API token in the Replit Secrets panel and restart.
+- **CORS misconfiguration:** Check the bucket CORS policy allows the heyvera.org origin for `GET`/`PUT`.
+
+**Verify:** Upload a test file and confirm the presigned GET URL returns `200`.
+
+---
+
+#### Rate limiter exhaustion (legitimate traffic spike)
+
+**Symptoms:** Users see `429 Too Many Requests`; logs show rate limit hits across many distinct IPs; traffic spike visible in Cloudflare analytics.
+
+**Diagnosis:**
+```bash
+# Count 429s in last 10 minutes
+grep "429\|rate.limit" /var/log/cortex-api.log | tail -200
+
+# Check if it's one IP or distributed (bot vs. real spike)
+grep "429" /var/log/cortex-api.log | awk '{print $5}' | sort | uniq -c | sort -rn | head -20
+```
+
+**Remediation:**
+- **Legitimate spike (launch, press, viral):** Temporarily raise rate limits via env vars and restart. Coordinate with @steve before changing production limits.
+- **Bot/scraper:** Block offending IP ranges at the Cloudflare WAF level (no code deploy needed).
+- **Misconfigured limits:** If the limit is set too low by mistake, fix the env var and restart.
+
+**Verify:** Spot-check that normal user requests succeed; confirm `/v1/health` returns `200`.
+
+---
+
+#### Backend crash loop (OOM, panic, migration failure)
+
+**Symptoms:** Process exits repeatedly; systemd shows `Active: activating (auto-restart)`; logs end abruptly with `SIGSEGV`, `thread 'main' panicked`, `OOM`, or a migration error.
+
+**Diagnosis:**
+```bash
+# Check recent exits
+journalctl -u cortex-api -n 100 --no-pager
+
+# Confirm OOM kill
+dmesg | grep -i "killed process" | tail -5
+
+# Check last migration applied
+sqlite3 /home/deploy/cortex-data/cortex.db "SELECT * FROM _sqlx_migrations ORDER BY installed_on DESC LIMIT 5;"
+```
+
+**Remediation:**
+- **OOM:** Increase the server's memory limit or identify the leaking endpoint. As a stop-gap, `CORTEX_FREE_DAILY_STEP_LIMIT` can reduce workload. Restart the process.
+- **Panic (Rust):** The panic message in logs points to the exact file/line. If it's reproducible, revert to the last known-good commit and push. If it's a one-off, restart.
+- **Migration failure:** The migration that failed will be logged by name. Do NOT re-run automatically — inspect the migration SQL, fix the data or schema manually, then mark it applied:
+  ```sql
+  -- Only after manually applying the SQL:
+  INSERT INTO _sqlx_migrations (version, description, installed_on, success, checksum, execution_time)
+  VALUES (<version>, '<desc>', datetime('now'), 1, X'<checksum>', 0);
+  ```
+  Or restore from the pre-migration backup (safest option).
+
+**Verify:** Process stays up for 5+ minutes with no restarts; `curl http://localhost:3402/v1/health` returns `200`; check `journalctl -u cortex-api -f` for stability.
+
+---
+
+## 5. Emergency Contacts / Escalation
 
 | Level | Contact | When |
 |---|---|---|

@@ -268,7 +268,7 @@ Status: blocked until backend deploy, smoke tests, and monitoring pass
 - [ ] Production env vars are verified against code paths actually used at runtime.
 - [x] SQLite backups are scheduled (`scripts/backup.sh` — incremental backup with 14-day retention; `scripts/backup-db.sh` for manual runs). (Note: Postgres replaced by SQLite throughout.)
 - [x] Restore drill script exists (`scripts/restore-db.sh` — 154 lines covering restore with verification steps).
-- [ ] Offsite backup exists — `scripts/backup.sh` backs up locally; no remote/offsite copy or rclone/S3 sync is configured.
+- [x] Offsite backup exists (`scripts/backup-db.sh` — optional S3/R2 sync via `BACKUP_S3_BUCKET` env var, supports rclone and aws cli).
 - [x] Redis loss behavior is documented — N/A: no Redis; in-memory rate limiter state is lost on restart (acceptable for current design).
 - [x] Object storage lifecycle policy is documented (`docs/reference/r2-media-setup.md` — R2 bucket, custom domain, CORS policy documented).
 - [x] Rollback runbook exists (`docs/reference/rollback-runbook.md` — covers git revert, Cloudflare Pages rollback, and SQLite migration rollback).
@@ -277,7 +277,7 @@ Status: blocked until backend deploy, smoke tests, and monitoring pass
 - [ ] Load test has been run and passed against a production-equivalent environment.
 - [x] Monitoring check script exists (`scripts/monitoring-check.sh` — health/ready checks, suitable for cron alerting).
 - [ ] Monitoring dashboard is live (no hosted dashboard configured; monitoring-check.sh is a local script).
-- [ ] Incident/runbook docs are updated.
+- [x] Incident/runbook docs are updated (rollback-runbook.md Section 4: Incident Response — 5 failure scenarios with diagnosis + remediation).
 
 ## Current Readout
 
