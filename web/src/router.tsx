@@ -1,16 +1,26 @@
 import { createBrowserRouter, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { lazy, Suspense } from 'react';
 import { AppShell } from './components/layout/AppShell';
-import { HomePage } from './pages/HomePage';
-import { ExplorePage } from './pages/ExplorePage';
-import { NotificationsPage } from './pages/NotificationsPage';
-import { MessagesPage } from './pages/MessagesPage';
-import { BookmarksPage } from './pages/BookmarksPage';
-import { CommunitiesPage } from './pages/CommunitiesPage';
-import { PremiumPage } from './pages/PremiumPage';
-import { ProfilePage } from './pages/ProfilePage';
-import { SettingsPage } from './pages/SettingsPage';
-import { AIPage } from './pages/AIPage';
-import { PostThreadPage } from './pages/PostThreadPage';
+
+const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })));
+const ExplorePage = lazy(() => import('./pages/ExplorePage').then(m => ({ default: m.ExplorePage })));
+const NotificationsPage = lazy(() => import('./pages/NotificationsPage').then(m => ({ default: m.NotificationsPage })));
+const MessagesPage = lazy(() => import('./pages/MessagesPage').then(m => ({ default: m.MessagesPage })));
+const BookmarksPage = lazy(() => import('./pages/BookmarksPage').then(m => ({ default: m.BookmarksPage })));
+const CommunitiesPage = lazy(() => import('./pages/CommunitiesPage').then(m => ({ default: m.CommunitiesPage })));
+const PremiumPage = lazy(() => import('./pages/PremiumPage').then(m => ({ default: m.PremiumPage })));
+const ProfilePage = lazy(() => import('./pages/ProfilePage').then(m => ({ default: m.ProfilePage })));
+const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const AIPage = lazy(() => import('./pages/AIPage').then(m => ({ default: m.AIPage })));
+const PostThreadPage = lazy(() => import('./pages/PostThreadPage').then(m => ({ default: m.PostThreadPage })));
+
+function PageLoader() {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'center', padding: '3rem 0' }}>
+      <div style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>Loading...</div>
+    </div>
+  );
+}
 
 function RootLayout() {
   const location = useLocation();
@@ -18,7 +28,9 @@ function RootLayout() {
 
   return (
     <AppShell activeRoute={activeRoute}>
-      <Outlet />
+      <Suspense fallback={<PageLoader />}>
+        <Outlet />
+      </Suspense>
     </AppShell>
   );
 }

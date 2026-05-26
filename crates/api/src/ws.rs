@@ -1250,13 +1250,13 @@ async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, St
         }
     };
 
-    let keys = clerk::get_or_refresh_jwks_pub(&state.jwks_cache, clerk_secret, false).await?;
+    let keys = clerk::get_or_refresh_jwks_pub(&state.jwks_cache, &state.jwks_stampede, clerk_secret, false).await?;
 
     match clerk::verify_token_pub(token, &keys) {
         Ok(user_id) => Ok(user_id),
         Err(_) => {
             let keys =
-                clerk::get_or_refresh_jwks_pub(&state.jwks_cache, clerk_secret, true).await?;
+                clerk::get_or_refresh_jwks_pub(&state.jwks_cache, &state.jwks_stampede, clerk_secret, true).await?;
             clerk::verify_token_pub(token, &keys)
         }
     }

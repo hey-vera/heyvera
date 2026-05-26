@@ -496,6 +496,53 @@ pub async fn delete_promo_code(
     }
 }
 
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+#[derive(Deserialize)]
+pub struct AuditLogQuery {
+    #[serde(default = "default_page")]
+    pub page: i64,
+}
+
+fn default_page() -> i64 { 1 }
+
+pub async fn get_audit_log(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Query(query): Query<AuditLogQuery>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    resolve_admin(&state, &user).await?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    let page = query.page.max(1);
+    let entries = db.audit_log_list(page);
+    let total = entries.len();
+    Ok(Json(serde_json::json!({
+        "entries": entries,
+        "page": page,
+        "per_page": 50,
+        "count": total,
+    })))
+}
+
+// ─── Counter Reconciliation ───────────────────────────────────────────────────
+
+pub async fn reconcile_counters(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    resolve_admin(&state, &user).await?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    let updated = db.social_reconcile_counters();
+    tracing::info!("admin {} triggered counter reconciliation: {} posts updated", user.user_id, updated);
+    Ok(Json(serde_json::json!({ "updated": updated })))
+}
+
 #[derive(Deserialize)]
 pub struct RedemptionQuery {
     pub code: Option<String>,

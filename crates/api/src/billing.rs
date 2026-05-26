@@ -291,6 +291,19 @@ pub enum BillingRejection {
     PaymentRequired,
 }
 
+/// Check whether a user has an active premium subscription.
+/// Returns true when the subscription status is "active" or "trialing".
+pub fn is_premium(state: &AppState, user_id: &str) -> bool {
+    let db = match state.db.as_ref() {
+        Some(db) => db,
+        None => return false,
+    };
+    match db.get_subscription(user_id) {
+        Some(s) => matches!(s.status.as_str(), "active" | "trialing"),
+        None => false,
+    }
+}
+
 /// Quick check: can this user send chat messages?
 /// Returns None if allowed, Some(AccessState) if blocked.
 pub fn check_chat_access(state: &AppState, user_id: &str) -> Option<AccessState> {
