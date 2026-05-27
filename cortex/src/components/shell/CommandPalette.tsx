@@ -255,6 +255,7 @@ export default function CommandPalette({
           <input
             ref={inputRef}
             value={query}
+            aria-label="Search commands"
             onChange={(event) => setQuery(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === 'Escape') onClose();

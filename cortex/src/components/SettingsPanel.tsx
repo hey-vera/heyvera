@@ -48,10 +48,8 @@ function saveDefaultProfile(profile: RunProfile) {
   } catch { /* ignore */ }
 }
 
-function requestAccountDeletion() {
-  // GDPR compliance placeholder — triggers server-side deletion request in production
-  alert('Account deletion requested. You\'ll receive a confirmation email.');
-}
+// TODO: Replace with real DELETE /api/account endpoint when backend supports it.
+// For now, direct users to support for GDPR-compliant account deletion.
 
 interface NotificationPrefs {
   taskCompletions: boolean;
@@ -145,6 +143,8 @@ function AccountTab({ providers }: { providers: ProviderAuthInfo[] }) {
   const { user } = useUser();
   const [defaultProfile, setDefaultProfile] = useState<RunProfile>(readDefaultProfile);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleteInput, setDeleteInput] = useState('');
+  const [deleteSubmitted, setDeleteSubmitted] = useState(false);
 
   const handleProfileChange = (profile: RunProfile) => {
     setDefaultProfile(profile);
@@ -257,37 +257,64 @@ function AccountTab({ providers }: { providers: ProviderAuthInfo[] }) {
           Danger zone
         </h3>
         <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3">
-          <div className="flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-white">Delete account</p>
-              <p className="mt-0.5 text-xs text-[var(--muted)]">
-                Permanently delete your account and all associated data.
-              </p>
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p className="text-sm font-medium text-white">Delete account</p>
+                <p className="mt-0.5 text-xs text-[var(--muted)]">
+                  Permanently delete your account and all associated data.
+                </p>
+              </div>
+              {!showDeleteConfirm && !deleteSubmitted && (
+                <button
+                  type="button"
+                  onClick={() => { setShowDeleteConfirm(true); setDeleteInput(''); }}
+                  className="shrink-0 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-500/20 active:scale-95"
+                >
+                  Delete account
+                </button>
+              )}
             </div>
-            {!showDeleteConfirm ? (
-              <button
-                type="button"
-                onClick={() => setShowDeleteConfirm(true)}
-                className="shrink-0 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-500/20 active:scale-95"
-              >
-                Delete account
-              </button>
-            ) : (
-              <div className="flex shrink-0 items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowDeleteConfirm(false)}
-                  className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-white"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setShowDeleteConfirm(false); requestAccountDeletion(); }}
-                  className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-400 active:scale-95"
-                >
-                  Confirm
-                </button>
+            {showDeleteConfirm && !deleteSubmitted && (
+              <div className="flex flex-col gap-2 rounded-lg border border-red-500/15 bg-red-500/5 p-3">
+                <p className="text-xs text-red-200">
+                  Type <span className="font-mono font-bold">DELETE</span> to confirm account deletion:
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={deleteInput}
+                    onChange={(e) => setDeleteInput(e.target.value)}
+                    placeholder="Type DELETE"
+                    className="flex-1 rounded-lg border border-white/10 bg-[var(--composer)] px-3 py-2 font-mono text-sm text-white placeholder:text-white/20 focus:border-red-400/50 focus:outline-none"
+                    autoComplete="off"
+                    spellCheck={false}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    disabled={deleteInput !== 'DELETE'}
+                    onClick={() => { setShowDeleteConfirm(false); setDeleteSubmitted(true); }}
+                    className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-400 active:scale-95 disabled:opacity-30"
+                  >
+                    Confirm
+                  </button>
+                </div>
+              </div>
+            )}
+            {deleteSubmitted && (
+              <div className="rounded-lg border border-amber-400/20 bg-amber-400/8 p-3">
+                <p className="text-xs text-amber-200">
+                  Account deletion is not yet available as a self-service action.
+                  Please contact <a href="mailto:support@heyvera.org" className="font-medium underline">support@heyvera.org</a> to
+                  request account deletion. We will process your request within 30 days per GDPR requirements.
+                </p>
               </div>
             )}
           </div>

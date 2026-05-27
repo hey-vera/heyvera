@@ -21,15 +21,16 @@ interface UsageData {
   };
 }
 
-// Placeholder usage — replace with real API call when endpoint exists
-const PLACEHOLDER_USAGE: UsageData = {
-  tasks: 14,
-  runs: 38,
-  groups: 2,
+// TODO: Wire up to a real usage API endpoint (e.g. GET /api/billing/usage)
+// when one exists. For now, show zeros so new users don't see fake data.
+const FREE_TIER_USAGE: UsageData = {
+  tasks: 0,
+  runs: 0,
+  groups: 0,
   limits: {
-    tasks: 25,
-    runs: 100,
-    groups: 3,
+    tasks: 50,
+    runs: 10,
+    groups: 5,
   },
 };
 
@@ -64,7 +65,7 @@ function UsageBar({ label, value, limit, showUpgrade }: { label: string; value: 
 }
 
 function UsageSummary({ isPro }: { isPro: boolean }) {
-  const usage = PLACEHOLDER_USAGE;
+  const usage = FREE_TIER_USAGE;
   return (
     <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
       <p className="mb-3 text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">

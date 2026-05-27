@@ -243,6 +243,7 @@ export default function ChatComposer({
             rows={1}
             placeholder={placeholder}
             enterKeyHint="send"
+            aria-label="Message input"
             className="max-h-48 min-h-[52px] w-full resize-none bg-transparent px-3 py-2 text-sm text-white outline-none placeholder:text-[var(--muted)]"
             onChange={(event) => { onDraftChange(event.target.value); recomputeGhost(event.target.value); }}
             onKeyDown={handleKeyDown}

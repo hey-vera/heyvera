@@ -53,6 +53,7 @@ import OperationsRoom from './components/operations/OperationsRoom';
 import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import NotFoundPage from './components/NotFoundPage';
 import {
+  AUTH_CHANNEL_NAME,
   CortexApiError,
   getAdminStats,
   getDeploymentStatus,
@@ -282,6 +283,7 @@ function CortexShell() {
   const [personalTaskManagerOpen, setPersonalTaskManagerOpen] = useState(false);
   const [taskManagerSwitcherOpen, setTaskManagerSwitcherOpen] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const billingEnabled = clerkEnabled && isSignedIn;
 
   const handleConversationCreated = useCallback((conversationId: string) => {
@@ -361,7 +363,34 @@ function CortexShell() {
       setSessionExpired(true);
     }
     window.addEventListener('cortex:unauthorized', handle401 as EventListener);
-    return () => window.removeEventListener('cortex:unauthorized', handle401 as EventListener);
+
+    // Multi-tab session sync: listen for logout broadcast from other tabs
+    const authChannel = typeof BroadcastChannel !== 'undefined'
+      ? new BroadcastChannel(AUTH_CHANNEL_NAME)
+      : null;
+    const onAuthMessage = (event: MessageEvent<{ type?: string }>) => {
+      if (event.data?.type === 'logout') {
+        setSessionExpired(true);
+      }
+    };
+    authChannel?.addEventListener('message', onAuthMessage);
+
+    return () => {
+      window.removeEventListener('cortex:unauthorized', handle401 as EventListener);
+      authChannel?.removeEventListener('message', onAuthMessage);
+      authChannel?.close();
+    };
+  }, []);
+
+  useEffect(() => {
+    const goOnline = () => setIsOffline(false);
+    const goOffline = () => setIsOffline(true);
+    window.addEventListener('online', goOnline);
+    window.addEventListener('offline', goOffline);
+    return () => {
+      window.removeEventListener('online', goOnline);
+      window.removeEventListener('offline', goOffline);
+    };
   }, []);
 
   const billing = useBilling(billingEnabled);
@@ -645,6 +674,11 @@ function CortexShell() {
 
   return (
     <div className="flex h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      {isOffline && (
+        <div className="fixed top-0 left-0 right-0 z-50 bg-amber-500/90 text-black text-center text-sm py-2 font-medium">
+          You're offline. Some features may be unavailable.
+        </div>
+      )}
       <a
         href="#main-content"
         className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-black focus:px-4 focus:py-2 focus:rounded"

@@ -14,7 +14,6 @@ if (storedVersion !== APP_VERSION) {
   localStorage.clear()
   sessionStorage.clear()
   localStorage.setItem('cortex-app-version', APP_VERSION)
-  console.log('Cleared old app data for fresh start')
 }
 
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as string | undefined
