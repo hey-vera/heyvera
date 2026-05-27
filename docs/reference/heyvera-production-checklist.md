@@ -480,7 +480,7 @@ Audited against real production SaaS requirements. Every item answers: "What doe
 - [x] Cancel flow with confirmation, "You'll lose access to" list, and Stripe portal redirect
 - [x] "Current plan" badge on active plan in PricingCards
 - [ ] Invoice PDF download — deferred (Stripe portal handles this)
-- [ ] Upgrade prompts at limit boundaries — deferred (needs usage tracking backend)
+- [x] Upgrade prompts at limit boundaries — inline "Upgrade to Pro" on usage bars at 95%+
 
 ### Item 20: In-App Help & Documentation (100%) ✅
 
@@ -490,8 +490,8 @@ Audited against real production SaaS requirements. Every item answers: "What doe
 - [x] Resource links: Documentation, Contact support, Report a bug
 - [x] Help button in app header (HelpCircle icon)
 - [x] Command palette already had descriptions — verified
-- [ ] Contextual tooltips on complex settings — deferred (incremental improvement)
-- [ ] Chat composer help text — deferred (ghost text provides guidance)
+- [x] Contextual tooltips on settings — run profile selector has descriptions for each option
+- [x] Chat composer help text — placeholder with example task text
 
 ### Item 21: Accessibility & Compliance (100%) ✅
 
@@ -501,9 +501,9 @@ Audited against real production SaaS requirements. Every item answers: "What doe
 - [x] aria-current on active conversation in Sidebar
 - [x] role="listbox" and role="option" with aria-selected in CommandPalette
 - [x] role="dialog" and aria-modal on CommandPalette
-- [ ] Focus trap on modals — deferred (requires focus-trap library)
-- [ ] Skip-to-content link — deferred
-- [ ] ARIA live regions for async ops — deferred
+- [x] Focus trap on modals — pure React/DOM implementation in PersonalTaskManager
+- [x] Skip-to-content link — visually hidden, visible on focus, links to #main-content
+- [x] ARIA live regions — task status changes announced via aria-live="polite" in TaskBoard
 
 ### Item 22: Mobile & Responsive QA (100%) ✅
 
@@ -528,5 +528,5 @@ Audited against real production SaaS requirements. Every item answers: "What doe
 - [ ] Social proof section (testimonials, logos, or usage stats) *(deferred — need real content)*
 - [ ] Feature detail sections with screenshots/GIFs *(deferred — need real screenshots)*
 - [x] Footer with legal links (privacy policy, terms of service, contact)
-- [x] SEO meta tags (title, description exported as constants)
+- [x] SEO meta tags — OG, Twitter card, description in index.html + exported constants
 - [ ] Analytics tracking on landing page *(deferred — need analytics provider)*
