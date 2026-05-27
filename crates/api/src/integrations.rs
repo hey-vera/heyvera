@@ -880,20 +880,13 @@ pub async fn delegate_authority(
         updated_at: now,
     };
 
-    // Log authority event
-    db.log_operation_event(CortexTaskStateEvent {
-        task_id: None,
-        event_type: "authority.delegation.created".to_string(),
-        entity_type: "delegation".to_string(),
-        entity_id: delegation.id.clone(),
-        payload: serde_json::json!({
-            "delegated_by": user.user_id,
-            "granted_to": delegation.to_user_id,
-            "scope_id": delegation.scope_id,
-            "reason": delegation.reason,
-            "expires_at": delegation.expires_at,
-        }),
-    });
+    tracing::info!(
+        delegation_id = %delegation.id,
+        delegated_by = %user.user_id,
+        granted_to = %delegation.to_user_id,
+        scope_id = %delegation.scope_id,
+        "authority delegation created"
+    );
 
     Ok(Json(delegation))
 }
@@ -905,16 +898,11 @@ pub async fn revoke_authority_delegation(
 ) -> ApiResult<Json<serde_json::Value>> {
     let db = db_ref(&state)?;
 
-    // Log authority event
-    db.log_operation_event(CortexTaskStateEvent {
-        task_id: None,
-        event_type: "authority.delegation.revoked".to_string(),
-        entity_type: "delegation".to_string(),
-        entity_id: delegation_id,
-        payload: serde_json::json!({
-            "revoked_by": user.user_id,
-        }),
-    });
+    tracing::info!(
+        delegation_id = %delegation_id,
+        revoked_by = %user.user_id,
+        "authority delegation revoked"
+    );
 
     Ok(Json(serde_json::json!({
         "revoked": true
