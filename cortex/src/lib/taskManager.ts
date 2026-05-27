@@ -25,6 +25,9 @@ const STATUS_LABELS: Record<TaskStatus, string> = {
   assigned: 'Assigned',
   'in-progress': 'In progress',
   done: 'Done',
+  paused: 'Paused',
+  cancelled: 'Cancelled',
+  queued: 'Queued',
 };
 
 const MEMBER_COLORS = ['#9cc7b8', '#f3c969', '#8fb4ff', '#d9a5ff', '#f69fae'];
@@ -55,7 +58,8 @@ function normalize(value: string) {
 }
 
 function isTaskStatus(value: unknown): value is TaskStatus {
-  return value === 'created' || value === 'assigned' || value === 'in-progress' || value === 'done';
+  return value === 'created' || value === 'assigned' || value === 'in-progress' || value === 'done'
+    || value === 'paused' || value === 'cancelled' || value === 'queued';
 }
 
 function isTaskPriority(value: unknown): value is TaskPriority {
@@ -100,6 +104,11 @@ function isActivity(value: unknown): value is TaskActivity {
       || candidate.kind === 'handoff'
       || candidate.kind === 'linked'
       || candidate.kind === 'note'
+      || candidate.kind === 'paused'
+      || candidate.kind === 'resumed'
+      || candidate.kind === 'retried'
+      || candidate.kind === 'cancelled'
+      || candidate.kind === 'prioritized'
     );
 }
 
@@ -223,10 +232,13 @@ export function formatTaskStatus(status: TaskStatus) {
 }
 
 export function buildTaskSummary(state: TaskManagerState) {
-  const open = state.tasks.filter((task) => task.status !== 'done').length;
+  const open = state.tasks.filter((task) => task.status !== 'done' && task.status !== 'cancelled').length;
   const inProgress = state.tasks.filter((task) => task.status === 'in-progress').length;
   const done = state.tasks.filter((task) => task.status === 'done').length;
-  return { open, inProgress, done, total: state.tasks.length };
+  const paused = state.tasks.filter((task) => task.status === 'paused').length;
+  const cancelled = state.tasks.filter((task) => task.status === 'cancelled').length;
+  const queued = state.tasks.filter((task) => task.status === 'queued').length;
+  return { open, inProgress, done, paused, cancelled, queued, total: state.tasks.length };
 }
 
 export type ParsedTaskAction = TaskCommandAction;
@@ -328,13 +340,83 @@ export function parseTaskCommand(text: string, state: TaskManagerState): ParsedT
     return actions;
   }
 
-  if (/\b(stop|pause|hold)\b/.test(normalized)) {
-    actions.push({
-      type: 'note',
-      title: titleFromText(trimmed),
-      summary: `Coordination note: ${trimmed}`,
-    });
-    return actions;
+  if (/\b(cancel|abort|drop)\b/.test(normalized)) {
+    const target = state.tasks.find((task) =>
+      task.status !== 'done' && task.status !== 'cancelled' && normalized.includes(normalize(task.title).slice(0, 24)),
+    ) ?? state.tasks.find((task) => task.status !== 'done' && task.status !== 'cancelled');
+    if (target) {
+      actions.push({
+        type: 'cancel',
+        title: target.title,
+        targetTaskId: target.id,
+        summary: `Cancelled ${target.title}.`,
+      });
+      return actions;
+    }
+  }
+
+  if (/\b(pause|hold|freeze)\b/.test(normalized)) {
+    const target = state.tasks.find((task) =>
+      task.status === 'in-progress' && normalized.includes(normalize(task.title).slice(0, 24)),
+    ) ?? state.tasks.find((task) => task.status === 'in-progress');
+    if (target) {
+      actions.push({
+        type: 'pause',
+        title: target.title,
+        targetTaskId: target.id,
+        summary: `Paused ${target.title}.`,
+      });
+      return actions;
+    }
+  }
+
+  if (/\b(resume|unpause|continue|unhold)\b/.test(normalized)) {
+    const target = state.tasks.find((task) =>
+      task.status === 'paused' && normalized.includes(normalize(task.title).slice(0, 24)),
+    ) ?? state.tasks.find((task) => task.status === 'paused');
+    if (target) {
+      actions.push({
+        type: 'resume',
+        title: target.title,
+        targetTaskId: target.id,
+        summary: `Resumed ${target.title}.`,
+      });
+      return actions;
+    }
+  }
+
+  if (/\b(retry|rerun|redo)\b/.test(normalized)) {
+    const target = state.tasks.find((task) =>
+      (task.status === 'done' || task.status === 'cancelled' || task.latestRunStatus === 'failed')
+      && normalized.includes(normalize(task.title).slice(0, 24)),
+    ) ?? state.tasks.find((task) =>
+      task.latestRunStatus === 'failed' || task.status === 'cancelled',
+    );
+    if (target) {
+      actions.push({
+        type: 'retry',
+        title: target.title,
+        targetTaskId: target.id,
+        summary: `Retrying ${target.title}.`,
+      });
+      return actions;
+    }
+  }
+
+  if (/\b(urgent|escalate|p0|blocker)\b/.test(normalized)) {
+    const target = state.tasks.find((task) =>
+      task.status !== 'done' && task.status !== 'cancelled' && normalized.includes(normalize(task.title).slice(0, 24)),
+    ) ?? state.tasks.find((task) => task.status !== 'done' && task.status !== 'cancelled');
+    if (target) {
+      actions.push({
+        type: 'prioritize',
+        title: target.title,
+        targetTaskId: target.id,
+        priority: 'urgent',
+        summary: `Escalated ${target.title} to urgent.`,
+      });
+      return actions;
+    }
   }
 
   return actions;
@@ -380,6 +462,57 @@ function applyActions(
         summary: action.summary,
         createdAt: timestamp,
       });
+      continue;
+    }
+
+    if (action.type === 'pause' && action.targetTaskId) {
+      tasks = tasks.map((task) =>
+        task.id === action.targetTaskId
+          ? { ...task, status: 'paused' as const, updatedAt: timestamp }
+          : task,
+      );
+      activity.push({ id: createId('activity'), groupId, taskId: action.targetTaskId, kind: 'paused', actor, summary: action.summary, createdAt: timestamp });
+      continue;
+    }
+
+    if (action.type === 'resume' && action.targetTaskId) {
+      tasks = tasks.map((task) =>
+        task.id === action.targetTaskId
+          ? { ...task, status: 'in-progress' as const, updatedAt: timestamp }
+          : task,
+      );
+      activity.push({ id: createId('activity'), groupId, taskId: action.targetTaskId, kind: 'resumed', actor, summary: action.summary, createdAt: timestamp });
+      continue;
+    }
+
+    if (action.type === 'retry' && action.targetTaskId) {
+      tasks = tasks.map((task) =>
+        task.id === action.targetTaskId
+          ? { ...task, status: 'in-progress' as const, latestRunStatus: null, latestRunSyncedAt: null, latestRunStepSummary: null, updatedAt: timestamp }
+          : task,
+      );
+      activity.push({ id: createId('activity'), groupId, taskId: action.targetTaskId, kind: 'retried', actor, summary: action.summary, createdAt: timestamp });
+      continue;
+    }
+
+    if (action.type === 'cancel' && action.targetTaskId) {
+      tasks = tasks.map((task) =>
+        task.id === action.targetTaskId
+          ? { ...task, status: 'cancelled' as const, updatedAt: timestamp }
+          : task,
+      );
+      activity.push({ id: createId('activity'), groupId, taskId: action.targetTaskId, kind: 'cancelled', actor, summary: action.summary, createdAt: timestamp });
+      continue;
+    }
+
+    if (action.type === 'prioritize' && action.targetTaskId) {
+      const priority = action.priority ?? 'high';
+      tasks = tasks.map((task) =>
+        task.id === action.targetTaskId
+          ? { ...task, priority, updatedAt: timestamp }
+          : task,
+      );
+      activity.push({ id: createId('activity'), groupId, taskId: action.targetTaskId, kind: 'prioritized', actor, summary: action.summary, createdAt: timestamp });
       continue;
     }
 
@@ -716,6 +849,41 @@ export function useTaskManager(group: CortexGroup, userId: string) {
     return nextTask;
   }, [group.id, publishTaskPatch, state]);
 
+  const pauseTask = useCallback((taskId: string) => {
+    const task = state.tasks.find((t) => t.id === taskId);
+    if (!task || task.status !== 'in-progress') return;
+    const actions: ParsedTaskAction[] = [{ type: 'pause', title: task.title, targetTaskId: taskId, summary: `Paused ${task.title}.` }];
+    publishTaskActions(actions, 'You', applyActions(group.id, state, actions, 'You'));
+  }, [group.id, publishTaskActions, state]);
+
+  const resumeTask = useCallback((taskId: string) => {
+    const task = state.tasks.find((t) => t.id === taskId);
+    if (!task || task.status !== 'paused') return;
+    const actions: ParsedTaskAction[] = [{ type: 'resume', title: task.title, targetTaskId: taskId, summary: `Resumed ${task.title}.` }];
+    publishTaskActions(actions, 'You', applyActions(group.id, state, actions, 'You'));
+  }, [group.id, publishTaskActions, state]);
+
+  const retryTask = useCallback((taskId: string) => {
+    const task = state.tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const actions: ParsedTaskAction[] = [{ type: 'retry', title: task.title, targetTaskId: taskId, summary: `Retrying ${task.title}.` }];
+    publishTaskActions(actions, 'You', applyActions(group.id, state, actions, 'You'));
+  }, [group.id, publishTaskActions, state]);
+
+  const cancelTask = useCallback((taskId: string) => {
+    const task = state.tasks.find((t) => t.id === taskId);
+    if (!task || task.status === 'done' || task.status === 'cancelled') return;
+    const actions: ParsedTaskAction[] = [{ type: 'cancel', title: task.title, targetTaskId: taskId, summary: `Cancelled ${task.title}.` }];
+    publishTaskActions(actions, 'You', applyActions(group.id, state, actions, 'You'));
+  }, [group.id, publishTaskActions, state]);
+
+  const prioritizeTask = useCallback((taskId: string, priority: TaskPriority) => {
+    const task = state.tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const actions: ParsedTaskAction[] = [{ type: 'prioritize', title: task.title, targetTaskId: taskId, priority, summary: `Set ${task.title} to ${priority}.` }];
+    publishTaskActions(actions, 'You', applyActions(group.id, state, actions, 'You'));
+  }, [group.id, publishTaskActions, state]);
+
   const resetTasks = useCallback(() => {
     publish(emptyState(group, userId));
   }, [group, publish, userId]);
@@ -732,6 +900,11 @@ export function useTaskManager(group: CortexGroup, userId: string) {
     updateTask,
     updateTaskRunSnapshot,
     launchTaskInProjectChat,
+    pauseTask,
+    resumeTask,
+    retryTask,
+    cancelTask,
+    prioritizeTask,
     resetTasks,
   };
 }

@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Ban,
   CheckCircle2,
   CircleDot,
   Clock3,
@@ -9,8 +10,11 @@ import {
   ListChecks,
   Loader2,
   MessageSquareText,
+  Pause,
+  Play,
   PlayCircle,
   RefreshCcw,
+  RefreshCw,
   ShieldCheck,
   UserCircle2,
   XCircle,
@@ -47,6 +51,10 @@ interface TaskInspectorProps {
     snapshot: Pick<TaskManagerTask, 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>,
   ) => void;
   onLaunchTask?: (task: TaskManagerTask) => void;
+  onPauseTask?: (taskId: string) => void;
+  onResumeTask?: (taskId: string) => void;
+  onRetryTask?: (taskId: string) => void;
+  onCancelTask?: (taskId: string) => void;
 }
 
 const STATUS_TONE: Record<TaskStatus, string> = {
@@ -54,6 +62,9 @@ const STATUS_TONE: Record<TaskStatus, string> = {
   assigned: 'border-sky-300/20 bg-sky-400/10 text-sky-100',
   'in-progress': 'border-emerald-300/20 bg-emerald-400/10 text-emerald-100',
   done: 'border-[var(--accent)]/25 bg-[var(--accent)]/10 text-[var(--accent)]',
+  paused: 'border-amber-300/20 bg-amber-300/10 text-amber-100',
+  cancelled: 'border-red-300/20 bg-red-400/10 text-red-100',
+  queued: 'border-violet-300/20 bg-violet-400/10 text-violet-100',
 };
 
 const RUN_STATUS_TONE: Record<string, string> = {
@@ -234,6 +245,10 @@ export default function TaskInspector({
   onSyncRunState,
   onUpdateRunSnapshot,
   onLaunchTask,
+  onPauseTask,
+  onResumeTask,
+  onRetryTask,
+  onCancelTask,
 }: TaskInspectorProps) {
   const [run, setRun] = useState<RunSummary | null>(null);
   const [events, setEvents] = useState<RunOperationEvent[]>([]);
@@ -452,6 +467,29 @@ export default function TaskInspector({
           </div>
           <p className="mt-1 truncate text-xs text-[var(--muted-strong)]">{formatDateTime(task.updatedAt)}</p>
         </div>
+      </div>
+
+      <div className="mt-3 flex items-center gap-1.5">
+        {task.status === 'in-progress' && onPauseTask && (
+          <button type="button" onClick={() => onPauseTask(task.id)} className="inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border border-amber-300/20 bg-amber-300/10 text-xs text-amber-100 transition hover:bg-amber-300/20 active:scale-[0.98]">
+            <Pause className="h-3.5 w-3.5" /> Pause
+          </button>
+        )}
+        {task.status === 'paused' && onResumeTask && (
+          <button type="button" onClick={() => onResumeTask(task.id)} className="inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border border-emerald-300/20 bg-emerald-400/10 text-xs text-emerald-100 transition hover:bg-emerald-400/20 active:scale-[0.98]">
+            <Play className="h-3.5 w-3.5" /> Resume
+          </button>
+        )}
+        {(task.latestRunStatus === 'failed' || task.status === 'cancelled') && onRetryTask && (
+          <button type="button" onClick={() => onRetryTask(task.id)} className="inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border border-sky-300/20 bg-sky-400/10 text-xs text-sky-100 transition hover:bg-sky-400/20 active:scale-[0.98]">
+            <RefreshCw className="h-3.5 w-3.5" /> Retry
+          </button>
+        )}
+        {task.status !== 'done' && task.status !== 'cancelled' && onCancelTask && (
+          <button type="button" onClick={() => onCancelTask(task.id)} className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md border border-red-300/15 bg-red-400/[0.06] px-3 text-xs text-[var(--muted)] transition hover:bg-red-400/15 hover:text-red-100 active:scale-[0.98]">
+            <Ban className="h-3.5 w-3.5" /> Cancel
+          </button>
+        )}
       </div>
 
       <div className="mt-3 space-y-2">

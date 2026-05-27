@@ -234,7 +234,7 @@ export interface WorkEventItem {
   model?: string;
 }
 
-export type TaskStatus = 'created' | 'assigned' | 'in-progress' | 'done';
+export type TaskStatus = 'created' | 'assigned' | 'in-progress' | 'done' | 'paused' | 'cancelled' | 'queued';
 export type TaskPriority = 'normal' | 'high' | 'urgent';
 export type TaskMemberStatus = 'online' | 'working' | 'away';
 
@@ -273,7 +273,7 @@ export interface TaskManagerTask {
   } | null;
 }
 
-export type TaskActivityKind = 'created' | 'assigned' | 'status' | 'handoff' | 'linked' | 'note';
+export type TaskActivityKind = 'created' | 'assigned' | 'status' | 'handoff' | 'linked' | 'note' | 'paused' | 'resumed' | 'retried' | 'cancelled' | 'prioritized';
 
 export interface TaskActivity {
   id: string;
@@ -293,10 +293,11 @@ export interface TaskManagerState {
 }
 
 export interface TaskCommandAction {
-  type: 'task' | 'status' | 'handoff' | 'note';
+  type: 'task' | 'status' | 'handoff' | 'note' | 'pause' | 'resume' | 'retry' | 'cancel' | 'prioritize';
   title: string;
   assigneeId?: string | null;
   status?: TaskStatus;
+  priority?: TaskPriority;
   targetTaskId?: string;
   summary: string;
 }

@@ -1,11 +1,17 @@
 import {
+  Ban,
   CheckCircle2,
   Circle,
+  Clock,
   GripVertical,
   ListTodo,
   MessageSquareText,
+  Pause,
+  Play,
   PlayCircle,
+  RefreshCw,
   UserPlus,
+  XCircle,
 } from 'lucide-react';
 import { useEffect, useMemo, useState, type DragEvent } from 'react';
 import type { TaskManagerTask, TaskMember, TaskPriority, TaskStatus } from '../../types';
@@ -25,15 +31,24 @@ interface TaskBoardProps {
   ) => void;
   onSelectTask?: (task: TaskManagerTask) => void;
   onLaunchTask?: (task: TaskManagerTask) => void;
+  onPauseTask?: (taskId: string) => void;
+  onResumeTask?: (taskId: string) => void;
+  onRetryTask?: (taskId: string) => void;
+  onCancelTask?: (taskId: string) => void;
 }
 
-const STATUSES: TaskStatus[] = ['created', 'assigned', 'in-progress', 'done'];
+const STATUSES: TaskStatus[] = ['queued', 'created', 'assigned', 'in-progress', 'paused', 'done', 'cancelled'];
+
+const BOARD_STATUSES: TaskStatus[] = ['created', 'assigned', 'in-progress', 'done'];
 
 const STATUS_ICON: Record<TaskStatus, typeof Circle> = {
   created: Circle,
   assigned: UserPlus,
   'in-progress': PlayCircle,
   done: CheckCircle2,
+  paused: Pause,
+  cancelled: XCircle,
+  queued: Clock,
 };
 
 const PRIORITY_STYLE: Record<TaskPriority, string> = {
@@ -228,6 +243,10 @@ function TaskCard({
   onUpdateTask,
   onSelectTask,
   onLaunchTask,
+  onPauseTask,
+  onResumeTask,
+  onRetryTask,
+  onCancelTask,
   backendSignal,
 }: {
   task: TaskManagerTask;
@@ -237,6 +256,10 @@ function TaskCard({
   onUpdateTask: TaskBoardProps['onUpdateTask'];
   onSelectTask?: TaskBoardProps['onSelectTask'];
   onLaunchTask?: TaskBoardProps['onLaunchTask'];
+  onPauseTask?: TaskBoardProps['onPauseTask'];
+  onResumeTask?: TaskBoardProps['onResumeTask'];
+  onRetryTask?: TaskBoardProps['onRetryTask'];
+  onCancelTask?: TaskBoardProps['onCancelTask'];
   backendSignal?: TaskBackendSignal | null;
 }) {
   const runSnapshotAge = getRunSnapshotAge(task.latestRunSyncedAt);
@@ -320,40 +343,64 @@ function TaskCard({
             <span className="shrink-0 text-[11px] text-[var(--muted)]">{formatAge(task.updatedAt)}</span>
           </div>
           {!compact && (
-            <div className="mt-3 flex items-center gap-1.5">
-              {STATUSES.map((status) => (
+            <>
+              <div className="mt-3 flex items-center gap-1.5">
+                {BOARD_STATUSES.map((status) => (
+                  <button
+                    key={status}
+                    type="button"
+                    title={formatTaskStatus(status)}
+                    aria-label={`Move to ${formatTaskStatus(status)}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onUpdateTask(task.id, { status });
+                    }}
+                    className={[
+                      'h-6 flex-1 rounded-md border text-[10px] transition active:scale-95',
+                      task.status === status
+                        ? 'border-[var(--accent)]/40 bg-[var(--accent)]/20 text-white'
+                        : 'border-white/8 bg-white/[0.02] text-[var(--muted)] hover:bg-white/[0.06] hover:text-white',
+                    ].join(' ')}
+                  >
+                    {status === 'in-progress' ? 'Active' : formatTaskStatus(status)}
+                  </button>
+                ))}
                 <button
-                  key={status}
                   type="button"
-                  title={formatTaskStatus(status)}
-                  aria-label={`Move to ${formatTaskStatus(status)}`}
+                  title="Open in Project Chat"
+                  aria-label="Open task in Project Chat"
                   onClick={(event) => {
                     event.stopPropagation();
-                    onUpdateTask(task.id, { status });
+                    onLaunchTask?.(task);
                   }}
-                  className={[
-                    'h-6 flex-1 rounded-md border text-[10px] transition active:scale-95',
-                    task.status === status
-                      ? 'border-[var(--accent)]/40 bg-[var(--accent)]/20 text-white'
-                      : 'border-white/8 bg-white/[0.02] text-[var(--muted)] hover:bg-white/[0.06] hover:text-white',
-                  ].join(' ')}
+                  className="inline-flex h-6 w-8 shrink-0 items-center justify-center rounded-md border border-white/8 bg-white/[0.02] text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white active:scale-95"
                 >
-                  {status === 'in-progress' ? 'Active' : formatTaskStatus(status)}
+                  <MessageSquareText className="h-3.5 w-3.5" />
                 </button>
-              ))}
-              <button
-                type="button"
-                title="Open in Project Chat"
-                aria-label="Open task in Project Chat"
-                onClick={(event) => {
-                  event.stopPropagation();
-                  onLaunchTask?.(task);
-                }}
-                className="inline-flex h-6 w-8 shrink-0 items-center justify-center rounded-md border border-white/8 bg-white/[0.02] text-[var(--muted)] transition hover:bg-white/[0.06] hover:text-white active:scale-95"
-              >
-                <MessageSquareText className="h-3.5 w-3.5" />
-              </button>
-            </div>
+              </div>
+              <div className="mt-1.5 flex items-center gap-1">
+                {task.status === 'in-progress' && onPauseTask && (
+                  <button type="button" title="Pause" onClick={(e) => { e.stopPropagation(); onPauseTask(task.id); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-amber-300/20 bg-amber-300/10 text-[10px] text-amber-100 transition hover:bg-amber-300/20 active:scale-95">
+                    <Pause className="h-3 w-3" /> Pause
+                  </button>
+                )}
+                {task.status === 'paused' && onResumeTask && (
+                  <button type="button" title="Resume" onClick={(e) => { e.stopPropagation(); onResumeTask(task.id); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-emerald-300/20 bg-emerald-400/10 text-[10px] text-emerald-100 transition hover:bg-emerald-400/20 active:scale-95">
+                    <Play className="h-3 w-3" /> Resume
+                  </button>
+                )}
+                {(task.latestRunStatus === 'failed' || task.status === 'cancelled') && onRetryTask && (
+                  <button type="button" title="Retry" onClick={(e) => { e.stopPropagation(); onRetryTask(task.id); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-sky-300/20 bg-sky-400/10 text-[10px] text-sky-100 transition hover:bg-sky-400/20 active:scale-95">
+                    <RefreshCw className="h-3 w-3" /> Retry
+                  </button>
+                )}
+                {task.status !== 'done' && task.status !== 'cancelled' && onCancelTask && (
+                  <button type="button" title="Cancel" onClick={(e) => { e.stopPropagation(); onCancelTask(task.id); }} className="inline-flex h-6 w-8 shrink-0 items-center justify-center rounded-md border border-red-300/15 bg-red-400/[0.06] text-[var(--muted)] transition hover:bg-red-400/15 hover:text-red-100 active:scale-95">
+                    <Ban className="h-3 w-3" />
+                  </button>
+                )}
+              </div>
+            </>
           )}
           {compact && (
             <button
@@ -383,6 +430,10 @@ function DropColumn({
   onUpdateTask,
   onSelectTask,
   onLaunchTask,
+  onPauseTask,
+  onResumeTask,
+  onRetryTask,
+  onCancelTask,
   backendSignals,
 }: {
   status: TaskStatus;
@@ -393,6 +444,10 @@ function DropColumn({
   onUpdateTask: TaskBoardProps['onUpdateTask'];
   onSelectTask?: TaskBoardProps['onSelectTask'];
   onLaunchTask?: TaskBoardProps['onLaunchTask'];
+  onPauseTask?: TaskBoardProps['onPauseTask'];
+  onResumeTask?: TaskBoardProps['onResumeTask'];
+  onRetryTask?: TaskBoardProps['onRetryTask'];
+  onCancelTask?: TaskBoardProps['onCancelTask'];
   backendSignals?: Record<string, TaskBackendSignal>;
 }) {
   const Icon = STATUS_ICON[status];
@@ -463,6 +518,10 @@ function DropColumn({
                 onUpdateTask={onUpdateTask}
                 onSelectTask={onSelectTask}
                 onLaunchTask={onLaunchTask}
+                onPauseTask={onPauseTask}
+                onResumeTask={onResumeTask}
+                onRetryTask={onRetryTask}
+                onCancelTask={onCancelTask}
                 backendSignal={backendSignals?.[task.id] ?? null}
               />
             ))}
@@ -484,9 +543,23 @@ export default function TaskBoard({
   onUpdateTask,
   onSelectTask,
   onLaunchTask,
+  onPauseTask,
+  onResumeTask,
+  onRetryTask,
+  onCancelTask,
 }: TaskBoardProps) {
   const hasTasks = tasks.length > 0;
-  const visibleStatuses = compact ? STATUSES.filter((status) => status !== 'done') : STATUSES;
+  const hasPaused = tasks.some((t) => t.status === 'paused');
+  const hasCancelled = tasks.some((t) => t.status === 'cancelled');
+  const hasQueued = tasks.some((t) => t.status === 'queued');
+  const activeStatuses = compact
+    ? BOARD_STATUSES.filter((status) => status !== 'done')
+    : [
+        ...(hasQueued ? ['queued' as TaskStatus] : []),
+        ...BOARD_STATUSES,
+        ...(hasPaused ? ['paused' as TaskStatus] : []),
+        ...(hasCancelled ? ['cancelled' as TaskStatus] : []),
+      ];
   const [backendSignals, setBackendSignals] = useState<Record<string, TaskBackendSignal>>({});
   const [boardSummary, setBoardSummary] = useState<BoardBackendSummary | null>(null);
   const summaryGroupIds = useMemo(() => {
@@ -613,8 +686,8 @@ export default function TaskBoard({
               </div>
             </div>
           )}
-          <div className={compact ? 'grid gap-3' : 'grid min-h-0 flex-1 gap-3 xl:grid-cols-4'}>
-            {visibleStatuses.map((status) => (
+          <div className={compact ? 'grid gap-3' : `grid min-h-0 flex-1 gap-3 xl:grid-cols-${Math.min(activeStatuses.length, 6)}`} style={!compact && activeStatuses.length > 4 ? { gridTemplateColumns: `repeat(${activeStatuses.length}, minmax(0, 1fr))` } : undefined}>
+            {activeStatuses.map((status) => (
               <DropColumn
                 key={status}
                 status={status}
@@ -625,6 +698,10 @@ export default function TaskBoard({
                 onUpdateTask={onUpdateTask}
                 onSelectTask={onSelectTask}
                 onLaunchTask={onLaunchTask}
+                onPauseTask={onPauseTask}
+                onResumeTask={onResumeTask}
+                onRetryTask={onRetryTask}
+                onCancelTask={onCancelTask}
                 backendSignals={backendSignals}
               />
             ))}
