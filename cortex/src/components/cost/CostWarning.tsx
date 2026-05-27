@@ -108,6 +108,7 @@ function InlineWarning({ warning, onAcknowledge }: { warning: CostWarning; onAck
             <h4 className="font-medium text-white">{warning.title}</h4>
             <button
               onClick={() => setDismissed(true)}
+              aria-label="Dismiss warning"
               className="rounded-lg p-1 text-white/60 transition hover:bg-white/10 hover:text-white"
             >
               <X className="h-4 w-4" />
@@ -124,7 +125,7 @@ function InlineWarning({ warning, onAcknowledge }: { warning: CostWarning; onAck
                 Limit: <span className="font-medium">{formatCurrency(warning.limit)}</span>
               </span>
               <span>
-                ({Math.round((warning.current_usage / warning.limit) * 100)}%)
+                ({warning.limit > 0 ? Math.round((warning.current_usage / warning.limit) * 100) : 0}%)
               </span>
             </div>
           )}

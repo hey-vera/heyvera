@@ -67,6 +67,7 @@ function MemoryPanel({
           </div>
           <button
             onClick={onClose}
+            aria-label="Close memory panel"
             className="text-xs text-[var(--muted)] hover:text-white"
           >
             ×

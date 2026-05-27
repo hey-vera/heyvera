@@ -1,17 +1,22 @@
 mod admin;
 pub mod api_error;
+mod api_keys;
 mod auth;
 pub mod billing;
+pub mod budget_enforcer;
 mod chat;
 pub mod clerk;
 mod clerk_webhooks;
 mod context_api;
 mod context_flow;
 mod conversations;
+pub mod cost_estimator;
+mod crypto;
 mod deploy_status;
 pub mod db;
 pub mod github;
 mod integrations;
+pub mod llm_client;
 pub mod media;
 mod messaging;
 pub mod mission_control;
@@ -409,6 +414,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/groups/{group_id}/approvals", get(integrations::list_group_approval_requests))
         .route("/api/groups/{group_id}/approvals", post(integrations::create_group_approval_request))
         .route("/api/groups/{group_id}/approvals/{request_id}", patch(integrations::resolve_group_approval_request))
+        // API Keys (BYOK)
+        .route("/api/keys", get(api_keys::list_api_keys))
+        .route("/api/keys/{provider}", put(api_keys::save_api_key).delete(api_keys::delete_api_key))
         // Billing & Subscription
         .route("/api/billing/status", get(billing::get_billing_status))
         .route("/api/billing/checkout", post(billing::create_checkout))

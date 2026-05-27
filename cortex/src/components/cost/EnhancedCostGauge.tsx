@@ -51,16 +51,16 @@ export default function EnhancedCostGauge({
 
   if (!data && !state.usage && !state.loading) {
     return (
-      <div className="bg-neutral-900 rounded-lg p-6 border border-neutral-800">
+      <div className="rounded-lg p-6 border border-white/8 bg-[var(--panel)]">
         <h2 className="text-lg font-semibold text-white mb-4">Cost Gauge</h2>
-        <p className="text-neutral-500 text-sm">No cost data available</p>
+        <p className="text-[var(--muted)] text-sm">No cost data available</p>
       </div>
     );
   }
 
   if (compact) {
     return (
-      <div className="bg-neutral-900 rounded-lg p-4 border border-neutral-800">
+      <div className="rounded-lg p-4 border border-white/8 bg-[var(--panel)]">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-purple-500/20">
@@ -70,7 +70,7 @@ export default function EnhancedCostGauge({
               <span className="text-lg font-bold text-white">
                 {formatCurrency(sessionData.cost)}
               </span>
-              <p className="text-xs text-neutral-400">session cost</p>
+              <p className="text-xs text-[var(--muted)]">session cost</p>
             </div>
           </div>
 
@@ -84,7 +84,7 @@ export default function EnhancedCostGauge({
             {onOpenSettings && (
               <button
                 onClick={onOpenSettings}
-                className="flex h-6 w-6 items-center justify-center rounded-lg text-neutral-400 transition hover:bg-white/10 hover:text-white"
+                className="flex h-6 w-6 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-white/10 hover:text-white"
                 title="Open budget settings"
               >
                 <Settings className="h-3 w-3" />
@@ -97,7 +97,7 @@ export default function EnhancedCostGauge({
   }
 
   return (
-    <div className="bg-neutral-900 rounded-lg border border-neutral-800">
+    <div className="rounded-lg border border-white/8 bg-[var(--panel)]">
       {/* Header */}
       <div className="flex items-center justify-between p-6 pb-4">
         <h2 className="text-lg font-semibold text-white">Cost Gauge</h2>
@@ -112,7 +112,7 @@ export default function EnhancedCostGauge({
           {onOpenSettings && (
             <button
               onClick={onOpenSettings}
-              className="rounded-lg p-1.5 text-neutral-400 transition hover:bg-white/10 hover:text-white"
+              className="rounded-lg p-1.5 text-[var(--muted)] transition hover:bg-white/10 hover:text-white"
               title="Open budget settings"
             >
               <Settings className="h-4 w-4" />
@@ -137,28 +137,28 @@ export default function EnhancedCostGauge({
           <span className="text-3xl font-bold text-white">
             {formatCurrency(sessionData.cost)}
           </span>
-          <p className="text-neutral-400 text-xs mt-1">session total</p>
+          <p className="text-[var(--muted)] text-xs mt-1">session total</p>
         </div>
 
         {/* Token Stats */}
         <div className="grid grid-cols-3 gap-4 mb-6 text-center">
           <div>
-            <p className="text-sm font-mono text-neutral-300">
+            <p className="text-sm font-mono text-[var(--muted-strong)]">
               {formatTokens(data?.session.inputTokens || 0)}
             </p>
-            <p className="text-xs text-neutral-500">input</p>
+            <p className="text-xs text-[var(--muted)]">input</p>
           </div>
           <div>
-            <p className="text-sm font-mono text-neutral-300">
+            <p className="text-sm font-mono text-[var(--muted-strong)]">
               {formatTokens(data?.session.outputTokens || 0)}
             </p>
-            <p className="text-xs text-neutral-500">output</p>
+            <p className="text-xs text-[var(--muted)]">output</p>
           </div>
           <div>
-            <p className="text-sm font-mono text-neutral-300">
+            <p className="text-sm font-mono text-[var(--muted-strong)]">
               {formatTokens(sessionData.token_count)}
             </p>
-            <p className="text-xs text-neutral-500">total</p>
+            <p className="text-xs text-[var(--muted)]">total</p>
           </div>
         </div>
 
@@ -173,14 +173,14 @@ export default function EnhancedCostGauge({
               return (
                 <div key={provider.provider}>
                   <div className="flex justify-between text-xs mb-1">
-                    <span className="text-neutral-300 capitalize">
+                    <span className="text-[var(--muted-strong)] capitalize">
                       {provider.provider}
                     </span>
-                    <span className="text-neutral-400">
+                    <span className="text-[var(--muted)]">
                       {formatCurrency(provider.cost)} ({formatTokens(provider.token_count)})
                     </span>
                   </div>
-                  <div className="w-full bg-neutral-700 rounded-full h-1.5">
+                  <div className="w-full bg-white/8 rounded-full h-1.5">
                     <div
                       className="h-1.5 rounded-full bg-purple-500 transition-all"
                       style={{ width: `${percentage}%` }}
@@ -195,7 +195,7 @@ export default function EnhancedCostGauge({
         {/* Toggle Details Button */}
         <button
           onClick={() => setShowDetails(!showDetails)}
-          className="w-full rounded-lg border border-neutral-700 px-3 py-2 text-xs text-neutral-300 transition hover:bg-neutral-800 hover:text-white"
+          className="w-full rounded-lg border border-white/8 px-3 py-2 text-xs text-[var(--muted-strong)] transition hover:bg-white/6 hover:text-white"
         >
           {showDetails ? 'Hide Details' : 'Show Details'}
         </button>
@@ -203,7 +203,7 @@ export default function EnhancedCostGauge({
 
       {/* Detailed Cost Information */}
       {showDetails && (
-        <div className="border-t border-neutral-700 p-6">
+        <div className="border-t border-white/8 p-6">
           <CostStatus
             usage={state.usage}
             providers={state.providers}
