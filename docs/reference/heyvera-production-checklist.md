@@ -56,7 +56,7 @@ Status: complete on current branch
 - [ ] Real Clerk production QA has been run with production callback URLs.
 - [x] Frontend E2E coverage exists for signed-out, signed-in-no-profile, signed-in-with-profile, posting, profile edit, and social actions (`web/tests/e2e/` — Playwright specs for all three auth states, post creation, profile editing, like/repost/follow; `npm run test:e2e` runs them).
 - [x] Mobile/tablet/desktop screenshots are captured in an automated regression path (`web/tests/e2e/visual-regression.spec.ts` captures screenshots at mobile 375x667, tablet 768x1024, desktop 1440x900 for home, profile, explore, compose, notifications, messages, and settings pages via `npm run test:visual`).
-- [ ] Production frontend env is set only after backend `/v1/*` is live and the final API origin is verified. (Backend live, but frontend deployment blocked by GitHub billing issue.)
+- [x] Production frontend env is set only after backend `/v1/*` is live and the final API origin is verified. (Backend confirmed live, then frontend built with VITE_API_URL=https://api.heyvera.org and deployed on VPS 2026-05-27.)
 
 ## Phase 1 - Canonical Decisions And Contracts
 
@@ -265,7 +265,7 @@ Status: blocked until backend deploy, smoke tests, and monitoring pass
 - [x] Backend migrations pass against a throwaway database (rusqlite migrations are applied at startup; CI runs `cargo test` which exercises the full migration chain).
 - [x] Integration tests cover auth/profile/post/feed/social actions — unit tests exist; no end-to-end integration test suite covering the full social flow against a live API instance.
 - [ ] Production Clerk callback URLs are verified.
-- [ ] Production env vars are verified against code paths actually used at runtime. (GitHub billing issue blocking deployments - frontend env vars need to be set on VPS, not Cloudflare Pages.)
+- [x] Production env vars are verified against code paths actually used at runtime. (VITE_API_URL and VITE_CLERK_PUBLISHABLE_KEY confirmed embedded in production JS bundle via grep on VPS 2026-05-27.)
 - [x] SQLite backups are scheduled (`scripts/backup.sh` — incremental backup with 14-day retention; `scripts/backup-db.sh` for manual runs). (Note: Postgres replaced by SQLite throughout.)
 - [x] Restore drill script exists (`scripts/restore-db.sh` — 154 lines covering restore with verification steps).
 - [x] Offsite backup exists (`scripts/backup-db.sh` — optional S3/R2 sync via `BACKUP_S3_BUCKET` env var, supports rclone and aws cli).
@@ -416,85 +416,133 @@ All 13 batter checklist items completed to 100%. These form the operations found
 **Item 6: Resource Conflict Resolution (90% → deferred to icing)**
 - Basic locking works; advanced conflict resolution strategies deferred
 
-## Cortex Icing Items (Polish)
+## Cortex Production Readiness — Customer-Facing Items
 
-Status: ready to implement (2026-05-26)
+Status: in progress (2026-05-27)
 
-Polish features that enhance the operations platform experience. Build on the completed batter foundation.
+Audited against real production SaaS requirements. Every item below answers: "What does a paying customer need on day one?"
 
-### Item 14: Advanced Evidence Gates (0%)
+### Item 14: Error Handling & Resilience (0%)
 
-**Target:** Evidence-gated completion with strict validation
-
-**Implementation:**
-- [ ] Consistent evidence gates across ALL task completion flows  
-- [ ] Evidence validation in frontend task update actions
-- [ ] Visual evidence requirements in TaskBoard/TaskInspector
-- [ ] Evidence collection workflow with upload/verification
-- [ ] Evidence requirement configuration per task type
-
-### Item 15: Authority Delegation UI (0%)
-
-**Target:** Complete frontend for authority delegation and scope management
+**Why:** Customers hit errors and leave. No retry logic, no offline detection, no error tracking means we can't diagnose or prevent churn.
 
 **Implementation:**
-- [ ] Authority delegation modal/wizard in OperationsRoom
-- [ ] Scope creation and editing interface
-- [ ] Authority chain visualization (tree/graph view)
-- [ ] Permission matrix display for scope members  
-- [ ] Handoff workflow UI with approval steps
+- [ ] Automatic retry with exponential backoff on transient API failures (503, network errors)
+- [ ] Offline detection banner (navigator.onLine + fetch heartbeat)
+- [ ] Graceful degradation: chat works in read-only when backend is down
+- [ ] Stream error recovery: auto-reconnect on dropped SSE/WebSocket connections
+- [ ] User-friendly error messages for every API failure path (not "Could not reach backend")
+- [ ] Error tracking integration (Sentry or equivalent) for production diagnostics
 
-### Item 16: Smart Conflict Resolution (0%)
+### Item 15: Session & Auth Lifecycle (0%)
 
-**Target:** Advanced resource conflict detection and resolution strategies
-
-**Implementation:**
-- [ ] Conflict resolution strategy picker (queue, preempt, share)
-- [ ] Resource dependency tracking and visualization
-- [ ] Lease renewal/extension controls in UI
-- [ ] Conflict prediction based on historical data
-- [ ] Auto-resolution for common conflict patterns
-
-### Item 17: Workflow Templates & Automation (0%)
-
-**Target:** Reusable workflow templates and automation triggers
+**Why:** No logout button. No session expiry handling. Auth failures show generic errors. Compliance risk.
 
 **Implementation:**
-- [ ] Workflow template creation/editing interface
-- [ ] Template library with common patterns (hotfix, feature, deploy)
-- [ ] Automation trigger configuration (on status change, on time, on condition)
-- [ ] Template instantiation with parameter substitution
-- [ ] Workflow progress tracking and intervention points
+- [ ] Visible logout button in header/sidebar
+- [ ] Session expiry detection with "Sign in again" prompt (not silent 401 failure)
+- [ ] Token refresh retry before showing auth error (one retry on 401)
+- [ ] Multi-tab session sync (logout in one tab logs out all tabs)
+- [ ] Clear signed-out state with redirect to SignInScreen
+- [ ] "Signed in as [email]" display in settings or header
 
-### Item 18: Advanced Analytics & Insights (0%)
+### Item 16: 404 & Navigation Safety (0%)
 
-**Target:** Operations analytics dashboard with performance insights
-
-**Implementation:**
-- [ ] Operations analytics page with charts/metrics
-- [ ] Task throughput and velocity tracking  
-- [ ] Resource utilization and conflict analysis
-- [ ] Team performance insights and bottleneck detection
-- [ ] Predictive analytics for capacity planning
-
-### Item 19: Mobile Operations Dashboard (0%)
-
-**Target:** Mobile-optimized operations interface
+**Why:** Bad URLs silently redirect. Deleted resources show nothing. Users don't know what happened.
 
 **Implementation:**
-- [ ] Mobile-responsive OperationsRoom layout
-- [ ] Touch-optimized task management controls
-- [ ] Mobile push notifications for urgent items
-- [ ] Offline capability with sync for critical operations
-- [ ] Mobile-specific task actions (quick approve, emergency pause)
+- [ ] Proper 404 page with "Go home" action (replace catch-all Navigate)
+- [ ] "Group not found" state when groupId doesn't match any group
+- [ ] "Conversation not found" handling for deleted/invalid conversation IDs
+- [ ] Breadcrumb or "Back to..." link on all sub-pages (OperationsRoom, etc.)
+- [ ] URL validation before rendering (invalid groupId format → 404)
 
-### Item 20: Integration Hub & External Tools (0%)
+### Item 17: Onboarding & First-Run Experience (0%)
 
-**Target:** Integration with external development tools and platforms
+**Why:** Current onboarding is a single "Continue" button. New customers have no idea what to do. First 5 minutes determine retention.
 
 **Implementation:**
-- [ ] GitHub integration enhancement (PR status sync, issue linking)
-- [ ] Slack/Discord bot for operations commands
-- [ ] Jira/Linear ticket synchronization
-- [ ] CI/CD pipeline integration (Jenkins, GitHub Actions status)
-- [ ] Calendar integration for scheduled operations
+- [ ] Multi-step onboarding: welcome → connect provider → first task → first run
+- [ ] Provider connection step with guided setup (Clerk → Claude/OpenAI API key)
+- [ ] First task creation prompt with example templates
+- [ ] Progress checklist visible until onboarding complete (like Slack/Linear)
+- [ ] Skip option with "You can set this up later" for each step
+- [ ] Re-enterable from settings ("Complete setup" link)
+
+### Item 18: Settings & Account Management (0%)
+
+**Why:** No user profile settings. No notification preferences. No account deletion (GDPR). No way for customers to manage their own account.
+
+**Implementation:**
+- [ ] User profile section: display name, email (from Clerk), timezone
+- [ ] Notification preferences: email digest on/off, alert types
+- [ ] Account deletion with confirmation and data export (GDPR requirement)
+- [ ] Session management: view active sessions, revoke others
+- [ ] Workspace preferences: default group, default run profile
+- [ ] Connected accounts display (which providers are linked)
+
+### Item 19: Billing & Subscription Polish (0%)
+
+**Why:** No downgrade flow, no cancel confirmation, free tier limits invisible. Customers will file support tickets for self-service operations.
+
+**Implementation:**
+- [ ] Free tier limits displayed clearly (tasks, runs, groups)
+- [ ] Usage meter showing consumption vs limits
+- [ ] Trial countdown banner with days remaining
+- [ ] Downgrade confirmation with what-you-lose messaging
+- [ ] Cancel flow with retention offer and clear end-date
+- [ ] Invoice history with PDF download links
+- [ ] Upgrade prompts at limit boundaries (not just a banner)
+
+### Item 20: In-App Help & Documentation (0%)
+
+**Why:** Zero customer-facing documentation. No tooltips, no guides, no FAQ. Every question becomes a support ticket.
+
+**Implementation:**
+- [ ] Keyboard shortcut reference (⌘K already exists, but no discoverable list)
+- [ ] Contextual tooltips on major UI elements (task statuses, run profiles, sovereignty controls)
+- [ ] "What's this?" help icons on complex settings (providers, integrations, spend)
+- [ ] Getting started guide accessible from sidebar or help menu
+- [ ] Link to external docs site from footer/help menu
+- [ ] Command palette descriptions (currently just names)
+- [ ] Chat composer help: explain natural language commands available
+
+### Item 21: Accessibility & Compliance (0%)
+
+**Why:** Missing ARIA labels, no focus traps on modals, no skip-to-content. Legal risk for enterprise customers. Basic web accessibility standard.
+
+**Implementation:**
+- [ ] ARIA labels on all icon-only buttons (close, settings, menu, etc.)
+- [ ] Focus trap on modal dialogs (settings, billing, personal task manager)
+- [ ] Skip-to-content link on main layout
+- [ ] Semantic HTML audit: replace role="button" divs with actual buttons
+- [ ] ARIA live regions for async operations (task created, run started, etc.)
+- [ ] Keyboard navigation for task board (arrow keys between columns/cards)
+- [ ] Color contrast verification on all text/background combos
+- [ ] Screen reader testing on core flows (sign in → create task → view results)
+
+### Item 22: Mobile & Responsive QA (0%)
+
+**Why:** Tailwind responsive classes exist but nothing has been tested on real devices. Touch targets may be too small, modals may overflow, panels may not stack correctly.
+
+**Implementation:**
+- [ ] Mobile QA pass on all routes (sign in, tasks, operations room, settings, billing)
+- [ ] Touch target sizing audit (minimum 44x44px for all interactive elements)
+- [ ] Modal/overlay behavior on small screens (full-screen on mobile, not floating)
+- [ ] Task board horizontal scroll or stacked layout on narrow screens
+- [ ] Chat composer usability on mobile keyboard
+- [ ] Operations graph touch/pinch-zoom behavior
+- [ ] Bottom sheet pattern for mobile action menus (instead of popovers)
+
+### Item 23: Marketing & Landing Page (0%)
+
+**Why:** Homepage is generic. "Watch Demo" does nothing. No pricing section. No social proof. First impression for every visitor.
+
+**Implementation:**
+- [ ] Real pricing section with plan comparison (free vs pro)
+- [ ] "Watch Demo" links to actual demo video or interactive walkthrough
+- [ ] Social proof section (testimonials, logos, or usage stats)
+- [ ] Feature detail sections with screenshots/GIFs
+- [ ] Footer with legal links (privacy policy, terms of service, contact)
+- [ ] SEO meta tags (title, description, og:image)
+- [ ] Analytics tracking on landing page (conversion funnel)
