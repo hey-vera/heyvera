@@ -1,8 +1,10 @@
+import './lib/sentry'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import { ClerkProvider } from '@clerk/clerk-react'
 import App from './App'
 import ErrorBoundary from './components/ErrorBoundary'
+import { captureError } from './lib/sentry'
 import './index.css'
 
 // Clear old cached data - force fresh start after auth fixes
@@ -31,14 +33,14 @@ const root = PUBLISHABLE_KEY ? (
         },
       }}
     >
-      <ErrorBoundary>
+      <ErrorBoundary onError={(error) => captureError(error)}>
         <App />
       </ErrorBoundary>
     </ClerkProvider>
   </React.StrictMode>
 ) : (
   <React.StrictMode>
-    <ErrorBoundary>
+    <ErrorBoundary onError={(error) => captureError(error)}>
       <App />
     </ErrorBoundary>
   </React.StrictMode>
