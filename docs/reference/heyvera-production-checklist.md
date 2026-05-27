@@ -415,3 +415,86 @@ All 13 batter checklist items completed to 100%. These form the operations found
 
 **Item 6: Resource Conflict Resolution (90% → deferred to icing)**
 - Basic locking works; advanced conflict resolution strategies deferred
+
+## Cortex Icing Items (Polish)
+
+Status: ready to implement (2026-05-26)
+
+Polish features that enhance the operations platform experience. Build on the completed batter foundation.
+
+### Item 14: Advanced Evidence Gates (0%)
+
+**Target:** Evidence-gated completion with strict validation
+
+**Implementation:**
+- [ ] Consistent evidence gates across ALL task completion flows  
+- [ ] Evidence validation in frontend task update actions
+- [ ] Visual evidence requirements in TaskBoard/TaskInspector
+- [ ] Evidence collection workflow with upload/verification
+- [ ] Evidence requirement configuration per task type
+
+### Item 15: Authority Delegation UI (0%)
+
+**Target:** Complete frontend for authority delegation and scope management
+
+**Implementation:**
+- [ ] Authority delegation modal/wizard in OperationsRoom
+- [ ] Scope creation and editing interface
+- [ ] Authority chain visualization (tree/graph view)
+- [ ] Permission matrix display for scope members  
+- [ ] Handoff workflow UI with approval steps
+
+### Item 16: Smart Conflict Resolution (0%)
+
+**Target:** Advanced resource conflict detection and resolution strategies
+
+**Implementation:**
+- [ ] Conflict resolution strategy picker (queue, preempt, share)
+- [ ] Resource dependency tracking and visualization
+- [ ] Lease renewal/extension controls in UI
+- [ ] Conflict prediction based on historical data
+- [ ] Auto-resolution for common conflict patterns
+
+### Item 17: Workflow Templates & Automation (0%)
+
+**Target:** Reusable workflow templates and automation triggers
+
+**Implementation:**
+- [ ] Workflow template creation/editing interface
+- [ ] Template library with common patterns (hotfix, feature, deploy)
+- [ ] Automation trigger configuration (on status change, on time, on condition)
+- [ ] Template instantiation with parameter substitution
+- [ ] Workflow progress tracking and intervention points
+
+### Item 18: Advanced Analytics & Insights (0%)
+
+**Target:** Operations analytics dashboard with performance insights
+
+**Implementation:**
+- [ ] Operations analytics page with charts/metrics
+- [ ] Task throughput and velocity tracking  
+- [ ] Resource utilization and conflict analysis
+- [ ] Team performance insights and bottleneck detection
+- [ ] Predictive analytics for capacity planning
+
+### Item 19: Mobile Operations Dashboard (0%)
+
+**Target:** Mobile-optimized operations interface
+
+**Implementation:**
+- [ ] Mobile-responsive OperationsRoom layout
+- [ ] Touch-optimized task management controls
+- [ ] Mobile push notifications for urgent items
+- [ ] Offline capability with sync for critical operations
+- [ ] Mobile-specific task actions (quick approve, emergency pause)
+
+### Item 20: Integration Hub & External Tools (0%)
+
+**Target:** Integration with external development tools and platforms
+
+**Implementation:**
+- [ ] GitHub integration enhancement (PR status sync, issue linking)
+- [ ] Slack/Discord bot for operations commands
+- [ ] Jira/Linear ticket synchronization
+- [ ] CI/CD pipeline integration (Jenkins, GitHub Actions status)
+- [ ] Calendar integration for scheduled operations
