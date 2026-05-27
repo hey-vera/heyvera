@@ -35,12 +35,13 @@ const COLUMN_X: Record<string, number> = {
   chat: 204,
   run: 380,
   step: 556,
+  attempt: 644,
   evidence: 732,
   approval: 732,
   resource_lease: 732,
 };
 
-const NODE_ORDER = ['task', 'chat', 'run', 'step', 'evidence', 'approval', 'resource_lease'];
+const NODE_ORDER = ['task', 'chat', 'run', 'step', 'attempt', 'evidence', 'approval', 'resource_lease'];
 
 function useGroupOperationsGraph(groupId: string) {
   const [graph, setGraph] = useState<GroupOperationsGraph | null>(null);
@@ -85,6 +86,9 @@ function nodeTone(node: OperationsGraphNode) {
   if (node.type === 'approval' && status === 'pending') {
     return 'border-sky-300/30 bg-sky-400/10 text-sky-50';
   }
+  if (node.type === 'attempt') {
+    return 'border-violet-300/30 bg-violet-400/10 text-violet-50';
+  }
   if (node.type === 'evidence' || status === 'succeeded' || status === 'verified') {
     return 'border-blue-300/30 bg-blue-400/10 text-blue-50';
   }
@@ -94,6 +98,7 @@ function nodeTone(node: OperationsGraphNode) {
 function nodeIcon(node: OperationsGraphNode) {
   if (node.type === 'chat') return MessageSquareText;
   if (node.type === 'run') return GitBranch;
+  if (node.type === 'attempt') return RefreshCw;
   if (node.type === 'evidence') return ShieldCheck;
   if (node.type === 'approval') return CheckCircle2;
   if (node.type === 'resource_lease') return CircleDot;
@@ -138,6 +143,10 @@ function buildLayout(graph: GroupOperationsGraph | null) {
   };
 }
 
+function isBlockedOrStale(node: OperationsGraphNode) {
+  return node.status === 'blocked' || node.lease_stale === true;
+}
+
 function GraphNodeButton({
   node,
   position,
@@ -150,6 +159,7 @@ function GraphNodeButton({
   onSelect: (node: OperationsGraphNode) => void;
 }) {
   const Icon = nodeIcon(node);
+  const blocked = isBlockedOrStale(node);
   return (
     <button
       type="button"
@@ -158,6 +168,7 @@ function GraphNodeButton({
         'absolute flex h-12 w-[148px] items-center gap-2 rounded-lg border px-2 text-left shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition hover:brightness-110',
         nodeTone(node),
         selected ? 'ring-2 ring-[var(--accent)]/60' : '',
+        blocked ? 'animate-pulse ring-2 ring-amber-400/50' : '',
       ].join(' ')}
       style={{
         left: position.x,
@@ -205,6 +216,23 @@ export default function OperationsGraphPanel({
     if (selectedNodeId && layout.nodes.some((node) => node.id === selectedNodeId)) return;
     setSelectedNodeId(layout.nodes[0]?.id ?? null);
   }, [layout.nodes, selectedNodeId]);
+
+  const conflictEdgeIds = useMemo(() => {
+    if (!graph) return new Set<string>();
+    const ids = new Set<string>();
+    const nodeMap = new Map(layout.nodes.map((n) => [n.id, n]));
+    for (const edge of graph.edges) {
+      const fromNode = nodeMap.get(edge.from);
+      const toNode = nodeMap.get(edge.to);
+      if (!fromNode || !toNode) continue;
+      const shareStep = fromNode.step_id && toNode.step_id && fromNode.step_id === toNode.step_id && fromNode.id !== toNode.id;
+      const shareTask = fromNode.task_id && toNode.task_id && fromNode.task_id === toNode.task_id && fromNode.type === toNode.type && fromNode.id !== toNode.id;
+      if (shareStep || shareTask) {
+        ids.add(edge.id);
+      }
+    }
+    return ids;
+  }, [graph, layout.nodes]);
 
   const counts = useMemo(() => {
     const byType = new Map<string, number>();
@@ -329,13 +357,15 @@ export default function OperationsGraphPanel({
                     const endX = to.x;
                     const endY = to.y + NODE_HEIGHT / 2;
                     const mid = Math.max(34, (endX - startX) / 2);
+                    const isConflict = conflictEdgeIds.has(edge.id);
                     return (
                       <path
                         key={edge.id}
                         d={`M ${startX} ${startY} C ${startX + mid} ${startY}, ${endX - mid} ${endY}, ${endX} ${endY}`}
                         fill="none"
-                        stroke="rgba(148,163,184,0.34)"
-                        strokeWidth="1.5"
+                        stroke={isConflict ? 'rgba(251,191,36,0.7)' : 'rgba(148,163,184,0.34)'}
+                        strokeWidth={isConflict ? 2.5 : 1.5}
+                        strokeDasharray={isConflict ? '6 3' : undefined}
                       />
                     );
                   })}
@@ -391,6 +421,13 @@ export default function OperationsGraphPanel({
                 <DetailRow label="Worker" value={selectedNode.assigned_worker} />
                 <DetailRow label="Verify" value={selectedNode.verification_status ?? selectedNode.verdict} />
 
+                {selectedNode.lease_stale && (
+                  <div className="flex items-center gap-2 rounded-md border border-amber-300/20 bg-amber-300/[0.08] px-2 py-1.5">
+                    <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-200" />
+                    <span className="text-[11px] font-medium text-amber-100">Stale lease</span>
+                  </div>
+                )}
+
                 {selectedTaskId && (
                   <button
                     type="button"
@@ -429,6 +466,27 @@ export default function OperationsGraphPanel({
               </div>
             )}
           </aside>
+        </div>
+      )}
+
+      {layout.nodes.length > 0 && (
+        <div className="mt-3 flex flex-wrap items-center gap-4 border-t border-white/6 pt-3 text-[10px]">
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-400" />
+            <span className="text-[var(--muted)]">Active</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-blue-400" />
+            <span className="text-[var(--muted)]">Verified</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-rose-400" />
+            <span className="text-[var(--muted)]">Failed</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="inline-block h-2.5 w-2.5 rounded-full bg-amber-400 animate-pulse" />
+            <span className="text-[var(--muted)]">Blocked / Stale</span>
+          </div>
         </div>
       )}
     </section>

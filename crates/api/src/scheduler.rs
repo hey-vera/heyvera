@@ -1617,6 +1617,17 @@ pub fn build_resource_lease_requests(
     task_id: Option<&str>,
     group_id: Option<&str>,
 ) -> Vec<ResourceLeaseRequest> {
+    build_resource_lease_requests_extended(file_paths, repo_key, task_id, group_id, None, None)
+}
+
+pub fn build_resource_lease_requests_extended(
+    file_paths: &[String],
+    repo_key: Option<&str>,
+    task_id: Option<&str>,
+    group_id: Option<&str>,
+    branch_name: Option<&str>,
+    deploy_environment: Option<&str>,
+) -> Vec<ResourceLeaseRequest> {
     let mut seen = HashSet::new();
     let mut requests = Vec::new();
     let repo_key = normalize_repo_key(repo_key);
@@ -1666,6 +1677,36 @@ pub fn build_resource_lease_requests(
                     metadata: serde_json::json!({ "repo_key": repo_key, "path": key }),
                 });
             }
+        }
+    }
+
+    // Branch lease — exclusive lock on the branch name
+    if let Some(branch) = branch_name {
+        let branch = branch.trim().to_string();
+        if !branch.is_empty() && seen.insert(format!("branch:{branch}")) {
+            requests.push(ResourceLeaseRequest {
+                resource_type: "branch".to_string(),
+                repo_key: repo_key.clone(),
+                resource_key: branch.clone(),
+                mode: "exclusive".to_string(),
+                reason: Some("run branch scope".to_string()),
+                metadata: serde_json::json!({ "repo_key": repo_key, "branch": branch }),
+            });
+        }
+    }
+
+    // Environment lease — exclusive lock on the deploy environment
+    if let Some(env_name) = deploy_environment {
+        let env_name = env_name.trim().to_string();
+        if !env_name.is_empty() && seen.insert(format!("environment:{env_name}")) {
+            requests.push(ResourceLeaseRequest {
+                resource_type: "environment".to_string(),
+                repo_key: repo_key.clone(),
+                resource_key: env_name.clone(),
+                mode: "exclusive".to_string(),
+                reason: Some("run deploy environment scope".to_string()),
+                metadata: serde_json::json!({ "repo_key": repo_key, "environment": env_name }),
+            });
         }
     }
 

@@ -131,7 +131,7 @@ function GroupOverview({
         )}
       </div>
 
-      <div className="mt-4 grid grid-cols-3 gap-2">
+      <div className="mt-4 grid grid-cols-4 gap-2">
         <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2 text-center">
           <div className="text-lg font-semibold text-white">{open}</div>
           <div className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Open</div>
@@ -143,6 +143,15 @@ function GroupOverview({
         <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2 text-center">
           <div className="text-lg font-semibold text-blue-300">{done}</div>
           <div className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Done</div>
+        </div>
+        <div className="rounded-lg border border-white/8 bg-white/[0.03] px-3 py-2 text-center">
+          <div className="flex items-center justify-center gap-1">
+            <div className="text-lg font-semibold text-violet-300">{operations?.runs.active ?? 0}</div>
+            {(operations?.runs.active ?? 0) > 0 && (
+              <span className="h-2 w-2 animate-pulse rounded-full bg-violet-400" />
+            )}
+          </div>
+          <div className="text-[10px] uppercase tracking-wide text-[var(--muted)]">Runs</div>
         </div>
       </div>
 
@@ -241,7 +250,34 @@ function buildActionItems(
       });
     }
 
-    const nonApprovalAttention = group.attention?.filter((a) => a.kind !== 'approval_pending') ?? [];
+    // Blocker: tasks with failed runs and no active runs (not retried)
+    if (group.runs.failed > 0 && group.runs.active === 0) {
+      items.push({
+        id: `blocker-${group.group_id}`,
+        label: `${group.runs.failed} blocked task${group.runs.failed === 1 ? '' : 's'} (failed, not retried)`,
+        detail: groupName,
+        groupId: group.group_id,
+        groupName,
+        urgency: 'critical',
+        kind: 'blocker',
+      });
+    }
+
+    // Paused tasks: attention items with kind 'paused' or status 'paused'
+    const pausedItems = group.attention?.filter((a) => a.kind === 'paused' || a.status === 'paused') ?? [];
+    if (pausedItems.length > 0) {
+      items.push({
+        id: `paused-${group.group_id}`,
+        label: `${pausedItems.length} paused task${pausedItems.length === 1 ? '' : 's'}`,
+        detail: groupName,
+        groupId: group.group_id,
+        groupName,
+        urgency: 'normal',
+        kind: 'paused',
+      });
+    }
+
+    const nonApprovalAttention = group.attention?.filter((a) => a.kind !== 'approval_pending' && a.kind !== 'paused' && a.status !== 'paused') ?? [];
     if (nonApprovalAttention.length > 0) {
       items.push({
         id: `attention-${group.group_id}`,
@@ -452,6 +488,25 @@ function MasterOverview({
           </div>
         )}
       </div>
+
+      {/* Active Runs */}
+      {operations && operations.runs.active > 0 && (
+        <div className="rounded-xl border border-violet-300/15 bg-violet-400/[0.04] px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2">
+              <GitBranch className="h-4 w-4 text-violet-300" />
+              <h3 className="text-sm font-semibold text-white">Active Runs</h3>
+            </div>
+            <div className="flex items-center gap-1.5 rounded-full border border-violet-300/20 bg-violet-300/10 px-2 py-0.5">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-violet-400" />
+              <span className="text-xs font-medium text-violet-200">{operations.runs.active} executing</span>
+            </div>
+          </div>
+          <p className="mt-1.5 text-xs text-[var(--muted)]">
+            {operations.runs.total} total runs · {operations.runs.failed} failed · {operations.steps.active} active steps
+          </p>
+        </div>
+      )}
 
       {/* What needs me now */}
       {operations && (
