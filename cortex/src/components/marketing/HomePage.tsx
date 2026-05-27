@@ -60,9 +60,21 @@ export default function HomePage() {
               View Pricing
             </a>
           </div>
-          {/* Hero demo placeholder */}
-          <div className="mx-auto mt-14 max-w-3xl rounded-2xl border border-white/10 bg-black/30 px-8 py-16 text-sm text-[var(--muted)]">
-            Live demo coming soon
+          {/* Hero CTA */}
+          <div className="mx-auto mt-14 max-w-3xl rounded-2xl border border-white/10 bg-black/30 px-8 py-12 text-center">
+            <p className="text-lg font-medium text-white">
+              Start managing tasks with AI agents
+            </p>
+            <p className="mt-2 text-sm text-[var(--muted)]">
+              Describe what you need. Cortex handles the rest — from task breakdown to working code.
+            </p>
+            <Link
+              to="/app"
+              className="mt-6 inline-flex h-11 items-center gap-2 rounded-lg bg-[var(--accent)] px-6 text-sm font-medium text-black transition hover:brightness-110"
+            >
+              Get started
+              <ArrowRight className="h-4 w-4" />
+            </Link>
           </div>
         </div>
       </section>
@@ -117,70 +129,55 @@ export default function HomePage() {
       {/* Feature Details */}
       <section className="border-t border-white/6 px-6 py-24">
         <div className="mx-auto max-w-6xl space-y-24">
-          {/* Feature 1: Text left, image right */}
-          <div className="grid items-center gap-12 grid-cols-1 lg:grid-cols-2">
-            <div>
-              <div className="mb-4 text-4xl">💬</div>
-              <h3 className="text-2xl font-bold text-white lg:text-3xl">
-                Delegate with Natural Language
-              </h3>
-              <p className="mt-4 text-lg leading-relaxed text-[var(--muted)]">
-                Stop writing tickets and start talking to your codebase. Describe what you need in
-                plain English and Cortex breaks it into executable tasks, assigns the right AI agents,
-                and delivers working code.
-              </p>
-              <p className="mt-3 text-lg leading-relaxed text-[var(--muted)]">
-                From &ldquo;add dark mode to settings&rdquo; to a deployed feature — no prompt
-                engineering required.
-              </p>
-            </div>
-            <div className="flex items-center justify-center rounded-xl border-2 border-dashed border-zinc-700 bg-zinc-800 p-16">
-              <p className="text-sm text-zinc-500">Screenshot coming soon</p>
-            </div>
+          {/* Feature 1 */}
+          <div className="max-w-2xl">
+            <div className="mb-4 text-4xl">💬</div>
+            <h3 className="text-2xl font-bold text-white lg:text-3xl">
+              Delegate with Natural Language
+            </h3>
+            <p className="mt-4 text-lg leading-relaxed text-[var(--muted)]">
+              Stop writing tickets and start talking to your codebase. Describe what you need in
+              plain English and Cortex breaks it into executable tasks, assigns the right AI agents,
+              and delivers working code.
+            </p>
+            <p className="mt-3 text-lg leading-relaxed text-[var(--muted)]">
+              From &ldquo;add dark mode to settings&rdquo; to a deployed feature — no prompt
+              engineering required.
+            </p>
           </div>
 
-          {/* Feature 2: Image left, text right */}
-          <div className="grid items-center gap-12 grid-cols-1 lg:grid-cols-2">
-            <div className="order-2 lg:order-1 flex items-center justify-center rounded-xl border-2 border-dashed border-zinc-700 bg-zinc-800 p-16">
-              <p className="text-sm text-zinc-500">Screenshot coming soon</p>
-            </div>
-            <div className="order-1 lg:order-2">
-              <div className="mb-4 text-4xl">👁️</div>
-              <h3 className="text-2xl font-bold text-white lg:text-3xl">
-                Watch Work Happen in Real-Time
-              </h3>
-              <p className="mt-4 text-lg leading-relaxed text-[var(--muted)]">
-                The Operations Room gives you a live view of every agent, every task, and every line
-                of code being written. No more black-box automation — see exactly what is happening
-                and why.
-              </p>
-              <p className="mt-3 text-lg leading-relaxed text-[var(--muted)]">
-                Pause, redirect, or approve work as it flows through your pipeline with full
-                transparency.
-              </p>
-            </div>
+          {/* Feature 2 */}
+          <div className="max-w-2xl ml-auto">
+            <div className="mb-4 text-4xl">👁️</div>
+            <h3 className="text-2xl font-bold text-white lg:text-3xl">
+              Watch Work Happen in Real-Time
+            </h3>
+            <p className="mt-4 text-lg leading-relaxed text-[var(--muted)]">
+              The Operations Room gives you a live view of every agent, every task, and every line
+              of code being written. No more black-box automation — see exactly what is happening
+              and why.
+            </p>
+            <p className="mt-3 text-lg leading-relaxed text-[var(--muted)]">
+              Pause, redirect, or approve work as it flows through your pipeline with full
+              transparency.
+            </p>
           </div>
 
-          {/* Feature 3: Text left, image right */}
-          <div className="grid items-center gap-12 grid-cols-1 lg:grid-cols-2">
-            <div>
-              <div className="mb-4 text-4xl">🚀</div>
-              <h3 className="text-2xl font-bold text-white lg:text-3xl">
-                Built for Teams That Ship
-              </h3>
-              <p className="mt-4 text-lg leading-relaxed text-[var(--muted)]">
-                Cortex fits into your team&apos;s workflow, not the other way around. Shared task
-                boards, collaborative agent sessions, and unified history mean everyone stays aligned
-                without extra meetings.
-              </p>
-              <p className="mt-3 text-lg leading-relaxed text-[var(--muted)]">
-                From solo developers to distributed teams — scale your output without scaling your
-                headcount.
-              </p>
-            </div>
-            <div className="flex items-center justify-center rounded-xl border-2 border-dashed border-zinc-700 bg-zinc-800 p-16">
-              <p className="text-sm text-zinc-500">Screenshot coming soon</p>
-            </div>
+          {/* Feature 3 */}
+          <div className="max-w-2xl">
+            <div className="mb-4 text-4xl">🚀</div>
+            <h3 className="text-2xl font-bold text-white lg:text-3xl">
+              Built for Teams That Ship
+            </h3>
+            <p className="mt-4 text-lg leading-relaxed text-[var(--muted)]">
+              Cortex fits into your team&apos;s workflow, not the other way around. Shared task
+              boards, collaborative agent sessions, and unified history mean everyone stays aligned
+              without extra meetings.
+            </p>
+            <p className="mt-3 text-lg leading-relaxed text-[var(--muted)]">
+              From solo developers to distributed teams — scale your output without scaling your
+              headcount.
+            </p>
           </div>
         </div>
       </section>

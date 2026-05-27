@@ -80,7 +80,7 @@ export default function ChatComposer({
   draft,
   disabled = false,
   locked = false,
-  placeholder = "Type a task, e.g. 'research competitor pricing'...",
+  placeholder = "Describe what you need...",
   onDraftChange,
   onSend,
   onStop,

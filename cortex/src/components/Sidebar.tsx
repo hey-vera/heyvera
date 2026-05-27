@@ -15,13 +15,11 @@ import {
 } from 'lucide-react';
 import {
   deleteConversation,
-  getProviders,
   listConversations,
   updateConversationTitle,
   type BillingStatus,
   type ConversationSummary,
 } from '../lib/cortexApi';
-import SomaIdentityBadge from './SomaIdentityBadge';
 import {
   readSidebarConversationMeta,
   writeSidebarConversationMeta,
@@ -55,83 +53,7 @@ interface DecoratedConversation extends ConversationSummary {
   archived: boolean;
 }
 
-interface SidebarProviderHealth {
-  id: string;
-  label: string;
-  connected: boolean;
-  pressure: 'healthy' | 'warm' | 'hot' | 'throttled' | 'unknown';
-}
-
 const CLICK_DELAY_MS = 220;
-
-const PROVIDER_LABELS: Record<string, string> = {
-  anthropic: 'Claude',
-  claude: 'Claude',
-  openai: 'OpenAI',
-  gemini: 'Gemini',
-  google: 'Gemini',
-};
-
-function readRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function normalizePressure(value: unknown): SidebarProviderHealth['pressure'] {
-  if (typeof value === 'number') {
-    if (value >= 0.95) return 'throttled';
-    if (value >= 0.82) return 'hot';
-    if (value >= 0.55) return 'warm';
-    return 'healthy';
-  }
-  if (typeof value !== 'string') return 'unknown';
-  const normalized = value.toLowerCase();
-  if (normalized === 'healthy' || normalized === 'warm' || normalized === 'hot' || normalized === 'throttled') {
-    return normalized;
-  }
-  if (normalized === 'active' || normalized === 'ready' || normalized === 'ok') return 'healthy';
-  if (normalized === 'degraded') return 'warm';
-  if (normalized === 'rate_limited' || normalized === 'cooldown') return 'throttled';
-  return 'unknown';
-}
-
-function parseProviderHealth(payload: unknown): SidebarProviderHealth[] {
-  const root = readRecord(payload);
-  const providers = root?.providers ?? payload;
-  const entries = Array.isArray(providers)
-    ? providers.map((provider) => [undefined, provider] as const)
-    : Object.entries(readRecord(providers) ?? {});
-
-  return entries
-    .map(([key, value]) => {
-      const record = readRecord(value);
-      if (!record) return null;
-      const rawId = String(record.provider ?? record.id ?? record.name ?? key ?? '').toLowerCase();
-      if (!rawId) return null;
-      const pressure = normalizePressure(
-        record.pressure_state ?? record.pressure ?? record.health ?? record.state ?? record.status,
-      );
-      const connected = Boolean(
-        record.available ?? record.connected ?? record.authenticated ?? record.enabled ?? pressure !== 'unknown',
-      );
-      return {
-        id: rawId,
-        label: PROVIDER_LABELS[rawId] ?? rawId.replace(/^\w/, (letter) => letter.toUpperCase()),
-        connected,
-        pressure,
-      };
-    })
-    .filter((provider): provider is SidebarProviderHealth => Boolean(provider));
-}
-
-function pressureClass(pressure: SidebarProviderHealth['pressure']) {
-  if (pressure === 'healthy') return 'bg-emerald-300';
-  if (pressure === 'warm') return 'bg-yellow-300';
-  if (pressure === 'hot') return 'bg-orange-400';
-  if (pressure === 'throttled') return 'bg-red-400';
-  return 'bg-white/25';
-}
 
 export default function Sidebar({
   userId,
@@ -152,7 +74,6 @@ export default function Sidebar({
   const [loadError, setLoadError] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [meta, setMeta] = useState<SidebarConversationMetaMap>({});
-  const [providerHealth, setProviderHealth] = useState<SidebarProviderHealth[]>([]);
   const [archivedExpanded, setArchivedExpanded] = useState(false);
   const [menu, setMenu] = useState<MenuState | null>(null);
   const [confirmingDeleteId, setConfirmingDeleteId] = useState<string | null>(null);
@@ -184,26 +105,6 @@ export default function Sidebar({
   useEffect(() => {
     setMeta(readSidebarConversationMeta(userId));
   }, [userId]);
-
-  useEffect(() => {
-    let cancelled = false;
-
-    async function fetchProviderHealth() {
-      try {
-        const payload = await getProviders();
-        if (!cancelled) setProviderHealth(parseProviderHealth(payload));
-      } catch {
-        if (!cancelled) setProviderHealth([]);
-      }
-    }
-
-    void fetchProviderHealth();
-    const interval = window.setInterval(fetchProviderHealth, 10_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, []);
 
   useEffect(() => {
     if (!menu) {
@@ -594,34 +495,6 @@ export default function Sidebar({
       </div>
 
       <div className="border-t border-white/6 p-3">
-        <div className="mb-2">
-          <SomaIdentityBadge userId={userId} isSignedIn={isSignedIn} />
-        </div>
-        <div className="mb-2 rounded-xl border border-white/8 bg-white/[0.03] px-3 py-2.5">
-          <div className="mb-2 flex items-center justify-between gap-2">
-            <span className="text-[10px] font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
-              Providers
-            </span>
-            <span className="text-[10px] text-[var(--muted)]">
-              {providerHealth.filter((provider) => provider.connected).length} connected
-            </span>
-          </div>
-          {providerHealth.length === 0 ? (
-            <p className="text-[11px] text-[var(--muted)]">Provider status unavailable</p>
-          ) : (
-            <div className="space-y-1.5">
-              {providerHealth.slice(0, 4).map((provider) => (
-                <div key={provider.id} className="flex items-center justify-between gap-2">
-                  <span className="truncate text-xs text-[var(--muted-strong)]">{provider.label}</span>
-                  <span className="inline-flex items-center gap-1.5 text-[10px] capitalize text-[var(--muted)]">
-                    <span className={`h-1.5 w-1.5 rounded-full ${pressureClass(provider.pressure)}`} />
-                    {provider.connected ? provider.pressure : 'offline'}
-                  </span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
         {isAdmin && onOpenAdmin && (
           <button
             onClick={onOpenAdmin}

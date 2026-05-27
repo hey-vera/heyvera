@@ -72,14 +72,14 @@ export default function TrialBanner({ billing, onOpenBilling }: TrialBannerProps
         <div className="mx-auto flex max-w-3xl items-center gap-3">
           <Sparkles className="h-4 w-4 shrink-0 text-[var(--accent)]" />
           <p className="min-w-0 flex-1 text-xs text-[var(--muted-strong)]">
-            You're on the <span className="font-medium text-white">Free tier</span>. Upgrade for higher limits, priority routing, and integrations.
+            You're in <span className="font-medium text-white">Preview mode</span>. Subscribe to unlock full AI agent capabilities.
           </p>
           <button
             type="button"
             onClick={onOpenBilling}
             className="rounded-lg bg-[var(--accent)]/15 px-2.5 py-1 text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/25 active:scale-95 shrink-0"
           >
-            Upgrade
+            Subscribe
           </button>
           <button
             type="button"

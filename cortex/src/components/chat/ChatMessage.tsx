@@ -1,4 +1,4 @@
-import { Check, Copy, Bot, Route, ShieldCheck, Sparkles, User } from 'lucide-react';
+import { Check, Copy, Bot, Sparkles, User } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import ApprovalCard from './ApprovalCard';
 import FlowOptions from './FlowOptions';
@@ -16,36 +16,6 @@ function formatTime(timestamp: string) {
     hour: 'numeric',
     minute: '2-digit',
   });
-}
-
-function RoutingReceipt({ message }: { message: ChatMessageType }) {
-  const sovereignty = message.sovereignty;
-  if (!sovereignty) return null;
-
-  return (
-    <div className="mt-3 rounded-xl border border-white/8 bg-black/15 p-3">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <span className="inline-flex min-w-0 items-center gap-2 text-xs font-medium text-white">
-          <Route className="h-3.5 w-3.5 text-[var(--accent)]" />
-          <span className="truncate">
-            {sovereignty.routing.provider} / {sovereignty.routing.model}
-          </span>
-        </span>
-        <span className="rounded-full border border-white/10 bg-white/[0.04] px-2 py-0.5 text-[10px] text-[var(--muted)]">
-          {sovereignty.routing.mode}
-        </span>
-      </div>
-      <p className="mt-2 text-xs leading-5 text-[var(--muted)]">
-        {sovereignty.routing.rationale.join(', ')}
-      </p>
-      <div className="mt-2 flex items-center gap-2 text-[11px] text-[var(--muted)]">
-        <ShieldCheck className="h-3.5 w-3.5 text-[var(--accent)]" />
-        <span className="truncate">
-          {sovereignty.seal.boundary} · {sovereignty.seal.credentialMode.replaceAll('_', ' ')}
-        </span>
-      </div>
-    </div>
-  );
 }
 
 export default function ChatMessage({
@@ -92,7 +62,6 @@ export default function ChatMessage({
           ].join(' ')}
         >
           <p className="whitespace-pre-wrap">{message.content}</p>
-          <RoutingReceipt message={message} />
           {message.approvalRequest ? (
             <ApprovalCard request={message.approvalRequest} onAction={onApprovalAction} />
           ) : null}

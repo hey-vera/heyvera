@@ -413,7 +413,7 @@ function CreateCodeForm({
           <input
             value={code}
             onChange={(e) => setCode(e.target.value.toUpperCase().replace(/[^A-Z0-9_-]/g, ''))}
-            placeholder="CORTEX25"
+            placeholder="e.g. LAUNCH2025"
             maxLength={32}
             required
             className="w-full rounded-lg border border-white/8 bg-[var(--composer)] px-3 py-2 font-mono text-sm text-white outline-none transition focus:border-[var(--accent)]/50"

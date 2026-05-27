@@ -41,7 +41,7 @@ function getEmptyMessages(): ChatMessage[] {
       providerLabel: 'Cortex',
       statusLabel: 'Ready',
       createdAt: new Date().toISOString(),
-      content: 'Connected to Cortex. Describe what you need and I\'ll route it to the right provider.',
+      content: 'What would you like to work on?',
     },
   ];
 }

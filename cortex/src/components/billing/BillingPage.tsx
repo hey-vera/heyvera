@@ -70,7 +70,6 @@ function UsageSummary({ isPro }: { isPro: boolean }) {
     <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
       <p className="mb-3 text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
         Usage this month
-        {!isPro && <span className="ml-2 text-[10px] normal-case tracking-normal text-[var(--accent)]">Free tier limits</span>}
       </p>
       <div className="space-y-3">
         <UsageBar label="Tasks created" value={usage.tasks} limit={usage.limits.tasks} showUpgrade={!isPro} />
@@ -79,7 +78,7 @@ function UsageSummary({ isPro }: { isPro: boolean }) {
       </div>
       {!isPro && (
         <p className="mt-3 text-[11px] text-[var(--muted)]">
-          Upgrade to Cortex Pro for higher limits and priority routing.
+          Subscribe to Cortex Pro for full access.
         </p>
       )}
     </div>
@@ -150,9 +149,9 @@ export default function BillingPage({ billing }: BillingPageProps) {
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs uppercase tracking-[0.08em] text-[var(--muted)]">Plan</p>
-              <h3 className="mt-1 text-base font-semibold text-white">Free tier</h3>
+              <h3 className="mt-1 text-base font-semibold text-white">Preview mode</h3>
               <p className="mt-1 text-xs leading-5 text-[var(--muted)]">
-                Core Task Manager, groups, routing previews, and sovereignty controls are available with free-tier usage limits.
+                You're exploring Cortex with sample data. Subscribe to Cortex Pro for full access.
               </p>
             </div>
             <ShieldCheck className="h-5 w-5 text-[var(--accent)]" />

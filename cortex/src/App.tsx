@@ -172,12 +172,12 @@ function FreeTierBanner({
     <div className="border-b border-[var(--accent)]/15 bg-[var(--accent)]/10 px-3 py-2 sm:px-4">
       <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-2 sm:gap-3">
         <span className="rounded-full border border-[var(--accent)]/25 bg-black/15 px-2 py-0.5 text-[11px] font-medium text-[var(--accent)]">
-          Free tier
+          Preview
         </span>
         <p className="min-w-[12rem] flex-1 text-xs text-[var(--muted-strong)]">
           {isCancelled
             ? 'Your subscription is cancelled. Core Task Manager and routing previews remain available with free-tier limits.'
-            : 'Explore Task Manager, groups, routing previews, and sovereignty controls before upgrading.'}
+            : "You're previewing Cortex with sample data. Subscribe to connect real AI agents."}
         </p>
         <button
           type="button"
@@ -185,7 +185,7 @@ function FreeTierBanner({
           className="inline-flex h-7 items-center gap-1.5 rounded-lg border border-white/10 bg-white/8 px-2.5 text-xs text-white transition hover:bg-white/12 active:scale-95"
         >
           <CreditCard className="h-3.5 w-3.5" />
-          Upgrade
+          Subscribe
         </button>
       </div>
     </div>
@@ -863,7 +863,7 @@ function CortexShell() {
         />
 
         <TrialBanner billing={billing.status} onOpenBilling={() => handleOpenSettings('billing')} />
-        {isFreeTier && accessState && (
+        {isFreeTier && accessState && !(billing.status?.trial && billing.status?.access_state === 'trial_active') && (
           <FreeTierBanner
             accessState={accessState}
             onOpenBilling={() => handleOpenSettings('billing')}

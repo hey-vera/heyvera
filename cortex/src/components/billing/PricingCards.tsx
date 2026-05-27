@@ -18,10 +18,10 @@ const PRO_FEATURES = [
   'Team collaboration controls',
 ] as const;
 
-const FREE_LIMITS = [
-  'Up to 25 tasks / month',
-  'Up to 100 agent runs / month',
-  'Up to 3 team groups',
+const PREVIEW_LIMITS = [
+  'Sample tasks and data only',
+  'AI responses use demo mode',
+  'Up to 3 preview groups',
   'Standard routing speed',
   'No integrations',
   'No team controls',
@@ -117,7 +117,7 @@ export default function PricingCards({ compact = false, billing }: PricingCardsP
           </div>
           <h1 className="text-2xl font-bold text-white">Cortex Pro</h1>
           <p className="mt-1.5 text-sm text-[var(--muted)]">
-            Upgrade when the free tier becomes part of your workflow.
+            Upgrade when preview becomes part of your workflow.
           </p>
         </div>
 
@@ -137,7 +137,7 @@ export default function PricingCards({ compact = false, billing }: PricingCardsP
                 setChosenOption(null);
               }}
               onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void validateCode(); } }}
-              placeholder="CORTEX25"
+              placeholder="Enter code"
               className="min-w-0 flex-1 rounded-lg border border-white/10 bg-[var(--composer)] px-3 py-2.5 font-mono text-sm text-white outline-none transition focus:border-[var(--accent)]/50"
             />
             <button
@@ -270,16 +270,15 @@ export default function PricingCards({ compact = false, billing }: PricingCardsP
           </button>
         </div>
 
-        {/* Free tier vs Pro comparison */}
         <div className="mb-5 grid gap-3 sm:grid-cols-2">
-          {/* Free tier limits */}
+          {/* Preview limits */}
           <div className="rounded-xl border border-white/6 bg-white/[0.02] p-4">
             <p className="mb-3 flex items-center gap-2 text-xs font-medium text-[var(--muted)]">
               <Minus className="h-3.5 w-3.5 text-[var(--muted)]" />
-              Free tier limits
+              Preview limits
             </p>
             <div className="space-y-2">
-              {FREE_LIMITS.map((f) => (
+              {PREVIEW_LIMITS.map((f) => (
                 <div key={f} className="flex items-start gap-2">
                   <Minus className="mt-0.5 h-3 w-3 shrink-0 text-[var(--muted)]" />
                   <span className="text-xs text-[var(--muted)]">{f}</span>

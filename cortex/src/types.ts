@@ -271,6 +271,15 @@ export interface TaskManagerTask {
     done: number;
     failed: number;
   } | null;
+  evidenceStatus?: {
+    hasEvidence: boolean;
+    gateddone: boolean;
+    reason: string;
+    totalSteps: number;
+    verifiedSteps: number;
+    failedSteps: number;
+    unverifiedSteps: number;
+  } | null;
 }
 
 export type TaskActivityKind = 'created' | 'assigned' | 'status' | 'handoff' | 'linked' | 'note' | 'paused' | 'resumed' | 'retried' | 'cancelled' | 'prioritized';
