@@ -23,16 +23,21 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TaskActivity, TaskManagerTask, TaskMember, TaskStatus } from '../../types';
 import { formatTaskStatus } from '../../lib/taskManager';
 import {
+  checkTaskEvidence,
+  getActiveConflicts,
   getRun,
   getRunEvents,
   getTaskProjection,
   resolveGroupApproval,
   type CortexApprovalRequest,
+  type ResourceLeaseConflict,
   type RunOperationEvent,
   type RunStep,
   type RunSummary,
+  type TaskEvidenceCheck,
   type TaskProjection,
 } from '../../lib/cortexApi';
+import ConflictViewer from '../resources/ConflictViewer';
 
 interface TaskInspectorProps {
   task: TaskManagerTask | null;
@@ -55,6 +60,7 @@ interface TaskInspectorProps {
   onResumeTask?: (taskId: string) => void;
   onRetryTask?: (taskId: string) => void;
   onCancelTask?: (taskId: string) => void;
+  onMarkDone?: (taskId: string) => void;
 }
 
 const STATUS_TONE: Record<TaskStatus, string> = {
@@ -249,6 +255,7 @@ export default function TaskInspector({
   onResumeTask,
   onRetryTask,
   onCancelTask,
+  onMarkDone,
 }: TaskInspectorProps) {
   const [run, setRun] = useState<RunSummary | null>(null);
   const [events, setEvents] = useState<RunOperationEvent[]>([]);
@@ -259,6 +266,8 @@ export default function TaskInspector({
   const [runLoadError, setRunLoadError] = useState<string | null>(null);
   const [projectionError, setProjectionError] = useState<string | null>(null);
   const [approvalActionError, setApprovalActionError] = useState<string | null>(null);
+  const [evidenceCheck, setEvidenceCheck] = useState<TaskEvidenceCheck | null>(null);
+  const [conflicts, setConflicts] = useState<ResourceLeaseConflict[]>([]);
   const latestRunId = task?.latestRunId
     ?? projection?.task.latest_run_id
     ?? projection?.runs[0]?.id
@@ -304,6 +313,17 @@ export default function TaskInspector({
   useEffect(() => {
     void refreshTaskProjection();
   }, [refreshTaskProjection]);
+
+  useEffect(() => {
+    if (!taskGroupId || !taskId) {
+      setEvidenceCheck(null);
+      return;
+    }
+    void checkTaskEvidence(taskGroupId, taskId)
+      .then(setEvidenceCheck)
+      .catch(() => setEvidenceCheck(null));
+  }, [taskGroupId, taskId]);
+
 
   const refreshRunProjection = useCallback(async () => {
     if (!latestRunId) {
@@ -485,6 +505,24 @@ export default function TaskInspector({
             <RefreshCw className="h-3.5 w-3.5" /> Retry
           </button>
         )}
+        {task.status !== 'done' && task.status !== 'cancelled' && onMarkDone && (() => {
+          const evidenceBlocked = evidenceCheck !== null && !evidenceCheck.completion_gate.gated_done;
+          const blockReason = evidenceBlocked
+            ? `Evidence requirements not met: ${evidenceCheck!.completion_gate.steps.unverified} steps unverified`
+            : undefined;
+          return (
+            <button
+              type="button"
+              aria-label="Mark done"
+              title={blockReason}
+              disabled={evidenceBlocked}
+              onClick={() => onMarkDone(task.id)}
+              className="inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border border-[var(--accent)]/20 bg-[var(--accent)]/10 text-xs text-[var(--accent)] transition hover:bg-[var(--accent)]/15 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <CheckCircle2 className="h-3.5 w-3.5" /> Mark Done
+            </button>
+          );
+        })()}
         {task.status !== 'done' && task.status !== 'cancelled' && onCancelTask && (
           <button type="button" aria-label="Cancel task" onClick={() => onCancelTask(task.id)} className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md border border-red-300/15 bg-red-400/[0.06] px-3 text-xs text-[var(--muted)] transition hover:bg-red-400/15 hover:text-red-100 active:scale-[0.98]">
             <Ban className="h-3.5 w-3.5" /> Cancel

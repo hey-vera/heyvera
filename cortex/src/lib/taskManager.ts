@@ -10,6 +10,7 @@ import type {
 } from '../types';
 import {
   applyGroupTaskManagerActions,
+  checkTaskEvidence,
   createGroupTaskManagerTask,
   getGroupTaskManagerState,
   patchGroupTaskManagerTask,
@@ -422,6 +423,25 @@ export function parseTaskCommand(text: string, state: TaskManagerState): ParsedT
   return actions;
 }
 
+async function validateTaskCompletion(
+  groupId: string,
+  taskId: string,
+): Promise<{ canComplete: boolean; reason?: string }> {
+  try {
+    const evidenceCheck = await checkTaskEvidence(groupId, taskId);
+    if (!evidenceCheck.completion_gate.gated_done) {
+      return {
+        canComplete: false,
+        reason: `Evidence validation required: ${evidenceCheck.completion_gate.reason}`,
+      };
+    }
+    return { canComplete: true };
+  } catch (error) {
+    console.warn('Evidence validation failed, allowing completion:', error);
+    return { canComplete: true };
+  }
+}
+
 function applyActions(
   groupId: string,
   current: TaskManagerState,
@@ -436,6 +456,8 @@ function applyActions(
 
   for (const action of actions) {
     if (action.type === 'status' && action.targetTaskId && action.status) {
+      // For status='done', we'll need to validate evidence asynchronously
+      // The UI should prevent this from getting here, but this is a fallback
       tasks = tasks.map((task) =>
         task.id === action.targetTaskId
           ? { ...task, status: action.status ?? task.status, updatedAt: timestamp }
@@ -721,9 +743,20 @@ export function useTaskManager(group: CortexGroup, userId: string) {
       });
   }, [commitRemoteState, group.id, persistOptimisticState, syncWholeState]);
 
-  const applyTextCommand = useCallback((text: string, actor = 'You') => {
+  const applyTextCommand = useCallback(async (text: string, actor = 'You') => {
     const actions = parseTaskCommand(text, state);
     if (actions.length === 0) return [];
+
+    // Check for evidence validation on status='done' actions
+    for (const action of actions) {
+      if (action.type === 'status' && action.status === 'done' && action.targetTaskId) {
+        const validation = await validateTaskCompletion(group.id, action.targetTaskId);
+        if (!validation.canComplete) {
+          throw new Error(validation.reason || 'Cannot mark task as done: evidence validation failed');
+        }
+      }
+    }
+
     publishTaskActions(actions, actor, applyActions(group.id, state, actions, actor));
     return actions;
   }, [group.id, publishTaskActions, state]);
@@ -759,7 +792,15 @@ export function useTaskManager(group: CortexGroup, userId: string) {
     });
   }, [group.id, publishTaskCreate, state]);
 
-  const updateTask = useCallback((taskId: string, patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority' | 'projectChatConversationId' | 'projectChatLaunchedAt' | 'latestRunId' | 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>>) => {
+  const updateTask = useCallback(async (taskId: string, patch: Partial<Pick<TaskManagerTask, 'assigneeId' | 'status' | 'title' | 'repo' | 'priority' | 'projectChatConversationId' | 'projectChatLaunchedAt' | 'latestRunId' | 'latestRunStatus' | 'latestRunSyncedAt' | 'latestRunStepSummary'>>) => {
+    // Check evidence validation for status='done'
+    if (patch.status === 'done') {
+      const validation = await validateTaskCompletion(group.id, taskId);
+      if (!validation.canComplete) {
+        throw new Error(validation.reason || 'Cannot mark task as done: evidence validation failed');
+      }
+    }
+
     const timestamp = nowIso();
     const previous = state.tasks.find((task) => task.id === taskId);
     if (!previous) return;
@@ -808,13 +849,24 @@ export function useTaskManager(group: CortexGroup, userId: string) {
     });
   }, [publishTaskPatch, state]);
 
-  const launchTaskInProjectChat = useCallback((taskId: string, conversationId: string | null) => {
+  const launchTaskInProjectChat = useCallback(async (taskId: string, conversationId: string | null) => {
     const timestamp = nowIso();
     const previous = state.tasks.find((task) => task.id === taskId);
     if (!previous) return null;
+
+    // Validate evidence gate before preserving 'done' status
+    let resolvedStatus: TaskStatus = previous.status === 'done' ? previous.status : 'in-progress';
+    if (resolvedStatus === 'done') {
+      const validation = await validateTaskCompletion(group.id, taskId);
+      if (!validation.canComplete) {
+        // Evidence gate rejects 'done' — demote to in-progress
+        resolvedStatus = 'in-progress';
+      }
+    }
+
     const nextTask: TaskManagerTask = {
       ...previous,
-      status: previous.status === 'done' ? previous.status : 'in-progress',
+      status: resolvedStatus,
       projectChatConversationId: conversationId,
       projectChatLaunchedAt: timestamp,
       updatedAt: timestamp,
