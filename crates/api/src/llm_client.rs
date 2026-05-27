@@ -246,7 +246,7 @@ pub async fn stream_chat_cli(
                 Provider::Openai => std::env::var("OPENAI_API_KEY").unwrap(),
             };
 
-            let messages = vec![crate::ChatMessage {
+            let messages = vec![ChatMessage {
                 role: "user".to_string(),
                 content: user_message.to_string(),
             }];
