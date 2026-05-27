@@ -14,7 +14,7 @@ import SpendDashboard from './spend/SpendDashboard';
 import IntegrationSetup from './integrations/IntegrationSetup';
 import type { RunProfile } from '../types';
 
-type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing' | 'account';
+type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing' | 'notifications' | 'account';
 
 const RUN_PROFILE_LABELS: Record<RunProfile, string> = {
   auto: 'Auto (adaptive)',
@@ -51,6 +51,94 @@ function saveDefaultProfile(profile: RunProfile) {
 function requestAccountDeletion() {
   // GDPR compliance placeholder — triggers server-side deletion request in production
   alert('Account deletion requested. You\'ll receive a confirmation email.');
+}
+
+interface NotificationPrefs {
+  taskCompletions: boolean;
+  runFailures: boolean;
+  teamActivity: boolean;
+  systemUpdates: boolean;
+}
+
+const NOTIFICATION_PREFS_KEY = 'cortex:notification-prefs';
+
+const DEFAULT_NOTIFICATION_PREFS: NotificationPrefs = {
+  taskCompletions: true,
+  runFailures: true,
+  teamActivity: true,
+  systemUpdates: false,
+};
+
+function readNotificationPrefs(): NotificationPrefs {
+  try {
+    const raw = window.localStorage.getItem(NOTIFICATION_PREFS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as Partial<NotificationPrefs>;
+      return { ...DEFAULT_NOTIFICATION_PREFS, ...parsed };
+    }
+  } catch { /* ignore */ }
+  return { ...DEFAULT_NOTIFICATION_PREFS };
+}
+
+function saveNotificationPrefs(prefs: NotificationPrefs) {
+  try {
+    window.localStorage.setItem(NOTIFICATION_PREFS_KEY, JSON.stringify(prefs));
+  } catch { /* ignore */ }
+}
+
+function NotificationsTab() {
+  const [prefs, setPrefs] = useState<NotificationPrefs>(readNotificationPrefs);
+
+  const toggle = (key: keyof NotificationPrefs) => {
+    const updated = { ...prefs, [key]: !prefs[key] };
+    setPrefs(updated);
+    saveNotificationPrefs(updated);
+  };
+
+  const categories: { key: keyof NotificationPrefs; label: string }[] = [
+    { key: 'taskCompletions', label: 'Task completions' },
+    { key: 'runFailures', label: 'Run failures' },
+    { key: 'teamActivity', label: 'Team activity' },
+    { key: 'systemUpdates', label: 'System updates' },
+  ];
+
+  return (
+    <div className="flex flex-col gap-5">
+      <section className="flex flex-col gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
+          Notification preferences
+        </h3>
+        <div className="rounded-xl border border-white/8 bg-white/[0.02]">
+          {categories.map((cat, idx) => (
+            <div
+              key={cat.key}
+              className={`flex items-center justify-between px-4 py-3 ${idx < categories.length - 1 ? 'border-b border-white/6' : ''}`}
+            >
+              <span className="text-sm text-white">{cat.label}</span>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={prefs[cat.key]}
+                onClick={() => toggle(cat.key)}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ${
+                  prefs[cat.key] ? 'bg-[var(--accent)]' : 'bg-white/10'
+                }`}
+              >
+                <span
+                  className={`inline-block h-3.5 w-3.5 rounded-full bg-white shadow transition-transform duration-200 ${
+                    prefs[cat.key] ? 'translate-x-[1.125rem]' : 'translate-x-[0.1875rem]'
+                  }`}
+                />
+              </button>
+            </div>
+          ))}
+        </div>
+        <p className="text-[10px] text-[var(--muted)]">
+          Preferences are stored locally. Notification delivery depends on backend availability.
+        </p>
+      </section>
+    </div>
+  );
 }
 
 function AccountTab({ providers }: { providers: ProviderAuthInfo[] }) {
@@ -382,6 +470,14 @@ export default function SettingsPanel({
             Billing
           </button>
           <button
+            onClick={() => setTab('notifications')}
+            className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
+              tab === 'notifications' ? 'border-[var(--accent)] text-white' : 'border-transparent text-[var(--muted)] hover:text-white'
+            }`}
+          >
+            Notifications
+          </button>
+          <button
             onClick={() => setTab('account')}
             className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
               tab === 'account' ? 'border-[var(--accent)] text-white' : 'border-transparent text-[var(--muted)] hover:text-white'
@@ -399,6 +495,8 @@ export default function SettingsPanel({
             <IntegrationSetup />
           ) : tab === 'spend' ? (
             <SpendDashboard />
+          ) : tab === 'notifications' ? (
+            <NotificationsTab />
           ) : tab === 'account' ? (
             <AccountTab providers={providers} />
           ) : loading ? (
