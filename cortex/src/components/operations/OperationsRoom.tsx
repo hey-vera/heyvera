@@ -12,6 +12,7 @@ import {
   User,
   XCircle,
 } from 'lucide-react';
+import AuthorityScopesPanel from '../authority/AuthorityScopesPanel';
 import OperationsGraphPanel from '../tasks/OperationsGraphPanel';
 import {
   getAuthorityScopes,
@@ -402,6 +403,9 @@ export default function OperationsRoom() {
                 )}
               </div>
             </div>
+
+            {/* Authority Scopes Management Panel */}
+            <AuthorityScopesPanel />
 
             {/* Authority & Approvals */}
             <div className="grid gap-6 lg:grid-cols-2">

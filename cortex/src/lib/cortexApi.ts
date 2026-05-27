@@ -17,6 +17,7 @@ export function isOffline(): boolean {
 }
 
 const RETRY_DELAYS_MS = [1000, 2000, 4000];
+const STREAM_RECONNECT_DELAYS_MS = [1000, 2000, 4000];
 const RETRYABLE_STATUSES = new Set([503]);
 
 /**
@@ -125,9 +126,22 @@ async function readErrorMessage(res: Response): Promise<string> {
   }
 }
 
+/** BroadcastChannel name used for cross-tab auth sync. */
+export const AUTH_CHANNEL_NAME = 'cortex-auth';
+
 function dispatchUnauthorized() {
   try {
     window.dispatchEvent(new CustomEvent('cortex:unauthorized'));
+  } catch {
+    // ignore in non-browser environments
+  }
+  // Notify other tabs so they also sign out
+  try {
+    if (typeof BroadcastChannel !== 'undefined') {
+      const ch = new BroadcastChannel(AUTH_CHANNEL_NAME);
+      ch.postMessage({ type: 'logout' });
+      ch.close();
+    }
   } catch {
     // ignore in non-browser environments
   }
@@ -177,51 +191,89 @@ export function streamChat(
   const controller = new AbortController();
 
   (async () => {
-    try {
-      const res = await authedFetch(apiUrl('/api/chat'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message,
-          file_paths: filePaths,
-          routing_context: routingContext,
-        }),
-        signal: controller.signal,
-      });
+    for (let attempt = 0; attempt <= STREAM_RECONNECT_DELAYS_MS.length; attempt++) {
+      try {
+        const res = await authedFetch(apiUrl('/api/chat'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            message,
+            file_paths: filePaths,
+            routing_context: routingContext,
+          }),
+          signal: controller.signal,
+        });
 
-      if (!res.ok) {
-        const body = await res.text();
-        throw new Error(`Cortex API ${res.status}: ${body}`);
-      }
+        if (!res.ok) {
+          const body = await res.text();
+          const status = res.status;
+          // Non-retryable client errors
+          if (status >= 400 && status < 500) {
+            throw new CortexApiError(status, body);
+          }
+          throw new Error(`Cortex API ${status}: ${body}`);
+        }
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No response body');
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error('No response body');
 
-      const decoder = new TextDecoder();
-      let buffer = '';
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let sawCompletion = false;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
 
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const json = line.slice(6).trim();
-          if (!json) continue;
-          try {
-            onEvent(JSON.parse(json) as WorkerEvent);
-          } catch {
-            // skip malformed lines
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const json = line.slice(6).trim();
+            if (!json) continue;
+            try {
+              const event = JSON.parse(json) as WorkerEvent;
+              onEvent(event);
+              if (event.type === 'completed' || event.type === 'failed') {
+                sawCompletion = true;
+              }
+            } catch {
+              // skip malformed lines
+            }
           }
         }
+
+        // Stream ended -- if we saw a terminal event or stream closed normally, we're done
+        if (sawCompletion) {
+          onDone();
+          return;
+        }
+        // Server closed without terminal event -- treat as normal completion on first attempt
+        onDone();
+        return;
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        if (err instanceof Error && err.name === 'AbortError') return;
+        // Non-retryable HTTP errors
+        if (err instanceof CortexApiError && err.status >= 400 && err.status < 500) {
+          onError(err);
+          return;
+        }
+        if (attempt === STREAM_RECONNECT_DELAYS_MS.length) {
+          if (err instanceof Error) onError(err);
+          return;
+        }
       }
-      onDone();
-    } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') onError(err);
+
+      // Wait before reconnect
+      if (attempt < STREAM_RECONNECT_DELAYS_MS.length) {
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, STREAM_RECONNECT_DELAYS_MS[attempt]);
+        });
+        if (controller.signal.aborted) return;
+      }
     }
   })();
 
@@ -1410,6 +1462,54 @@ export async function getAuthorityScopes(): Promise<CortexAuthorityScopesRespons
   return requestJson<CortexAuthorityScopesResponse>('/api/authority/scopes');
 }
 
+export interface CreateAuthorityScopeRequest {
+  name: string;
+  description: string;
+  kind: CortexAuthorityScopeKind;
+  role: 'owner' | 'admin' | 'member' | 'viewer';
+}
+
+export interface DelegateAuthorityRequest {
+  scope_id: string;
+  subject_did: string;
+  role: 'admin' | 'member' | 'viewer';
+  reason?: string;
+}
+
+export interface DelegateAuthorityResponse {
+  delegation_id: string;
+  scope_id: string;
+  subject_did: string;
+  role: string;
+  created_at: number;
+}
+
+export async function createAuthorityScope(
+  request: CreateAuthorityScopeRequest,
+): Promise<CortexAuthorityScope> {
+  return requestJson<CortexAuthorityScope>('/api/authority/scopes', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function delegateAuthority(
+  request: DelegateAuthorityRequest,
+): Promise<DelegateAuthorityResponse> {
+  return requestJson<DelegateAuthorityResponse>('/api/authority/delegate', {
+    method: 'POST',
+    body: JSON.stringify(request),
+  });
+}
+
+export async function revokeAuthorityDelegation(
+  delegationId: string,
+): Promise<{ revoked: boolean }> {
+  return requestJson<{ revoked: boolean }>(`/api/authority/delegations/${encodeURIComponent(delegationId)}`, {
+    method: 'DELETE',
+  });
+}
+
 export async function listGroupApprovals(
   groupId: string,
   status?: string,
@@ -1475,46 +1575,101 @@ export function streamRun(
   const controller = new AbortController();
 
   (async () => {
-    try {
-      const res = await authedFetch(apiUrl(`/api/runs/${runId}/stream`), {
-        signal: controller.signal,
-      });
+    for (let attempt = 0; attempt <= STREAM_RECONNECT_DELAYS_MS.length; attempt++) {
+      try {
+        const res = await authedFetch(apiUrl(`/api/runs/${runId}/stream`), {
+          signal: controller.signal,
+        });
 
-      if (!res.ok) {
-        throw new CortexApiError(res.status, await readErrorMessage(res), res.headers.get('Retry-After'));
-      }
+        if (!res.ok) {
+          throw new CortexApiError(res.status, await readErrorMessage(res), res.headers.get('Retry-After'));
+        }
 
-      const reader = res.body?.getReader();
-      if (!reader) throw new Error('No response body');
+        const reader = res.body?.getReader();
+        if (!reader) throw new Error('No response body');
 
-      const decoder = new TextDecoder();
-      let buffer = '';
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let completedNormally = false;
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) {
+            completedNormally = true;
+            break;
+          }
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split('\n');
-        buffer = lines.pop() ?? '';
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop() ?? '';
 
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const json = line.slice(6).trim();
-          if (!json) continue;
-          try {
-            onEvent(JSON.parse(json) as RunStreamEvent);
-          } catch {
-            // skip malformed lines
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            const json = line.slice(6).trim();
+            if (!json) continue;
+            try {
+              const event = JSON.parse(json) as RunStreamEvent;
+              onEvent(event);
+              // If the server signalled completion, no need to reconnect
+              if (event.type === 'run_complete') return;
+            } catch {
+              // skip malformed lines
+            }
           }
         }
+
+        // Stream ended normally (server closed) -- no reconnect needed
+        if (completedNormally) return;
+      } catch (err) {
+        if (controller.signal.aborted) return;
+        if (err instanceof Error && err.name === 'AbortError') return;
+        // Non-retryable HTTP errors (4xx)
+        if (err instanceof CortexApiError && err.status >= 400 && err.status < 500) {
+          onError(err);
+          return;
+        }
+        // Last attempt -- surface the error
+        if (attempt === STREAM_RECONNECT_DELAYS_MS.length) {
+          if (err instanceof Error) onError(err);
+          return;
+        }
       }
-    } catch (err) {
-      if (err instanceof Error && err.name !== 'AbortError') onError(err);
+
+      // Wait before reconnect
+      if (attempt < STREAM_RECONNECT_DELAYS_MS.length) {
+        await new Promise<void>((resolve) => {
+          window.setTimeout(resolve, STREAM_RECONNECT_DELAYS_MS[attempt]);
+        });
+        if (controller.signal.aborted) return;
+      }
     }
   })();
 
   return controller;
+}
+
+// Resource conflict types (mirrors crates/api/src/db.rs ResourceLeaseConflict)
+
+export interface ResourceLeaseConflict {
+  lease_id: string;
+  run_id: string;
+  step_id: string | null;
+  holder_type: string;
+  resource_type: string;
+  repo_key: string;
+  resource_key: string;
+  mode: string;
+  expires_at: number;
+}
+
+/**
+ * Fetch active resource conflicts blocking a given run.
+ * Stub: the backend endpoint is not yet wired, so this returns an empty array.
+ * When the endpoint lands, replace with a real `requestJson` call.
+ */
+export async function getActiveConflicts(runId: string): Promise<ResourceLeaseConflict[]> {
+  void runId;
+  return Promise.resolve([]);
 }
 
 // Conversations
