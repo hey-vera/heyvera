@@ -272,7 +272,7 @@ export default function ProjectChat({
   }, [onDraftChange]);
 
   return (
-    <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
+    <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden" aria-busy={isStreaming}>
       <div className="border-b border-white/6 px-4 py-2">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
@@ -290,6 +290,7 @@ export default function ProjectChat({
               <button
                 type="button"
                 title={showMemoryPanel ? "Hide memory panel" : "Show memory intelligence"}
+                aria-label={showMemoryPanel ? "Hide memory panel" : "Show memory intelligence"}
                 onClick={() => setShowMemoryPanel(!showMemoryPanel)}
                 className={`inline-flex h-8 w-8 items-center justify-center rounded-lg transition active:scale-95 ${
                   showMemoryPanel ? 'bg-[var(--accent)]/20 text-[var(--accent)]' : 'text-[var(--muted)] hover:bg-white/6 hover:text-white'
@@ -304,6 +305,7 @@ export default function ProjectChat({
                 onClick={() => setShowMemoryManagement(true)}
                 className="flex items-center gap-1 px-2 py-1 text-xs bg-white/5 border border-white/10 rounded-md hover:bg-white/10 transition-colors"
                 title="Manage memories"
+                aria-label="Manage memories"
               >
                 <Brain className="h-3 w-3" />
                 <Settings className="h-3 w-3" />

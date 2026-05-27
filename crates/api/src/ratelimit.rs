@@ -96,6 +96,10 @@ pub enum RateLimitCategory {
     FollowUnfollow,
     /// Reactions (likes, bookmarks, reposts) — 60/hour
     Reaction,
+    /// API key reads (list keys) — 30/min
+    KeyRead,
+    /// API key writes (save/delete keys) — 10/hour
+    KeyWrite,
 }
 
 impl RateLimitCategory {
@@ -108,12 +112,22 @@ impl RateLimitCategory {
             Self::ProfileEdit => (5, 3600),    // 5/hour
             Self::FollowUnfollow => (30, 3600), // 30/hour
             Self::Reaction => (60, 3600),      // 60/hour
+            Self::KeyRead => (30, 60),         // 30/min
+            Self::KeyWrite => (10, 3600),      // 10/hour
         }
     }
 }
 
 /// Classify a request into a rate limit category based on path and method.
 fn classify_request(method: &Method, path: &str) -> RateLimitCategory {
+    // API key management endpoints
+    if path.starts_with("/api/keys") {
+        return match *method {
+            Method::GET | Method::HEAD | Method::OPTIONS => RateLimitCategory::KeyRead,
+            _ => RateLimitCategory::KeyWrite,
+        };
+    }
+
     // Social-specific endpoints
     if path.starts_with("/v1/social/posts") && method == Method::POST {
         return RateLimitCategory::PostCreate;

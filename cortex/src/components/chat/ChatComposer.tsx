@@ -221,7 +221,7 @@ export default function ChatComposer({
   }
 
   return (
-    <form className="sticky bottom-0 border-t border-white/6 p-3 sm:p-4 relative bg-[var(--panel)]" onSubmit={handleSubmit}>
+    <form className="sticky bottom-0 border-t border-white/6 p-3 sm:p-4 relative bg-[var(--panel)]" onSubmit={handleSubmit} aria-label="Chat message composer">
       {MEMORY_API_ENABLED && (
         <MemorySuggestions
           currentInput={draft}
@@ -244,6 +244,7 @@ export default function ChatComposer({
             placeholder={placeholder}
             enterKeyHint="send"
             aria-label="Message input"
+            aria-busy={disabled}
             className="max-h-48 min-h-[52px] w-full resize-none bg-transparent px-3 py-2 text-sm text-white outline-none placeholder:text-[var(--muted)]"
             onChange={(event) => { onDraftChange(event.target.value); recomputeGhost(event.target.value); }}
             onKeyDown={handleKeyDown}

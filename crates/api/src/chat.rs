@@ -50,6 +50,9 @@ pub struct RoutingPreferences {
     pub profile: Option<String>,
     #[serde(default)]
     pub budget_limit: Option<f64>,
+    /// BYOK model tier: "fast" (haiku/mini), "balanced" (sonnet/gpt-4.1), "powerful" (opus/gpt-5.5)
+    #[serde(default)]
+    pub model_tier: Option<String>,
 }
 
 fn default_balanced() -> String { "balanced".into() }
@@ -80,11 +83,24 @@ enum ProviderPath {
     Subscription { provider: Provider, model: String },
     /// BYOK: raw API key (use cheap model by default)
     ApiKey { provider: Provider, api_key: String, model: String },
+    /// Stored key exists but decryption failed (key rotation or corruption)
+    DecryptFailed { provider: String },
     /// No provider available
     None,
 }
 
-async fn resolve_provider(state: &AppState, user_id: &str) -> ProviderPath {
+fn byok_model(provider: &Provider, tier: Option<&str>) -> String {
+    match (provider, tier.unwrap_or("fast")) {
+        (Provider::Claude, "powerful") => "claude-opus-4-6".into(),
+        (Provider::Claude, "balanced") => "claude-sonnet-4-6".into(),
+        (Provider::Claude, _) => "claude-haiku-4-5".into(),
+        (Provider::Openai, "powerful") => "gpt-4.1".into(),
+        (Provider::Openai, "balanced") => "gpt-4.1".into(),
+        (Provider::Openai, _) => "gpt-4.1-mini".into(),
+    }
+}
+
+async fn resolve_provider(state: &AppState, user_id: &str, model_tier: Option<&str>) -> ProviderPath {
     // 1. Check for BYOS subscription auth (server-side CLI)
     let providers = state.providers.read().await;
     let has_claude = providers.iter().any(|p| p.provider == cortex_core::provider::ProviderId::Claude && p.authenticated);
@@ -107,13 +123,16 @@ async fn resolve_provider(state: &AppState, user_id: &str) -> ProviderPath {
     // 2. Check for BYOK API keys
     if let Some(db) = &state.db {
         if let Some((provider_name, encrypted_key)) = db.get_any_api_key(user_id) {
-            if let Ok(api_key) = crate::crypto::decrypt(&encrypted_key) {
-                if let Some(provider) = Provider::from_str(&provider_name) {
-                    let model = match &provider {
-                        Provider::Claude => "claude-haiku-4-5".to_string(),
-                        Provider::Openai => "gpt-4.1-mini".to_string(),
-                    };
-                    return ProviderPath::ApiKey { provider, api_key, model };
+            match crate::crypto::decrypt(&encrypted_key) {
+                Ok(api_key) => {
+                    if let Some(provider) = Provider::from_str(&provider_name) {
+                        let model = byok_model(&provider, model_tier);
+                        return ProviderPath::ApiKey { provider, api_key, model };
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(user_id, provider = %provider_name, "failed to decrypt stored API key: {e} — user should re-add their key");
+                    return ProviderPath::DecryptFailed { provider: provider_name };
                 }
             }
         }
@@ -138,14 +157,15 @@ pub async fn chat(
 
     if let Some(blocked) = crate::billing::check_chat_access(&state, &user.user_id) {
         return Err((StatusCode::PAYMENT_REQUIRED, Json(ErrorResponse {
-            error: format!("billing: {blocked:?}"),
+            error: format!("Subscription required to access chat. Status: {blocked:?}. Go to Settings → Billing to subscribe."),
         })));
     }
 
     let intent = classify_intent(&req.message);
     let (tx, rx) = mpsc::channel::<StepEvent>(64);
 
-    let provider_path = resolve_provider(&state, &user.user_id).await;
+    let model_tier = req.routing_preferences.as_ref().and_then(|p| p.model_tier.as_deref());
+    let provider_path = resolve_provider(&state, &user.user_id, model_tier).await;
 
     match provider_path {
         ProviderPath::Subscription { provider, model } => {
@@ -244,12 +264,17 @@ pub async fn chat(
                 }
 
                 if !allowed {
+                    let budget_total = budget_result.daily_spent + budget_result.daily_remaining;
+                    let reason = if budget_result.daily_remaining <= 0.0 {
+                        format!("Daily budget limit reached (${:.2} / ${:.2}).", budget_result.daily_spent, budget_total)
+                    } else if budget_result.weekly_remaining <= 0.0 {
+                        format!("Weekly budget limit reached (${:.2} spent this week).", budget_result.weekly_spent)
+                    } else {
+                        format!("Monthly budget limit reached (${:.2} spent this month).", budget_result.monthly_spent)
+                    };
                     let _ = tx.send(StepEvent::Failed {
                         step_id: "chat".into(),
-                        error: format!(
-                            "Daily budget limit reached (${:.2} / ${:.2}). Adjust your limits in Settings → Budget & Costs.",
-                            budget_result.daily_spent, budget_result.daily_spent + budget_result.daily_remaining,
-                        ),
+                        error: format!("{reason} Adjust your limits in Settings → Budget & Costs."),
                     }).await;
                     let stream = ReceiverStream::new(rx).map(step_event_to_sse);
                     return Ok(Sse::new(stream).keep_alive(KeepAlive::default()));
@@ -354,6 +379,29 @@ pub async fn chat(
                         db.add_message(cid, "assistant", &full_response, Some(&provider_name), None);
                     }
                 }
+            });
+        }
+
+        ProviderPath::DecryptFailed { provider } => {
+            tokio::spawn(async move {
+                let _ = tx.send(StepEvent::Started {
+                    step_id: "chat".into(),
+                    provider: "cortex".into(),
+                    model: "system".into(),
+                }).await;
+
+                let _ = tx.send(StepEvent::Output {
+                    step_id: "chat".into(),
+                    line: format!(
+                        "Your stored **{provider}** API key could not be decrypted. This can happen after a server update.\n\n\
+                         Please re-add your API key in **Settings → API Keys** to restore access."
+                    ),
+                }).await;
+
+                let _ = tx.send(StepEvent::Completed {
+                    step_id: "chat".into(),
+                    exit_code: 0,
+                }).await;
             });
         }
 

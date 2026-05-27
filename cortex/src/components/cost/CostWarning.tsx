@@ -100,7 +100,7 @@ function InlineWarning({ warning, onAcknowledge }: { warning: CostWarning; onAck
   if (dismissed) return null;
 
   return (
-    <div className={`rounded-xl border p-4 ${getWarningStyles(warning)}`}>
+    <div role="status" className={`rounded-xl border p-4 ${getWarningStyles(warning)}`}>
       <div className="flex items-start gap-3">
         {getWarningIcon(warning)}
         <div className="flex-1 min-w-0">

@@ -73,7 +73,7 @@ export default function ChatTimeline({
   }, [visibleMessages]);
 
   return (
-    <section className="flex-1 overflow-y-auto px-3 py-4 sm:px-5">
+    <section className="flex-1 overflow-y-auto px-3 py-4 sm:px-5" role="log" aria-live="polite" aria-label="Chat messages">
       {isLoading ? (
         <TimelineSkeleton />
       ) : (

@@ -45,6 +45,7 @@ base64.workspace = true
 aes-gcm.workspace = true
 rand.workspace = true
 futures-util.workspace = true
+which = "6"
 sentry = { version = "0.35", features = ["tracing"], optional = true }
 opentelemetry = { version = "0.27", optional = true }
 opentelemetry-otlp = { version = "0.27", optional = true, features = ["tonic"] }

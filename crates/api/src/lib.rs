@@ -266,6 +266,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/context/stats", get(context_api::get_context_stats))
         .route("/api/context/health", get(context_api::get_context_health))
         .route("/api/context/test", post(context_api::test_context_assembly))
+        // API Keys (BYOK) — rate-limited
+        .route("/api/keys", get(api_keys::list_api_keys))
+        .route("/api/keys/{provider}", put(api_keys::save_api_key).delete(api_keys::delete_api_key))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             ratelimit::rate_limit_middleware,
@@ -414,9 +417,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/groups/{group_id}/approvals", get(integrations::list_group_approval_requests))
         .route("/api/groups/{group_id}/approvals", post(integrations::create_group_approval_request))
         .route("/api/groups/{group_id}/approvals/{request_id}", patch(integrations::resolve_group_approval_request))
-        // API Keys (BYOK)
-        .route("/api/keys", get(api_keys::list_api_keys))
-        .route("/api/keys/{provider}", put(api_keys::save_api_key).delete(api_keys::delete_api_key))
         // Billing & Subscription
         .route("/api/billing/status", get(billing::get_billing_status))
         .route("/api/billing/checkout", post(billing::create_checkout))

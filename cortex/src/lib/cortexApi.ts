@@ -2137,3 +2137,29 @@ export async function acknowledgeCostWarning(warningId: string): Promise<void> {
 export async function getProviderStatus(): Promise<ProviderStatusInfo[]> {
   return requestJson<ProviderStatusInfo[]>('/api/providers/status');
 }
+
+// --- BYOK API Key Management ---
+
+export interface StoredApiKey {
+  provider: string;
+  key_prefix: string;
+  created_at: number;
+}
+
+export async function listApiKeys(): Promise<StoredApiKey[]> {
+  return requestJson<StoredApiKey[]>('/api/keys');
+}
+
+export async function saveApiKey(provider: string, apiKey: string): Promise<void> {
+  await requestJson<void>(`/api/keys/${encodeURIComponent(provider)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ api_key: apiKey }),
+  });
+}
+
+export async function deleteApiKey(provider: string): Promise<void> {
+  await requestJson<void>(`/api/keys/${encodeURIComponent(provider)}`, {
+    method: 'DELETE',
+  });
+}

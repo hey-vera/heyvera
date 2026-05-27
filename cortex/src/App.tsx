@@ -988,6 +988,7 @@ function CortexShell() {
             onClose={() => setSettingsOpen(false)}
             initialTab={settingsInitialTab}
             billing={billing.status}
+            isAdmin={isAdmin}
           />
         </Suspense>
       )}

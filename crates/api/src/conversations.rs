@@ -27,6 +27,12 @@ pub struct AddMessageRequest {
     pub model: Option<String>,
 }
 
+#[derive(Deserialize)]
+pub struct PaginationParams {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
+}
+
 fn db_ref(state: &AppState) -> Result<&crate::db::Database, (StatusCode, Json<ErrorResponse>)> {
     state.db.as_ref().ok_or_else(|| {
         (
@@ -39,16 +45,21 @@ fn db_ref(state: &AppState) -> Result<&crate::db::Database, (StatusCode, Json<Er
 pub async fn list_conversations(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
+    axum::extract::Query(params): axum::extract::Query<PaginationParams>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
-    // If using local auth (no real user), return empty array to prevent frontend crashes
+    // If using local auth (no real user), return empty response to prevent frontend crashes
     if user.user_id == "local" && state.clerk_secret_key.is_none() {
-        return Ok(Json(serde_json::json!([])));
+        return Ok(Json(serde_json::json!({ "conversations": [], "total": 0 })));
     }
     let db = db_ref(&state)?;
-    let conversations = db.list_conversations(&user.user_id);
-    serde_json::to_value(conversations)
-        .map(Json)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: "serialization failed".into() })))
+    let limit = params.limit.unwrap_or(50).min(100).max(1);
+    let offset = params.offset.unwrap_or(0).max(0);
+    let (conversations, total) = db.list_conversations(&user.user_id, limit, offset);
+    let value = serde_json::json!({
+        "conversations": conversations,
+        "total": total,
+    });
+    Ok(Json(value))
 }
 
 pub async fn create_conversation(

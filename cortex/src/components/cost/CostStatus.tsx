@@ -125,7 +125,7 @@ export default function CostStatus({ usage, providers, loading, error }: CostSta
   const hasTrackingEnabled = providers.some(p => p.cost_tracking_enabled && p.authenticated);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" role="status" aria-label="Cost and budget status">
       {/* Session Status */}
       <div className="rounded-xl border border-white/8 bg-white/[0.02] p-4">
         <div className="flex items-center gap-2 mb-3">

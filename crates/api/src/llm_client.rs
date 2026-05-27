@@ -1,8 +1,49 @@
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use std::process::Stdio;
+use std::time::Duration;
+
+/// Resolve the CLI binary path from an env var, falling back to a default name.
+/// Logs a warning on first use if the binary cannot be found on $PATH.
+fn resolve_cli_path(env_var: &str, default: &str) -> String {
+    let path = std::env::var(env_var).unwrap_or_else(|_| default.to_string());
+    path
+}
+
+/// Check that a CLI binary exists and warn once if not.
+fn check_cli_exists(binary: &str, label: &str) {
+    static CLAUDE_CHECKED: OnceLock<()> = OnceLock::new();
+    static CODEX_CHECKED: OnceLock<()> = OnceLock::new();
+
+    let lock = match label {
+        "claude" => &CLAUDE_CHECKED,
+        _ => &CODEX_CHECKED,
+    };
+
+    lock.get_or_init(|| {
+        if which::which(binary).is_err() {
+            tracing::warn!(
+                binary = binary,
+                "'{binary}' not found on $PATH. BYOS chat will fail. \
+                 Install {label} CLI or set the override env var \
+                 (CORTEX_CLAUDE_PATH / CORTEX_CODEX_PATH) to the correct path."
+            );
+        } else {
+            tracing::info!(binary = binary, "{label} CLI found");
+        }
+    });
+}
+
+fn cli_timeout() -> Duration {
+    let secs: u64 = std::env::var("CORTEX_CLI_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(300);
+    Duration::from_secs(secs)
+}
 
 #[derive(Debug, Clone, Serialize)]
 pub struct ChatMessage {
@@ -62,6 +103,8 @@ async fn stream_claude_cli(
     tx: mpsc::Sender<String>,
 ) -> Result<(), String> {
     let model = model.unwrap_or("claude-sonnet-4-6");
+    let cli_path = resolve_cli_path("CORTEX_CLAUDE_PATH", "claude");
+    check_cli_exists(&cli_path, "claude");
 
     let prompt = if system_prompt.is_empty() {
         user_message.to_string()
@@ -69,7 +112,7 @@ async fn stream_claude_cli(
         format!("{system_prompt}\n\n{user_message}")
     };
 
-    let mut cmd = Command::new("claude");
+    let mut cmd = Command::new(&cli_path);
     cmd.args([
         "-p",
         "--output-format", "stream-json",
@@ -81,47 +124,77 @@ async fn stream_claude_cli(
     .stderr(Stdio::piped());
 
     let mut child = cmd.spawn().map_err(|e| {
-        format!("failed to spawn claude CLI: {e} — is the claude CLI installed and authenticated?")
+        match e.kind() {
+            std::io::ErrorKind::NotFound => format!(
+                "Claude CLI not found at '{cli_path}'. Install it with: \
+                 npm install -g @anthropic-ai/claude-cli — or set CORTEX_CLAUDE_PATH \
+                 to the full path of the binary."
+            ),
+            std::io::ErrorKind::PermissionDenied => format!(
+                "Permission denied running '{cli_path}'. Check file permissions \
+                 (chmod +x) or set CORTEX_CLAUDE_PATH to an accessible binary."
+            ),
+            _ => format!("Failed to spawn claude CLI at '{cli_path}': {e}"),
+        }
     })?;
 
     let stdout = child.stdout.take().ok_or("failed to capture stdout")?;
-    let reader = BufReader::new(stdout);
-    let mut lines = reader.lines();
+    let timeout = cli_timeout();
 
-    while let Ok(Some(line)) = lines.next_line().await {
-        if let Ok(event) = serde_json::from_str::<ClaudeStreamEvent>(&line) {
-            match event {
-                ClaudeStreamEvent::Assistant { message } => {
-                    if let Some(content) = extract_claude_text(&message) {
-                        if tx.send(content).await.is_err() {
-                            break;
+    let stream_fut = async {
+        let reader = BufReader::new(stdout);
+        let mut lines = reader.lines();
+
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Ok(event) = serde_json::from_str::<ClaudeStreamEvent>(&line) {
+                match event {
+                    ClaudeStreamEvent::Assistant { message } => {
+                        if let Some(content) = extract_claude_text(&message) {
+                            if tx.send(content).await.is_err() {
+                                break;
+                            }
                         }
                     }
-                }
-                ClaudeStreamEvent::ContentBlockDelta { delta } => {
-                    if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
-                        if tx.send(text.to_string()).await.is_err() {
-                            break;
+                    ClaudeStreamEvent::ContentBlockDelta { delta } => {
+                        if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
+                            if tx.send(text.to_string()).await.is_err() {
+                                break;
+                            }
                         }
                     }
-                }
-                ClaudeStreamEvent::Result { result } => {
-                    if let Some(text) = extract_claude_text(&result) {
-                        if tx.send(text).await.is_err() {
-                            break;
+                    ClaudeStreamEvent::Result { result } => {
+                        if let Some(text) = extract_claude_text(&result) {
+                            if tx.send(text).await.is_err() {
+                                break;
+                            }
                         }
                     }
+                    _ => {}
                 }
-                _ => {}
             }
         }
-    }
+        Ok::<(), String>(())
+    };
 
-    let status = child.wait().await.map_err(|e| format!("claude process error: {e}"))?;
-    if !status.success() {
-        return Err(format!("claude exited with status {status}"));
+    match tokio::time::timeout(timeout, stream_fut).await {
+        Ok(result) => {
+            result?;
+            let status = child.wait().await.map_err(|e| format!("claude process error: {e}"))?;
+            if !status.success() {
+                return Err(format!("claude exited with status {status}"));
+            }
+            Ok(())
+        }
+        Err(_) => {
+            tracing::error!(timeout_secs = timeout.as_secs(), "claude CLI timed out — killing process");
+            let _ = child.kill().await;
+            Err(format!(
+                "Claude CLI timed out after {} seconds. Increase CORTEX_CLI_TIMEOUT_SECS \
+                 or simplify the prompt.",
+                timeout.as_secs()
+            ))
+        }
     }
-    Ok(())
 }
 
 async fn stream_codex_cli(
@@ -131,6 +204,8 @@ async fn stream_codex_cli(
     tx: mpsc::Sender<String>,
 ) -> Result<(), String> {
     let model = model.unwrap_or("gpt-4.1-mini");
+    let cli_path = resolve_cli_path("CORTEX_CODEX_PATH", "codex");
+    check_cli_exists(&cli_path, "codex");
 
     let prompt = if system_prompt.is_empty() {
         user_message.to_string()
@@ -138,7 +213,7 @@ async fn stream_codex_cli(
         format!("{system_prompt}\n\n{user_message}")
     };
 
-    let mut cmd = Command::new("codex");
+    let mut cmd = Command::new(&cli_path);
     cmd.args([
         "exec",
         "-c", &format!("model={model}"),
@@ -149,27 +224,57 @@ async fn stream_codex_cli(
     .stderr(Stdio::piped());
 
     let mut child = cmd.spawn().map_err(|e| {
-        format!("failed to spawn codex CLI: {e} — is the codex CLI installed and authenticated?")
+        match e.kind() {
+            std::io::ErrorKind::NotFound => format!(
+                "Codex CLI not found at '{cli_path}'. Install it with: \
+                 npm install -g @openai/codex — or set CORTEX_CODEX_PATH \
+                 to the full path of the binary."
+            ),
+            std::io::ErrorKind::PermissionDenied => format!(
+                "Permission denied running '{cli_path}'. Check file permissions \
+                 (chmod +x) or set CORTEX_CODEX_PATH to an accessible binary."
+            ),
+            _ => format!("Failed to spawn codex CLI at '{cli_path}': {e}"),
+        }
     })?;
 
     let stdout = child.stdout.take().ok_or("failed to capture stdout")?;
-    let reader = BufReader::new(stdout);
-    let mut lines = reader.lines();
+    let timeout = cli_timeout();
 
-    while let Ok(Some(line)) = lines.next_line().await {
-        let trimmed = line.trim();
-        if !trimmed.is_empty() {
-            if tx.send(format!("{trimmed}\n")).await.is_err() {
-                break;
+    let stream_fut = async {
+        let reader = BufReader::new(stdout);
+        let mut lines = reader.lines();
+
+        while let Ok(Some(line)) = lines.next_line().await {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                if tx.send(format!("{trimmed}\n")).await.is_err() {
+                    break;
+                }
             }
         }
-    }
+        Ok::<(), String>(())
+    };
 
-    let status = child.wait().await.map_err(|e| format!("codex process error: {e}"))?;
-    if !status.success() {
-        return Err(format!("codex exited with status {status}"));
+    match tokio::time::timeout(timeout, stream_fut).await {
+        Ok(result) => {
+            result?;
+            let status = child.wait().await.map_err(|e| format!("codex process error: {e}"))?;
+            if !status.success() {
+                return Err(format!("codex exited with status {status}"));
+            }
+            Ok(())
+        }
+        Err(_) => {
+            tracing::error!(timeout_secs = timeout.as_secs(), "codex CLI timed out — killing process");
+            let _ = child.kill().await;
+            Err(format!(
+                "Codex CLI timed out after {} seconds. Increase CORTEX_CLI_TIMEOUT_SECS \
+                 or simplify the prompt.",
+                timeout.as_secs()
+            ))
+        }
     }
-    Ok(())
 }
 
 // --- BYOK direct API path (for users who bring their own API keys) ---

@@ -3011,18 +3011,26 @@ impl Database {
         }
     }
 
-    pub fn list_conversations(&self, user_id: &str) -> Vec<ConversationSummary> {
+    pub fn list_conversations(&self, user_id: &str, limit: i64, offset: i64) -> (Vec<ConversationSummary>, i64) {
         let conn = self.conn.lock().unwrap();
+
+        let total: i64 = conn.query_row(
+            "SELECT COUNT(*) FROM conversations WHERE user_id = ?1",
+            params![user_id],
+            |row| row.get(0),
+        ).unwrap_or(0);
+
         let mut stmt = conn.prepare(
             "SELECT c.id, c.title, c.updated_at,
                     (SELECT COUNT(*) FROM messages m WHERE m.conversation_id = c.id) as msg_count,
                     (SELECT m.content FROM messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) as last_msg
              FROM conversations c
              WHERE c.user_id = ?1
-             ORDER BY c.updated_at DESC"
+             ORDER BY c.updated_at DESC
+             LIMIT ?2 OFFSET ?3"
         ).unwrap();
 
-        stmt.query_map(params![user_id], |row| {
+        let conversations = stmt.query_map(params![user_id, limit, offset], |row| {
             let preview: Option<String> = row.get(4)?;
             Ok(ConversationSummary {
                 id: row.get(0)?,
@@ -3040,7 +3048,9 @@ impl Database {
         })
         .unwrap()
         .filter_map(|r| r.ok())
-        .collect()
+        .collect();
+
+        (conversations, total)
     }
 
     pub fn get_conversation(
