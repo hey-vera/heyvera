@@ -13,7 +13,11 @@ import {
 } from 'lucide-react';
 import OperationsGraphPanel from '../tasks/OperationsGraphPanel';
 import {
+  getAuthorityScopes,
   getGroupOperationsSummary,
+  listGroupApprovals,
+  type CortexApprovalRequest,
+  type CortexAuthorityScope,
   type GroupOperationsSummary,
 } from '../../lib/cortexApi';
 
@@ -97,14 +101,22 @@ export default function OperationsRoom() {
   const { groupId = 'personal' } = useParams<{ groupId: string }>();
   const navigate = useNavigate();
   const [summary, setSummary] = useState<GroupOperationsSummary | null>(null);
+  const [scopes, setScopes] = useState<CortexAuthorityScope[]>([]);
+  const [approvals, setApprovals] = useState<CortexApprovalRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const next = await getGroupOperationsSummary(groupId);
+      const [next, scopeResponse, approvalList] = await Promise.all([
+        getGroupOperationsSummary(groupId),
+        getAuthorityScopes().catch(() => ({ scopes: [] })),
+        listGroupApprovals(groupId).catch(() => []),
+      ]);
       setSummary(next);
+      setScopes(scopeResponse.scopes);
+      setApprovals(approvalList);
       setError(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Operations data unavailable');
@@ -123,6 +135,8 @@ export default function OperationsRoom() {
   const attentionItems = useMemo(() => summary?.attention ?? [], [summary]);
   const failedCount = (summary?.runs.failed ?? 0) + (summary?.steps.failed ?? 0);
   const activeCount = (summary?.tasks.active ?? 0) + (summary?.runs.active ?? 0);
+  const pendingApprovals = approvals.filter((a) => a.status === 'pending');
+  const recentApprovals = approvals.filter((a) => a.status !== 'pending').slice(0, 10);
 
   return (
     <div className="flex h-screen flex-col bg-[var(--bg)] text-white">
@@ -237,6 +251,96 @@ export default function OperationsRoom() {
                     </div>
                   </div>
                 )}
+              </div>
+            </div>
+
+            {/* Authority & Approvals */}
+            <div className="grid gap-6 lg:grid-cols-2">
+              {scopes.length > 0 && (
+                <div>
+                  <h2 className="mb-3 text-sm font-semibold text-white">Authority Scopes</h2>
+                  <div className="space-y-2">
+                    {scopes.map((scope) => (
+                      <div key={scope.id} className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-3">
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="truncate text-sm font-medium text-white">{scope.name}</p>
+                            <p className="truncate text-[11px] text-[var(--muted)]">
+                              {scope.kind} · {scope.role} · {scope.resources.length} resource{scope.resources.length === 1 ? '' : 's'}
+                            </p>
+                          </div>
+                          <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${
+                            scope.status === 'active' ? 'border-emerald-300/20 bg-emerald-400/10 text-emerald-100' : 'border-white/8 bg-white/[0.04] text-[var(--muted)]'
+                          }`}>
+                            {scope.status}
+                          </span>
+                        </div>
+                        {scope.resources.length > 0 && (
+                          <div className="mt-2 flex flex-wrap gap-1">
+                            {scope.resources.slice(0, 5).map((resource) => (
+                              <span key={resource.id} className="rounded-md border border-white/6 bg-black/10 px-2 py-0.5 text-[10px] text-[var(--muted)]">
+                                {resource.resource_type}: {resource.resource_key.length > 30 ? `${resource.resource_key.slice(0, 27)}...` : resource.resource_key}
+                                <span className="ml-1 text-[var(--muted-strong)]">{resource.access}</span>
+                              </span>
+                            ))}
+                            {scope.resources.length > 5 && (
+                              <span className="rounded-md border border-white/6 bg-black/10 px-2 py-0.5 text-[10px] text-[var(--muted)]">
+                                +{scope.resources.length - 5} more
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <h2 className="mb-3 text-sm font-semibold text-white">
+                  Approval Audit Trail ({approvals.length})
+                </h2>
+                {pendingApprovals.length > 0 && (
+                  <div className="mb-3 space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wider text-amber-200">Pending</p>
+                    {pendingApprovals.map((approval) => (
+                      <div key={approval.id} className="rounded-lg border border-amber-300/20 bg-amber-300/[0.06] px-3 py-2">
+                        <p className="truncate text-xs font-medium text-white">{approval.title}</p>
+                        <p className="mt-0.5 text-[10px] text-[var(--muted)]">
+                          {approval.requested_by ?? 'system'} · {new Date(approval.created_at).toLocaleString()}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {recentApprovals.length > 0 ? (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] uppercase tracking-wider text-[var(--muted)]">Recent decisions</p>
+                    {recentApprovals.map((approval) => (
+                      <div key={approval.id} className="flex items-center gap-3 rounded-lg border border-white/6 bg-white/[0.02] px-3 py-2">
+                        <div className="shrink-0">
+                          {approval.status === 'approved' ? (
+                            <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />
+                          ) : approval.status === 'rejected' ? (
+                            <XCircle className="h-3.5 w-3.5 text-red-300" />
+                          ) : (
+                            <Clock className="h-3.5 w-3.5 text-[var(--muted)]" />
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-xs font-medium text-white">{approval.title}</p>
+                          <p className="text-[10px] text-[var(--muted)]">
+                            {approval.status} · {new Date(approval.updated_at ?? approval.created_at).toLocaleString()}
+                          </p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : pendingApprovals.length === 0 ? (
+                  <div className="flex h-32 items-center justify-center rounded-lg border border-white/8 bg-black/15 text-sm text-[var(--muted)]">
+                    No approval activity
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
