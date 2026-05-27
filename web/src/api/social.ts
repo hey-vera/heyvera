@@ -165,7 +165,7 @@ export type ProfileSummary = {
 //
 const API_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/v1/social`
-  : "https://api.heyvera.org/v1/social";
+  : "/v1/social";
 
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 
@@ -526,7 +526,7 @@ export function feedPostToPost(fp: FeedPost): Post {
 // ─── Legacy-compatible public API (replaces client.ts) ──────────────────────
 // All calls go to the real backend. No mock fallbacks in production.
 
-const LEGACY_API_BASE = import.meta.env.VITE_API_URL || 'https://api.heyvera.org';
+const LEGACY_API_BASE = import.meta.env.VITE_API_URL || '';
 
 function legacyJsonHeaders(headers?: HeadersInit): Headers {
   const next = new Headers(headers);

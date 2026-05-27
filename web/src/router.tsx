@@ -1,6 +1,34 @@
-import { createBrowserRouter, Navigate, Outlet, useLocation } from 'react-router-dom';
+import { createBrowserRouter, Navigate, Outlet, useLocation, useRouteError } from 'react-router-dom';
 import { lazy, Suspense } from 'react';
 import { AppShell } from './components/layout/AppShell';
+
+function RouteErrorBoundary() {
+  const error = useRouteError();
+  return (
+    <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--text-primary)' }}>
+      <h2 style={{ fontSize: '20px', fontWeight: 'bold', marginBottom: '0.5rem' }}>Something went wrong</h2>
+      <p style={{ color: 'var(--text-secondary)', fontSize: '15px', marginBottom: '1rem' }}>
+        {error instanceof Error ? error.message : 'An unexpected error occurred'}
+      </p>
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
+        style={{
+          backgroundColor: 'var(--accent)',
+          color: 'var(--bg-primary)',
+          border: 'none',
+          borderRadius: '9999px',
+          padding: '0.5rem 1.25rem',
+          fontSize: '15px',
+          fontWeight: 'bold',
+          cursor: 'pointer',
+        }}
+      >
+        Refresh page
+      </button>
+    </div>
+  );
+}
 
 const HomePage = lazy(() => import('./pages/HomePage').then(m => ({ default: m.HomePage })));
 const ExplorePage = lazy(() => import('./pages/ExplorePage').then(m => ({ default: m.ExplorePage })));
@@ -39,6 +67,7 @@ export const router = createBrowserRouter([
   {
     path: '/',
     element: <RootLayout />,
+    errorElement: <RouteErrorBoundary />,
     children: [
       { index: true, element: <Navigate to="/home" replace /> },
       { path: 'home', element: <HomePage /> },
@@ -53,6 +82,7 @@ export const router = createBrowserRouter([
       { path: 'settings', element: <SettingsPage /> },
       { path: 'ai', element: <AIPage /> },
       { path: 'post/:id', element: <PostThreadPage /> },
+      { path: '*', element: <Navigate to="/home" replace /> },
     ],
   },
 ]);
