@@ -480,6 +480,12 @@ function CortexShell() {
     setDraft(lines.join('\n'));
   }, [setDraft]);
 
+  useEffect(() => {
+    if (conversationNotFound && activeConversationId) {
+      setGroupConversation(activeGroupId, null);
+    }
+  }, [conversationNotFound, activeConversationId, activeGroupId, setGroupConversation]);
+
   const handleNewChat = useCallback(() => {
     setGroupConversation(activeGroupId, null);
     setSidebarOpen(false);
