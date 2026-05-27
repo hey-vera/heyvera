@@ -14,6 +14,7 @@ fn resolve_cli_path(env_var: &str, default: &str) -> String {
 }
 
 /// Check that a CLI binary exists and warn once if not.
+/// Also checks for authentication and provides helpful setup guidance.
 fn check_cli_exists(binary: &str, label: &str) {
     static CLAUDE_CHECKED: OnceLock<()> = OnceLock::new();
     static CODEX_CHECKED: OnceLock<()> = OnceLock::new();
@@ -31,10 +32,140 @@ fn check_cli_exists(binary: &str, label: &str) {
                  Install {label} CLI or set the override env var \
                  (CORTEX_CLAUDE_PATH / CORTEX_CODEX_PATH) to the correct path."
             );
+            log_installation_guidance(label);
         } else {
             tracing::info!(binary = binary, "{label} CLI found");
+            // Check authentication asynchronously
+            tokio::spawn(check_cli_auth_async(binary.to_string(), label.to_string()));
         }
     });
+}
+
+/// Log installation guidance for missing CLI tools
+fn log_installation_guidance(label: &str) {
+    match label {
+        "claude" => {
+            tracing::info!(
+                "To install Claude CLI: npm install -g @anthropic-ai/claude-cli"
+            );
+            if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+                tracing::info!("ANTHROPIC_API_KEY detected - will auto-configure auth after install");
+            } else {
+                tracing::info!("Set ANTHROPIC_API_KEY environment variable for headless auth");
+            }
+        }
+        "codex" => {
+            tracing::info!(
+                "To install Codex CLI: npm install -g @openai/codex"
+            );
+            if std::env::var("OPENAI_API_KEY").is_ok() {
+                tracing::info!("OPENAI_API_KEY detected - will auto-configure auth after install");
+            } else {
+                tracing::info!("Set OPENAI_API_KEY environment variable for headless auth");
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Check CLI authentication status asynchronously
+async fn check_cli_auth_async(binary: String, label: String) {
+    let auth_status = match label.as_str() {
+        "claude" => check_claude_auth_status().await,
+        "codex" => check_codex_auth_status().await,
+        _ => AuthStatus::Unknown,
+    };
+
+    match auth_status {
+        AuthStatus::Authenticated => {
+            tracing::info!("{label} CLI authenticated and ready");
+        }
+        AuthStatus::NotAuthenticated => {
+            tracing::warn!(
+                "{label} CLI found but not authenticated. BYOS chat will fail."
+            );
+            log_auth_guidance(&label);
+        }
+        AuthStatus::Unknown => {
+            tracing::warn!(
+                "Could not determine {label} CLI auth status"
+            );
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+enum AuthStatus {
+    Authenticated,
+    NotAuthenticated,
+    Unknown,
+}
+
+/// Check Claude CLI authentication status
+async fn check_claude_auth_status() -> AuthStatus {
+    match tokio::process::Command::new("claude")
+        .args(["auth", "status", "--json"])
+        .output()
+        .await
+    {
+        Ok(output) if output.status.success() => {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if stdout.contains("\"loggedIn\":true") {
+                AuthStatus::Authenticated
+            } else {
+                AuthStatus::NotAuthenticated
+            }
+        }
+        _ => AuthStatus::Unknown,
+    }
+}
+
+/// Check Codex CLI authentication status
+async fn check_codex_auth_status() -> AuthStatus {
+    match tokio::process::Command::new("codex")
+        .args(["login", "status"])
+        .output()
+        .await
+    {
+        Ok(output) => {
+            let all_output = format!(
+                "{} {}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            if all_output.contains("Logged in") {
+                AuthStatus::Authenticated
+            } else {
+                AuthStatus::NotAuthenticated
+            }
+        }
+        _ => AuthStatus::Unknown,
+    }
+}
+
+/// Log authentication setup guidance
+fn log_auth_guidance(label: &str) {
+    match label {
+        "claude" => {
+            if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+                tracing::info!("Run: bash scripts/setup-headless-auth.sh to auto-configure Claude auth");
+            } else {
+                tracing::info!("To authenticate Claude:");
+                tracing::info!("  1. Set ANTHROPIC_API_KEY environment variable, or");
+                tracing::info!("  2. Run: claude auth login (requires browser)");
+            }
+        }
+        "codex" => {
+            if std::env::var("OPENAI_API_KEY").is_ok() {
+                tracing::info!("Run: bash scripts/setup-headless-auth.sh to auto-configure Codex auth");
+            } else {
+                tracing::info!("To authenticate Codex:");
+                tracing::info!("  1. Set OPENAI_API_KEY environment variable, or");
+                tracing::info!("  2. Run: codex login --device-auth");
+            }
+        }
+        _ => {}
+    }
 }
 
 fn cli_timeout() -> Duration {
@@ -83,6 +214,7 @@ impl Provider {
 
 /// Stream a chat response using the CLI tools (BYOS — uses subscription auth).
 /// Calls `claude` or `codex` as a subprocess, streaming output line by line.
+/// Falls back to API mode if CLI tools are not available/authenticated.
 pub async fn stream_chat_cli(
     provider: &Provider,
     model: Option<&str>,
@@ -90,9 +222,52 @@ pub async fn stream_chat_cli(
     user_message: &str,
     tx: mpsc::Sender<String>,
 ) -> Result<(), String> {
-    match provider {
-        Provider::Claude => stream_claude_cli(model, system_prompt, user_message, tx).await,
-        Provider::Openai => stream_codex_cli(model, system_prompt, user_message, tx).await,
+    // Check if we should try API fallback for this provider
+    let api_key_available = match provider {
+        Provider::Claude => std::env::var("ANTHROPIC_API_KEY").is_ok(),
+        Provider::Openai => std::env::var("OPENAI_API_KEY").is_ok(),
+    };
+
+    let result = match provider {
+        Provider::Claude => stream_claude_cli(model, system_prompt, user_message, tx.clone()).await,
+        Provider::Openai => stream_codex_cli(model, system_prompt, user_message, tx.clone()).await,
+    };
+
+    // If CLI failed and we have API keys available, try API fallback
+    if let Err(cli_error) = result {
+        if api_key_available {
+            tracing::warn!(
+                "CLI auth failed for {}, attempting API fallback: {cli_error}",
+                provider.name()
+            );
+
+            let api_key = match provider {
+                Provider::Claude => std::env::var("ANTHROPIC_API_KEY").unwrap(),
+                Provider::Openai => std::env::var("OPENAI_API_KEY").unwrap(),
+            };
+
+            let messages = vec![crate::ChatMessage {
+                role: "user".to_string(),
+                content: user_message.to_string(),
+            }];
+
+            stream_chat_api(provider, &api_key, model, system_prompt, &messages, tx).await
+        } else {
+            Err(format!(
+                "{cli_error} - No API key available for fallback. \
+                 Set {}_API_KEY environment variable or authenticate CLI with: {}",
+                match provider {
+                    Provider::Claude => "ANTHROPIC",
+                    Provider::Openai => "OPENAI",
+                },
+                match provider {
+                    Provider::Claude => "claude auth login",
+                    Provider::Openai => "codex login --device-auth",
+                }
+            ))
+        }
+    } else {
+        result
     }
 }
 
@@ -128,7 +303,8 @@ async fn stream_claude_cli(
             std::io::ErrorKind::NotFound => format!(
                 "Claude CLI not found at '{cli_path}'. Install it with: \
                  npm install -g @anthropic-ai/claude-cli — or set CORTEX_CLAUDE_PATH \
-                 to the full path of the binary."
+                 to the full path of the binary. For headless auth, set ANTHROPIC_API_KEY \
+                 and run: bash scripts/setup-headless-auth.sh"
             ),
             std::io::ErrorKind::PermissionDenied => format!(
                 "Permission denied running '{cli_path}'. Check file permissions \
@@ -181,7 +357,18 @@ async fn stream_claude_cli(
             result?;
             let status = child.wait().await.map_err(|e| format!("claude process error: {e}"))?;
             if !status.success() {
-                return Err(format!("claude exited with status {status}"));
+                let error_msg = format!("claude exited with status {status}");
+                tracing::error!("{error_msg}");
+
+                // Check if this might be an auth issue
+                if status.code() == Some(1) {
+                    return Err(format!(
+                        "{error_msg} - This may indicate authentication failure. \
+                         Check auth with: claude auth status --json. \
+                         For headless setup: bash scripts/setup-headless-auth.sh"
+                    ));
+                }
+                return Err(error_msg);
             }
             Ok(())
         }
@@ -228,7 +415,8 @@ async fn stream_codex_cli(
             std::io::ErrorKind::NotFound => format!(
                 "Codex CLI not found at '{cli_path}'. Install it with: \
                  npm install -g @openai/codex — or set CORTEX_CODEX_PATH \
-                 to the full path of the binary."
+                 to the full path of the binary. For headless auth, set OPENAI_API_KEY \
+                 and run: bash scripts/setup-headless-auth.sh"
             ),
             std::io::ErrorKind::PermissionDenied => format!(
                 "Permission denied running '{cli_path}'. Check file permissions \
@@ -261,7 +449,18 @@ async fn stream_codex_cli(
             result?;
             let status = child.wait().await.map_err(|e| format!("codex process error: {e}"))?;
             if !status.success() {
-                return Err(format!("codex exited with status {status}"));
+                let error_msg = format!("codex exited with status {status}");
+                tracing::error!("{error_msg}");
+
+                // Check if this might be an auth issue
+                if status.code() == Some(1) {
+                    return Err(format!(
+                        "{error_msg} - This may indicate authentication failure. \
+                         Check auth with: codex login status. \
+                         For headless setup: bash scripts/setup-headless-auth.sh"
+                    ));
+                }
+                return Err(error_msg);
             }
             Ok(())
         }

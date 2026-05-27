@@ -410,7 +410,7 @@ function ApiKeysTab() {
             <label className="mb-1.5 block text-xs text-[var(--muted)]">Provider</label>
             <select
               value={selectedProvider}
-              onChange={(e) => setSelectedProvider(e.target.value)}
+              onChange={(e) => setSelectedProvider(e.target.value as typeof BYOK_PROVIDERS[0]['id'])}
               className="w-full rounded-lg border border-white/10 bg-[var(--composer)] px-3 py-2 text-sm text-white focus:border-[var(--accent)]/50 focus:outline-none"
             >
               {BYOK_PROVIDERS.map(p => (
@@ -796,7 +796,7 @@ export default function SettingsPanel({
               usage={budgetUsage}
               onSave={handleSaveBudgetSettings}
               loading={budgetLoading}
-              error={budgetError}
+              error={budgetError || undefined}
             />
           ) : tab === 'notifications' ? (
             <NotificationsTab />

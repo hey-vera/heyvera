@@ -10,6 +10,9 @@ services:
     environment:
       - CORTEX_PORT=3001
       - CORTEX_DB_PATH=/data/cortex.db
+      # Uncomment and set these for BYOS (Bring Your Own Subscription) mode:
+      # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      # - OPENAI_API_KEY=${OPENAI_API_KEY}
     volumes:
       - cortex-data:/data
     networks:

@@ -46,8 +46,11 @@ RUN touch crates/core/src/lib.rs crates/engine/src/lib.rs \
 FROM debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    ca-certificates git curl \
+    ca-certificates git curl nodejs npm \
     && rm -rf /var/lib/apt/lists/*
+
+# Install replit-tools (includes Claude and Codex CLI tools)
+RUN npm install -g replit-tools
 
 # Non-root user
 RUN groupadd --gid 1001 cortex \
@@ -57,6 +60,11 @@ RUN groupadd --gid 1001 cortex \
 RUN mkdir -p /data && chown cortex:cortex /data
 
 COPY --from=builder --chown=cortex:cortex /src/target/release/cortex-server /usr/local/bin/cortex-server
+
+# Copy initialization scripts
+COPY --chown=cortex:cortex scripts/container-auth-init.sh /usr/local/bin/container-auth-init.sh
+COPY --chown=cortex:cortex scripts/container-entrypoint.sh /usr/local/bin/container-entrypoint.sh
+RUN chmod +x /usr/local/bin/container-auth-init.sh /usr/local/bin/container-entrypoint.sh
 
 USER cortex
 WORKDIR /home/cortex
@@ -68,4 +76,4 @@ EXPOSE 3001
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD curl -sf http://localhost:3001/api/health || exit 1
 
-ENTRYPOINT ["cortex-server"]
+ENTRYPOINT ["/usr/local/bin/container-entrypoint.sh"]

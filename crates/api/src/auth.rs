@@ -223,55 +223,90 @@ pub async fn auth_refresh(
 }
 
 async fn check_claude_auth() -> Option<ProviderAuthInfo> {
-    let output = Command::new("claude")
+    // Check CLI authentication first
+    if let Ok(output) = Command::new("claude")
         .args(["auth", "status", "--json"])
         .output()
         .await
-        .ok()?;
+    {
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&stdout) {
+                let logged_in = v.get("loggedIn")?.as_bool().unwrap_or(false);
+                if logged_in {
+                    return Some(ProviderAuthInfo {
+                        provider: "claude".to_string(),
+                        authenticated: true,
+                        email: v
+                            .get("email")
+                            .and_then(|e| e.as_str())
+                            .map(|s| s.to_string()),
+                        subscription: v
+                            .get("subscriptionType")
+                            .and_then(|s| s.as_str())
+                            .map(|s| s.to_string()),
+                    });
+                }
+            }
+        }
+    }
 
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let v: serde_json::Value = serde_json::from_str(&stdout).ok()?;
-
-    let logged_in = v.get("loggedIn")?.as_bool().unwrap_or(false);
-
-    Some(ProviderAuthInfo {
-        provider: "claude".to_string(),
-        authenticated: logged_in,
-        email: v
-            .get("email")
-            .and_then(|e| e.as_str())
-            .map(|s| s.to_string()),
-        subscription: v
-            .get("subscriptionType")
-            .and_then(|s| s.as_str())
-            .map(|s| s.to_string()),
-    })
+    // Fall back to environment variable check
+    if std::env::var("ANTHROPIC_API_KEY").is_ok() {
+        Some(ProviderAuthInfo {
+            provider: "claude".to_string(),
+            authenticated: true,
+            email: Some("environment-api-key@cortex.local".to_string()),
+            subscription: Some("api".to_string()),
+        })
+    } else {
+        Some(ProviderAuthInfo {
+            provider: "claude".to_string(),
+            authenticated: false,
+            email: None,
+            subscription: None,
+        })
+    }
 }
 
 async fn check_codex_auth() -> Option<ProviderAuthInfo> {
-    let output = Command::new("codex")
+    // Check CLI authentication first
+    if let Ok(output) = Command::new("codex")
         .args(["login", "status"])
         .output()
         .await
-        .ok()?;
+    {
+        let all_output = format!(
+            "{} {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+        if all_output.contains("Logged in") {
+            return Some(ProviderAuthInfo {
+                provider: "openai".to_string(),
+                authenticated: true,
+                email: None, // Codex CLI doesn't typically expose email
+                subscription: Some("pro".to_string()),
+            });
+        }
+    }
 
-    let all_output = format!(
-        "{} {}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let authenticated = all_output.contains("Logged in");
-
-    Some(ProviderAuthInfo {
-        provider: "openai".to_string(),
-        authenticated,
-        email: None,
-        subscription: if authenticated {
-            Some("pro".to_string())
-        } else {
-            None
-        },
-    })
+    // Fall back to environment variable check
+    if std::env::var("OPENAI_API_KEY").is_ok() {
+        Some(ProviderAuthInfo {
+            provider: "openai".to_string(),
+            authenticated: true,
+            email: Some("environment-api-key@cortex.local".to_string()),
+            subscription: Some("api".to_string()),
+        })
+    } else {
+        Some(ProviderAuthInfo {
+            provider: "openai".to_string(),
+            authenticated: false,
+            email: None,
+            subscription: None,
+        })
+    }
 }
 
 async fn start_provider_auth(

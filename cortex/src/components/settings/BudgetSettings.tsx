@@ -272,17 +272,17 @@ export default function BudgetSettings({
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <CurrencyInput
                 label="Daily limit"
-                value={formSettings.daily_limit}
+                value={formSettings.daily_limit ?? null}
                 onChange={(value) => updateSetting('daily_limit', value)}
               />
               <CurrencyInput
                 label="Weekly limit"
-                value={formSettings.weekly_limit}
+                value={formSettings.weekly_limit ?? null}
                 onChange={(value) => updateSetting('weekly_limit', value)}
               />
               <CurrencyInput
                 label="Monthly limit"
-                value={formSettings.monthly_limit}
+                value={formSettings.monthly_limit ?? null}
                 onChange={(value) => updateSetting('monthly_limit', value)}
               />
             </div>

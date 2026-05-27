@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { DollarSign, TrendingUp, Clock, AlertTriangle, Settings } from 'lucide-react';
+import { DollarSign, AlertTriangle, Settings } from 'lucide-react';
 import { useCostAwareness } from '../../lib/useCostAwareness';
 import CostWarning from './CostWarning';
 import CostStatus from './CostStatus';
@@ -30,7 +30,7 @@ export default function EnhancedCostGauge({
   onOpenSettings,
   compact = false
 }: EnhancedCostGaugeProps) {
-  const { state, acknowledgeWarning, hasActiveWarnings, hasBlockingWarnings } = useCostAwareness();
+  const { state, acknowledgeWarning, hasActiveWarnings } = useCostAwareness();
   const [showDetails, setShowDetails] = useState(false);
 
   // Use the new usage data if available, fall back to legacy data
@@ -208,7 +208,7 @@ export default function EnhancedCostGauge({
             usage={state.usage}
             providers={state.providers}
             loading={state.loading}
-            error={state.error}
+            error={state.error || undefined}
           />
         </div>
       )}

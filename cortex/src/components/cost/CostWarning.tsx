@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AlertTriangle, X, DollarSign, AlertCircle, Info } from 'lucide-react';
+import { AlertTriangle, X, AlertCircle, Info } from 'lucide-react';
 import type { CostWarning } from '../../lib/cortexApi';
 
 interface CostWarningComponentProps {
