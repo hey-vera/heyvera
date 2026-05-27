@@ -1,7 +1,9 @@
 import { useCallback, useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
   Database,
+  Expand,
   ExternalLink,
   LayoutGrid,
   MessageSquareText,
@@ -93,6 +95,7 @@ export default function TaskManagerSidebar({
   onTaskStateChange,
   onLaunchTaskInProjectChat,
 }: TaskManagerSidebarProps) {
+  const navigate = useNavigate();
   const [isExpanded, setIsExpanded] = useState(false);
   const [activeView, setActiveView] = useState<SidebarView>('chat');
   const [groupTransition, setGroupTransition] = useState(false);
@@ -335,8 +338,17 @@ export default function TaskManagerSidebar({
                 <h3 className="text-sm font-semibold text-white">Live Map</h3>
                 <p className="mt-0.5 text-xs text-[var(--muted)]">
                   {taskManager.summary.open} open · {taskManager.summary.inProgress} active · {taskManager.summary.done} done
+                  {taskManager.summary.paused > 0 ? ` · ${taskManager.summary.paused} paused` : ''}
                 </p>
               </div>
+              <button
+                type="button"
+                onClick={() => navigate(`/app/groups/${group.id}/operations`)}
+                title="Open Operations Room"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-white/8 bg-white/[0.03] text-[var(--muted)] transition hover:text-white"
+              >
+                <Expand className="h-3.5 w-3.5" />
+              </button>
             </div>
             <OperationsGraphPanel
               groupId={group.id}
