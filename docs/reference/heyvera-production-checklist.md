@@ -429,7 +429,7 @@ Audited against real production SaaS requirements. Every item answers: "What doe
 - [x] Offline detection — isOffline() exported from cortexApi.ts
 - [x] User-friendly error messages — enhanced ErrorBoundary with "Try again" and "Go home" actions
 - [x] Error tracking callback — onError prop on ErrorBoundary for integration with Sentry etc.
-- [ ] Stream error recovery: auto-reconnect on dropped SSE/WebSocket connections (deferred — requires backend SSE changes)
+- [x] Stream error recovery — STREAM_RECONNECT_DELAYS_MS with exponential backoff in streamChat/streamRun
 - [ ] Error tracking integration (Sentry or equivalent) — hook exists, needs production DSN config
 
 ### Item 15: Session & Auth Lifecycle (100%) ✅
@@ -439,7 +439,7 @@ Audited against real production SaaS requirements. Every item answers: "What doe
 - [x] Session expiry detection with "Sign in again" banner — cortex:unauthorized custom event on 401
 - [x] Token refresh retry before showing auth error — fetchWithRetry handles transient failures
 - [x] "Signed in as [name/email]" display in header
-- [ ] Multi-tab session sync — deferred (Clerk handles this partially)
+- [x] Multi-tab session sync — BroadcastChannel "cortex-auth" sends/receives logout across tabs
 
 ### Item 16: 404 & Navigation Safety (100%) ✅
 
@@ -447,8 +447,8 @@ Audited against real production SaaS requirements. Every item answers: "What doe
 - [x] Proper 404 page — NotFoundPage.tsx with "Go to dashboard" action
 - [x] "Group not found" state when groupId doesn't match — inline panel with link back
 - [x] Catch-all route renders NotFoundPage instead of silent redirect
-- [ ] "Conversation not found" handling — deferred (conversations are localStorage-based)
-- [ ] Breadcrumb on sub-pages — deferred (low impact)
+- [x] "Conversation not found" handling — 404 detection in useChatSession with fallback UI
+- [x] Breadcrumb on sub-pages — "← Back to Tasks" link in OperationsRoom
 
 ### Item 17: Onboarding & First-Run Experience (100%) ✅
 
