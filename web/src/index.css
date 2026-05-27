@@ -218,6 +218,14 @@ svg {
   background-color: var(--bg-hover);
 }
 
+.sticky-header-bg {
+  background-color: color-mix(in srgb, var(--bg-primary) 80%, transparent);
+}
+
+.modal-overlay-bg {
+  background-color: color-mix(in srgb, var(--bg-primary) 60%, transparent);
+}
+
 #root {
   min-height: 100vh;
 }

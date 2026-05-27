@@ -144,7 +144,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
       {composeOpen && (
         <div
           className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-12 sm:pt-16"
-          style={{ backgroundColor: "rgba(0,0,0,0.6)" }}
+          style={{ backgroundColor: "color-mix(in srgb, var(--bg-primary) 60%, transparent)" }}
           onClick={closeCompose}
         >
           <div

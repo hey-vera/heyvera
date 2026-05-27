@@ -349,7 +349,7 @@ export function ProfilePage() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-      <div className="sticky top-[var(--top-bar-height)] z-10 flex items-center gap-6 border-b bg-black/80 px-4 py-3 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
+      <div className="sticky top-[var(--top-bar-height)] z-10 flex items-center gap-6 border-b sticky-header-bg px-4 py-3 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
         <button type="button" onClick={() => navigate(-1)} className="rounded-full p-2 transition-colors hover:bg-white/10" aria-label="Back">
           <ArrowLeft className="h-5 w-5" aria-hidden="true" />
         </button>
@@ -490,7 +490,7 @@ export default ProfilePage;
 function SignedOutProfilePrompt({ authEnabled }: { authEnabled: boolean }) {
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-      <div className="sticky top-[var(--top-bar-height)] z-10 border-b bg-black/80 px-4 py-3 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
+      <div className="sticky top-[var(--top-bar-height)] z-10 border-b sticky-header-bg px-4 py-3 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
         <h1 className="text-[20px] font-bold leading-tight">Profile</h1>
       </div>
       <section className="px-6 py-12">
@@ -540,7 +540,7 @@ function ProfileSetupForm({ creating, error, defaultDisplayName, onSubmit }: Pro
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-      <div className="sticky top-[var(--top-bar-height)] z-10 border-b bg-black/80 px-4 py-3 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
+      <div className="sticky top-[var(--top-bar-height)] z-10 border-b sticky-header-bg px-4 py-3 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
         <h1 className="text-[20px] font-bold leading-tight">Profile</h1>
       </div>
       <form
@@ -656,7 +656,7 @@ function EditProfileModal({ profile, saving, error, onClose, onSubmit }: EditPro
   return (
     <div
       className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-10 sm:pt-16"
-      style={{ backgroundColor: 'rgba(0,0,0,0.6)' }}
+      style={{ backgroundColor: 'color-mix(in srgb, var(--bg-primary) 60%, transparent)' }}
       onClick={onClose}
     >
       <form
