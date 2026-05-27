@@ -348,7 +348,11 @@ export async function fetchMyProfile(token: string): Promise<{
   profile: Profile;
   linkedAgents: LinkedAgent[];
 }> {
-  return apiAuthFetch("/profile/me", { method: "GET", token });
+  const res = await apiAuthFetch<{ profile?: Profile; linkedAgents?: LinkedAgent[]; error?: string }>("/profile/me", { method: "GET", token });
+  if (!res.profile || res.error) {
+    throw new Error(res.error ?? "No profile found");
+  }
+  return { profile: res.profile, linkedAgents: res.linkedAgents ?? [] };
 }
 
 // ─── Authenticated write endpoints ─────────────────────────────────────────
