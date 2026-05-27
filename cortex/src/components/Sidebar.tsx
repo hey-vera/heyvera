@@ -57,7 +57,7 @@ const CLICK_DELAY_MS = 220;
 
 export default function Sidebar({
   userId,
-  isSignedIn,
+  isSignedIn: _isSignedIn,
   activeConversationId,
   refreshKey,
   onNewChat,
