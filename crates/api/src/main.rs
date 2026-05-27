@@ -199,9 +199,22 @@ async fn main() {
         .unwrap_or(3001);
 
     let addr = SocketAddr::from(([0, 0, 0, 0], port));
-    tracing::info!("cortex server listening on {addr}");
 
-    let listener = tokio::net::TcpListener::bind(addr).await.unwrap();
+    let socket = socket2::Socket::new(
+        socket2::Domain::IPV4,
+        socket2::Type::STREAM,
+        Some(socket2::Protocol::TCP),
+    )
+    .expect("failed to create socket");
+    socket.set_reuse_address(true).expect("failed to set SO_REUSEADDR");
+    socket.set_nonblocking(true).expect("failed to set nonblocking");
+    socket.bind(&addr.into()).unwrap_or_else(|e| {
+        panic!("failed to bind {addr}: {e} — is another instance running?");
+    });
+    socket.listen(1024).expect("failed to listen");
+
+    let listener = tokio::net::TcpListener::from_std(socket.into()).expect("failed to create tokio listener");
+    tracing::info!("cortex server listening on {addr}");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())
         .await
