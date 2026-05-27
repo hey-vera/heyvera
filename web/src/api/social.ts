@@ -230,7 +230,8 @@ export async function fetchHomeFeed(limit = 20, cursor = 0, filter?: string): Pr
 }> {
   const params = new URLSearchParams({ limit: String(limit), cursor: String(cursor) });
   if (filter && filter !== "all") params.set("filter", filter);
-  return apiFetch(`/feed/home?${params.toString()}`);
+  const raw = await apiFetch<{ posts: FeedPost[]; cursor: string | null; has_more: boolean }>(`/feed/home?${params.toString()}`);
+  return { feed: raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
 export async function fetchProfileFeed(handle: string, limit = 20, cursor = 0): Promise<{
@@ -238,7 +239,8 @@ export async function fetchProfileFeed(handle: string, limit = 20, cursor = 0): 
   feed: FeedPost[];
   pageInfo: PageInfo;
 }> {
-  return apiFetch(`/feed/profile/${handle}?limit=${limit}&cursor=${cursor}`);
+  const raw = await apiFetch<{ profile?: Profile; posts: FeedPost[]; cursor: string | null; has_more: boolean }>(`/users/${handle}/posts?limit=${limit}&cursor=${cursor}`);
+  return { profile: raw.profile as Profile, feed: raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
 export async function fetchProfileStats(handle: string): Promise<{
@@ -263,7 +265,8 @@ export async function fetchLongform(limit = 20, cursor = 0): Promise<{
   longform: LongformEntry[];
   pageInfo: PageInfo;
 }> {
-  return apiFetch(`/longform?limit=${limit}&cursor=${cursor}`);
+  const raw = await apiFetch<{ longform?: LongformEntry[]; posts?: LongformEntry[]; cursor: string | null }>(`/longform?limit=${limit}&cursor=${cursor}`);
+  return { longform: raw.longform ?? raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
 export async function fetchCommunityFeed(slug: string, limit = 20, cursor = 0): Promise<{
@@ -271,7 +274,8 @@ export async function fetchCommunityFeed(slug: string, limit = 20, cursor = 0): 
   feed: FeedPost[];
   pageInfo: PageInfo;
 }> {
-  return apiFetch(`/feed/community/${slug}?limit=${limit}&cursor=${cursor}`);
+  const raw = await apiFetch<{ community?: Community; posts: FeedPost[]; cursor: string | null; has_more: boolean }>(`/communities/${slug}/feed?limit=${limit}&cursor=${cursor}`);
+  return { community: raw.community as Community, feed: raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
 export async function fetchProfileFollowers(handle: string, limit = 20, cursor = 0): Promise<{
@@ -279,7 +283,8 @@ export async function fetchProfileFollowers(handle: string, limit = 20, cursor =
   followers: ProfileSummary[];
   pageInfo: PageInfo;
 }> {
-  return apiFetch(`/profiles/${handle}/followers?limit=${limit}&cursor=${cursor}`);
+  const raw = await apiFetch<{ profile?: Profile; followers?: ProfileSummary[]; cursor: string | null }>(`/profiles/${handle}/followers?limit=${limit}&cursor=${cursor}`);
+  return { profile: raw.profile as Profile, followers: raw.followers ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
 export async function fetchProfileFollowing(handle: string, limit = 20, cursor = 0): Promise<{
@@ -287,7 +292,8 @@ export async function fetchProfileFollowing(handle: string, limit = 20, cursor =
   following: ProfileSummary[];
   pageInfo: PageInfo;
 }> {
-  return apiFetch(`/profiles/${handle}/following?limit=${limit}&cursor=${cursor}`);
+  const raw = await apiFetch<{ profile?: Profile; following?: ProfileSummary[]; cursor: string | null }>(`/profiles/${handle}/following?limit=${limit}&cursor=${cursor}`);
+  return { profile: raw.profile as Profile, following: raw.following ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
 // ─── Public: search ─────────────────────────────────────────────────────────
