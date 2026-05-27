@@ -631,11 +631,15 @@ export async function getGitHubStatus(): Promise<GitHubStatus> {
 }
 
 export async function selectRepos(repoIds: number[]): Promise<void> {
-  await authedFetch(apiUrl('/api/user/repos/select'), {
+  const res = await authedFetch(apiUrl('/api/user/repos/select'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ repo_ids: repoIds }),
   });
+  if (!res.ok) {
+    if (res.status === 401) dispatchUnauthorized();
+    throw new CortexApiError(res.status, await readErrorMessage(res), res.headers.get('Retry-After'));
+  }
 }
 
 export async function getUserProfile() {
@@ -1912,10 +1916,14 @@ export async function updateMemoryEffectiveness(
     void outcomeQuality;
     return;
   }
-  await authedFetch(apiUrl(`/api/memory/memories/${encodeURIComponent(memoryId)}/effectiveness`), {
+  const res = await authedFetch(apiUrl(`/api/memory/memories/${encodeURIComponent(memoryId)}/effectiveness`), {
     method: 'POST',
     body: JSON.stringify({ outcome_quality: outcomeQuality }),
   });
+  if (!res.ok) {
+    if (res.status === 401) dispatchUnauthorized();
+    throw new CortexApiError(res.status, await readErrorMessage(res), res.headers.get('Retry-After'));
+  }
 }
 
 // New memory-enhanced chat functions
