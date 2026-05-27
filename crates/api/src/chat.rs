@@ -20,6 +20,11 @@ use crate::llm_client::{self, ChatMessage, Provider};
 use crate::routes::ErrorResponse;
 use crate::state::{AppState, StepEvent};
 
+fn step_event_to_sse(event: StepEvent) -> Result<Event, Infallible> {
+    let data = serde_json::to_string(&event).unwrap_or_default();
+    Ok(Event::default().data(data))
+}
+
 #[derive(Deserialize)]
 pub struct ChatRequest {
     pub message: String,
@@ -63,6 +68,7 @@ fn system_prompt_for_intent(intent: Option<cortex_core::routing::Intent>) -> &'s
         Some(Intent::Review) => "You are Cortex, an AI coding assistant. Review the code or changes the user describes. Focus on correctness, security, performance, and maintainability.",
         Some(Intent::Test) => "You are Cortex, an AI coding assistant. Help the user write or fix tests. Focus on meaningful coverage, edge cases, and clear test structure.",
         Some(Intent::Refactor) => "You are Cortex, an AI coding assistant. Help the user refactor code for clarity, performance, or maintainability while preserving behavior.",
+        Some(Intent::Ship) => "You are Cortex, an AI coding assistant. Help the user prepare code for deployment — final checks, build verification, release notes, and shipping confidence.",
         None => "You are Cortex, an AI coding assistant made by HeyVera. Help the user with whatever they need — coding, debugging, planning, or answering questions. Be direct and practical.",
     }
 }
@@ -245,10 +251,7 @@ pub async fn chat(
                             budget_result.daily_spent, budget_result.daily_spent + budget_result.daily_remaining,
                         ),
                     }).await;
-                    let stream = ReceiverStream::new(rx).map(|event| {
-                        let data = serde_json::to_string(&event).unwrap_or_default();
-                        Ok(Event::default().data(data))
-                    });
+                    let stream = ReceiverStream::new(rx).map(step_event_to_sse);
                     return Ok(Sse::new(stream).keep_alive(KeepAlive::default()));
                 }
             }
@@ -381,10 +384,7 @@ pub async fn chat(
         }
     }
 
-    let stream = ReceiverStream::new(rx).map(|event| {
-        let data = serde_json::to_string(&event).unwrap_or_default();
-        Ok(Event::default().data(data))
-    });
+    let stream = ReceiverStream::new(rx).map(step_event_to_sse);
 
     Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
