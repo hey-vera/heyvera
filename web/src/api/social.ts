@@ -165,7 +165,7 @@ export type ProfileSummary = {
 //
 const API_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/v1/social`
-  : "https://api.heyvera.org/v1/social";
+  : "/v1/social";
 
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 
@@ -526,13 +526,7 @@ export function feedPostToPost(fp: FeedPost): Post {
 // ─── Legacy-compatible public API (replaces client.ts) ──────────────────────
 // All calls go to the real backend. No mock fallbacks in production.
 
-const LEGACY_API_BASE = import.meta.env.VITE_API_URL ?? '';
-
-function ensureLegacyApiBase(): void {
-  if (!LEGACY_API_BASE) {
-    throw new Error('API is not configured. Set VITE_API_URL to connect to the backend.');
-  }
-}
+const LEGACY_API_BASE = import.meta.env.VITE_API_URL || '';
 
 function legacyJsonHeaders(headers?: HeadersInit): Headers {
   const next = new Headers(headers);
@@ -571,13 +565,13 @@ function compactUpdateUserProfileInput(input: UpdateUserProfileInput): UpdateUse
 
 /** Current signed-in viewer's profile, or null when none exists yet */
 export async function getCurrentUserProfile(token: string): Promise<UserProfile | null> {
-  ensureLegacyApiBase();
+
   return legacyFetchOptionalAuthedApi<UserProfile>('/v1/social/me/profile', token);
 }
 
 /** Create the signed-in viewer's profile */
 export async function createUserProfile(token: string, input: CreateUserProfileInput): Promise<UserProfile> {
-  ensureLegacyApiBase();
+
   return legacyFetchAuthedApi<UserProfile>('/v1/social/me/profile', token, {
     method: 'POST',
     headers: legacyJsonHeaders(),
@@ -587,7 +581,7 @@ export async function createUserProfile(token: string, input: CreateUserProfileI
 
 /** Update the signed-in viewer's profile */
 export async function updateCurrentUserProfile(token: string, input: UpdateUserProfileInput): Promise<UserProfile> {
-  ensureLegacyApiBase();
+
   const updates = compactUpdateUserProfileInput(input);
   return legacyFetchAuthedApi<UserProfile>('/v1/social/me/profile', token, {
     method: 'PATCH',
@@ -598,27 +592,27 @@ export async function updateCurrentUserProfile(token: string, input: UpdateUserP
 
 /** Home / for-you feed */
 export async function getFeed(cursor?: string, token?: string): Promise<FeedResponse> {
-  ensureLegacyApiBase();
+
   const path = `/v1/social/feed/home${cursor ? `?cursor=${cursor}` : ''}`;
   return token ? legacyFetchAuthedApi<FeedResponse>(path, token) : legacyFetchApi<FeedResponse>(path);
 }
 
 /** Following-only feed */
 export async function getFollowingFeed(cursor?: string, token?: string): Promise<FeedResponse> {
-  ensureLegacyApiBase();
+
   const path = `/v1/social/feed/following${cursor ? `?cursor=${cursor}` : ''}`;
   return token ? legacyFetchAuthedApi<FeedResponse>(path, token) : legacyFetchApi<FeedResponse>(path);
 }
 
 /** Single post by ID */
 export async function getPost(id: string, token?: string): Promise<Post> {
-  ensureLegacyApiBase();
+
   return token ? legacyFetchAuthedApi<Post>(`/v1/social/posts/${id}`, token) : legacyFetchApi<Post>(`/v1/social/posts/${id}`);
 }
 
 /** Create a new post (legacy FormData interface) */
 export async function legacyCreatePost(content: string, media?: File[], token?: string): Promise<Post> {
-  ensureLegacyApiBase();
+
   if (!token) throw new Error('Auth token required');
   const form = new FormData();
   form.append('content', content);
@@ -628,14 +622,14 @@ export async function legacyCreatePost(content: string, media?: File[], token?: 
 
 /** Get notifications for the current user */
 export async function getNotifications(token?: string): Promise<Notification[]> {
-  ensureLegacyApiBase();
+
   if (!token) throw new Error('Auth token required');
   return legacyFetchAuthedApi<Notification[]>('/v1/social/notifications', token);
 }
 
 /** Get all conversations */
 export async function getConversations(token?: string): Promise<Conversation[]> {
-  ensureLegacyApiBase();
+
   if (!token) throw new Error('Auth token required');
   const res = await legacyFetchAuthedApi<{ conversations: Conversation[] }>('/v1/social/conversations', token);
   return res.conversations ?? [];
@@ -643,7 +637,7 @@ export async function getConversations(token?: string): Promise<Conversation[]> 
 
 /** Get messages in a conversation */
 export async function getMessages(conversationId: string, token?: string): Promise<Message[]> {
-  ensureLegacyApiBase();
+
   if (!token) throw new Error('Auth token required');
   const res = await legacyFetchAuthedApi<{ messages: Message[] }>(`/v1/social/conversations/${conversationId}/messages`, token);
   return res.messages ?? [];
@@ -651,53 +645,53 @@ export async function getMessages(conversationId: string, token?: string): Promi
 
 /** Full-text search across posts, users, and communities */
 export async function searchAll(query: string, token?: string): Promise<SearchResults> {
-  ensureLegacyApiBase();
+
   const path = `/v1/social/search?q=${encodeURIComponent(query)}`;
   return token ? legacyFetchAuthedApi<SearchResults>(path, token) : legacyFetchApi<SearchResults>(path);
 }
 
 /** Trending topics */
 export async function getTrending(): Promise<TrendingTopic[]> {
-  ensureLegacyApiBase();
+
   return legacyFetchApi<TrendingTopic[]>('/v1/social/trending');
 }
 
 /** User profile by handle */
 export async function getUserProfile(handle: string, token?: string): Promise<UserProfile> {
-  ensureLegacyApiBase();
+
   return token ? legacyFetchAuthedApi<UserProfile>(`/v1/social/users/${handle}`, token) : legacyFetchApi<UserProfile>(`/v1/social/users/${handle}`);
 }
 
 /** Posts for a user profile */
 export async function getProfilePosts(handle: string, cursor?: string, token?: string): Promise<FeedResponse> {
-  ensureLegacyApiBase();
+
   const path = `/v1/social/users/${handle}/posts${cursor ? `?cursor=${cursor}` : ''}`;
   return token ? legacyFetchAuthedApi<FeedResponse>(path, token) : legacyFetchApi<FeedResponse>(path);
 }
 
 /** Follow a user */
 export async function followUser(handle: string, token?: string): Promise<void> {
-  ensureLegacyApiBase();
+
   if (!token) throw new Error('Auth token required');
   return legacyFetchAuthedApi<void>(`/v1/social/follows/${handle}`, token, { method: 'POST' });
 }
 
 /** Unfollow a user */
 export async function unfollowUser(handle: string, token?: string): Promise<void> {
-  ensureLegacyApiBase();
+
   if (!token) throw new Error('Auth token required');
   return legacyFetchAuthedApi<void>(`/v1/social/follows/${handle}`, token, { method: 'DELETE' });
 }
 
 /** All communities (legacy type) */
 export async function getCommunities(): Promise<LegacyCommunity[]> {
-  ensureLegacyApiBase();
+
   return legacyFetchApi<LegacyCommunity[]>('/v1/social/communities');
 }
 
 /** Posts in a community */
 export async function getCommunityFeed(id: string, cursor?: string, token?: string): Promise<FeedResponse> {
-  ensureLegacyApiBase();
+
   const path = `/v1/social/communities/${id}/feed${cursor ? `?cursor=${cursor}` : ''}`;
   return token ? legacyFetchAuthedApi<FeedResponse>(path, token) : legacyFetchApi<FeedResponse>(path);
 }
