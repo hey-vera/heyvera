@@ -418,6 +418,7 @@ function CortexShell() {
     draft,
     isStreaming,
     isLoadingConversation,
+    conversationNotFound,
     activeConversationTitle,
     setDraft,
     sendMessage,
@@ -873,7 +874,28 @@ function CortexShell() {
           </div>
         ) : null}
 
-        <div id="main-content" className={`flex min-h-0 flex-1 overflow-hidden${groupNotFound ? ' hidden' : ''}`}>
+        {conversationNotFound && !groupNotFound ? (
+          <div className="flex flex-1 items-center justify-center">
+            <div className="w-full max-w-xs rounded-2xl border border-white/8 bg-[var(--panel)] p-6 text-center">
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-200">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <h2 className="mt-4 text-base font-semibold text-white">Conversation not found</h2>
+              <p className="mt-2 text-sm text-[var(--muted)]">
+                This conversation does not exist or has been deleted.
+              </p>
+              <button
+                type="button"
+                onClick={handleNewChat}
+                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-black transition hover:brightness-110 active:scale-95"
+              >
+                Start a new chat
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        <div id="main-content" className={`flex min-h-0 flex-1 overflow-hidden${groupNotFound || conversationNotFound ? ' hidden' : ''}`}>
           <ProjectChat
             group={activeGroup}
             userId={userId ?? 'local'}

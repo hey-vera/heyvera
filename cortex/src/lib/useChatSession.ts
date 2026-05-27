@@ -12,6 +12,7 @@ import type { CortexGroup } from './groups';
 import { buildSovereigntyLoopState } from './sovereignty';
 import {
   addMessageToConversation,
+  CortexApiError,
   createConversation,
   getConversation,
   streamChat,
@@ -207,6 +208,7 @@ export function useChatSession({
   const [draft, setDraft] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isLoadingConversation, setIsLoadingConversation] = useState(false);
+  const [conversationNotFound, setConversationNotFound] = useState(false);
   const [activeConversationTitle, setActiveConversationTitle] = useState<string | null>(null);
   const [workEvents, setWorkEvents] = useState<WorkEventItem[]>([]);
   const abortRef = useRef<AbortController | null>(null);
@@ -236,6 +238,7 @@ export function useChatSession({
     abortRef.current = null;
     setIsStreaming(false);
     setIsLoadingConversation(false);
+    setConversationNotFound(false);
     setWorkEvents([]);
 
     const requestVersion = ++requestVersionRef.current;
@@ -266,16 +269,20 @@ export function useChatSession({
         );
         setActiveConversationTitle(conversation.title);
         setIsLoadingConversation(false);
-      } catch {
+      } catch (err) {
         if (requestVersionRef.current !== requestVersion) return;
+        const is404 = err instanceof CortexApiError && err.status === 404;
+        setConversationNotFound(is404);
         setMessages([
           {
             id: 'm-load-error',
             role: 'assistant',
             providerLabel: 'Cortex',
-            statusLabel: 'Load failed',
+            statusLabel: is404 ? 'Not found' : 'Load failed',
             createdAt: new Date().toISOString(),
-            content: 'Could not load this conversation.',
+            content: is404
+              ? 'This conversation could not be found. It may have been deleted or the link is invalid.'
+              : 'Could not load this conversation.',
           },
         ]);
         setActiveConversationTitle(null);
@@ -816,6 +823,7 @@ export function useChatSession({
     draft,
     isStreaming,
     isLoadingConversation,
+    conversationNotFound,
     activeConversationTitle,
     workEvents,
     setDraft,

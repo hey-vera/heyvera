@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   AlertTriangle,
   ArrowLeft,
@@ -219,6 +219,14 @@ export default function OperationsRoom() {
 
   return (
     <div className="flex h-screen flex-col bg-[var(--bg)] text-white">
+      <div className="shrink-0 border-b border-white/8 px-6 pt-3 pb-2">
+        <Link
+          to={`/app/groups/${groupId}/tasks`}
+          className="inline-flex items-center gap-1 text-sm text-zinc-400 transition hover:text-zinc-200"
+        >
+          &larr; Back to Tasks
+        </Link>
+      </div>
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-white/8 px-6">
         <div className="flex items-center gap-4">
           <button
