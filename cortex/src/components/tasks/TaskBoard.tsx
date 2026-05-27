@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } fro
 import type { TaskManagerTask, TaskMember, TaskPriority, TaskStatus } from '../../types';
 import { getGroupOperationsSummary, type GroupOperationsSummary } from '../../lib/cortexApi';
 import { formatTaskStatus } from '../../lib/taskManager';
+import BottomSheet from '../ui/BottomSheet';
 
 interface TaskBoardProps {
   tasks: TaskManagerTask[];
@@ -263,6 +264,7 @@ function TaskCard({
   backendSignal?: TaskBackendSignal | null;
 }) {
   const runSnapshotAge = getRunSnapshotAge(task.latestRunSyncedAt);
+  const [mobileActionsOpen, setMobileActionsOpen] = useState(false);
 
   function onDragStart(event: DragEvent<HTMLDivElement>) {
     event.dataTransfer.setData('application/cortex-task-id', task.id);
@@ -344,7 +346,8 @@ function TaskCard({
           </div>
           {!compact && (
             <>
-              <div className="mt-3 flex items-center gap-1.5">
+              {/* Desktop action buttons */}
+              <div className="mt-3 hidden items-center gap-1.5 sm:flex">
                 {BOARD_STATUSES.map((status) => (
                   <button
                     key={status}
@@ -378,7 +381,7 @@ function TaskCard({
                   <MessageSquareText className="h-3.5 w-3.5" />
                 </button>
               </div>
-              <div className="mt-1.5 flex items-center gap-1">
+              <div className="mt-1.5 hidden items-center gap-1 sm:flex">
                 {task.status === 'created' && (
                   <button type="button" title="Queue" aria-label="Queue task" onClick={(e) => { e.stopPropagation(); onUpdateTask(task.id, { status: 'queued' }); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-violet-300/20 bg-violet-400/10 text-[10px] text-violet-100 transition hover:bg-violet-400/20 active:scale-95">
                     <Clock className="h-3 w-3" /> Queue
@@ -405,6 +408,63 @@ function TaskCard({
                   </button>
                 )}
               </div>
+
+              {/* Mobile: open bottom sheet for actions */}
+              <button
+                type="button"
+                aria-label="Open task actions"
+                onClick={(e) => { e.stopPropagation(); setMobileActionsOpen(true); }}
+                className="mt-3 inline-flex h-9 w-full items-center justify-center gap-1.5 rounded-md border border-white/8 bg-white/[0.03] text-xs text-[var(--muted-strong)] transition hover:bg-white/[0.07] active:scale-[0.99] sm:hidden"
+              >
+                Actions
+              </button>
+              <BottomSheet open={mobileActionsOpen} onClose={() => setMobileActionsOpen(false)}>
+                <p className="mb-3 truncate text-sm font-medium text-white">{task.title}</p>
+                <div className="flex flex-col gap-2">
+                  {BOARD_STATUSES.map((status) => (
+                    <button
+                      key={status}
+                      type="button"
+                      onClick={() => { onUpdateTask(task.id, { status }); setMobileActionsOpen(false); }}
+                      className={[
+                        'h-11 w-full rounded-lg border text-sm transition active:scale-[0.98]',
+                        task.status === status
+                          ? 'border-[var(--accent)]/40 bg-[var(--accent)]/20 font-medium text-white'
+                          : 'border-white/8 bg-white/[0.04] text-[var(--muted-strong)]',
+                      ].join(' ')}
+                    >
+                      {status === 'in-progress' ? 'Active' : formatTaskStatus(status)}
+                    </button>
+                  ))}
+                  <button
+                    type="button"
+                    onClick={() => { onLaunchTask?.(task); setMobileActionsOpen(false); }}
+                    className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-white/8 bg-white/[0.04] text-sm text-[var(--muted-strong)] transition active:scale-[0.98]"
+                  >
+                    <MessageSquareText className="h-4 w-4" /> Open in Project Chat
+                  </button>
+                  {task.status === 'in-progress' && onPauseTask && (
+                    <button type="button" onClick={() => { onPauseTask(task.id); setMobileActionsOpen(false); }} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-amber-300/20 bg-amber-300/10 text-sm text-amber-100 transition active:scale-[0.98]">
+                      <Pause className="h-4 w-4" /> Pause
+                    </button>
+                  )}
+                  {task.status === 'paused' && onResumeTask && (
+                    <button type="button" onClick={() => { onResumeTask(task.id); setMobileActionsOpen(false); }} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-emerald-300/20 bg-emerald-400/10 text-sm text-emerald-100 transition active:scale-[0.98]">
+                      <Play className="h-4 w-4" /> Resume
+                    </button>
+                  )}
+                  {(task.latestRunStatus === 'failed' || task.status === 'cancelled') && onRetryTask && (
+                    <button type="button" onClick={() => { onRetryTask(task.id); setMobileActionsOpen(false); }} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-sky-300/20 bg-sky-400/10 text-sm text-sky-100 transition active:scale-[0.98]">
+                      <RefreshCw className="h-4 w-4" /> Retry
+                    </button>
+                  )}
+                  {task.status !== 'done' && task.status !== 'cancelled' && onCancelTask && (
+                    <button type="button" onClick={() => { onCancelTask(task.id); setMobileActionsOpen(false); }} className="flex h-11 w-full items-center justify-center gap-2 rounded-lg border border-red-300/15 bg-red-400/[0.06] text-sm text-red-100 transition active:scale-[0.98]">
+                      <Ban className="h-4 w-4" /> Cancel
+                    </button>
+                  )}
+                </div>
+              </BottomSheet>
             </>
           )}
           {compact && (

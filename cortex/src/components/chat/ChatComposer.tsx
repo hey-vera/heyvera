@@ -109,6 +109,34 @@ export default function ChatComposer({
     textarea.style.height = `${Math.min(textarea.scrollHeight, 192)}px`;
   }, [draft]);
 
+  // Mobile keyboard visibility: keep composer visible when virtual keyboard opens
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const formRef = textareaRef.current?.closest('form') as HTMLFormElement | null;
+    if (!formRef) return;
+
+    function handleResize() {
+      if (!viewport || !formRef) return;
+      // When keyboard opens, visualViewport height shrinks.
+      // Adjust the form's bottom padding to stay above the keyboard.
+      const offsetFromBottom = window.innerHeight - viewport.height - viewport.offsetTop;
+      if (offsetFromBottom > 0) {
+        formRef.style.paddingBottom = `${offsetFromBottom}px`;
+      } else {
+        formRef.style.paddingBottom = '';
+      }
+    }
+
+    viewport.addEventListener('resize', handleResize);
+    viewport.addEventListener('scroll', handleResize);
+    return () => {
+      viewport.removeEventListener('resize', handleResize);
+      viewport.removeEventListener('scroll', handleResize);
+      if (formRef) formRef.style.paddingBottom = '';
+    };
+  }, []);
+
   useEffect(() => {
     // Show memory suggestions when user types memory-related keywords
     const shouldShow = isMemoryCommand && draft.trim().length > 3 && !disabled && !locked;
@@ -193,7 +221,7 @@ export default function ChatComposer({
   }
 
   return (
-    <form className="border-t border-white/6 p-3 sm:p-4 relative" onSubmit={handleSubmit}>
+    <form className="sticky bottom-0 border-t border-white/6 p-3 sm:p-4 relative bg-[var(--panel)]" onSubmit={handleSubmit}>
       {MEMORY_API_ENABLED && (
         <MemorySuggestions
           currentInput={draft}
@@ -214,6 +242,7 @@ export default function ChatComposer({
             disabled={disabled}
             rows={1}
             placeholder={placeholder}
+            enterKeyHint="send"
             className="max-h-48 min-h-[52px] w-full resize-none bg-transparent px-3 py-2 text-sm text-white outline-none placeholder:text-[var(--muted)]"
             onChange={(event) => { onDraftChange(event.target.value); recomputeGhost(event.target.value); }}
             onKeyDown={handleKeyDown}
@@ -258,7 +287,7 @@ export default function ChatComposer({
               <button
                 type="submit"
                 disabled={!canSend}
-                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-[var(--accent)] text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50"
+                className="inline-flex h-10 w-10 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-[var(--accent)] text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:min-w-0"
                 aria-label="Send message"
               >
                 <ArrowUp className="h-4 w-4" />
