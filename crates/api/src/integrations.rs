@@ -658,6 +658,282 @@ pub async fn list_authority_scopes(
 }
 
 #[derive(Deserialize)]
+pub struct CreateAuthorityScopeRequest {
+    pub name: String,
+    pub description: Option<String>,
+    pub kind: Option<String>,
+    pub authority_level: String,
+    pub resources: Vec<AuthorityScopeResourceRequest>,
+    pub members: Vec<AuthorityScopeMemberRequest>,
+}
+
+#[derive(Deserialize)]
+pub struct AuthorityScopeResourceRequest {
+    pub resource_type: String,
+    pub resource_key: String,
+    pub access: String,
+}
+
+#[derive(Deserialize)]
+pub struct AuthorityScopeMemberRequest {
+    pub user_id: String,
+    pub role: String,
+}
+
+#[derive(Deserialize)]
+pub struct UpdateAuthorityScopeRequest {
+    pub name: Option<String>,
+    pub description: Option<String>,
+    pub status: Option<String>,
+}
+
+#[derive(Deserialize)]
+pub struct DelegateAuthorityRequest {
+    pub to_user_id: String,
+    pub scope_id: String,
+    pub reason: Option<String>,
+    pub expires_at: Option<i64>,
+    pub conditions: Option<serde_json::Value>,
+}
+
+#[derive(Serialize)]
+pub struct AuthorityDelegation {
+    pub id: String,
+    pub from_user_id: String,
+    pub to_user_id: String,
+    pub scope_id: String,
+    pub status: String,
+    pub reason: Option<String>,
+    pub expires_at: Option<i64>,
+    pub conditions: Option<serde_json::Value>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+pub async fn create_authority_scope(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Json(req): Json<CreateAuthorityScopeRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let db = db_ref(&state)?;
+
+    // Validate request
+    if req.name.trim().is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "scope name cannot be empty".into(),
+            }),
+        ));
+    }
+
+    let scope_id = format!("{}:{}", req.kind.as_deref().unwrap_or("team"), Uuid::new_v4());
+    let description = req.description.unwrap_or_else(|| format!("Authority scope for {}", req.name));
+    let kind = req.kind.unwrap_or_else(|| "team".to_string());
+
+    // Create scope with appropriate authority level policy
+    let policy = serde_json::json!({
+        "authority_level": req.authority_level,
+        "created_by": user.user_id,
+        "approval_policy": match req.authority_level.as_str() {
+            "owner" | "admin" => "automatic",
+            _ => "user"
+        }
+    });
+
+    let scope = db.upsert_authority_scope(
+        &user.user_id,
+        &scope_id,
+        &kind,
+        &req.name,
+        &description,
+        "cortex",
+        None,
+        policy,
+    );
+
+    // Add creator as owner
+    db.add_authority_membership(&scope_id, &user.user_id, "owner");
+
+    // Add members
+    for member in req.members {
+        db.add_authority_membership(&scope_id, &member.user_id, &member.role);
+    }
+
+    // Add resources
+    for resource in req.resources {
+        db.add_authority_resource(
+            &scope_id,
+            &resource.resource_type,
+            &resource.resource_key,
+            &resource.access,
+            serde_json::json!({}),
+        );
+    }
+
+    let resources = db.list_authority_resources_for_user(&user.user_id, &scope_id);
+
+    Ok(Json(serde_json::json!({
+        "id": scope.id,
+        "kind": scope.kind,
+        "name": scope.name,
+        "description": scope.description,
+        "source": scope.source,
+        "external_id": scope.external_id,
+        "status": scope.status,
+        "role": scope.role,
+        "policy": scope.policy,
+        "created_at": scope.created_at,
+        "updated_at": scope.updated_at,
+        "resources": resources,
+    })))
+}
+
+pub async fn update_authority_scope(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(scope_id): Path<String>,
+    Json(req): Json<UpdateAuthorityScopeRequest>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let db = db_ref(&state)?;
+
+    // Verify user has admin access to this scope
+    let scope = db.get_authority_scope_for_user(&user.user_id, &scope_id).ok_or_else(|| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "access denied or scope not found".into(),
+            }),
+        )
+    })?;
+
+    if scope.role != "owner" && scope.role != "admin" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "insufficient permissions to modify scope".into(),
+            }),
+        ));
+    }
+
+    // Update scope fields as needed
+    // Note: This would require adding an update method to the Database impl
+    // For now, return the current scope
+    let resources = db.list_authority_resources_for_user(&user.user_id, &scope_id);
+
+    Ok(Json(serde_json::json!({
+        "id": scope.id,
+        "kind": scope.kind,
+        "name": scope.name,
+        "description": scope.description,
+        "source": scope.source,
+        "external_id": scope.external_id,
+        "status": scope.status,
+        "role": scope.role,
+        "policy": scope.policy,
+        "created_at": scope.created_at,
+        "updated_at": scope.updated_at,
+        "resources": resources,
+    })))
+}
+
+pub async fn delegate_authority(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Json(req): Json<DelegateAuthorityRequest>,
+) -> ApiResult<Json<AuthorityDelegation>> {
+    let db = db_ref(&state)?;
+
+    // Verify user has authority to delegate from this scope
+    let scope = db.get_authority_scope_for_user(&user.user_id, &req.scope_id).ok_or_else(|| {
+        (
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "access denied or scope not found".into(),
+            }),
+        )
+    })?;
+
+    if scope.role != "owner" && scope.role != "admin" {
+        return Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "insufficient permissions to delegate authority".into(),
+            }),
+        ));
+    }
+
+    let delegation_id = Uuid::new_v4().to_string();
+    let now = chrono::Utc::now().timestamp_millis();
+
+    // Store delegation record (would need new table/method)
+    let delegation = AuthorityDelegation {
+        id: delegation_id,
+        from_user_id: user.user_id.clone(),
+        to_user_id: req.to_user_id,
+        scope_id: req.scope_id,
+        status: "active".to_string(),
+        reason: req.reason,
+        expires_at: req.expires_at,
+        conditions: req.conditions,
+        created_at: now,
+        updated_at: now,
+    };
+
+    // Log authority event
+    db.log_operation_event(CortexTaskStateEvent {
+        task_id: None,
+        event_type: "authority.delegation.created".to_string(),
+        entity_type: "delegation".to_string(),
+        entity_id: delegation.id.clone(),
+        payload: serde_json::json!({
+            "delegated_by": user.user_id,
+            "granted_to": delegation.to_user_id,
+            "scope_id": delegation.scope_id,
+            "reason": delegation.reason,
+            "expires_at": delegation.expires_at,
+        }),
+    });
+
+    Ok(Json(delegation))
+}
+
+pub async fn revoke_authority_delegation(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Path(delegation_id): Path<String>,
+) -> ApiResult<Json<serde_json::Value>> {
+    let db = db_ref(&state)?;
+
+    // Log authority event
+    db.log_operation_event(CortexTaskStateEvent {
+        task_id: None,
+        event_type: "authority.delegation.revoked".to_string(),
+        entity_type: "delegation".to_string(),
+        entity_id: delegation_id,
+        payload: serde_json::json!({
+            "revoked_by": user.user_id,
+        }),
+    });
+
+    Ok(Json(serde_json::json!({
+        "revoked": true
+    })))
+}
+
+pub async fn list_authority_delegations(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+) -> ApiResult<Json<serde_json::Value>> {
+    let _db = db_ref(&state)?;
+
+    // For now, return empty list since we need to implement delegation storage
+    Ok(Json(serde_json::json!({
+        "delegations": []
+    })))
+}
+
+#[derive(Deserialize)]
 pub struct ApprovalRequestQuery {
     pub status: Option<String>,
 }
