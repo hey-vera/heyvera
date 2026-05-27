@@ -215,7 +215,7 @@ pub async fn chat_suggestions(
                 shortcut: Some("fix".into()),
             },
             Suggestion {
-                text: "Explore the codebase structure".into(),
+                text: "Explore the project structure".into(),
                 category: "search".into(),
                 shortcut: Some("explore".into()),
             },
@@ -225,7 +225,7 @@ pub async fn chat_suggestions(
                 shortcut: Some("review".into()),
             },
             Suggestion {
-                text: "Add a new feature".into(),
+                text: "Help me build something new".into(),
                 category: "execute".into(),
                 shortcut: Some("add".into()),
             },
@@ -312,18 +312,22 @@ fn handle_conversation(message: &str) -> String {
     let lower = message.to_lowercase();
 
     if lower.contains("hello") || lower.contains("hi") || lower.starts_with("hey") {
-        return "Hey! I'm Cortex. Tell me what you need — I'll route it to the right provider and tier. Try something like \"fix the auth bug\" or \"explore the src directory\".".to_string();
+        return "Hey! I'm Cortex — your AI task manager. Describe what you want to build, fix, or explore and I'll handle the rest.".to_string();
     }
 
     if lower.contains("status") || lower.contains("what can you do") || lower.contains("help") {
-        return "I'm a multi-provider orchestration engine. I route tasks across Claude and OpenAI based on complexity and risk.\n\n**What I can do:**\n- **fix/add** — Execute-tier work (edits, tests, git)\n- **explore/find** — Search-tier work (read-only lookups)\n- **review/think** — Think-tier work (architecture, decisions)\n\nJust describe what you need in natural language.".to_string();
+        return "I can help you **plan, build, debug, and ship**.\n\n\
+         Describe what you need in plain language:\n\
+         - \"build a REST API with auth\"\n\
+         - \"fix the login page crash\"\n\
+         - \"review my recent changes\"\n\
+         - \"explore how the billing module works\"\n\n\
+         I'll break it into tasks, route to the right AI, and execute."
+            .to_string();
     }
 
-    "I'm not sure what to do with that. Try phrasing it as a task:\n\
-     - \"fix the login bug\"\n\
-     - \"explore the auth module\"\n\
-     - \"add a health check endpoint\"\n\
-     - \"review the recent changes\"\n\n\
-     Or say \"help\" to see what I can do."
+    "I'll work on that. Let me break this down into tasks and route them.\n\n\
+     For best results, try to be specific about what you want built or fixed. \
+     I can handle complex multi-step requests — just describe the end goal."
         .to_string()
 }
