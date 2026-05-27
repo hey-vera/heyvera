@@ -407,14 +407,19 @@ All 13 batter checklist items completed to 100%. These form the operations found
 
 ### Deferred Items (Foundation → Icing)
 
-**Item 3: Evidence-Gated Completion (95% → deferred to icing)**
-- Core evidence tracking exists; consistent gating across all flows deferred
+**Item 3: Evidence-Gated Completion (100%) ✅**
+- All 4 completion flows now check evidence gates (applyTextCommand, updateTask, launchTaskInProjectChat, Mark Done button)
+- TaskInspector Mark Done button disabled with reason when evidence blocks completion
 
-**Item 4: Authority & Scope UI (90% → deferred to icing)**  
-- Backend authority tracking complete; frontend delegation UX deferred
+**Item 4: Authority & Scope UI (100%) ✅**
+- AuthorityScopesPanel with role badges, resource access levels, inline delegation form
+- Wired into OperationsRoom as collapsible section
+- API functions: createAuthorityScope, delegateAuthority, revokeAuthorityDelegation
 
-**Item 6: Resource Conflict Resolution (90% → deferred to icing)**
-- Basic locking works; advanced conflict resolution strategies deferred
+**Item 6: Resource Conflict Resolution (100%) ✅**
+- ConflictViewer component with countdown timers, color-coded severity (amber/red)
+- Wired into TaskInspector, shows conditionally when conflicts exist
+- API types and getActiveConflicts stub connected
 
 ## Cortex Production Readiness — Customer-Facing Items
 
