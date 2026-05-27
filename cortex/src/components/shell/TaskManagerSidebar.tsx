@@ -354,6 +354,10 @@ export default function TaskManagerSidebar({
               onUpdateTask={taskManager.updateTask}
               onSelectTask={handleSelectTask}
               onLaunchTask={handleLaunchTaskInProjectChat}
+              onPauseTask={taskManager.pauseTask}
+              onResumeTask={taskManager.resumeTask}
+              onRetryTask={taskManager.retryTask}
+              onCancelTask={taskManager.cancelTask}
             />
             <TaskInspector
               task={selectedTask}
@@ -365,6 +369,10 @@ export default function TaskManagerSidebar({
               onSyncRunState={handleSyncRunState}
               onUpdateRunSnapshot={handleUpdateRunSnapshot}
               onLaunchTask={handleLaunchTaskInProjectChat}
+              onPauseTask={taskManager.pauseTask}
+              onResumeTask={taskManager.resumeTask}
+              onRetryTask={taskManager.retryTask}
+              onCancelTask={taskManager.cancelTask}
             />
           </div>
         )}

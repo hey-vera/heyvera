@@ -1525,7 +1525,7 @@ fn apply_task_actions(
             32,
             &format!("action {index} type"),
         )?;
-        if !matches!(action_type.as_str(), "task" | "status" | "handoff" | "note") {
+        if !matches!(action_type.as_str(), "task" | "status" | "handoff" | "note" | "pause" | "resume" | "retry" | "cancel" | "prioritize") {
             return Err(format!("action {index} has invalid type"));
         }
         let title = required_string(
@@ -1552,7 +1552,7 @@ fn apply_task_actions(
             )?;
             if !matches!(
                 status.as_str(),
-                "created" | "assigned" | "in-progress" | "done"
+                "created" | "assigned" | "in-progress" | "done" | "paused" | "cancelled" | "queued"
             ) {
                 return Err(format!("action {index} has invalid status"));
             }
@@ -1621,6 +1621,84 @@ fn apply_task_actions(
             continue;
         }
 
+        if matches!(action_type.as_str(), "pause" | "resume" | "retry" | "cancel" | "prioritize") {
+            let target_task_id = required_string(
+                action_object.get("targetTaskId"),
+                256,
+                &format!("action {index} targetTaskId"),
+            )?;
+            let tasks = next_state
+                .get_mut("tasks")
+                .and_then(|value| value.as_array_mut())
+                .ok_or_else(|| "task state requires a tasks array".to_string())?;
+            let task = tasks
+                .iter_mut()
+                .find(|task| {
+                    task.get("id").and_then(|value| value.as_str()) == Some(target_task_id.as_str())
+                })
+                .ok_or_else(|| format!("action {index} target task not found"))?;
+            let previous_task = task.clone();
+            let task_object = task
+                .as_object_mut()
+                .ok_or_else(|| format!("action {index} target task must be an object"))?;
+
+            let event_type = match action_type.as_str() {
+                "pause" => {
+                    task_object.insert("status".to_string(), serde_json::json!("paused"));
+                    "task.paused"
+                }
+                "resume" => {
+                    task_object.insert("status".to_string(), serde_json::json!("in-progress"));
+                    "task.resumed"
+                }
+                "retry" => {
+                    task_object.insert("status".to_string(), serde_json::json!("in-progress"));
+                    task_object.remove("latestRunStatus");
+                    task_object.remove("latestRunSyncedAt");
+                    task_object.remove("latestRunStepSummary");
+                    "task.retried"
+                }
+                "cancel" => {
+                    task_object.insert("status".to_string(), serde_json::json!("cancelled"));
+                    "task.cancelled"
+                }
+                "prioritize" => {
+                    let priority = optional_string(action_object.get("priority"), 32)?
+                        .unwrap_or_else(|| "high".to_string());
+                    if !matches!(priority.as_str(), "normal" | "high" | "urgent") {
+                        return Err(format!("action {index} has invalid priority"));
+                    }
+                    task_object.insert("priority".to_string(), serde_json::json!(priority));
+                    "task.prioritized"
+                }
+                _ => unreachable!(),
+            };
+            task_object.insert(
+                "updatedAt".to_string(),
+                serde_json::Value::String(timestamp.clone()),
+            );
+            let next_task = task.clone();
+            push_task_activity(
+                group_id,
+                &mut next_state,
+                Some(&target_task_id),
+                "status",
+                &actor,
+                &summary,
+                &timestamp,
+            )?;
+            events.push(TaskActionEvent {
+                task_id: Some(target_task_id),
+                event_type: event_type.to_string(),
+                payload: serde_json::json!({
+                    "action": action,
+                    "previous": previous_task,
+                    "next": next_task,
+                }),
+            });
+            continue;
+        }
+
         let assignee_id = optional_string(action_object.get("assigneeId"), 256)?;
         let status = optional_string(action_object.get("status"), 32)?.unwrap_or_else(|| {
             if assignee_id.is_some() {
@@ -1631,7 +1709,7 @@ fn apply_task_actions(
         });
         if !matches!(
             status.as_str(),
-            "created" | "assigned" | "in-progress" | "done"
+            "created" | "assigned" | "in-progress" | "done" | "paused" | "cancelled" | "queued"
         ) {
             return Err(format!("action {index} has invalid status"));
         }
