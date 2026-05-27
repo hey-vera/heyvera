@@ -1654,10 +1654,10 @@ fn ensure_social_tables(conn: &Connection) {
     tracing::info!("social tables created successfully");
 }
 
-fn migrate_v28(conn: &Connection) {}
-fn migrate_v29(conn: &Connection) {}
-fn migrate_v30(conn: &Connection) {}
-fn migrate_v31(conn: &Connection) {}
+fn migrate_v28(_conn: &Connection) {}
+fn migrate_v29(_conn: &Connection) {}
+fn migrate_v30(_conn: &Connection) {}
+fn migrate_v31(_conn: &Connection) {}
 
 fn migrate_v32(conn: &Connection) {
     let has_deleted_at: bool = conn

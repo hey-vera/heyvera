@@ -61,23 +61,6 @@ pub async fn authorize_admin(
     ))
 }
 
-pub async fn resolve_admin(
-    state: &AppState,
-    user: &ClerkUser,
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    authorize_admin(state, user).await
-}
-
-pub async fn require_admin_middleware(
-    State(state): State<Arc<AppState>>,
-    user: ClerkUser,
-    request: Request,
-    next: Next,
-) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
-    authorize_admin(&state, &user).await?;
-    Ok(next.run(request).await)
-}
-
 /// Alias for authorize_admin - checks if user has admin privileges and returns Result
 pub async fn resolve_admin(
     state: &AppState,
@@ -102,6 +85,16 @@ pub fn is_admin(state: &AppState, user_id: &str) -> bool {
     // For email lookup, we'd need async capability which this function doesn't have
     // This is a simplified version - in practice, caller should use resolve_admin for full checks
     false
+}
+
+pub async fn require_admin_middleware(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    request: Request,
+    next: Next,
+) -> Result<Response, (StatusCode, Json<ErrorResponse>)> {
+    authorize_admin(&state, &user).await?;
+    Ok(next.run(request).await)
 }
 
 async fn lookup_clerk_email(clerk_secret: &str, user_id: &str) -> Result<String, String> {
