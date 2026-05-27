@@ -197,15 +197,7 @@ impl<'a> BudgetEnforcer<'a> {
         let (daily_byok, _) = self.db.get_user_cost_breakdown(user_id, daily_start);
 
         // Weekly spending (since Monday at midnight UTC)
-        let days_since_monday = match now.weekday() {
-            chrono::Weekday::Mon => 0,
-            chrono::Weekday::Tue => 1,
-            chrono::Weekday::Wed => 2,
-            chrono::Weekday::Thu => 3,
-            chrono::Weekday::Fri => 4,
-            chrono::Weekday::Sat => 5,
-            chrono::Weekday::Sun => 6,
-        };
+        let days_since_monday = now.weekday().num_days_from_monday() as i64;
         let monday = now.date_naive() - chrono::Duration::days(days_since_monday);
         let weekly_start = chrono::DateTime::<Utc>::from_naive_utc_and_offset(
             monday.and_hms_opt(0, 0, 0).unwrap(),
