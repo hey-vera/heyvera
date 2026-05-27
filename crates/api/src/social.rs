@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, Query, State},
+    http::StatusCode,
     http::HeaderMap,
     response::IntoResponse,
     Json,
@@ -11,6 +12,15 @@ use serde::Deserialize;
 
 use crate::clerk::ClerkUser;
 use crate::state::AppState;
+
+type ApiResponse = (StatusCode, Json<serde_json::Value>);
+
+fn ok(v: serde_json::Value) -> ApiResponse { (StatusCode::OK, Json(v)) }
+fn not_found(msg: &str) -> ApiResponse { (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": msg, "code": "NOT_FOUND" }))) }
+fn bad_request(msg: &str) -> ApiResponse { (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": msg, "code": "BAD_REQUEST" }))) }
+fn conflict(msg: &str) -> ApiResponse { (StatusCode::CONFLICT, Json(serde_json::json!({ "error": msg, "code": "CONFLICT" }))) }
+fn forbidden(msg: &str) -> ApiResponse { (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": msg, "code": "FORBIDDEN" }))) }
+fn internal_error(msg: &str) -> ApiResponse { (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": msg, "code": "INTERNAL_ERROR" }))) }
 
 #[derive(Debug, Deserialize)]
 pub struct SearchQuery {
@@ -115,7 +125,7 @@ async fn optional_viewer_profile_id(
 
 pub async fn get_trending(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let topics = db(&state).social_get_trending_hashtags(10);
-    Json(serde_json::json!({ "topics": topics }))
+    ok(serde_json::json!({ "topics": topics }))
 }
 
 pub async fn search(
@@ -127,7 +137,7 @@ pub async fn search(
     let search_type = params.search_type.unwrap_or_else(|| "all".to_string());
 
     if query.trim().is_empty() {
-        return Json(serde_json::json!({ "posts": [], "profiles": [], "cursor": null }));
+        return ok(serde_json::json!({ "posts": [], "profiles": [], "cursor": null }));
     }
 
     let (cursor_created_at, cursor_id) = params
@@ -137,7 +147,6 @@ pub async fn search(
         .map(|(c, i)| (Some(c), Some(i)))
         .unwrap_or((None, None));
 
-    // If authenticated, fetch block/mute lists to filter search results
     let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
     let (blocked_ids, muted_ids) = if let Some(ref pid) = viewer_pid {
         (
@@ -169,7 +178,7 @@ pub async fn search(
 
     let next_cursor = next_cursor_from_posts(&posts, 20);
 
-    Json(serde_json::json!({ "posts": posts, "profiles": profiles, "cursor": next_cursor }))
+    ok(serde_json::json!({ "posts": posts, "profiles": profiles, "cursor": next_cursor }))
 }
 
 pub async fn get_featured_profiles(State(state): State<Arc<AppState>>) -> impl IntoResponse {
@@ -177,9 +186,9 @@ pub async fn get_featured_profiles(State(state): State<Arc<AppState>>) -> impl I
         Some(profile) => {
             let profile_id = profile["id"].as_str().unwrap_or("");
             let agents = db(&state).social_get_linked_agents(profile_id);
-            Json(serde_json::json!({ "profile": profile, "linkedAgents": agents }))
+            ok(serde_json::json!({ "profile": profile, "linkedAgents": agents }))
         }
-        None => Json(serde_json::json!({ "error": "No featured profile", "code": "NOT_FOUND" })),
+        None => not_found("No featured profile"),
     }
 }
 
@@ -198,7 +207,6 @@ pub async fn get_home_feed(
         .map(|(c, i)| (Some(c), Some(i)))
         .unwrap_or((None, None));
 
-    // If authenticated, fetch block/mute lists to filter feed
     let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
     let (blocked_ids, muted_ids) = if let Some(ref pid) = viewer_pid {
         (
@@ -220,7 +228,7 @@ pub async fn get_home_feed(
     let next_cursor = next_cursor_from_posts(&posts, limit);
     let has_more = posts.len() as i64 == limit;
 
-    Json(serde_json::json!({
+    ok(serde_json::json!({
         "posts": posts,
         "cursor": next_cursor,
         "has_more": has_more,
@@ -233,7 +241,7 @@ pub async fn get_profiles(
 ) -> impl IntoResponse {
     let limit = params.limit.unwrap_or(20).min(100);
     let profiles = db(&state).social_list_profiles(limit);
-    Json(serde_json::json!({ "profiles": profiles }))
+    ok(serde_json::json!({ "profiles": profiles }))
 }
 
 pub async fn get_communities(
@@ -242,7 +250,7 @@ pub async fn get_communities(
 ) -> impl IntoResponse {
     let limit = params.limit.unwrap_or(20).min(100);
     let communities = db(&state).social_list_communities(limit);
-    Json(serde_json::json!({ "communities": communities }))
+    ok(serde_json::json!({ "communities": communities }))
 }
 
 // ─── Authenticated endpoints ─────────────────────────────────────────────────
@@ -255,9 +263,9 @@ pub async fn get_my_profile(
         Some(profile) => {
             let profile_id = profile["id"].as_str().unwrap_or("");
             let agents = db(&state).social_get_linked_agents(profile_id);
-            Json(serde_json::json!({ "profile": profile, "linkedAgents": agents }))
+            ok(serde_json::json!({ "profile": profile, "linkedAgents": agents }))
         }
-        None => Json(serde_json::json!({ "error": "No profile found", "code": "NOT_FOUND" })),
+        None => not_found("No profile found"),
     }
 }
 
@@ -267,21 +275,21 @@ pub async fn create_profile(
     Json(req): Json<CreateProfileRequest>,
 ) -> impl IntoResponse {
     if db(&state).social_find_profile_by_clerk_id(&user.user_id).is_some() {
-        return Json(serde_json::json!({ "error": "Profile already exists", "code": "CONFLICT" }));
+        return conflict("Profile already exists");
     }
 
     let handle = req.handle.trim().to_lowercase();
     if handle.len() < 2 || handle.len() > 30 {
-        return Json(serde_json::json!({ "error": "Handle must be 2-30 characters", "code": "INVALID_INPUT" }));
+        return bad_request("Handle must be 2-30 characters");
     }
 
     if db(&state).social_find_profile_by_handle(&handle).is_some() {
-        return Json(serde_json::json!({ "error": "Handle is already taken", "code": "CONFLICT" }));
+        return conflict("Handle is already taken");
     }
 
     let bio = req.bio.unwrap_or_default();
     let profile = db(&state).social_create_profile(&user.user_id, &handle, &req.display_name, &bio);
-    Json(serde_json::json!({ "ok": true, "profile": profile }))
+    ok(serde_json::json!({ "ok": true, "profile": profile }))
 }
 
 pub async fn create_post(
@@ -291,15 +299,15 @@ pub async fn create_post(
 ) -> impl IntoResponse {
     let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
         Some(p) => p,
-        None => return Json(serde_json::json!({ "error": "No profile found — create a profile first", "code": "NOT_FOUND" })),
+        None => return not_found("No profile found — create a profile first"),
     };
 
     let body = req.body.trim().to_string();
     if body.is_empty() {
-        return Json(serde_json::json!({ "error": "Post body is required", "code": "INVALID_INPUT" }));
+        return bad_request("Post body is required");
     }
     if body.len() > 5000 {
-        return Json(serde_json::json!({ "error": "Post body exceeds 5000 characters", "code": "INVALID_INPUT" }));
+        return bad_request("Post body exceeds 5000 characters");
     }
 
     let profile_id = profile["id"].as_str().unwrap_or("");
@@ -315,7 +323,6 @@ pub async fn create_post(
         req.quote_post_id.as_deref(),
     );
 
-    // Notifications for reply and quote
     let post_id = post["id"].as_str().unwrap_or("").to_string();
     if let Some(reply_to_id) = &req.reply_to_post_id {
         if let Some(parent_author_id) = db(&state).social_get_post_author_profile_id(reply_to_id) {
@@ -328,7 +335,6 @@ pub async fn create_post(
         }
     }
 
-    // Link media objects to the post if any were provided
     let media = if !req.media_ids.is_empty() {
         let post_id = post["id"].as_str().unwrap_or("");
         let linked = db(&state).social_link_media_to_post(post_id, &req.media_ids, profile_id);
@@ -345,16 +351,16 @@ pub async fn create_post(
     if let Some(media_list) = media {
         result["media"] = serde_json::json!(media_list);
     }
-    Json(result)
+    ok(result)
 }
 
 // ─── Task #30: Social action endpoints ──────────────────────────────────────
 
-/// Helper: resolve ClerkUser -> profile_id, returning error JSON if no profile.
-fn require_profile(state: &AppState, user: &ClerkUser) -> Result<String, Json<serde_json::Value>> {
+/// Helper: resolve ClerkUser -> profile_id, returning error if no profile.
+fn require_profile(state: &AppState, user: &ClerkUser) -> Result<String, ApiResponse> {
     match db(state).social_find_profile_by_clerk_id(&user.user_id) {
         Some(p) => Ok(p["id"].as_str().unwrap_or("").to_string()),
-        None => Err(Json(serde_json::json!({ "error": "No profile found — create a profile first", "code": "NOT_FOUND" }))),
+        None => Err(not_found("No profile found — create a profile first")),
     }
 }
 
@@ -365,14 +371,13 @@ pub async fn like_post(
 ) -> impl IntoResponse {
     let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
     if !db(&state).social_post_exists(&id) {
-        return Json(serde_json::json!({ "error": "Post not found", "code": "NOT_FOUND" }));
+        return not_found("Post not found");
     }
     db(&state).social_like(&profile_id, &id);
-    // Notify the post author
     if let Some(author_profile_id) = db(&state).social_get_post_author_profile_id(&id) {
         db(&state).social_create_notification(&author_profile_id, &profile_id, "like", Some(&id));
     }
-    Json(serde_json::json!({ "ok": true }))
+    ok(serde_json::json!({ "ok": true }))
 }
 
 pub async fn unlike_post(
@@ -382,7 +387,7 @@ pub async fn unlike_post(
 ) -> impl IntoResponse {
     let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
     db(&state).social_unlike(&profile_id, &id);
-    Json(serde_json::json!({ "ok": true }))
+    ok(serde_json::json!({ "ok": true }))
 }
 
 pub async fn repost_post(
@@ -392,14 +397,13 @@ pub async fn repost_post(
 ) -> impl IntoResponse {
     let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
     if !db(&state).social_post_exists(&id) {
-        return Json(serde_json::json!({ "error": "Post not found", "code": "NOT_FOUND" }));
+        return not_found("Post not found");
     }
     db(&state).social_repost(&profile_id, &id);
-    // Notify the post author
     if let Some(author_profile_id) = db(&state).social_get_post_author_profile_id(&id) {
         db(&state).social_create_notification(&author_profile_id, &profile_id, "repost", Some(&id));
     }
-    Json(serde_json::json!({ "ok": true }))
+    ok(serde_json::json!({ "ok": true }))
 }
 
 pub async fn unrepost_post(
@@ -409,7 +413,7 @@ pub async fn unrepost_post(
 ) -> impl IntoResponse {
     let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
     db(&state).social_unrepost(&profile_id, &id);
-    Json(serde_json::json!({ "ok": true }))
+    ok(serde_json::json!({ "ok": true }))
 }
 
 pub async fn bookmark_post(
@@ -419,10 +423,10 @@ pub async fn bookmark_post(
 ) -> impl IntoResponse {
     let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
     if !db(&state).social_post_exists(&id) {
-        return Json(serde_json::json!({ "error": "Post not found", "code": "NOT_FOUND" }));
+        return not_found("Post not found");
     }
     db(&state).social_bookmark(&profile_id, &id);
-    Json(serde_json::json!({ "ok": true }))
+    ok(serde_json::json!({ "ok": true }))
 }
 
 pub async fn unbookmark_post(
@@ -432,7 +436,7 @@ pub async fn unbookmark_post(
 ) -> impl IntoResponse {
     let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
     db(&state).social_unbookmark(&profile_id, &id);
-    Json(serde_json::json!({ "ok": true }))
+    ok(serde_json::json!({ "ok": true }))
 }
 
 pub async fn follow_by_handle(
@@ -443,16 +447,15 @@ pub async fn follow_by_handle(
     let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
     let target = match db(&state).social_find_profile_by_handle(&handle) {
         Some(p) => p,
-        None => return Json(serde_json::json!({ "error": "User not found", "code": "NOT_FOUND" })),
+        None => return not_found("User not found"),
     };
     let target_id = target["id"].as_str().unwrap_or("").to_string();
     if target_id == profile_id {
-        return Json(serde_json::json!({ "error": "Cannot follow yourself", "code": "INVALID_INPUT" }));
+        return bad_request("Cannot follow yourself");
     }
     db(&state).social_follow(&profile_id, &target_id);
-    // Notify the followed user
     db(&state).social_create_notification(&target_id, &profile_id, "follow", None);
-    Json(serde_json::json!({ "ok": true }))
+    ok(serde_json::json!({ "ok": true }))
 }
 
 pub async fn unfollow_by_handle(
@@ -463,11 +466,11 @@ pub async fn unfollow_by_handle(
     let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
     let target = match db(&state).social_find_profile_by_handle(&handle) {
         Some(p) => p,
-        None => return Json(serde_json::json!({ "error": "User not found", "code": "NOT_FOUND" })),
+        None => return not_found("User not found"),
     };
     let target_id = target["id"].as_str().unwrap_or("").to_string();
     db(&state).social_unfollow(&profile_id, &target_id);
-    Json(serde_json::json!({ "ok": true }))
+    ok(serde_json::json!({ "ok": true }))
 }
 
 // ─── Task #31: User profile endpoints ───────────────────────────────────────
@@ -479,8 +482,8 @@ pub async fn get_user_profile(
 ) -> impl IntoResponse {
     let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
     match db(&state).social_get_profile_by_handle_with_viewer(&handle, viewer_pid.as_deref()) {
-        Some(profile) => Json(profile),
-        None => Json(serde_json::json!({ "error": "User not found", "code": "NOT_FOUND" })),
+        Some(profile) => ok(profile),
+        None => not_found("User not found"),
     }
 }
 
@@ -491,26 +494,24 @@ pub async fn get_user_posts(
 ) -> impl IntoResponse {
     let profile = match db(&state).social_find_profile_by_handle(&handle) {
         Some(p) => p,
-        None => return Json(serde_json::json!({ "error": "User not found", "code": "NOT_FOUND" })),
+        None => return not_found("User not found"),
     };
     let profile_id = profile["id"].as_str().unwrap_or("");
     let limit = params.limit.unwrap_or(20).min(100);
 
-    // Support both keyset cursor (opaque string) and legacy offset (numeric string)
     let legacy_offset = match params.cursor.as_deref() {
         Some(c) => match decode_cursor(c) {
-            Some(_) => 0i64, // keyset cursor provided; start from beginning for legacy path
+            Some(_) => 0i64,
             None => c.parse::<i64>().unwrap_or(0).max(0),
         },
         None => 0,
     };
 
-    // Use legacy offset path until profile timeline DB method gets keyset support
     let posts = db(&state).social_get_user_posts(profile_id, limit, legacy_offset);
     let next_cursor = next_cursor_from_posts(&posts, limit);
     let has_more = posts.len() as i64 == limit;
 
-    Json(serde_json::json!({
+    ok(serde_json::json!({
         "posts": posts,
         "cursor": next_cursor,
         "has_more": has_more,
@@ -526,8 +527,8 @@ pub async fn get_single_post(
 ) -> impl IntoResponse {
     let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
     match db(&state).social_get_post_by_id(&id, viewer_pid.as_deref()) {
-        Some(post) => Json(post),
-        None => Json(serde_json::json!({ "error": "Post not found", "code": "NOT_FOUND" })),
+        Some(post) => ok(post),
+        None => not_found("Post not found"),
     }
 }
 
@@ -539,13 +540,11 @@ pub async fn get_following_feed(
     let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
     let limit = params.limit.unwrap_or(20).min(100);
 
-    // Support both keyset cursor and legacy offset
     let legacy_offset = match params.cursor.as_deref() {
         Some(c) => c.parse::<i64>().unwrap_or(0).max(0),
         None => 0,
     };
 
-    // Fetch block/mute lists to filter feed
     let blocked_ids = db(&state).social_get_blocked_ids(&profile_id);
     let muted_ids = db(&state).social_get_muted_ids(&profile_id);
 
@@ -553,7 +552,7 @@ pub async fn get_following_feed(
     let next_cursor = next_cursor_from_posts(&posts, limit);
     let has_more = posts.len() as i64 == limit;
 
-    Json(serde_json::json!({
+    ok(serde_json::json!({
         "posts": posts,
         "cursor": next_cursor,
         "has_more": has_more,
@@ -576,9 +575,9 @@ pub async fn get_me_profile(
                 m.insert("linkedAgents".into(), serde_json::json!(agents));
                 m.insert("stats".into(), stats);
             }
-            Json(obj)
+            ok(obj)
         }
-        None => Json(serde_json::json!({ "error": "No profile found", "code": "NOT_FOUND" })),
+        None => not_found("No profile found"),
     }
 }
 
@@ -587,23 +586,22 @@ pub async fn create_me_profile(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateProfileRequest>,
 ) -> impl IntoResponse {
-    // Delegate to existing create_profile logic
     if db(&state).social_find_profile_by_clerk_id(&user.user_id).is_some() {
-        return Json(serde_json::json!({ "error": "Profile already exists", "code": "CONFLICT" }));
+        return conflict("Profile already exists");
     }
 
     let handle = req.handle.trim().to_lowercase();
     if handle.len() < 2 || handle.len() > 30 {
-        return Json(serde_json::json!({ "error": "Handle must be 2-30 characters", "code": "INVALID_INPUT" }));
+        return bad_request("Handle must be 2-30 characters");
     }
 
     if db(&state).social_find_profile_by_handle(&handle).is_some() {
-        return Json(serde_json::json!({ "error": "Handle is already taken", "code": "CONFLICT" }));
+        return conflict("Handle is already taken");
     }
 
     let bio = req.bio.unwrap_or_default();
     let profile = db(&state).social_create_profile(&user.user_id, &handle, &req.display_name, &bio);
-    Json(serde_json::json!({ "ok": true, "profile": profile }))
+    ok(serde_json::json!({ "ok": true, "profile": profile }))
 }
 
 pub async fn update_me_profile(
@@ -613,7 +611,7 @@ pub async fn update_me_profile(
 ) -> impl IntoResponse {
     let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
         Some(p) => p,
-        None => return Json(serde_json::json!({ "error": "No profile found — create a profile first", "code": "NOT_FOUND" })),
+        None => return not_found("No profile found — create a profile first"),
     };
 
     let profile_id = profile["id"].as_str().unwrap_or("");
@@ -626,8 +624,8 @@ pub async fn update_me_profile(
         req.location.as_deref(),
         req.website.as_deref(),
     ) {
-        Some(updated) => Json(serde_json::json!({ "ok": true, "profile": updated })),
-        None => Json(serde_json::json!({ "error": "Update failed", "code": "INTERNAL_ERROR" })),
+        Some(updated) => ok(serde_json::json!({ "ok": true, "profile": updated })),
+        None => internal_error("Update failed"),
     }
 }
 
@@ -639,14 +637,13 @@ pub async fn delete_post(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
-    // Verify ownership
     match db(&state).social_get_post_author_profile_id(&id) {
         Some(author_id) if author_id == profile_id => {}
-        Some(_) => return Json(serde_json::json!({ "error": "Not the post author", "code": "FORBIDDEN" })),
-        None => return Json(serde_json::json!({ "error": "Post not found", "code": "NOT_FOUND" })),
+        Some(_) => return forbidden("Not the post author"),
+        None => return not_found("Post not found"),
     }
     db(&state).social_soft_delete_post(&id);
-    Json(serde_json::json!({ "ok": true }))
+    ok(serde_json::json!({ "ok": true }))
 }
 
 // ─── Task #36: Community feed ──────────────────────────────────────────────
@@ -666,7 +663,6 @@ pub async fn get_community_feed(
         .map(|(c, i)| (Some(c), Some(i)))
         .unwrap_or((None, None));
 
-    // If authenticated, fetch block/mute lists to filter feed
     let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
     let (blocked_ids, muted_ids) = if let Some(ref pid) = viewer_pid {
         (
@@ -688,7 +684,7 @@ pub async fn get_community_feed(
     let next_cursor = next_cursor_from_posts(&posts, limit);
     let has_more = posts.len() as i64 == limit;
 
-    Json(serde_json::json!({
+    ok(serde_json::json!({
         "posts": posts,
         "cursor": next_cursor,
         "has_more": has_more,
@@ -697,7 +693,6 @@ pub async fn get_community_feed(
 
 // ─── Community Membership ─────────────────────────────────────────────────────
 
-/// POST /v1/social/communities/{id}/join — join a community (auth required)
 pub async fn join_community(
     user: ClerkUser,
     Path(community_id): Path<String>,
@@ -709,13 +704,12 @@ pub async fn join_community(
     };
     let joined = db(&state).social_join_community(&community_id, &profile_id);
     if joined {
-        Json(serde_json::json!({ "ok": true, "joined": true }))
+        ok(serde_json::json!({ "ok": true, "joined": true }))
     } else {
-        Json(serde_json::json!({ "ok": true, "joined": false, "message": "already a member" }))
+        ok(serde_json::json!({ "ok": true, "joined": false, "message": "already a member" }))
     }
 }
 
-/// DELETE /v1/social/communities/{id}/leave — leave a community (auth required)
 pub async fn leave_community(
     user: ClerkUser,
     Path(community_id): Path<String>,
@@ -727,13 +721,12 @@ pub async fn leave_community(
     };
     let left = db(&state).social_leave_community(&community_id, &profile_id);
     if left {
-        Json(serde_json::json!({ "ok": true, "left": true }))
+        ok(serde_json::json!({ "ok": true, "left": true }))
     } else {
-        Json(serde_json::json!({ "ok": true, "left": false, "message": "not a member" }))
+        ok(serde_json::json!({ "ok": true, "left": false, "message": "not a member" }))
     }
 }
 
-/// GET /v1/social/communities/{id}/members — list members (public)
 pub async fn list_community_members(
     Path(community_id): Path<String>,
     Query(params): Query<FeedQuery>,
@@ -742,7 +735,7 @@ pub async fn list_community_members(
     let limit = params.limit.unwrap_or(50).min(200);
     let members = db(&state).social_list_community_members(&community_id, limit);
     let count = members.len();
-    Json(serde_json::json!({
+    ok(serde_json::json!({
         "members": members,
         "count": count,
     }))

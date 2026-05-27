@@ -60,9 +60,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
 
     setIsCheckingComposeAccess(true);
     try {
-      console.log('Getting token...', { isSignedIn, authEnabled });
       const token = await getToken();
-      console.log('Token result:', token ? 'Got token' : 'NULL TOKEN', typeof token);
       if (!token) {
         setComposeGate("signed_out");
         setComposeOpen(true);
@@ -93,11 +91,9 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     setComposeError(null);
 
     try {
-      console.log('Creating post with token:', composeToken ? 'Has token' : 'NULL TOKEN', typeof composeToken);
       await createPost(composeToken!, { body: composeText.trim() });
       closeCompose();
-    } catch (error) {
-      console.log('Post failed:', error);
+    } catch {
       setComposeError("Post failed. Try again.");
       setIsPosting(false);
     }
