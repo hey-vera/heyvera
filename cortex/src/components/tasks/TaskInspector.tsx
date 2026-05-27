@@ -471,22 +471,22 @@ export default function TaskInspector({
 
       <div className="mt-3 flex items-center gap-1.5">
         {task.status === 'in-progress' && onPauseTask && (
-          <button type="button" onClick={() => onPauseTask(task.id)} className="inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border border-amber-300/20 bg-amber-300/10 text-xs text-amber-100 transition hover:bg-amber-300/20 active:scale-[0.98]">
+          <button type="button" aria-label="Pause task" onClick={() => onPauseTask(task.id)} className="inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border border-amber-300/20 bg-amber-300/10 text-xs text-amber-100 transition hover:bg-amber-300/20 active:scale-[0.98]">
             <Pause className="h-3.5 w-3.5" /> Pause
           </button>
         )}
         {task.status === 'paused' && onResumeTask && (
-          <button type="button" onClick={() => onResumeTask(task.id)} className="inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border border-emerald-300/20 bg-emerald-400/10 text-xs text-emerald-100 transition hover:bg-emerald-400/20 active:scale-[0.98]">
+          <button type="button" aria-label="Resume task" onClick={() => onResumeTask(task.id)} className="inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border border-emerald-300/20 bg-emerald-400/10 text-xs text-emerald-100 transition hover:bg-emerald-400/20 active:scale-[0.98]">
             <Play className="h-3.5 w-3.5" /> Resume
           </button>
         )}
         {(task.latestRunStatus === 'failed' || task.status === 'cancelled') && onRetryTask && (
-          <button type="button" onClick={() => onRetryTask(task.id)} className="inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border border-sky-300/20 bg-sky-400/10 text-xs text-sky-100 transition hover:bg-sky-400/20 active:scale-[0.98]">
+          <button type="button" aria-label="Retry task" onClick={() => onRetryTask(task.id)} className="inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border border-sky-300/20 bg-sky-400/10 text-xs text-sky-100 transition hover:bg-sky-400/20 active:scale-[0.98]">
             <RefreshCw className="h-3.5 w-3.5" /> Retry
           </button>
         )}
         {task.status !== 'done' && task.status !== 'cancelled' && onCancelTask && (
-          <button type="button" onClick={() => onCancelTask(task.id)} className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md border border-red-300/15 bg-red-400/[0.06] px-3 text-xs text-[var(--muted)] transition hover:bg-red-400/15 hover:text-red-100 active:scale-[0.98]">
+          <button type="button" aria-label="Cancel task" onClick={() => onCancelTask(task.id)} className="inline-flex h-7 items-center justify-center gap-1.5 rounded-md border border-red-300/15 bg-red-400/[0.06] px-3 text-xs text-[var(--muted)] transition hover:bg-red-400/15 hover:text-red-100 active:scale-[0.98]">
             <Ban className="h-3.5 w-3.5" /> Cancel
           </button>
         )}

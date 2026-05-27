@@ -360,7 +360,7 @@ export default function Sidebar({
   };
 
   const handleContextMenu = (
-    event: React.MouseEvent<HTMLDivElement>,
+    event: React.MouseEvent<HTMLButtonElement>,
     conversationId: string,
   ) => {
     event.preventDefault();
@@ -391,23 +391,18 @@ export default function Sidebar({
     return (
       <div
         key={conversation.id}
-        onContextMenu={(event) => handleContextMenu(event, conversation.id)}
         className={`group relative mb-0.5 rounded-xl transition-all duration-150 ${
           isActive ? 'bg-white/8 shadow-[inset_0_0_0_1px_rgba(255,255,255,0.04)]' : 'hover:bg-white/5'
         }`}
       >
-        <div
-          role="button"
-          tabIndex={0}
+        <button
+          type="button"
+          aria-label={`Open conversation: ${conversation.title || 'New conversation'}`}
+          aria-current={isActive ? 'true' : undefined}
+          onContextMenu={(event) => handleContextMenu(event, conversation.id)}
           onClick={() => queueSelectConversation(conversation.id)}
           onDoubleClick={() => handleDoubleClick(conversation)}
-          onKeyDown={(event) => {
-            if (event.key === 'Enter' || event.key === ' ') {
-              event.preventDefault();
-              queueSelectConversation(conversation.id);
-            }
-          }}
-          className={`flex min-w-0 items-center gap-2 rounded-xl px-3 py-2.5 text-left outline-none transition-all duration-150 ${
+          className={`flex w-full min-w-0 items-center gap-2 rounded-xl px-3 py-2.5 text-left outline-none transition-all duration-150 ${
             isActive ? 'text-white' : 'text-[var(--muted-strong)]'
           }`}
         >
@@ -471,7 +466,7 @@ export default function Sidebar({
 
           <button
             type="button"
-            aria-label="Conversation actions"
+            aria-label={`Actions for ${conversation.title || 'New conversation'}`}
             onClick={(event) => {
               event.stopPropagation();
               const rect = event.currentTarget.getBoundingClientRect();
@@ -486,7 +481,7 @@ export default function Sidebar({
           >
             <MoreHorizontal className="h-3.5 w-3.5" />
           </button>
-        </div>
+        </button>
       </div>
     );
   };
@@ -514,7 +509,9 @@ export default function Sidebar({
     <div className={`relative flex h-full flex-col bg-[var(--bg)] ${showBorder ? 'border-r border-white/6' : ''} ${className}`}>
       <div className="p-3">
         <button
+          type="button"
           onClick={onNewChat}
+          aria-label="New chat"
           className="flex w-full items-center gap-2 rounded-xl border border-white/8 bg-white/4 px-3 py-2.5 text-sm text-white transition-all duration-150 hover:bg-white/8 active:scale-[0.98]"
         >
           <MessageSquarePlus className="h-4 w-4 text-[var(--accent)]" />

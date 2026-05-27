@@ -346,12 +346,14 @@ export default function OperationsRoom() {
 
             <div>
               <h2 className="mb-3 text-sm font-semibold text-white">Live Map</h2>
-              <OperationsGraphPanel
-                groupId={groupId}
-                groupName={groupLabel(groupId)}
-                focusedTaskId={focusedTaskId}
-                onFocusTask={setFocusedTaskId}
-              />
+              <div className="overflow-x-auto">
+                <OperationsGraphPanel
+                  groupId={groupId}
+                  groupName={groupLabel(groupId)}
+                  focusedTaskId={focusedTaskId}
+                  onFocusTask={setFocusedTaskId}
+                />
+              </div>
             </div>
 
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">

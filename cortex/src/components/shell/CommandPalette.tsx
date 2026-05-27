@@ -298,13 +298,16 @@ export default function CommandPalette({
               <p className="mt-1 text-xs text-[var(--muted)]">Try a group name, task title, provider, or shortcut.</p>
             </div>
           ) : (
-            filtered.map((item, index) => {
+            <div role="listbox" aria-label="Commands">
+            {filtered.map((item, index) => {
               const Icon = iconForKind(item.kind);
               const active = index === activeIndex;
               return (
                 <button
                   key={item.id}
                   type="button"
+                  role="option"
+                  aria-selected={active}
                   onMouseEnter={() => setActiveIndex(index)}
                   onClick={() => runItem(item)}
                   className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition ${
@@ -325,7 +328,8 @@ export default function CommandPalette({
                   {item.kind === 'action' ? <ArrowRight className="h-4 w-4 shrink-0 text-[var(--muted)]" /> : <ExternalLink className="h-3.5 w-3.5 shrink-0 text-[var(--muted)]" />}
                 </button>
               );
-            })
+            })}
+            </div>
           )}
         </div>
 

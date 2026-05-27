@@ -1,9 +1,44 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle2, CreditCard, ExternalLink, Loader2, Menu, Search, LayoutGrid } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CreditCard, ExternalLink, Loader2, LogOut, Menu, Search, LayoutGrid } from 'lucide-react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { useClerk, useUser } from '@clerk/clerk-react';
+
+const CLERK_ENABLED = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;
+
+/**
+ * Renders the signed-in user's display name/email and a logout button.
+ * Must only be rendered when ClerkProvider is in the tree.
+ */
+function ClerkUserControls() {
+  const { signOut } = useClerk();
+  const { user } = useUser();
+  const displayName = user?.firstName
+    ?? user?.primaryEmailAddress?.emailAddress
+    ?? null;
+
+  return (
+    <div className="hidden items-center gap-2 sm:flex">
+      {displayName && (
+        <span className="max-w-[10rem] truncate text-[11px] text-[var(--muted)]" title={displayName}>
+          {displayName}
+        </span>
+      )}
+      <button
+        type="button"
+        onClick={() => void signOut()}
+        className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-[var(--muted)] transition hover:bg-white/6 hover:text-white active:scale-95"
+        aria-label="Sign out"
+        title="Sign out"
+      >
+        <LogOut className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
 import TrialBanner from './components/billing/TrialBanner';
 import GroupSidebar from './components/groups/GroupSidebar';
 import CommandPalette from './components/shell/CommandPalette';
+import HelpMenu from './components/shell/HelpMenu';
 import TaskManagerSidebar from './components/shell/TaskManagerSidebar';
 import ProjectChat from './components/chat/ProjectChat';
 import PersonalTaskManager from './components/personal/PersonalTaskManager';
@@ -16,6 +51,7 @@ import { isOnboardingComplete } from './lib/onboarding';
 import SignInScreen from './components/auth/SignInScreen';
 import OperationsRoom from './components/operations/OperationsRoom';
 import OnboardingFlow from './components/onboarding/OnboardingFlow';
+import NotFoundPage from './components/NotFoundPage';
 import {
   CortexApiError,
   getAdminStats,
@@ -50,7 +86,7 @@ const DEFAULT_SESSION_CONTROLS: ChatSessionControls = {
 const SESSION_CONTROLS_STORAGE_KEY = 'cortex:session-controls';
 const RUN_PROFILE_STORAGE_KEY = 'cortex:run-profile';
 const FREE_TIER_ACCESS_STATES = new Set<BillingAccessState>(['needs_checkout', 'needs_phone', 'cancelled']);
-type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing';
+type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing' | 'account';
 
 function deploymentBadgeTitle(status: DeploymentStatus): string {
   const backend = status.commits.backend_commit_short ?? status.backend.commit_short ?? 'unknown';
@@ -245,6 +281,7 @@ function CortexShell() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [personalTaskManagerOpen, setPersonalTaskManagerOpen] = useState(false);
   const [taskManagerSwitcherOpen, setTaskManagerSwitcherOpen] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
   const billingEnabled = clerkEnabled && isSignedIn;
 
   const handleConversationCreated = useCallback((conversationId: string) => {
@@ -315,10 +352,17 @@ function CortexShell() {
     };
   }, [activeGroup, userId]);
 
+  const groupNotFound = Boolean(groupId && !groups.some((group) => group.id === groupId));
+
   useEffect(() => {
-    if (!groupId || groups.some((group) => group.id === groupId)) return;
-    navigate(`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`, { replace: true });
-  }, [groupId, groups, navigate]);
+    // Listen for 401 events dispatched by the API layer or other parts of the app
+    function handle401(event: CustomEvent<unknown>) {
+      void event;
+      setSessionExpired(true);
+    }
+    window.addEventListener('cortex:unauthorized', handle401 as EventListener);
+    return () => window.removeEventListener('cortex:unauthorized', handle401 as EventListener);
+  }, []);
 
   const billing = useBilling(billingEnabled);
 
@@ -757,6 +801,8 @@ function CortexShell() {
             >
               <ExternalLink className="h-4 w-4" />
             </button>
+            <HelpMenu />
+            {CLERK_ENABLED && clerkEnabled && isSignedIn && <ClerkUserControls />}
           </div>
         </header>
 
@@ -785,8 +831,43 @@ function CortexShell() {
         {runtimeLocked && (
           <PaymentIssueBanner onOpenBilling={() => handleOpenSettings('billing')} />
         )}
+        {sessionExpired && (
+          <div className="border-b border-red-400/20 bg-red-400/10 px-3 py-2 sm:px-4">
+            <div className="mx-auto flex max-w-4xl flex-wrap items-center gap-2 sm:gap-3">
+              <AlertTriangle className="h-4 w-4 shrink-0 text-red-200" />
+              <p className="min-w-[12rem] flex-1 text-xs text-red-100">
+                Your session has expired. Please sign in again to continue.
+              </p>
+              <a
+                href="/sign-in"
+                className="inline-flex h-7 items-center rounded-lg border border-red-200/20 bg-red-100/10 px-2.5 text-xs text-red-50 transition hover:bg-red-100/15 active:scale-95"
+              >
+                Sign in
+              </a>
+            </div>
+          </div>
+        )}
+        {groupNotFound ? (
+          <div className="flex flex-1 items-center justify-center">
+            <div className="w-full max-w-xs rounded-2xl border border-white/8 bg-[var(--panel)] p-6 text-center">
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-amber-500/10 text-amber-200">
+                <AlertTriangle className="h-5 w-5" />
+              </div>
+              <h2 className="mt-4 text-base font-semibold text-white">Group not found</h2>
+              <p className="mt-2 text-sm text-[var(--muted)]">
+                The group you are looking for does not exist or has been removed.
+              </p>
+              <a
+                href={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`}
+                className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[var(--accent)] px-4 py-2 text-sm font-medium text-black transition hover:brightness-110 active:scale-95"
+              >
+                Go to default group
+              </a>
+            </div>
+          </div>
+        ) : null}
 
-        <div className="flex min-h-0 flex-1 overflow-hidden">
+        <div className={`flex min-h-0 flex-1 overflow-hidden${groupNotFound ? ' hidden' : ''}`}>
           <ProjectChat
             group={activeGroup}
             userId={userId ?? 'local'}
@@ -908,7 +989,7 @@ export default function App() {
         <Route path="/app/groups/:groupId/operations" element={<OperationsRoom />} />
         {/* Legacy redirects */}
         <Route path="/groups/:groupId/tasks" element={<LegacyGroupRedirect />} />
-        <Route path="*" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+        <Route path="*" element={<NotFoundPage />} />
       </Routes>
     </BrowserRouter>
   );

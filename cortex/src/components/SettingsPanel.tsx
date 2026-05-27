@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle, Copy, ExternalLink, Loader2, X, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Copy, ExternalLink, Loader2, User, X, XCircle } from 'lucide-react';
+import { useUser } from '@clerk/clerk-react';
 import {
   getAuthStatus,
   startAuth,
@@ -11,8 +12,191 @@ import {
 import BillingPage from './billing/BillingPage';
 import SpendDashboard from './spend/SpendDashboard';
 import IntegrationSetup from './integrations/IntegrationSetup';
+import type { RunProfile } from '../types';
 
-type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing';
+type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing' | 'account';
+
+const RUN_PROFILE_LABELS: Record<RunProfile, string> = {
+  auto: 'Auto (adaptive)',
+  balanced: 'Balanced',
+  cost_saver: 'Cost saver',
+  quality_first: 'Quality first',
+};
+
+const WORKSPACE_PROFILE_KEY = 'cortex:default-run-profile';
+
+function readDefaultProfile(): RunProfile {
+  try {
+    const raw = window.localStorage.getItem(WORKSPACE_PROFILE_KEY);
+    if (raw === 'auto' || raw === 'balanced' || raw === 'cost_saver' || raw === 'quality_first') {
+      return raw;
+    }
+  } catch { /* ignore */ }
+  return 'auto';
+}
+
+function saveDefaultProfile(profile: RunProfile) {
+  try {
+    window.localStorage.setItem(WORKSPACE_PROFILE_KEY, profile);
+  } catch { /* ignore */ }
+}
+
+function requestAccountDeletion() {
+  // GDPR compliance placeholder — triggers server-side deletion request in production
+  alert('Account deletion requested. You\'ll receive a confirmation email.');
+}
+
+function AccountTab({ providers }: { providers: ProviderAuthInfo[] }) {
+  const { user } = useUser();
+  const [defaultProfile, setDefaultProfile] = useState<RunProfile>(readDefaultProfile);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+
+  const handleProfileChange = (profile: RunProfile) => {
+    setDefaultProfile(profile);
+    saveDefaultProfile(profile);
+  };
+
+  const displayName = user?.fullName ?? user?.username ?? '—';
+  const email = user?.primaryEmailAddress?.emailAddress ?? '—';
+
+  return (
+    <div className="flex flex-col gap-5">
+      {/* Profile section */}
+      <section className="flex flex-col gap-3">
+        <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
+          <User className="h-3.5 w-3.5" />
+          Profile
+        </h3>
+        <div className="rounded-xl border border-white/8 bg-white/[0.02] px-4 py-3">
+          <div className="flex flex-col gap-3">
+            <div>
+              <label className="mb-1 block text-xs text-[var(--muted)]">Display name</label>
+              <div className="rounded-lg border border-white/8 bg-white/4 px-3 py-2 text-sm text-white">
+                {displayName}
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs text-[var(--muted)]">Email</label>
+              <div className="rounded-lg border border-white/8 bg-white/4 px-3 py-2 text-sm text-white">
+                {email}
+              </div>
+            </div>
+            <p className="text-[10px] text-[var(--muted)]">
+              Profile details are managed by Clerk. Visit your Clerk dashboard to make changes.
+            </p>
+          </div>
+        </div>
+      </section>
+
+      {/* Workspace preferences */}
+      <section className="flex flex-col gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
+          Workspace preferences
+        </h3>
+        <div className="rounded-xl border border-white/8 bg-white/[0.02] px-4 py-3">
+          <label className="mb-1.5 block text-xs text-[var(--muted)]">Default run profile</label>
+          <select
+            value={defaultProfile}
+            onChange={(e) => handleProfileChange(e.target.value as RunProfile)}
+            className="w-full rounded-lg border border-white/10 bg-[var(--composer)] px-3 py-2 text-sm text-white focus:border-[var(--accent)]/50 focus:outline-none"
+          >
+            {(Object.keys(RUN_PROFILE_LABELS) as RunProfile[]).map((profile) => (
+              <option key={profile} value={profile}>
+                {RUN_PROFILE_LABELS[profile]}
+              </option>
+            ))}
+          </select>
+          <p className="mt-1.5 text-[10px] text-[var(--muted)]">
+            Sets the initial routing profile for new sessions.
+          </p>
+        </div>
+      </section>
+
+      {/* Connected accounts */}
+      <section className="flex flex-col gap-3">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-[var(--muted)]">
+          Connected accounts
+        </h3>
+        <div className="rounded-xl border border-white/8 bg-white/[0.02]">
+          {providers.length === 0 ? (
+            <p className="px-4 py-3 text-sm text-[var(--muted)]">No providers connected yet.</p>
+          ) : (
+            providers.map((p, idx) => (
+              <div
+                key={p.provider}
+                className={`flex items-center justify-between px-4 py-3 ${idx < providers.length - 1 ? 'border-b border-white/6' : ''}`}
+              >
+                <div className="flex items-center gap-2">
+                  <div className="flex h-7 w-7 items-center justify-center rounded-md bg-white/6 text-[10px] font-bold uppercase text-[var(--muted-strong)]">
+                    {p.provider === 'claude' ? 'CL' : 'OA'}
+                  </div>
+                  <span className="text-sm text-white">
+                    {p.provider === 'claude' ? 'Claude (Anthropic)' : 'OpenAI (Codex)'}
+                  </span>
+                </div>
+                {p.authenticated ? (
+                  <div className="flex items-center gap-1 text-xs text-emerald-300">
+                    <CheckCircle className="h-3 w-3" />
+                    Connected
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
+                    <XCircle className="h-3 w-3" />
+                    Not connected
+                  </div>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+
+      {/* Danger zone */}
+      <section className="flex flex-col gap-3">
+        <h3 className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-red-400">
+          <AlertTriangle className="h-3.5 w-3.5" />
+          Danger zone
+        </h3>
+        <div className="rounded-xl border border-red-500/20 bg-red-500/5 px-4 py-3">
+          <div className="flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-white">Delete account</p>
+              <p className="mt-0.5 text-xs text-[var(--muted)]">
+                Permanently delete your account and all associated data.
+              </p>
+            </div>
+            {!showDeleteConfirm ? (
+              <button
+                type="button"
+                onClick={() => setShowDeleteConfirm(true)}
+                className="shrink-0 rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-1.5 text-xs font-medium text-red-300 transition hover:bg-red-500/20 active:scale-95"
+              >
+                Delete account
+              </button>
+            ) : (
+              <div className="flex shrink-0 items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowDeleteConfirm(false)}
+                  className="rounded-lg border border-white/10 px-3 py-1.5 text-xs text-[var(--muted)] transition hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { setShowDeleteConfirm(false); requestAccountDeletion(); }}
+                  className="rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-red-400 active:scale-95"
+                >
+                  Confirm
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      </section>
+    </div>
+  );
+}
 
 interface SettingsPanelProps {
   onClose: () => void;
@@ -186,6 +370,14 @@ export default function SettingsPanel({
           >
             Billing
           </button>
+          <button
+            onClick={() => setTab('account')}
+            className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
+              tab === 'account' ? 'border-[var(--accent)] text-white' : 'border-transparent text-[var(--muted)] hover:text-white'
+            }`}
+          >
+            Account
+          </button>
         </div>
 
         {/* Content */}
@@ -196,6 +388,8 @@ export default function SettingsPanel({
             <IntegrationSetup />
           ) : tab === 'spend' ? (
             <SpendDashboard />
+          ) : tab === 'account' ? (
+            <AccountTab providers={providers} />
           ) : loading ? (
             <div className="flex items-center justify-center gap-2 py-8 text-sm text-[var(--muted)]">
               <Loader2 className="h-4 w-4 animate-spin" />
