@@ -294,6 +294,7 @@ pub async fn chat(
                     content: user_message,
                 }];
 
+                let model_for_cost = model.clone();
                 let stream_handle = tokio::spawn(async move {
                     llm_client::stream_chat_api(
                         &provider,
@@ -343,7 +344,7 @@ pub async fn chat(
                     let enforcer = crate::budget_enforcer::BudgetEnforcer::new(db);
                     let tokens_out = crate::cost_estimator::CostEstimator::estimate_tokens_from_text(&full_response);
                     let (actual_cost, _) = crate::cost_estimator::CostEstimator::estimate_request_cost(
-                        &provider_name, &model, 0, tokens_out, None,
+                        &provider_name, &model_for_cost, 0, tokens_out, None,
                     );
                     enforcer.finalize_cost_session(sid, actual_cost, tokens_out);
                 }
