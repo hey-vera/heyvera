@@ -2042,3 +2042,98 @@ export async function createFromAutoCapture(
     }),
   });
 }
+
+// Budget and Cost Management API
+
+export interface BudgetSettings {
+  daily_limit?: number | null;
+  weekly_limit?: number | null;
+  monthly_limit?: number | null;
+  warning_threshold?: number;
+  enabled: boolean;
+  provider_limits?: {
+    claude?: number;
+    openai?: number;
+  };
+}
+
+export interface UsageData {
+  current_session: {
+    cost: number;
+    token_count: number;
+    request_count: number;
+    duration_minutes: number;
+  };
+  daily: {
+    cost: number;
+    budget_remaining: number;
+    usage_percentage: number;
+  };
+  weekly: {
+    cost: number;
+    budget_remaining: number;
+    usage_percentage: number;
+  };
+  monthly: {
+    cost: number;
+    budget_remaining: number;
+    usage_percentage: number;
+  };
+  provider_breakdown: Array<{
+    provider: string;
+    cost: number;
+    token_count: number;
+    request_count: number;
+  }>;
+}
+
+export interface CostWarning {
+  id: string;
+  type: 'approaching_limit' | 'exceeded_limit' | 'expensive_operation';
+  level: 'info' | 'warning' | 'error';
+  title: string;
+  message: string;
+  action_required: boolean;
+  acknowledged: boolean;
+  created_at: string;
+  budget_type?: 'daily' | 'weekly' | 'monthly';
+  current_usage?: number;
+  limit?: number;
+}
+
+export interface ProviderStatusInfo {
+  provider: string;
+  status: 'byos' | 'byok' | 'unavailable';
+  authenticated: boolean;
+  subscription_type?: string;
+  cost_tracking_enabled: boolean;
+}
+
+export async function getBudgetSettings(): Promise<BudgetSettings> {
+  return requestJson<BudgetSettings>('/api/budget/settings');
+}
+
+export async function updateBudgetSettings(settings: BudgetSettings): Promise<BudgetSettings> {
+  return requestJson<BudgetSettings>('/api/budget/settings', {
+    method: 'PUT',
+    body: JSON.stringify(settings),
+  });
+}
+
+export async function getCurrentUsage(): Promise<UsageData> {
+  return requestJson<UsageData>('/api/budget/usage');
+}
+
+export async function getCostWarnings(): Promise<CostWarning[]> {
+  return requestJson<CostWarning[]>('/api/budget/warnings');
+}
+
+export async function acknowledgeCostWarning(warningId: string): Promise<void> {
+  await requestJson<void>(`/api/budget/warnings/${encodeURIComponent(warningId)}/acknowledge`, {
+    method: 'POST',
+  });
+}
+
+export async function getProviderStatus(): Promise<ProviderStatusInfo[]> {
+  return requestJson<ProviderStatusInfo[]>('/api/providers/status');
+}

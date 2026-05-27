@@ -12,9 +12,11 @@ import {
 import BillingPage from './billing/BillingPage';
 import SpendDashboard from './spend/SpendDashboard';
 import IntegrationSetup from './integrations/IntegrationSetup';
+import BudgetSettings from './settings/BudgetSettings';
 import type { RunProfile } from '../types';
+import { getBudgetSettings, updateBudgetSettings, getCurrentUsage, type BudgetSettings as BudgetSettingsType, type UsageData } from '../lib/cortexApi';
 
-type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing' | 'notifications' | 'account';
+type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing' | 'budget' | 'notifications' | 'account';
 
 const RUN_PROFILE_LABELS: Record<RunProfile, string> = {
   auto: 'Auto (adaptive)',
@@ -357,6 +359,12 @@ export default function SettingsPanel({
   const [authStates, setAuthStates] = useState<Record<string, ProviderAuthState>>({});
   const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
+  // Budget settings state
+  const [budgetSettings, setBudgetSettings] = useState<BudgetSettingsType | null>(null);
+  const [budgetUsage, setBudgetUsage] = useState<UsageData | null>(null);
+  const [budgetLoading, setBudgetLoading] = useState(false);
+  const [budgetError, setBudgetError] = useState<string | null>(null);
+
   const fetchStatus = useCallback(async () => {
     try {
       const status = await getAuthStatus();
@@ -369,6 +377,42 @@ export default function SettingsPanel({
   }, []);
 
   useEffect(() => { fetchStatus(); }, [fetchStatus]);
+
+  const fetchBudgetData = useCallback(async () => {
+    setBudgetLoading(true);
+    setBudgetError(null);
+    try {
+      const [settings, usage] = await Promise.all([
+        getBudgetSettings(),
+        getCurrentUsage(),
+      ]);
+      setBudgetSettings(settings);
+      setBudgetUsage(usage);
+    } catch (err) {
+      setBudgetError(err instanceof Error ? err.message : 'Failed to load budget data');
+    } finally {
+      setBudgetLoading(false);
+    }
+  }, []);
+
+  const handleSaveBudgetSettings = useCallback(async (settings: BudgetSettingsType) => {
+    try {
+      const updated = await updateBudgetSettings(settings);
+      setBudgetSettings(updated);
+      // Refresh usage data after updating settings
+      const usage = await getCurrentUsage();
+      setBudgetUsage(usage);
+    } catch (err) {
+      throw new Error(err instanceof Error ? err.message : 'Failed to save budget settings');
+    }
+  }, []);
+
+  // Fetch budget data when budget tab is selected
+  useEffect(() => {
+    if (tab === 'budget') {
+      fetchBudgetData();
+    }
+  }, [tab, fetchBudgetData]);
 
   const getState = (provider: string): ProviderAuthState =>
     authStates[provider] ?? INITIAL_STATE;
@@ -444,7 +488,7 @@ export default function SettingsPanel({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6">
-      <div className={`relative flex max-h-[min(44rem,calc(100dvh-1.5rem))] w-full flex-col overflow-hidden rounded-2xl border border-white/8 bg-[var(--panel)] shadow-2xl sm:max-h-[min(44rem,calc(100dvh-3rem))] ${tab === 'billing' ? 'max-w-2xl' : 'max-w-lg'}`}>
+      <div className={`relative flex max-h-[min(44rem,calc(100dvh-1.5rem))] w-full flex-col overflow-hidden rounded-2xl border border-white/8 bg-[var(--panel)] shadow-2xl sm:max-h-[min(44rem,calc(100dvh-3rem))] ${tab === 'billing' || tab === 'budget' ? 'max-w-2xl' : 'max-w-lg'}`}>
         {/* Header */}
         <div className="shrink-0 border-b border-white/6 px-5 py-4">
           <div className="flex items-center justify-between gap-4">
@@ -497,6 +541,14 @@ export default function SettingsPanel({
             Billing
           </button>
           <button
+            onClick={() => setTab('budget')}
+            className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
+              tab === 'budget' ? 'border-[var(--accent)] text-white' : 'border-transparent text-[var(--muted)] hover:text-white'
+            }`}
+          >
+            Budget & Costs
+          </button>
+          <button
             onClick={() => setTab('notifications')}
             className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
               tab === 'notifications' ? 'border-[var(--accent)] text-white' : 'border-transparent text-[var(--muted)] hover:text-white'
@@ -522,6 +574,14 @@ export default function SettingsPanel({
             <IntegrationSetup />
           ) : tab === 'spend' ? (
             <SpendDashboard />
+          ) : tab === 'budget' ? (
+            <BudgetSettings
+              settings={budgetSettings}
+              usage={budgetUsage}
+              onSave={handleSaveBudgetSettings}
+              loading={budgetLoading}
+              error={budgetError}
+            />
           ) : tab === 'notifications' ? (
             <NotificationsTab />
           ) : tab === 'account' ? (
