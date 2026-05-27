@@ -315,7 +315,7 @@ fn handle_conversation(message: &str) -> String {
         return "Hey! I'm Cortex — your AI task manager. Describe what you want to build, fix, or explore and I'll handle the rest.".to_string();
     }
 
-    if lower.contains("status") || lower.contains("what can you do") || lower.contains("help") {
+    if lower.contains("status") || lower.contains("what can you do") || lower == "help" || lower == "help me" {
         return "I can help you **plan, build, debug, and ship**.\n\n\
          Describe what you need in plain language:\n\
          - \"build a REST API with auth\"\n\

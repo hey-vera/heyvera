@@ -869,7 +869,9 @@ function CortexShell() {
           }}
         />
 
-        <TrialBanner billing={billing.status} onOpenBilling={() => handleOpenSettings('billing')} />
+        {!isAdminBypass && (
+          <TrialBanner billing={billing.status} onOpenBilling={() => handleOpenSettings('billing')} />
+        )}
         {isFreeTier && accessState && !(billing.status?.trial && billing.status?.access_state === 'trial_active') && (
           <FreeTierBanner
             accessState={accessState}
