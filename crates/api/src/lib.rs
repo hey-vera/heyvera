@@ -16,6 +16,7 @@ pub mod media;
 mod messaging;
 pub mod mission_control;
 mod moderation;
+mod pulse;
 // pub mod memory; // removed for Context-Flow Pipeline deployment
 pub mod notifications;
 // mod orchestrator; // removed for Context-Flow Pipeline deployment
@@ -355,6 +356,13 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/users/{id}/block", post(moderation::block_user).delete(moderation::unblock_user))
         .route("/v1/social/users/{id}/mute", post(moderation::mute_user).delete(moderation::unmute_user))
         .route("/v1/social/report", post(moderation::create_report))
+        // Pulse — AI draft pipeline
+        .route("/v1/pulse/drafts", get(pulse::list_drafts).post(pulse::create_draft))
+        .route("/v1/pulse/drafts/{id}", get(pulse::get_draft))
+        .route("/v1/pulse/drafts/{id}/approve", post(pulse::approve_draft))
+        .route("/v1/pulse/drafts/{id}/reject", post(pulse::reject_draft))
+        .route("/v1/pulse/drafts/{id}/publish", post(pulse::publish_draft))
+        .route("/v1/pulse/drafts/{id}/audit", get(pulse::get_draft_audit))
         // Protected — lightweight
         .route("/api/providers", get(routes::get_providers))
         .route("/api/ledger", get(routes::get_ledger))
@@ -391,6 +399,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/groups/{group_id}/tasks/{task_id}/projection", get(integrations::get_group_task_projection))
         .route("/api/operations/summary", get(integrations::get_personal_operations_summary))
         .route("/api/authority/scopes", get(integrations::list_authority_scopes))
+        .route("/api/authority/scopes", post(integrations::create_authority_scope))
+        .route("/api/authority/scopes/{scope_id}", patch(integrations::update_authority_scope))
+        .route("/api/authority/delegations", get(integrations::list_authority_delegations))
+        .route("/api/authority/delegations", post(integrations::delegate_authority))
+        .route("/api/authority/delegations/{delegation_id}", delete(integrations::revoke_authority_delegation))
         .route("/api/groups/{group_id}/operations/summary", get(integrations::get_group_operations_summary))
         .route("/api/groups/{group_id}/operations/graph", get(integrations::get_group_operations_graph))
         .route("/api/groups/{group_id}/approvals", get(integrations::list_group_approval_requests))

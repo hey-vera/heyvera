@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { AuthControls } from "../shared/AuthControls";
+import { ThemeToggle } from "../public/ThemeToggle";
 
 interface LeftNavProps {
   activeRoute: string;
@@ -60,7 +61,7 @@ export function LeftNav({ activeRoute, onNavigate, onCompose }: LeftNavProps) {
         {/* Logo */}
         <button
           onClick={() => onNavigate("/")}
-          className="p-3 rounded-full transition-colors hover:bg-white/10 mb-1"
+          className="p-3 rounded-full transition-colors hover-overlay mb-1"
           aria-label="HeyVera"
         >
           <HeyVeraLogo />
@@ -79,7 +80,7 @@ export function LeftNav({ activeRoute, onNavigate, onCompose }: LeftNavProps) {
                 }}
                 aria-label={item.label}
                 aria-current={isActive ? "page" : undefined}
-                className="flex items-center gap-4 px-3 py-3 rounded-full transition-colors hover:bg-white/10 w-full xl:w-auto"
+                className="flex items-center gap-4 px-3 py-3 rounded-full transition-colors hover-overlay w-full xl:w-auto"
                 style={{
                   color: "var(--text-primary)",
                   fontWeight: isActive ? 700 : 400,
@@ -142,6 +143,10 @@ export function LeftNav({ activeRoute, onNavigate, onCompose }: LeftNavProps) {
 
         {/* Spacer */}
         <div className="flex-1" />
+
+        <div className="mb-2 flex xl:w-full justify-center xl:justify-start xl:px-3">
+          <ThemeToggle />
+        </div>
 
         <AuthControls variant="desktop" onProfile={() => onNavigate("/profile")} />
       </div>

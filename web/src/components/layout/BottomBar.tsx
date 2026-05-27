@@ -45,7 +45,7 @@ export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps
         style={{
           height: "calc(49px + env(safe-area-inset-bottom))",
           paddingBottom: "env(safe-area-inset-bottom)",
-          backgroundColor: "#000",
+          backgroundColor: "var(--bg-primary)",
           borderTop: "1px solid var(--border-primary)",
         }}
       >

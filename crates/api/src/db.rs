@@ -3509,6 +3509,47 @@ impl Database {
         .collect()
     }
 
+    pub fn add_authority_resource(
+        &self,
+        scope_id: &str,
+        resource_type: &str,
+        resource_key: &str,
+        access: &str,
+        policy: serde_json::Value,
+    ) -> CortexAuthorityResource {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().timestamp_millis();
+        let resource_id = Uuid::new_v4().to_string();
+        let policy_json = serde_json::to_string(&policy).unwrap_or_else(|_| "{}".to_string());
+
+        conn.execute(
+            "INSERT INTO cortex_authority_resources
+                (id, scope_id, resource_type, resource_key, access, policy_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?7)",
+            params![
+                resource_id,
+                scope_id,
+                resource_type,
+                resource_key,
+                access,
+                policy_json,
+                now
+            ],
+        )
+        .expect("failed to insert authority resource");
+
+        CortexAuthorityResource {
+            id: resource_id,
+            scope_id: scope_id.to_string(),
+            resource_type: resource_type.to_string(),
+            resource_key: resource_key.to_string(),
+            access: access.to_string(),
+            policy,
+            created_at: now,
+            updated_at: now,
+        }
+    }
+
     pub fn list_user_operation_group_ids(&self, user_id: &str) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
         let mut ids = HashSet::new();
@@ -11448,6 +11489,138 @@ impl Database {
                 created_at: row.get(7)?,
                 updated_at: row.get(8)?,
             })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    // ─── Pulse (AI draft pipeline) ──────────────────────────────────────────
+
+    pub fn pulse_create_draft(
+        &self,
+        profile_id: &str,
+        body: &str,
+        visibility: &str,
+        author_mode: &str,
+        linked_agent_id: Option<&str>,
+    ) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        conn.execute(
+            "INSERT INTO pulse_drafts (id, profile_id, body, visibility, author_mode, linked_agent_id, status, created_at, updated_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7, ?7)",
+            params![id, profile_id, body, visibility, author_mode, linked_agent_id, now],
+        ).unwrap();
+        serde_json::json!({
+            "id": id,
+            "profileId": profile_id,
+            "body": body,
+            "visibility": visibility,
+            "authorMode": author_mode,
+            "linkedAgentId": linked_agent_id,
+            "status": "pending",
+            "createdAt": now,
+            "updatedAt": now,
+        })
+    }
+
+    pub fn pulse_list_drafts(&self, profile_id: &str, status: Option<&str>) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let (sql, p): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match status {
+            Some(s) => (
+                "SELECT id, profile_id, body, visibility, author_mode, linked_agent_id, status, created_at, updated_at FROM pulse_drafts WHERE profile_id = ?1 AND status = ?2 ORDER BY created_at DESC".to_string(),
+                vec![Box::new(profile_id.to_string()), Box::new(s.to_string())],
+            ),
+            None => (
+                "SELECT id, profile_id, body, visibility, author_mode, linked_agent_id, status, created_at, updated_at FROM pulse_drafts WHERE profile_id = ?1 ORDER BY created_at DESC".to_string(),
+                vec![Box::new(profile_id.to_string())],
+            ),
+        };
+        let mut stmt = conn.prepare(&sql).unwrap();
+        let refs: Vec<&dyn rusqlite::types::ToSql> = p.iter().map(|b| b.as_ref()).collect();
+        stmt.query_map(refs.as_slice(), |row| {
+            let linked: Option<String> = row.get(5)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "profileId": row.get::<_, String>(1)?,
+                "body": row.get::<_, String>(2)?,
+                "visibility": row.get::<_, String>(3)?,
+                "authorMode": row.get::<_, String>(4)?,
+                "linkedAgentId": linked,
+                "status": row.get::<_, String>(6)?,
+                "createdAt": row.get::<_, String>(7)?,
+                "updatedAt": row.get::<_, String>(8)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    pub fn pulse_get_draft(&self, id: &str, profile_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, profile_id, body, visibility, author_mode, linked_agent_id, status, created_at, updated_at FROM pulse_drafts WHERE id = ?1 AND profile_id = ?2",
+            params![id, profile_id],
+            |row| {
+                let linked: Option<String> = row.get(5)?;
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "profileId": row.get::<_, String>(1)?,
+                    "body": row.get::<_, String>(2)?,
+                    "visibility": row.get::<_, String>(3)?,
+                    "authorMode": row.get::<_, String>(4)?,
+                    "linkedAgentId": linked,
+                    "status": row.get::<_, String>(6)?,
+                    "createdAt": row.get::<_, String>(7)?,
+                    "updatedAt": row.get::<_, String>(8)?,
+                }))
+            },
+        )
+        .ok()
+    }
+
+    pub fn pulse_update_draft_status(&self, id: &str, profile_id: &str, status: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let changed = conn.execute(
+            "UPDATE pulse_drafts SET status = ?1, updated_at = ?2 WHERE id = ?3 AND profile_id = ?4",
+            params![status, now, id, profile_id],
+        ).unwrap();
+        if changed == 0 {
+            return None;
+        }
+        drop(conn);
+        self.pulse_get_draft(id, profile_id)
+    }
+
+    pub fn pulse_add_audit(&self, draft_id: &str, actor_profile_id: &str, action: &str, details_json: Option<&str>) {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO pulse_audit_log (id, draft_id, action, actor_profile_id, details_json) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, draft_id, action, actor_profile_id, details_json],
+        ).unwrap();
+    }
+
+    pub fn pulse_get_audit(&self, draft_id: &str) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, draft_id, action, actor_profile_id, details_json, created_at FROM pulse_audit_log WHERE draft_id = ?1 ORDER BY created_at ASC"
+        ).unwrap();
+        stmt.query_map(params![draft_id], |row| {
+            let details_raw: Option<String> = row.get(4)?;
+            let details = details_raw
+                .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "draftId": row.get::<_, String>(1)?,
+                "action": row.get::<_, String>(2)?,
+                "actorProfileId": row.get::<_, String>(3)?,
+                "details": details,
+                "createdAt": row.get::<_, String>(5)?,
+            }))
         })
         .unwrap()
         .filter_map(|r| r.ok())

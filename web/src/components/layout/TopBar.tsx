@@ -21,7 +21,7 @@ export function TopBar({
       className="sticky top-0 z-30 flex items-center justify-between px-4 sm:ml-[88px] sm:w-[calc(100%-88px)] lg:hidden"
       style={{
         height: "53px",
-        backgroundColor: "rgba(0,0,0,0.8)",
+        backgroundColor: "color-mix(in srgb, var(--bg-primary) 80%, transparent)",
         backdropFilter: "blur(12px)",
         WebkitBackdropFilter: "blur(12px)",
         borderBottom: "1px solid var(--border-primary)",
@@ -46,7 +46,7 @@ export function TopBar({
       <button
         onClick={() => navigate("/settings")}
         aria-label="Settings"
-        className="w-8 h-8 flex items-center justify-center rounded-full transition-colors hover:bg-white/10"
+        className="w-8 h-8 flex items-center justify-center rounded-full transition-colors hover-overlay"
         style={{ color: "var(--text-secondary)" }}
         type="button"
       >

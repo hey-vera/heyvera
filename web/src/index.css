@@ -1,32 +1,8 @@
 ﻿@import "tailwindcss";
 
-/* ─── HeyVera X.com-inspired dark theme variables ─── */
+/* ─── HeyVera theme variables ─── */
 
 :root {
-  /* Background */
-  --bg-primary: #000000;
-  --bg-elevated: #16181C;
-  --bg-hover: #080808;
-
-  /* Borders */
-  --border-primary: #2F3336;
-  --border-secondary: #38444D;
-
-  /* Text */
-  --text-primary: #E7E9EA;
-  --text-secondary: #71767B;
-  --text-tertiary: #536471;
-
-  /* Accent — HeyVera green (not X blue) */
-  --accent: #00BA7C;
-  --accent-hover: #00D68F;
-
-  /* Action colors */
-  --color-reply: #1D9BF0;
-  --color-repost: #00BA7C;
-  --color-like: #F91880;
-  --color-danger: #F4212E;
-
   /* Layout dimensions */
   --sidebar-width: 275px;
   --sidebar-collapsed: 88px;
@@ -147,8 +123,26 @@ html.dark {
   background: var(--bg);
 }
 
-/* FRONTEND-SPEC.md is the active web source of truth: dark X-style shell only. */
-:root,
+/* Light mode: clean white shell */
+:root {
+  --bg: #ffffff;
+  --bg-primary: #ffffff;
+  --bg-elevated: #F7F9F8;
+  --bg-hover: #F0F2F1;
+  --border-primary: #EFF3F4;
+  --border-secondary: #CFD9DE;
+  --text-primary: #0F1419;
+  --text-secondary: #536471;
+  --text-tertiary: #8B98A5;
+  --accent: #00BA7C;
+  --accent-hover: #00A36E;
+  --color-reply: #1D9BF0;
+  --color-repost: #00BA7C;
+  --color-like: #F91880;
+  --color-danger: #F4212E;
+}
+
+/* Dark mode: X-style dark shell */
 html.dark {
   --bg: #000000;
   --bg-primary: #000000;
@@ -216,7 +210,12 @@ svg {
 }
 
 ::selection {
-  background: var(--accent-surface-strong);
+  background: rgba(0, 186, 124, 0.35);
+  color: #fff;
+}
+
+.hover-overlay:hover {
+  background-color: var(--bg-hover);
 }
 
 #root {

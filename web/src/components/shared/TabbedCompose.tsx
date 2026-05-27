@@ -1,19 +1,16 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Calendar, Clock, RefreshCw, Sparkles } from 'lucide-react';
+import { RefreshCw, Sparkles } from 'lucide-react';
 import { listDrafts, approveDraft, rejectDraft, publishDraft } from '../../api/pulse';
 import type { PulseDraft } from '../../api/pulse';
 
-type ComposeTab = 'post' | 'agent-assist' | 'bot-post';
+type ComposeTab = 'post' | 'agent-assist';
 
 const TAB_LABELS: Record<ComposeTab, string> = {
   'post': 'Post',
   'agent-assist': 'Agent Assist',
-  'bot-post': 'Bot Post',
 };
 
-const TAB_ORDER: ComposeTab[] = ['post', 'agent-assist', 'bot-post'];
-
-type RepeatFrequency = 'none' | 'daily' | 'weekly';
+const TAB_ORDER: ComposeTab[] = ['post', 'agent-assist'];
 
 interface TabbedComposeProps {
   /** Current text content for the normal post compose */
@@ -92,13 +89,6 @@ export function TabbedCompose({
         )}
         {activeTab === 'agent-assist' && (
           <AgentAssistTab
-            getToken={getToken}
-            isSignedIn={isSignedIn}
-            authEnabled={authEnabled}
-          />
-        )}
-        {activeTab === 'bot-post' && (
-          <BotPostTab
             getToken={getToken}
             isSignedIn={isSignedIn}
             authEnabled={authEnabled}
@@ -348,187 +338,6 @@ function AgentAssistTab({
           ))}
         </div>
       )}
-    </div>
-  );
-}
-
-/* ─── Tab 3: Bot Post (scheduled/automated posting) ────────────────────────── */
-
-function BotPostTab({
-  getToken,
-  isSignedIn,
-  authEnabled,
-}: {
-  getToken: () => Promise<string | null>;
-  isSignedIn: boolean;
-  authEnabled: boolean;
-}) {
-  const [body, setBody] = useState('');
-  const [scheduledDate, setScheduledDate] = useState('');
-  const [scheduledTime, setScheduledTime] = useState('');
-  const [repeatEnabled, setRepeatEnabled] = useState(false);
-  const [repeatFrequency, setRepeatFrequency] = useState<RepeatFrequency>('none');
-  const [scheduling, setScheduling] = useState(false);
-  const [notice, setNotice] = useState<string | null>(null);
-
-  const canSchedule =
-    body.trim().length > 0 && scheduledDate && scheduledTime && isSignedIn && authEnabled;
-
-  const handleSchedule = async () => {
-    if (!canSchedule || scheduling) return;
-
-    setScheduling(true);
-    setNotice(null);
-    try {
-      const token = await getToken();
-      if (!token) {
-        setNotice('Sign in to schedule posts.');
-        return;
-      }
-
-      // For now, create the post as a draft via Pulse with scheduling metadata.
-      // A real implementation would call a scheduling endpoint.
-      // We show a success notice since the backend scheduling API is not yet available.
-      setNotice(
-        `Post scheduled for ${scheduledDate} at ${scheduledTime}` +
-          (repeatEnabled && repeatFrequency !== 'none' ? ` (repeats ${repeatFrequency})` : '') +
-          '. Scheduling delivery is coming soon.',
-      );
-      setBody('');
-      setScheduledDate('');
-      setScheduledTime('');
-      setRepeatEnabled(false);
-      setRepeatFrequency('none');
-    } catch (err) {
-      setNotice(err instanceof Error ? err.message : 'Scheduling failed. Try again.');
-    } finally {
-      setScheduling(false);
-    }
-  };
-
-  if (!authEnabled || !isSignedIn) {
-    return (
-      <div className="flex flex-col items-center py-6 text-center">
-        <Calendar className="mb-3 h-8 w-8" style={{ color: 'var(--text-secondary)' }} />
-        <p className="text-[15px]" style={{ color: 'var(--text-secondary)' }}>
-          Sign in to schedule posts
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div className="flex gap-3">
-        <div
-          className="h-10 w-10 flex-shrink-0 rounded-full"
-          style={{ backgroundColor: 'var(--border-primary)' }}
-        />
-        <div className="flex-1">
-          <textarea
-            value={body}
-            onChange={(event) => setBody(event.target.value.slice(0, 280))}
-            placeholder="Write a post to schedule..."
-            rows={2}
-            className="w-full resize-none bg-transparent text-[20px] leading-normal outline-none"
-            style={{ color: 'var(--text-primary)' }}
-          />
-
-          {/* Date/time picker row */}
-          <div
-            className="mt-3 flex flex-wrap items-center gap-3 border-t pt-3"
-            style={{ borderColor: 'var(--border-primary)' }}
-          >
-            <div className="flex items-center gap-2">
-              <Calendar className="h-4 w-4" style={{ color: 'var(--text-secondary)' }} />
-              <input
-                type="date"
-                value={scheduledDate}
-                onChange={(e) => setScheduledDate(e.target.value)}
-                className="rounded-lg border bg-transparent px-2 py-1 text-[14px] outline-none focus:border-[var(--accent)]"
-                style={{
-                  borderColor: 'var(--border-primary)',
-                  color: 'var(--text-primary)',
-                  colorScheme: 'dark',
-                }}
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <Clock className="h-4 w-4" style={{ color: 'var(--text-secondary)' }} />
-              <input
-                type="time"
-                value={scheduledTime}
-                onChange={(e) => setScheduledTime(e.target.value)}
-                className="rounded-lg border bg-transparent px-2 py-1 text-[14px] outline-none focus:border-[var(--accent)]"
-                style={{
-                  borderColor: 'var(--border-primary)',
-                  color: 'var(--text-primary)',
-                  colorScheme: 'dark',
-                }}
-              />
-            </div>
-          </div>
-
-          {/* Repeat toggle */}
-          <div className="mt-3 flex items-center gap-3">
-            <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={repeatEnabled}
-                onChange={(e) => {
-                  setRepeatEnabled(e.target.checked);
-                  if (!e.target.checked) setRepeatFrequency('none');
-                }}
-                className="h-4 w-4 rounded accent-[var(--accent)]"
-              />
-              <span className="text-[14px]" style={{ color: 'var(--text-primary)' }}>
-                Repeat
-              </span>
-            </label>
-
-            {repeatEnabled && (
-              <select
-                value={repeatFrequency}
-                onChange={(e) => setRepeatFrequency(e.target.value as RepeatFrequency)}
-                className="rounded-lg border bg-transparent px-2 py-1 text-[14px] outline-none"
-                style={{
-                  borderColor: 'var(--border-primary)',
-                  color: 'var(--text-primary)',
-                  backgroundColor: 'var(--bg-elevated)',
-                }}
-              >
-                <option value="daily">Daily</option>
-                <option value="weekly">Weekly</option>
-              </select>
-            )}
-          </div>
-
-          {/* Actions row */}
-          <div
-            className="mt-3 flex items-center justify-between border-t pt-2"
-            style={{ borderColor: 'var(--border-primary)' }}
-          >
-            <span className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-              Schedule posts to keep your presence active
-            </span>
-            <button
-              type="button"
-              onClick={() => void handleSchedule()}
-              disabled={!canSchedule || scheduling}
-              className="rounded-full px-4 py-1.5 text-[15px] font-bold transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-primary)' }}
-            >
-              {scheduling ? 'Scheduling...' : 'Schedule Post'}
-            </button>
-          </div>
-
-          {notice && (
-            <p className="mt-3 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-              {notice}
-            </p>
-          )}
-        </div>
-      </div>
     </div>
   );
 }

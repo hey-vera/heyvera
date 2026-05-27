@@ -5,6 +5,11 @@ import { RouterProvider } from "react-router-dom";
 import { router } from "./router";
 import "./index.css";
 
+// Apply saved theme before first paint to avoid flash
+if (localStorage.getItem("vera-theme") === "dark") {
+  document.documentElement.classList.add("dark");
+}
+
 const PUBLISHABLE_KEY = import.meta.env.VITE_CLERK_PUBLISHABLE_KEY as
   | string
   | undefined;

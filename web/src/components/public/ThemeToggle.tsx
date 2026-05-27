@@ -11,14 +11,14 @@ function applyTheme(dark: boolean) {
 }
 
 export function ThemeToggle() {
-  const [isDark, setIsDark] = useState(false);
+  const [isDark, setIsDark] = useState(() => {
+    const stored = localStorage.getItem(STORAGE_KEY);
+    return stored === "dark";
+  });
 
   useEffect(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    const dark = stored === "dark";
-    setIsDark(dark);
-    applyTheme(dark);
-  }, []);
+    applyTheme(isDark);
+  }, [isDark]);
 
   function toggle() {
     const next = !isDark;
