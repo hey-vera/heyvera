@@ -637,14 +637,16 @@ export async function getNotifications(token?: string): Promise<Notification[]> 
 export async function getConversations(token?: string): Promise<Conversation[]> {
   ensureLegacyApiBase();
   if (!token) throw new Error('Auth token required');
-  return legacyFetchAuthedApi<Conversation[]>('/v1/social/conversations', token);
+  const res = await legacyFetchAuthedApi<{ conversations: Conversation[] }>('/v1/social/conversations', token);
+  return res.conversations ?? [];
 }
 
 /** Get messages in a conversation */
 export async function getMessages(conversationId: string, token?: string): Promise<Message[]> {
   ensureLegacyApiBase();
   if (!token) throw new Error('Auth token required');
-  return legacyFetchAuthedApi<Message[]>(`/v1/social/conversations/${conversationId}/messages`, token);
+  const res = await legacyFetchAuthedApi<{ messages: Message[] }>(`/v1/social/conversations/${conversationId}/messages`, token);
+  return res.messages ?? [];
 }
 
 /** Full-text search across posts, users, and communities */

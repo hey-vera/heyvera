@@ -48,8 +48,9 @@ pub async fn get_notifications(
         Some(p) => p,
         None => {
             return Json(serde_json::json!({
-                "error": "No profile found — create a profile first",
-                "code": "NOT_FOUND"
+                "notifications": [],
+                "cursor": null,
+                "has_more": false,
             }))
         }
     };
@@ -98,10 +99,7 @@ pub async fn mark_notifications_read(
     let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
         Some(p) => p,
         None => {
-            return Json(serde_json::json!({
-                "error": "No profile found — create a profile first",
-                "code": "NOT_FOUND"
-            }))
+            return Json(serde_json::json!({ "ok": true, "updated": 0 }))
         }
     };
 

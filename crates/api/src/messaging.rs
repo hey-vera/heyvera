@@ -37,10 +37,7 @@ pub async fn list_conversations(
     let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
         Some(p) => p,
         None => {
-            return Json(serde_json::json!({
-                "error": "No profile found — create a profile first",
-                "code": "NOT_FOUND"
-            }))
+            return Json(serde_json::json!({ "conversations": [] }))
         }
     };
 
@@ -96,10 +93,7 @@ pub async fn list_messages(
     let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
         Some(p) => p,
         None => {
-            return Json(serde_json::json!({
-                "error": "No profile found — create a profile first",
-                "code": "NOT_FOUND"
-            }))
+            return Json(serde_json::json!({ "messages": [] }))
         }
     };
 
