@@ -13,6 +13,7 @@ use cortex_core::usage::{CostProjection, StepCostEstimate, estimate_cost_by_prov
 use cortex_engine::decomposer::decompose_goal;
 use cortex_engine::router::Router;
 
+use crate::billing::PremiumUser;
 use crate::clerk::ClerkUser;
 use crate::github;
 use crate::run_payload::{build_run_graph_payload, build_run_step_payloads};
@@ -68,7 +69,7 @@ pub async fn deploy_info() -> impl IntoResponse {
 
 pub async fn route_task(
     State(state): State<Arc<AppState>>,
-    _user: ClerkUser,
+    _user: PremiumUser,
     Json(req): Json<RouteRequest>,
 ) -> Result<Json<RouteResponse>, (StatusCode, Json<ErrorResponse>)> {
     if req.input.len() > 32_768 {
@@ -373,7 +374,7 @@ fn validate_pr_authority(
 
 pub async fn create_run(
     State(state): State<Arc<AppState>>,
-    user: ClerkUser,
+    user: PremiumUser,
     Json(req): Json<CreateRunRequest>,
 ) -> Result<Json<CreateRunResponse>, (StatusCode, Json<ErrorResponse>)> {
     if req.goal.len() > 32_768 {
@@ -869,7 +870,7 @@ fn truncate_str(s: &str, max_len: usize) -> String {
 /// Tries the GitHub API first (if `GITHUB_TOKEN` is set), falls back to `gh` CLI.
 pub async fn create_pr(
     State(state): State<Arc<AppState>>,
-    user: ClerkUser,
+    user: PremiumUser,
     axum::extract::Path(id): axum::extract::Path<String>,
     Json(req): Json<CreatePrRequest>,
 ) -> Result<Json<CreatePrResponse>, (StatusCode, Json<ErrorResponse>)> {

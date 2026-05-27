@@ -38,12 +38,22 @@ where
         // First, extract the authenticated user via ClerkUser
         let clerk_user = ClerkUser::from_request_parts(parts, state).await?;
 
-        // Check premium status
+        // Dev/local mode: no Clerk configured, allow through
+        if app_state.clerk_secret_key.is_none() {
+            return Ok(PremiumUser { user_id: clerk_user.user_id });
+        }
+
+        // Admin bypass
+        if crate::admin::authorize_admin(&app_state, &clerk_user).await.is_ok() {
+            return Ok(PremiumUser { user_id: clerk_user.user_id });
+        }
+
+        // Check premium status using same logic as is_premium()
         let is_premium = app_state
             .db
             .as_ref()
             .and_then(|db| db.get_subscription(&clerk_user.user_id))
-            .map(|sub| sub.status == "active" && (sub.plan_type == "monthly" || sub.plan_type == "annual" || sub.plan_type == "yearly"))
+            .map(|sub| matches!(sub.status.as_str(), "active" | "trialing"))
             .unwrap_or(false);
 
         if is_premium {
@@ -51,7 +61,7 @@ where
         } else {
             Err((
                 StatusCode::FORBIDDEN,
-                Json(ErrorResponse { error: "premium subscription required".into() }),
+                Json(ErrorResponse { error: "active Cortex subscription required".into() }),
             ))
         }
     }

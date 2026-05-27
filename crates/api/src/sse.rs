@@ -17,7 +17,7 @@ use cortex_engine::router::Router;
 use cortex_worker::executor::{Executor, StepExecution};
 use cortex_worker::stream::WorkerEvent;
 
-use crate::clerk::ClerkUser;
+use crate::billing::PremiumUser;
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
 
@@ -30,7 +30,7 @@ pub struct ExecuteRequest {
 
 pub async fn execute_task(
     State(state): State<Arc<AppState>>,
-    _user: ClerkUser,
+    _user: PremiumUser,
     Json(req): Json<ExecuteRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     let file_paths = crate::validate::sanitize_file_paths(&req.file_paths)
