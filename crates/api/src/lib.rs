@@ -245,12 +245,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .unwrap_or_else(|_| "cortex/dist".to_string());
 
     // Create fallback handler for SPA routing
-    async fn spa_fallback(_req: axum::http::Request<axum::body::Body>) -> axum::response::Response {
+    async fn spa_fallback(_req: axum::http::Request<axum::body::Body>) -> Result<axum::response::Response, std::convert::Infallible> {
         let static_dir = std::env::var("CORTEX_STATIC_DIR")
             .unwrap_or_else(|_| "cortex/dist".to_string());
         let index_path = format!("{}/index.html", static_dir);
 
-        match std::fs::read_to_string(&index_path) {
+        let response = match std::fs::read_to_string(&index_path) {
             Ok(content) => axum::response::Html(content).into_response(),
             Err(_) => {
                 tracing::warn!("Could not find Cortex frontend at {}, serving fallback", index_path);
@@ -259,7 +259,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
                     axum::response::Html("<!DOCTYPE html><html><head><title>Cortex</title></head><body><h1>Cortex Frontend Not Available</h1><p>The Cortex frontend files could not be found. Please build the frontend first.</p></body></html>")
                 ).into_response()
             }
-        }
+        };
+        Ok(response)
     }
 
     let static_service = ServeDir::new(&cortex_static_dir)
