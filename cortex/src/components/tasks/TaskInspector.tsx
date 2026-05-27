@@ -329,6 +329,7 @@ export default function TaskInspector({
     if (!latestRunId) {
       setRun(null);
       setEvents([]);
+      setConflicts([]);
       setRunLoadError(null);
       return;
     }
@@ -336,12 +337,14 @@ export default function TaskInspector({
     isRefreshingRunRef.current = true;
     setIsLoadingRun(true);
     try {
-      const [nextRun, nextEvents] = await Promise.all([
+      const [nextRun, nextEvents, nextConflicts] = await Promise.all([
         getRun(latestRunId),
         getRunEvents(latestRunId, 50),
+        getActiveConflicts(latestRunId).catch(() => [] as ResourceLeaseConflict[]),
       ]);
       setRun(nextRun);
       setEvents(nextEvents.events);
+      setConflicts(nextConflicts);
       const currentTask = taskRef.current;
       if (currentTask) {
         updateRunSnapshotRef.current?.(currentTask, {
@@ -354,6 +357,7 @@ export default function TaskInspector({
     } catch (error) {
       setRun(null);
       setEvents([]);
+      setConflicts([]);
       setRunLoadError(error instanceof Error ? error.message : 'Could not load linked run.');
     } finally {
       isRefreshingRunRef.current = false;
@@ -701,6 +705,8 @@ export default function TaskInspector({
             </div>
           )}
         </div>
+
+        {conflicts.length > 0 && <ConflictViewer conflicts={conflicts} />}
 
         <div className="rounded-md border border-white/8 bg-black/10 p-2.5">
           <div className="flex items-center justify-between gap-2">
