@@ -1047,8 +1047,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
-        <Route path="/app" element={<Navigate to={`/app/groups/${DEFAULT_GROUPS[0].id}/tasks`} replace />} />
+        <Route path="/" element={<CortexShell />} />
+        <Route path="/app" element={<Navigate to="/" replace />} />
         <Route path="/app/groups/:groupId/tasks" element={<CortexShell />} />
         <Route path="/app/groups/:groupId/operations" element={<OperationsRoom />} />
         {/* Legacy redirects */}
