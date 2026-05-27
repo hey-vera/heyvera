@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   AlertTriangle,
@@ -562,6 +562,51 @@ export default function PersonalTaskManager({
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<OverviewTab>('overview');
   const { summary, loading, error } = usePersonalOperationsSummary();
+  const modalRef = useRef<HTMLDivElement>(null);
+
+  // Focus trap: lock keyboard focus inside the modal while open
+  useEffect(() => {
+    const modal = modalRef.current;
+    if (!modal) return;
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+    // Focus the first focusable element on mount
+    const firstFocusable = modal.querySelector<HTMLElement>(focusableSelector);
+    firstFocusable?.focus();
+
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      if (event.key !== 'Tab') return;
+
+      const focusableElements = modal!.querySelectorAll<HTMLElement>(focusableSelector);
+      if (focusableElements.length === 0) return;
+
+      const first = focusableElements[0];
+      const last = focusableElements[focusableElements.length - 1];
+
+      if (event.shiftKey) {
+        if (document.activeElement === first) {
+          event.preventDefault();
+          last.focus();
+        }
+      } else {
+        if (document.activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   const handleOpenOperationsRoom = useCallback((groupId: string) => {
     onClose();
@@ -570,7 +615,7 @@ export default function PersonalTaskManager({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-0 sm:p-4 backdrop-blur-md">
-      <div className="relative flex h-full w-full flex-col rounded-none border-0 bg-[var(--bg)] shadow-2xl sm:h-[90vh] sm:max-w-6xl sm:rounded-2xl sm:border sm:border-white/10">
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-label="Personal Task Manager" className="relative flex h-full w-full flex-col rounded-none border-0 bg-[var(--bg)] shadow-2xl sm:h-[90vh] sm:max-w-6xl sm:rounded-2xl sm:border sm:border-white/10">
         {/* Header */}
         <div className="border-b border-white/6 px-6 py-4">
           <div className="flex items-center justify-between">

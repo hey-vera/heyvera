@@ -13,7 +13,7 @@ import {
   UserPlus,
   XCircle,
 } from 'lucide-react';
-import { useEffect, useMemo, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from 'react';
 import type { TaskManagerTask, TaskMember, TaskPriority, TaskStatus } from '../../types';
 import { getGroupOperationsSummary, type GroupOperationsSummary } from '../../lib/cortexApi';
 import { formatTaskStatus } from '../../lib/taskManager';
@@ -553,6 +553,49 @@ export default function TaskBoard({
   onRetryTask,
   onCancelTask,
 }: TaskBoardProps) {
+  const [liveAnnouncement, setLiveAnnouncement] = useState('');
+  const prevTaskStatusRef = useRef<Record<string, TaskStatus>>({});
+
+  // Track task status changes and announce them via ARIA live region
+  useEffect(() => {
+    const prevStatuses = prevTaskStatusRef.current;
+    const announcements: string[] = [];
+
+    for (const task of tasks) {
+      const prev = prevStatuses[task.id];
+      if (prev && prev !== task.status) {
+        announcements.push(`Task moved to ${formatTaskStatus(task.status)}`);
+      }
+    }
+
+    // Update the ref with current statuses
+    const nextStatuses: Record<string, TaskStatus> = {};
+    for (const task of tasks) {
+      nextStatuses[task.id] = task.status;
+    }
+    prevTaskStatusRef.current = nextStatuses;
+
+    if (announcements.length > 0) {
+      setLiveAnnouncement(announcements.join('. '));
+    }
+  }, [tasks]);
+
+  const handleUpdateTaskWithAnnouncement = useCallback(
+    (taskId: string, patch: Parameters<TaskBoardProps['onUpdateTask']>[1]) => {
+      if (patch.status) {
+        const task = tasks.find((t) => t.id === taskId);
+        const statusLabel = formatTaskStatus(patch.status);
+        if (task && patch.status === 'done') {
+          setLiveAnnouncement('Task completed');
+        } else if (task) {
+          setLiveAnnouncement(`Task moved to ${statusLabel}`);
+        }
+      }
+      onUpdateTask(taskId, patch);
+    },
+    [onUpdateTask, tasks],
+  );
+
   const hasTasks = tasks.length > 0;
   const hasPaused = tasks.some((t) => t.status === 'paused');
   const hasCancelled = tasks.some((t) => t.status === 'cancelled');
@@ -635,6 +678,9 @@ export default function TaskBoard({
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {liveAnnouncement}
+      </div>
       {!hasTasks ? (
         <div className="flex min-h-64 flex-1 flex-col items-center justify-center rounded-lg border border-dashed border-white/10 bg-white/[0.02] px-5 text-center">
           <ListTodo className="h-8 w-8 text-[var(--muted)]" />
@@ -700,7 +746,7 @@ export default function TaskBoard({
                 members={members}
                 compact={compact}
                 selectedTaskId={selectedTaskId}
-                onUpdateTask={onUpdateTask}
+                onUpdateTask={handleUpdateTaskWithAnnouncement}
                 onSelectTask={onSelectTask}
                 onLaunchTask={onLaunchTask}
                 onPauseTask={onPauseTask}

@@ -644,6 +644,12 @@ function CortexShell() {
 
   return (
     <div className="flex h-dvh overflow-hidden bg-[var(--bg)] text-[var(--fg)]">
+      <a
+        href="#main-content"
+        className="sr-only focus:not-sr-only focus:absolute focus:top-2 focus:left-2 focus:z-50 focus:bg-white focus:text-black focus:px-4 focus:py-2 focus:rounded"
+      >
+        Skip to content
+      </a>
       <aside className="hidden h-full shrink-0 lg:block">
         <GroupSidebar
           groups={groups}
@@ -867,7 +873,7 @@ function CortexShell() {
           </div>
         ) : null}
 
-        <div className={`flex min-h-0 flex-1 overflow-hidden${groupNotFound ? ' hidden' : ''}`}>
+        <div id="main-content" className={`flex min-h-0 flex-1 overflow-hidden${groupNotFound ? ' hidden' : ''}`}>
           <ProjectChat
             group={activeGroup}
             userId={userId ?? 'local'}
