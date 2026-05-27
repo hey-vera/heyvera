@@ -80,7 +80,7 @@ export default function ChatComposer({
   draft,
   disabled = false,
   locked = false,
-  placeholder = "Ask Cortex to inspect, patch, or prepare a commit.",
+  placeholder = "Type a task, e.g. 'research competitor pricing'...",
   onDraftChange,
   onSend,
   onStop,

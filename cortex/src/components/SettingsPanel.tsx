@@ -23,6 +23,13 @@ const RUN_PROFILE_LABELS: Record<RunProfile, string> = {
   quality_first: 'Quality first',
 };
 
+const RUN_PROFILE_DESCRIPTIONS: Record<RunProfile, string> = {
+  auto: 'Adapts routing based on task risk, provider health, and past outcomes. Recommended for most users.',
+  balanced: 'Uses the best model per tier with normal budgets. Good general-purpose option.',
+  cost_saver: 'Prefers cheaper models and lower budgets. Skips GPT for non-critical tasks.',
+  quality_first: 'Uses dual-brain review for medium+ risk tasks. Higher budgets, stricter quality gates.',
+};
+
 const WORKSPACE_PROFILE_KEY = 'cortex:default-run-profile';
 
 function readDefaultProfile(): RunProfile {
@@ -98,6 +105,7 @@ function AccountTab({ providers }: { providers: ProviderAuthInfo[] }) {
           <select
             value={defaultProfile}
             onChange={(e) => handleProfileChange(e.target.value as RunProfile)}
+            title="Controls how tasks are routed between AI providers and quality gates"
             className="w-full rounded-lg border border-white/10 bg-[var(--composer)] px-3 py-2 text-sm text-white focus:border-[var(--accent)]/50 focus:outline-none"
           >
             {(Object.keys(RUN_PROFILE_LABELS) as RunProfile[]).map((profile) => (
@@ -106,7 +114,10 @@ function AccountTab({ providers }: { providers: ProviderAuthInfo[] }) {
               </option>
             ))}
           </select>
-          <p className="mt-1.5 text-[10px] text-[var(--muted)]">
+          <p className="mt-1.5 text-xs text-zinc-500">
+            {RUN_PROFILE_DESCRIPTIONS[defaultProfile]}
+          </p>
+          <p className="mt-1 text-[10px] text-[var(--muted)]">
             Sets the initial routing profile for new sessions.
           </p>
         </div>
