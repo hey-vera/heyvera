@@ -185,6 +185,7 @@ async function apiAuthFetch<T>(
     body?: unknown;
   },
 ): Promise<T> {
+  console.log('apiAuthFetch called:', { path, token: options.token ? 'Has token' : 'NULL TOKEN', tokenType: typeof options.token, tokenValue: options.token });
   const res = await fetch(`${API_BASE}${path}`, {
     method: options.method,
     headers: {
