@@ -78,7 +78,7 @@ export function PostThreadPage() {
           type="button"
           aria-label="Back"
           onClick={() => navigate(-1)}
-          className="-ml-2 flex h-9 w-9 items-center justify-center rounded-full transition-colors hover:bg-white/10"
+          className="-ml-2 flex h-9 w-9 items-center justify-center rounded-full transition-colors hover-overlay"
           style={{ color: 'var(--text-primary)' }}
         >
           <ArrowLeft size={20} strokeWidth={2.25} />

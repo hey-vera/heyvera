@@ -350,7 +350,7 @@ export function ProfilePage() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
       <div className="sticky top-[var(--top-bar-height)] z-10 flex items-center gap-6 border-b sticky-header-bg px-4 py-3 backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
-        <button type="button" onClick={() => navigate(-1)} className="rounded-full p-2 transition-colors hover:bg-white/10" aria-label="Back">
+        <button type="button" onClick={() => navigate(-1)} className="rounded-full p-2 transition-colors hover-overlay" aria-label="Back">
           <ArrowLeft className="h-5 w-5" aria-hidden="true" />
         </button>
         <div>
@@ -370,7 +370,7 @@ export function ProfilePage() {
           <img
             src={profile.avatarUrl ?? ''}
             alt={profile.displayName}
-            className="h-[134px] w-[134px] rounded-full border-4 border-black object-cover"
+            className="h-[134px] w-[134px] rounded-full border-4 border-[var(--bg-primary)] object-cover"
             style={{ backgroundColor: 'var(--border-primary)' }}
           />
         </div>
@@ -442,7 +442,7 @@ export function ProfilePage() {
             key={tab}
             type="button"
             onClick={() => setActiveTab(tab)}
-            className="flex-1 py-4 text-[15px] font-medium transition-colors hover:bg-white/5"
+            className="flex-1 py-4 text-[15px] font-medium transition-colors hover-overlay"
             style={{ color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)' }}
           >
             <span className="relative inline-block">
@@ -681,7 +681,7 @@ function EditProfileModal({ profile, saving, error, onClose, onSubmit }: EditPro
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full p-2 transition-colors hover:bg-white/10"
+              className="rounded-full p-2 transition-colors hover-overlay"
               aria-label="Close edit profile"
             >
               <ArrowLeft className="h-5 w-5" aria-hidden="true" />

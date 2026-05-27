@@ -58,7 +58,7 @@ export function TabbedCompose({
             key={tab}
             type="button"
             onClick={() => setActiveTab(tab)}
-            className="flex-1 py-3 text-[14px] font-medium transition-colors hover:bg-white/5"
+            className="flex-1 py-3 text-[14px] font-medium transition-colors hover-overlay"
             style={{ color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)' }}
           >
             <span className="relative inline-block">
@@ -274,7 +274,7 @@ function AgentAssistTab({
         <button
           type="button"
           onClick={() => void loadDrafts()}
-          className="rounded-full p-1.5 transition-colors hover:bg-white/10"
+          className="rounded-full p-1.5 transition-colors hover-overlay"
           style={{ color: 'var(--text-secondary)' }}
           aria-label="Refresh drafts"
         >
@@ -328,7 +328,7 @@ function AgentAssistTab({
                   type="button"
                   onClick={() => void handleDismiss(draft.id)}
                   disabled={actionLoading === draft.id}
-                  className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover:bg-white/10 disabled:opacity-50"
+                  className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover-overlay disabled:opacity-50"
                   style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
                 >
                   Dismiss

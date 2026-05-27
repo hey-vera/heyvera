@@ -270,7 +270,7 @@ export function MessagesPage() {
                   key={convo.id}
                   type="button"
                   onClick={() => setSelectedId(convo.id)}
-                  className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover:bg-white/5"
+                  className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover-overlay"
                   style={{
                     backgroundColor: isActive ? 'var(--bg-elevated)' : undefined,
                   }}
@@ -367,7 +367,7 @@ export function MessagesPage() {
               <button
                 type="button"
                 onClick={() => setSelectedId(null)}
-                className="rounded-full p-1.5 transition-colors hover:bg-white/10 lg:hidden"
+                className="rounded-full p-1.5 transition-colors hover-overlay lg:hidden"
                 style={{ color: 'var(--text-primary)' }}
                 aria-label="Back to conversations"
               >
@@ -438,7 +438,7 @@ export function MessagesPage() {
                         className="max-w-[75%] rounded-2xl px-4 py-2.5"
                         style={{
                           backgroundColor: isSent ? 'var(--accent)' : 'var(--bg-elevated)',
-                          color: isSent ? '#fff' : 'var(--text-primary)',
+                          color: isSent ? '#000' : 'var(--text-primary)',
                         }}
                       >
                         <p className="text-[15px] leading-relaxed">{msg.content}</p>
@@ -446,7 +446,7 @@ export function MessagesPage() {
                           className="mt-1 text-right text-[11px]"
                           style={{
                             color: isSent
-                              ? 'rgba(255, 255, 255, 0.7)'
+                              ? 'rgba(0, 0, 0, 0.5)'
                               : 'var(--text-secondary)',
                           }}
                         >

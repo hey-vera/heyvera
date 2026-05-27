@@ -124,7 +124,7 @@ export function RightRail({ trending = defaultTrending, suggestions = defaultSug
         {trending.map((item, i) => (
           <button
             key={i}
-            className="w-full flex flex-col items-start px-4 py-3 transition-colors hover:bg-white/5 text-left"
+            className="w-full flex flex-col items-start px-4 py-3 transition-colors hover-overlay text-left"
             aria-label={`Trending: ${item.name}`}
           >
             <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
@@ -141,7 +141,7 @@ export function RightRail({ trending = defaultTrending, suggestions = defaultSug
 
         {trending.length > 0 && (
           <button
-            className="w-full text-left px-4 py-3 text-sm transition-colors hover:bg-white/5"
+            className="w-full text-left px-4 py-3 text-sm transition-colors hover-overlay"
             style={{ color: "var(--accent)" }}
           >
             Show more
@@ -174,7 +174,7 @@ export function RightRail({ trending = defaultTrending, suggestions = defaultSug
         {suggestions.map((user, i) => (
           <div
             key={i}
-            className="flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors"
+            className="flex items-center gap-3 px-4 py-3 hover-overlay transition-colors"
           >
             {/* Avatar */}
             <div
@@ -203,7 +203,7 @@ export function RightRail({ trending = defaultTrending, suggestions = defaultSug
 
             {/* Follow button */}
             <button
-              className="flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-bold border transition-colors hover:bg-white/10"
+              className="flex-shrink-0 px-4 py-1.5 rounded-full text-sm font-bold border transition-colors hover-overlay"
               style={{
                 color: "var(--text-primary)",
                 borderColor: "var(--border-primary)",
@@ -217,7 +217,7 @@ export function RightRail({ trending = defaultTrending, suggestions = defaultSug
 
         {suggestions.length > 0 && (
           <button
-            className="w-full text-left px-4 py-3 text-sm transition-colors hover:bg-white/5"
+            className="w-full text-left px-4 py-3 text-sm transition-colors hover-overlay"
             style={{ color: "var(--accent)" }}
           >
             Show more

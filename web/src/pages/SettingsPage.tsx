@@ -657,8 +657,12 @@ export function SettingsPage() {
       return;
     }
 
-    if (control.id === 'deactivate' || control.id === 'export-data') {
-      setNotice('Backend connection needed for this request.');
+    if (control.id === 'export-data') {
+      setNotice('Data export is coming soon.');
+    }
+
+    if (control.id === 'deactivate') {
+      setNotice('Contact support@heyvera.org to deactivate your account.');
     }
   };
 

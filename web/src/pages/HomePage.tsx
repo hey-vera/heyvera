@@ -269,7 +269,7 @@ export function HomePage() {
             <SignInButton mode="modal">
               <button
                 type="button"
-                className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover:bg-white/10"
+                className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover-overlay"
                 style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
               >
                 Sign in
@@ -280,7 +280,7 @@ export function HomePage() {
         profileLink={
           <a
             href="/profile"
-            className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover:bg-white/10"
+            className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover-overlay"
             style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
           >
             Go to profile

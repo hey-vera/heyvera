@@ -96,7 +96,7 @@ export function NotificationsPage() {
         return (
           <article
             key={notification.id}
-            className="flex cursor-pointer gap-3 border-b px-4 py-3 transition-colors hover:bg-white/5"
+            className="flex cursor-pointer gap-3 border-b px-4 py-3 transition-colors hover-overlay"
             style={{ borderColor: 'var(--border-primary)' }}
           >
             <div className="flex w-10 flex-shrink-0 justify-center pt-1" style={{ color: meta.color }}>

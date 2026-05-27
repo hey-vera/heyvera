@@ -158,7 +158,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
             >
               <button
                 onClick={closeCompose}
-                className="rounded-full p-2 transition-colors hover:bg-white/10"
+                className="rounded-full p-2 transition-colors hover-overlay"
                 style={{ color: "var(--text-primary)" }}
                 aria-label="Close compose"
                 type="button"
@@ -220,7 +220,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                       <button
                         key={label}
                         type="button"
-                        className="rounded-full p-2 transition-colors hover:bg-white/10 disabled:cursor-not-allowed disabled:opacity-50"
+                        className="rounded-full p-2 transition-colors hover-overlay disabled:cursor-not-allowed disabled:opacity-50"
                         style={{ color: "var(--accent)" }}
                         aria-label={label}
                         disabled={isPosting || isCheckingComposeAccess}

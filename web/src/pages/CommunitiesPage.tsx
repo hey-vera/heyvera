@@ -136,7 +136,7 @@ export function CommunitiesPage() {
               key={tab}
               type="button"
               onClick={() => setActiveTab(tab)}
-              className="flex-1 py-4 text-[15px] font-medium transition-colors hover:bg-white/5"
+              className="flex-1 py-4 text-[15px] font-medium transition-colors hover-overlay"
               style={{ color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)' }}
             >
               <span className="relative inline-block">
@@ -158,7 +158,7 @@ export function CommunitiesPage() {
             <button
               type="button"
               onClick={() => setSelectedCommunityId(null)}
-              className="-ml-2 mb-3 flex h-9 items-center gap-2 rounded-full px-3 text-[15px] font-bold transition-colors hover:bg-white/10"
+              className="-ml-2 mb-3 flex h-9 items-center gap-2 rounded-full px-3 text-[15px] font-bold transition-colors hover-overlay"
               style={{ color: 'var(--text-primary)' }}
             >
               <ArrowLeft size={18} strokeWidth={2.25} />

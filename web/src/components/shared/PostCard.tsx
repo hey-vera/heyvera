@@ -196,7 +196,7 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
 
   return (
     <article
-      className="relative flex cursor-pointer gap-3 border-b px-4 py-3 transition-colors hover:bg-white/[0.03]"
+      className="relative flex cursor-pointer gap-3 border-b px-4 py-3 transition-colors hover-overlay"
       style={{ borderColor: 'var(--border-primary)' }}
     >
       {/* Avatar */}
@@ -393,7 +393,7 @@ function SocialAuthPrompt({
             </div>
             <button
               type="button"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors hover:bg-white/[0.06] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors hover-overlay focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
               aria-label="Close"
               onClick={onClose}
             >
@@ -422,7 +422,7 @@ function SocialAuthPrompt({
             )}
             <button
               type="button"
-              className="rounded-full border px-4 py-2 text-[13px] font-bold transition-colors hover:bg-white/[0.06]"
+              className="rounded-full border px-4 py-2 text-[13px] font-bold transition-colors hover-overlay"
               style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
               onClick={onClose}
             >
@@ -565,7 +565,7 @@ function MenuItem({
   return (
     <button
       type="button"
-      className="flex w-full items-center gap-3 px-4 py-2 text-left text-[15px] transition-colors duration-150 hover:bg-white/[0.06] focus-visible:bg-white/[0.06] focus-visible:outline-none"
+      className="flex w-full items-center gap-3 px-4 py-2 text-left text-[15px] transition-colors duration-150 hover-overlay focus-visible:bg-[var(--bg-hover)] focus-visible:outline-none"
       onClick={(e) => {
         e.stopPropagation();
         onClick();

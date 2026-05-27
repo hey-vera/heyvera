@@ -50,7 +50,7 @@ function FallbackAuthControls({ variant, onProfile }: AuthControlsProps) {
       <button
         onClick={onProfile}
         aria-label="Account"
-        className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+        className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover-overlay focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
         style={{ color: "var(--text-primary)" }}
         type="button"
       >
@@ -61,7 +61,7 @@ function FallbackAuthControls({ variant, onProfile }: AuthControlsProps) {
 
   return (
     <button
-      className="flex w-full items-center gap-3 rounded-full px-3 py-3 transition-colors hover:bg-white/10 xl:w-auto"
+      className="flex w-full items-center gap-3 rounded-full px-3 py-3 transition-colors hover-overlay xl:w-auto"
       onClick={onProfile}
       aria-label="Account"
       type="button"
@@ -90,7 +90,7 @@ function SignedOutControls({ variant }: Pick<AuthControlsProps, "variant">) {
     return (
       <SignInButton mode="modal">
         <button
-          className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
+          className="flex h-8 w-8 items-center justify-center rounded-full transition-colors hover-overlay focus:outline-none focus:ring-2 focus:ring-[var(--accent)]"
           style={{ color: "var(--text-primary)" }}
           type="button"
           aria-label="Sign in"
@@ -105,7 +105,7 @@ function SignedOutControls({ variant }: Pick<AuthControlsProps, "variant">) {
     <div className="mb-4 flex w-full flex-col gap-2 px-1 xl:px-0">
       <SignInButton mode="modal">
         <button
-          className="flex w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-bold transition-colors hover:bg-white/10"
+          className="flex w-full items-center justify-center gap-2 rounded-full px-4 py-2.5 text-sm font-bold transition-colors hover-overlay"
           style={{ color: "var(--text-primary)", border: "1px solid var(--border-primary)" }}
           type="button"
         >
@@ -146,7 +146,7 @@ function ClerkAuthControls({ variant, onProfile }: AuthControlsProps) {
   }
 
   return (
-    <div className="mb-4 flex w-full items-center gap-3 rounded-full px-3 py-3 transition-colors hover:bg-white/10 xl:w-auto">
+    <div className="mb-4 flex w-full items-center gap-3 rounded-full px-3 py-3 transition-colors hover-overlay xl:w-auto">
       <UserButton afterSignOutUrl="/" userProfileMode="navigation" userProfileUrl="/profile" />
       <button
         className="hidden min-w-0 flex-1 flex-col items-start text-left xl:flex"
