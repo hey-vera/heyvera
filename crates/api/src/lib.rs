@@ -245,7 +245,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .unwrap_or_else(|_| "cortex/dist".to_string());
 
     // Create fallback handler for SPA routing
-    async fn spa_fallback(uri: axum::http::Uri) -> axum::response::Response {
+    async fn spa_fallback(_req: axum::http::Request<axum::body::Body>) -> axum::response::Response {
         let static_dir = std::env::var("CORTEX_STATIC_DIR")
             .unwrap_or_else(|_| "cortex/dist".to_string());
         let index_path = format!("{}/index.html", static_dir);
