@@ -52,6 +52,8 @@ use axum::middleware;
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
+use tower_http::services::ServeDir;
+use axum::response::IntoResponse;
 
 use state::AppState;
 
@@ -238,6 +240,30 @@ fn is_production_env() -> bool {
 
 /// Build the full axum Router with all routes, given an initialized AppState.
 pub fn build_router(state: Arc<AppState>) -> Router {
+    // Static file serving for Cortex frontend
+    let cortex_static_dir = std::env::var("CORTEX_STATIC_DIR")
+        .unwrap_or_else(|_| "cortex/dist".to_string());
+
+    // Create fallback handler for SPA routing
+    async fn spa_fallback(uri: axum::http::Uri) -> axum::response::Response {
+        let static_dir = std::env::var("CORTEX_STATIC_DIR")
+            .unwrap_or_else(|_| "cortex/dist".to_string());
+        let index_path = format!("{}/index.html", static_dir);
+
+        match std::fs::read_to_string(&index_path) {
+            Ok(content) => axum::response::Html(content).into_response(),
+            Err(_) => {
+                tracing::warn!("Could not find Cortex frontend at {}, serving fallback", index_path);
+                (
+                    axum::http::StatusCode::NOT_FOUND,
+                    axum::response::Html("<!DOCTYPE html><html><head><title>Cortex</title></head><body><h1>Cortex Frontend Not Available</h1><p>The Cortex frontend files could not be found. Please build the frontend first.</p></body></html>")
+                ).into_response()
+            }
+        }
+    }
+
+    let static_service = ServeDir::new(&cortex_static_dir)
+        .not_found_service(tower::service_fn(spa_fallback));
     // Rate-limited routes (expensive endpoints)
     let rate_limited = Router::new()
         .route("/api/route", post(routes::route_task))
@@ -329,6 +355,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/profiles/featured", get(social::get_featured_profiles))
         .route("/v1/social/feed/home", get(social::get_home_feed))
         .route("/v1/social/profiles", get(social::get_profiles).post(social::create_profile))
+        .route("/v1/social/profiles/{handle}/stats", get(social::get_user_profile_stats))
         .route("/v1/social/communities", get(social::get_communities))
         .route("/v1/social/profile/me", get(social::get_my_profile))
         .route("/v1/social/posts", post(social::create_post))
@@ -446,4 +473,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(cors_layer())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(state)
+        // Serve static files last (fallback for unmatched routes)
+        .fallback_service(static_service)
 }

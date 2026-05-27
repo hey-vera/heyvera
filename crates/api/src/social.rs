@@ -487,6 +487,19 @@ pub async fn get_user_profile(
     }
 }
 
+pub async fn get_user_profile_stats(
+    Path(handle): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile = match db(&state).social_find_profile_by_handle(&handle) {
+        Some(p) => p,
+        None => return not_found("User not found"),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+    let stats = db(&state).social_get_profile_stats(profile_id);
+    ok(serde_json::json!({ "stats": stats }))
+}
+
 pub async fn get_user_posts(
     Path(handle): Path<String>,
     Query(params): Query<FeedQuery>,
