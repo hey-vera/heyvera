@@ -1,8 +1,26 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, Loader2, ShieldCheck, X, Users, LayoutGrid } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import {
+  AlertTriangle,
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  Expand,
+  GitBranch,
+  Loader2,
+  Pause,
+  RefreshCw,
+  Shield,
+  ShieldCheck,
+  X,
+  XCircle,
+  Users,
+  LayoutGrid,
+  Zap,
+} from 'lucide-react';
 import { buildTaskSummary, readTaskManagerState, useTaskManager } from '../../lib/taskManager';
 import type { CortexGroup } from '../../lib/groups';
-import { getPersonalOperationsSummary, type PersonalOperationsGroupSummary, type PersonalOperationsSummary } from '../../lib/cortexApi';
+import { getPersonalOperationsSummary, type GroupOperationsAttentionItem, type PersonalOperationsGroupSummary, type PersonalOperationsSummary, type RunOperationEvent } from '../../lib/cortexApi';
 
 interface PersonalTaskManagerProps {
   groups: CortexGroup[];
@@ -60,13 +78,15 @@ function GroupOverview({
   userId,
   operations,
   isActive,
-  onClick
+  onClick,
+  onOpenOperationsRoom,
 }: {
   group: CortexGroup;
   userId: string;
   operations?: PersonalOperationsGroupSummary;
   isActive: boolean;
   onClick: () => void;
+  onOpenOperationsRoom?: () => void;
 }) {
   const taskManager = useTaskManager(group, userId);
   const localSummary = taskManager.summary;
@@ -150,6 +170,176 @@ function GroupOverview({
           )}
         </div>
       )}
+      {onOpenOperationsRoom && (
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onOpenOperationsRoom(); }}
+          className="mt-3 inline-flex h-8 w-full items-center justify-center gap-2 rounded-lg border border-white/8 bg-white/[0.03] text-xs text-[var(--muted-strong)] transition hover:bg-white/[0.07] hover:text-white active:scale-[0.99]"
+        >
+          <Expand className="h-3.5 w-3.5" />
+          Open Operations Room
+        </button>
+      )}
+    </div>
+  );
+}
+
+interface ActionItem {
+  id: string;
+  label: string;
+  detail: string;
+  groupId: string;
+  groupName: string;
+  urgency: 'critical' | 'high' | 'normal';
+  kind: 'approval' | 'failure' | 'attention' | 'blocker' | 'paused';
+}
+
+function buildActionItems(
+  operations: PersonalOperationsSummary | null,
+  groups: CortexGroup[],
+): ActionItem[] {
+  if (!operations) return [];
+  const items: ActionItem[] = [];
+  const groupMap = new Map(groups.map((g) => [g.id, g.name]));
+
+  for (const group of operations.groups) {
+    const groupName = groupMap.get(group.group_id) ?? group.group_id;
+
+    if (group.approvals.pending > 0) {
+      items.push({
+        id: `approval-${group.group_id}`,
+        label: `${group.approvals.pending} pending approval${group.approvals.pending === 1 ? '' : 's'}`,
+        detail: groupName,
+        groupId: group.group_id,
+        groupName,
+        urgency: 'high',
+        kind: 'approval',
+      });
+    }
+
+    if (group.runs.failed > 0) {
+      items.push({
+        id: `failed-${group.group_id}`,
+        label: `${group.runs.failed} failed run${group.runs.failed === 1 ? '' : 's'}`,
+        detail: groupName,
+        groupId: group.group_id,
+        groupName,
+        urgency: 'critical',
+        kind: 'failure',
+      });
+    }
+
+    if (group.steps.failed > 0) {
+      items.push({
+        id: `steps-failed-${group.group_id}`,
+        label: `${group.steps.failed} failed step${group.steps.failed === 1 ? '' : 's'}`,
+        detail: groupName,
+        groupId: group.group_id,
+        groupName,
+        urgency: 'high',
+        kind: 'failure',
+      });
+    }
+
+    const nonApprovalAttention = group.attention?.filter((a) => a.kind !== 'approval_pending') ?? [];
+    if (nonApprovalAttention.length > 0) {
+      items.push({
+        id: `attention-${group.group_id}`,
+        label: `${nonApprovalAttention.length} signal${nonApprovalAttention.length === 1 ? '' : 's'} need attention`,
+        detail: groupName,
+        groupId: group.group_id,
+        groupName,
+        urgency: 'normal',
+        kind: 'attention',
+      });
+    }
+  }
+
+  items.sort((a, b) => {
+    const urgencyOrder = { critical: 0, high: 1, normal: 2 };
+    return urgencyOrder[a.urgency] - urgencyOrder[b.urgency];
+  });
+
+  return items;
+}
+
+function ActionItemCard({
+  item,
+  onNavigate,
+}: {
+  item: ActionItem;
+  onNavigate: (groupId: string) => void;
+}) {
+  const border = item.urgency === 'critical' ? 'border-red-300/20' : item.urgency === 'high' ? 'border-amber-300/20' : 'border-white/8';
+  const bg = item.urgency === 'critical' ? 'bg-red-400/[0.06]' : item.urgency === 'high' ? 'bg-amber-300/[0.06]' : 'bg-white/[0.03]';
+  const Icon = item.kind === 'failure' ? XCircle : item.kind === 'approval' ? Shield : item.kind === 'paused' ? Pause : AlertTriangle;
+  const iconColor = item.urgency === 'critical' ? 'text-red-300' : item.urgency === 'high' ? 'text-amber-200' : 'text-[var(--muted)]';
+
+  return (
+    <button
+      type="button"
+      onClick={() => onNavigate(item.groupId)}
+      className={`flex w-full items-center gap-3 rounded-lg border ${border} ${bg} px-4 py-3 text-left transition hover:brightness-110 active:scale-[0.99]`}
+    >
+      <Icon className={`h-4 w-4 shrink-0 ${iconColor}`} />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-white">{item.label}</p>
+        <p className="text-[11px] text-[var(--muted)]">{item.detail}</p>
+      </div>
+      <ArrowRight className="h-4 w-4 shrink-0 text-[var(--muted)]" />
+    </button>
+  );
+}
+
+function WhatNeedsMeNow({
+  items,
+  onNavigate,
+}: {
+  items: ActionItem[];
+  onNavigate: (groupId: string) => void;
+}) {
+  if (items.length === 0) {
+    return (
+      <div className="rounded-xl border border-emerald-300/15 bg-emerald-400/[0.04] px-6 py-8 text-center">
+        <CheckCircle2 className="mx-auto h-8 w-8 text-emerald-300" />
+        <p className="mt-3 text-sm font-medium text-white">All clear</p>
+        <p className="mt-1 text-xs text-[var(--muted)]">Nothing needs your attention right now</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2">
+      {items.map((item) => (
+        <ActionItemCard key={item.id} item={item} onNavigate={onNavigate} />
+      ))}
+    </div>
+  );
+}
+
+function RecentActivityFeed({ events }: { events: RunOperationEvent[] }) {
+  if (events.length === 0) return null;
+  return (
+    <div className="max-h-[280px] space-y-1 overflow-y-auto rounded-lg border border-white/8 bg-black/15 p-3">
+      {events.slice(0, 20).map((event) => (
+        <div key={event.id} className="flex items-center gap-3 rounded-md px-2 py-1.5">
+          <div className="shrink-0">
+            {event.event_type.includes('failed') ? (
+              <XCircle className="h-3 w-3 text-red-300" />
+            ) : event.event_type.includes('completed') ? (
+              <CheckCircle2 className="h-3 w-3 text-emerald-300" />
+            ) : (
+              <GitBranch className="h-3 w-3 text-[var(--muted)]" />
+            )}
+          </div>
+          <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--muted-strong)]">
+            {event.event_type.replaceAll('.', ' ').replaceAll('_', ' ')}
+          </span>
+          <span className="shrink-0 text-[10px] text-[var(--muted)]">
+            {new Date(event.created_at).toLocaleTimeString()}
+          </span>
+        </div>
+      ))}
     </div>
   );
 }
@@ -161,7 +351,8 @@ function MasterOverview({
   loading,
   error,
   activeGroupId,
-  onSwitchToGroup
+  onSwitchToGroup,
+  onOpenOperationsRoom,
 }: {
   groups: CortexGroup[];
   userId: string;
@@ -170,6 +361,7 @@ function MasterOverview({
   error: string | null;
   activeGroupId: string;
   onSwitchToGroup: (groupId: string) => void;
+  onOpenOperationsRoom: (groupId: string) => void;
 }) {
   const fallbackStats = useMemo(() => localPersonalSummary(groups, userId), [groups, userId]);
   const groupOperations = useMemo(() => {
@@ -184,6 +376,7 @@ function MasterOverview({
   const pendingApprovals = operations?.approvals.pending ?? 0;
   const activeLeases = operations?.resource_leases.active ?? 0;
   const failedSteps = operations?.steps.failed ?? 0;
+  const actionItems = useMemo(() => buildActionItems(operations, groups), [operations, groups]);
 
   return (
     <div className="space-y-6">
@@ -260,20 +453,44 @@ function MasterOverview({
         )}
       </div>
 
-      {/* Group Overviews */}
-      <div>
-        <h3 className="mb-3 text-sm font-medium text-white">Team Coordination</h3>
-        <div className="grid gap-3 lg:grid-cols-2">
-          {groups.map((group) => (
-            <GroupOverview
-              key={group.id}
-              group={group}
-              userId={userId}
-              operations={groupOperations.get(group.id)}
-              isActive={group.id === activeGroupId}
-              onClick={() => onSwitchToGroup(group.id)}
-            />
-          ))}
+      {/* What needs me now */}
+      {operations && (
+        <div>
+          <div className="mb-3 flex items-center gap-2">
+            <Zap className="h-4 w-4 text-amber-200" />
+            <h3 className="text-sm font-semibold text-white">What needs me now</h3>
+          </div>
+          <WhatNeedsMeNow items={actionItems} onNavigate={onSwitchToGroup} />
+        </div>
+      )}
+
+      {/* Activity + Groups side by side */}
+      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+        <div>
+          <h3 className="mb-3 text-sm font-medium text-white">Team Coordination</h3>
+          <div className="grid gap-3">
+            {groups.map((group) => (
+              <GroupOverview
+                key={group.id}
+                group={group}
+                userId={userId}
+                operations={groupOperations.get(group.id)}
+                isActive={group.id === activeGroupId}
+                onClick={() => onSwitchToGroup(group.id)}
+                onOpenOperationsRoom={() => onOpenOperationsRoom(group.id)}
+              />
+            ))}
+          </div>
+        </div>
+        <div>
+          <h3 className="mb-3 text-sm font-medium text-white">Recent Activity</h3>
+          {operations?.recent_events && operations.recent_events.length > 0 ? (
+            <RecentActivityFeed events={operations.recent_events} />
+          ) : (
+            <div className="flex h-32 items-center justify-center rounded-lg border border-white/8 bg-black/15 text-sm text-[var(--muted)]">
+              No recent events
+            </div>
+          )}
         </div>
       </div>
     </div>
@@ -287,8 +504,14 @@ export default function PersonalTaskManager({
   onClose,
   onSwitchToGroup,
 }: PersonalTaskManagerProps) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<OverviewTab>('overview');
   const { summary, loading, error } = usePersonalOperationsSummary();
+
+  const handleOpenOperationsRoom = useCallback((groupId: string) => {
+    onClose();
+    navigate(`/app/groups/${groupId}/operations`);
+  }, [navigate, onClose]);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
@@ -351,6 +574,7 @@ export default function PersonalTaskManager({
               error={error}
               activeGroupId={activeGroupId}
               onSwitchToGroup={onSwitchToGroup}
+              onOpenOperationsRoom={handleOpenOperationsRoom}
             />
           ) : (
             <div className="space-y-4">
@@ -364,6 +588,7 @@ export default function PersonalTaskManager({
                     operations={summary?.groups.find((item) => item.group_id === group.id)}
                     isActive={group.id === activeGroupId}
                     onClick={() => onSwitchToGroup(group.id)}
+                    onOpenOperationsRoom={() => handleOpenOperationsRoom(group.id)}
                   />
                 ))}
               </div>
