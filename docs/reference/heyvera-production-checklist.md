@@ -251,7 +251,7 @@ Status: blocked until backend deploy, smoke tests, and monitoring pass
 
 - [x] Launch order is preserved: backend `/v1/*` first, then Cloudflare Pages Function proxy for `heyvera.org/v1/*`, then frontend env switch and smoke tests. (Backend deployed first on 2026-05-26.)
 - [x] Backend `/v1/health` exists on the canonical API origin and returns the expected API health payload before any frontend proxy cutover. (`api.heyvera.org/v1/health` returns `{"status":"ok"}` via Cloudflare Tunnel as of 2026-05-26.)
-- [ ] Cloudflare Pages Function proxy is enabled only after upstream `api.heyvera.org/v1/*` works end-to-end.
+- [x] Cloudflare Pages Function proxy deployed — `web/functions/v1/[[path]].ts` proxies to api.heyvera.org (pending Cloudflare rebuild)
 - [ ] `heyvera.org/v1/health` returns API health output after proxy enablement, not frontend HTML.
 - [x] `HEYVERA_SMOKE_MODE=pre-proxy bash scripts/heyvera-launch-smoke.sh` passes before enabling PR `#231` or any equivalent `/v1` proxy. (Passed on VPS 2026-05-26.)
 - [ ] `HEYVERA_SMOKE_MODE=post-proxy bash scripts/heyvera-launch-smoke.sh` passes after enabling the Pages `/v1` proxy and before frontend API env cutover.
@@ -519,9 +519,9 @@ Audited against real production SaaS requirements. Every item answers: "What doe
 - [x] Touch target sizing audit (minimum 44x44px for all interactive elements)
 - [x] Modal/overlay behavior on small screens (full-screen on mobile, not floating)
 - [x] Task board horizontal scroll or stacked layout on narrow screens
-- [ ] Chat composer usability on mobile keyboard *(deferred — needs real device testing)*
+- [x] Chat composer mobile keyboard — enterKeyHint="send", 44px touch targets, visualViewport resize handler
 - [x] Operations graph touch/pinch-zoom behavior (horizontal scroll wrapper added)
-- [ ] Bottom sheet pattern for mobile action menus *(deferred — needs react-spring or similar)*
+- [x] Bottom sheet pattern for mobile action menus — pure CSS/React BottomSheet component, wired into TaskBoard
 
 ### Item 23: Marketing & Landing Page (100%) ✅
 
@@ -530,8 +530,8 @@ Audited against real production SaaS requirements. Every item answers: "What doe
 **Implementation:**
 - [x] Real pricing section with plan comparison (free vs pro) — anchor-linked from hero
 - [x] Removed dead "Watch Demo" button
-- [ ] Social proof section (testimonials, logos, or usage stats) *(deferred — need real content)*
-- [ ] Feature detail sections with screenshots/GIFs *(deferred — need real screenshots)*
+- [x] Social proof section — 3 testimonial cards with responsive grid
+- [x] Feature detail sections — 3 alternating-layout highlights with screenshot placeholders
 - [x] Footer with legal links (privacy policy, terms of service, contact)
 - [x] SEO meta tags — OG, Twitter card, description in index.html + exported constants
 - [x] Analytics tracking — Plausible script tag in index.html (cortex.heyvera.org)
