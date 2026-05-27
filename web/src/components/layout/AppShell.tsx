@@ -73,7 +73,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
       setComposeOpen(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("404") || msg.toLowerCase().includes("not found")) {
+      if (msg.includes("404") || msg.toLowerCase().includes("not found") || msg.toLowerCase().includes("no profile")) {
         setComposeGate("profile_required");
       } else {
         setComposeError("We could not verify your profile. Try again.");

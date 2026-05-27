@@ -265,7 +265,7 @@ pub async fn get_my_profile(
             let agents = db(&state).social_get_linked_agents(profile_id);
             ok(serde_json::json!({ "profile": profile, "linkedAgents": agents }))
         }
-        None => not_found("No profile found"),
+        None => not_found("Profile not found"),
     }
 }
 
@@ -577,7 +577,7 @@ pub async fn get_me_profile(
             }
             ok(obj)
         }
-        None => not_found("No profile found"),
+        None => not_found("Profile not found"),
     }
 }
 

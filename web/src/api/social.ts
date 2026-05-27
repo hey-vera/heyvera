@@ -196,7 +196,7 @@ async function apiAuthFetch<T>(
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
     throw new Error(
-      (err as { error?: string }).error ?? `API error ${res.status}`,
+      `[${res.status}] ${(err as { error?: string }).error ?? res.statusText}`,
     );
   }
   return res.json() as Promise<T>;
