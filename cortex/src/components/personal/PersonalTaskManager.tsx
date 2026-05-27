@@ -569,8 +569,8 @@ export default function PersonalTaskManager({
   }, [navigate, onClose]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md">
-      <div className="relative h-[90vh] w-full max-w-6xl rounded-2xl border border-white/10 bg-[var(--bg)] shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-0 sm:p-4 backdrop-blur-md">
+      <div className="relative flex h-full w-full flex-col rounded-none border-0 bg-[var(--bg)] shadow-2xl sm:h-[90vh] sm:max-w-6xl sm:rounded-2xl sm:border sm:border-white/10">
         {/* Header */}
         <div className="border-b border-white/6 px-6 py-4">
           <div className="flex items-center justify-between">
@@ -619,7 +619,7 @@ export default function PersonalTaskManager({
         </div>
 
         {/* Content */}
-        <div className="h-[calc(90vh-120px)] overflow-y-auto px-6 py-6">
+        <div className="flex-1 overflow-y-auto px-4 py-4 sm:px-6 sm:py-6" style={{ height: undefined }}>
           {activeTab === 'overview' ? (
             <MasterOverview
               groups={groups}
@@ -634,7 +634,7 @@ export default function PersonalTaskManager({
           ) : (
             <div className="space-y-4">
               <h2 className="text-lg font-semibold text-white">All Teams</h2>
-              <div className="grid gap-4 lg:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 {groups.map((group) => (
                   <GroupOverview
                     key={group.id}

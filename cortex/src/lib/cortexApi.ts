@@ -11,6 +11,45 @@ const CONFIGURED_API_BASE = import.meta.env.VITE_CORTEX_API as string | undefine
 const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.heyvera.org');
 export const MEMORY_API_ENABLED = import.meta.env.VITE_CORTEX_MEMORY_ENABLED === 'true';
 
+/** Returns true when the browser believes it has no network connectivity. */
+export function isOffline(): boolean {
+  return typeof navigator !== 'undefined' && !navigator.onLine;
+}
+
+const RETRY_DELAYS_MS = [1000, 2000, 4000];
+const RETRYABLE_STATUSES = new Set([503]);
+
+/**
+ * Wraps a fetch call with exponential-backoff retry logic.
+ * Retries on 503 responses, network errors, and AbortError-free timeouts.
+ * Attempts: up to 3 total (initial + 2 retries), delays: 1s / 2s / 4s.
+ */
+async function fetchWithRetry(
+  url: string,
+  init?: RequestInit,
+): Promise<Response> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      if (!RETRYABLE_STATUSES.has(res.status) || attempt === RETRY_DELAYS_MS.length) {
+        return res;
+      }
+      // retryable status — fall through to wait
+      lastError = new Error(`HTTP ${res.status}`);
+    } catch (err) {
+      if (err instanceof Error && err.name === 'AbortError') throw err;
+      lastError = err;
+    }
+    if (attempt < RETRY_DELAYS_MS.length) {
+      await new Promise<void>((resolve) => {
+        window.setTimeout(resolve, RETRY_DELAYS_MS[attempt]);
+      });
+    }
+  }
+  throw lastError;
+}
+
 function apiUrl(path: string) {
   const base = BASE_URL.replace(/\/$/, '');
   if (!base) return path;
@@ -47,7 +86,7 @@ async function authedFetch(url: string, init?: RequestInit): Promise<Response> {
   if (!headers.has('Content-Type') && init?.method && init.method !== 'GET') {
     headers.set('Content-Type', 'application/json');
   }
-  return fetch(url, { ...init, headers });
+  return fetchWithRetry(url, { ...init, headers });
 }
 
 async function bearerFetch(url: string, init?: RequestInit): Promise<Response> {
@@ -57,7 +96,7 @@ async function bearerFetch(url: string, init?: RequestInit): Promise<Response> {
   if (!headers.has('Content-Type') && init?.method && init.method !== 'GET') {
     headers.set('Content-Type', 'application/json');
   }
-  return fetch(url, { ...init, headers });
+  return fetchWithRetry(url, { ...init, headers });
 }
 
 export class CortexApiError extends Error {
@@ -86,9 +125,18 @@ async function readErrorMessage(res: Response): Promise<string> {
   }
 }
 
+function dispatchUnauthorized() {
+  try {
+    window.dispatchEvent(new CustomEvent('cortex:unauthorized'));
+  } catch {
+    // ignore in non-browser environments
+  }
+}
+
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await authedFetch(apiUrl(path), init);
   if (!res.ok) {
+    if (res.status === 401) dispatchUnauthorized();
     throw new CortexApiError(res.status, await readErrorMessage(res), res.headers.get('Retry-After'));
   }
   return res.json() as Promise<T>;
@@ -97,6 +145,7 @@ async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
 async function requestBillingJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await bearerFetch(apiUrl(path), init);
   if (!res.ok) {
+    if (res.status === 401) dispatchUnauthorized();
     throw new CortexApiError(res.status, await readErrorMessage(res), res.headers.get('Retry-After'));
   }
   return res.json() as Promise<T>;
@@ -604,6 +653,33 @@ export async function patchGroupTaskManagerTask(
       method: 'PATCH',
       body: JSON.stringify(patch),
     },
+  );
+}
+
+export interface TaskEvidenceCheck {
+  task_id: string;
+  has_evidence_backed_completion: boolean;
+  completion_gate: {
+    gated_done: boolean;
+    raw_done: boolean;
+    reason: string;
+    run_id?: string | null;
+    run_status?: string | null;
+    steps: {
+      total: number;
+      verified_pass: number;
+      failed: number;
+      unverified: number;
+    };
+  };
+}
+
+export async function checkTaskEvidence(
+  groupId: string,
+  taskId: string,
+): Promise<TaskEvidenceCheck> {
+  return requestJson<TaskEvidenceCheck>(
+    `/api/groups/${encodeURIComponent(groupId)}/tasks/${encodeURIComponent(taskId)}/evidence`,
   );
 }
 

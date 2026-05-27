@@ -1,14 +1,15 @@
-import { ArrowRight, Check, CheckCircle, Loader2, Sparkles, Tag, XCircle, Zap } from 'lucide-react';
+import { ArrowRight, Check, CheckCircle, Loader2, Minus, Sparkles, Tag, XCircle, Zap } from 'lucide-react';
 import { useState } from 'react';
-import { createBillingCheckout, validateReferralCode, type DiscountOption, type ReferralValidateResponse } from '../../lib/cortexApi';
+import { createBillingCheckout, validateReferralCode, type BillingStatus, type DiscountOption, type ReferralValidateResponse } from '../../lib/cortexApi';
 
 interface PricingCardsProps {
   compact?: boolean;
+  billing?: BillingStatus | null;
 }
 
 const DEFAULT_TRIAL_DAYS = 7;
 
-const FEATURES = [
+const PRO_FEATURES = [
   'Higher Task Manager usage limits',
   'More groups and saved workspaces',
   'Priority routing and response speed',
@@ -17,7 +18,18 @@ const FEATURES = [
   'Team collaboration controls',
 ] as const;
 
-export default function PricingCards({ compact = false }: PricingCardsProps) {
+const FREE_LIMITS = [
+  'Up to 25 tasks / month',
+  'Up to 100 agent runs / month',
+  'Up to 3 team groups',
+  'Standard routing speed',
+  'No integrations',
+  'No team controls',
+] as const;
+
+export default function PricingCards({ compact = false, billing }: PricingCardsProps) {
+  const isActivePro = Boolean(billing?.plan && (billing.plan.status === 'active' || billing.plan.status === 'trialing'));
+  const planType = billing?.plan?.plan_type ?? null;
   const [plan, setPlan] = useState<'monthly' | 'annual'>('monthly');
   const [promoCode, setPromoCode] = useState('');
   const [promoResult, setPromoResult] = useState<ReferralValidateResponse | null>(null);
@@ -210,6 +222,11 @@ export default function PricingCards({ compact = false }: PricingCardsProps) {
               plan === 'monthly' ? 'border-[var(--accent)]/50 bg-[var(--accent)]/8' : 'border-white/8 bg-white/[0.02]'
             }`}
           >
+            {isActivePro && planType === 'monthly' && (
+              <span className="absolute -top-2.5 left-3 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                Current plan
+              </span>
+            )}
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-white">Monthly</span>
               {plan === 'monthly' && <Check className="h-4 w-4 text-[var(--accent)]" />}
@@ -226,7 +243,11 @@ export default function PricingCards({ compact = false }: PricingCardsProps) {
               plan === 'annual' ? 'border-[var(--accent)]/50 bg-[var(--accent)]/8' : 'border-white/8 bg-white/[0.02]'
             }`}
           >
-            {promoPercentOff ? (
+            {isActivePro && planType === 'annual' ? (
+              <span className="absolute -top-2.5 right-3 rounded-full bg-emerald-500/20 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                Current plan
+              </span>
+            ) : promoPercentOff ? (
               <span className="absolute -top-2.5 right-3 rounded-full bg-[var(--accent)] px-2 py-0.5 text-[10px] font-bold text-black">
                 {promoPercentOff}% OFF
               </span>
@@ -249,19 +270,37 @@ export default function PricingCards({ compact = false }: PricingCardsProps) {
           </button>
         </div>
 
-        {/* Features */}
-        <div className="mb-5 rounded-xl border border-white/6 bg-white/[0.02] p-4">
-          <p className="mb-3 flex items-center gap-2 text-xs font-medium text-[var(--muted-strong)]">
-            <Zap className="h-3.5 w-3.5 text-[var(--accent)]" />
-            Pro unlocks
-          </p>
-          <div className="grid grid-cols-2 gap-2">
-            {FEATURES.map((f) => (
-              <div key={f} className="flex items-start gap-2">
-                <Check className="mt-0.5 h-3 w-3 shrink-0 text-[var(--accent)]" />
-                <span className="text-xs text-[var(--muted-strong)]">{f}</span>
-              </div>
-            ))}
+        {/* Free tier vs Pro comparison */}
+        <div className="mb-5 grid gap-3 sm:grid-cols-2">
+          {/* Free tier limits */}
+          <div className="rounded-xl border border-white/6 bg-white/[0.02] p-4">
+            <p className="mb-3 flex items-center gap-2 text-xs font-medium text-[var(--muted)]">
+              <Minus className="h-3.5 w-3.5 text-[var(--muted)]" />
+              Free tier limits
+            </p>
+            <div className="space-y-2">
+              {FREE_LIMITS.map((f) => (
+                <div key={f} className="flex items-start gap-2">
+                  <Minus className="mt-0.5 h-3 w-3 shrink-0 text-[var(--muted)]" />
+                  <span className="text-xs text-[var(--muted)]">{f}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+          {/* Pro features */}
+          <div className="rounded-xl border border-white/6 bg-white/[0.02] p-4">
+            <p className="mb-3 flex items-center gap-2 text-xs font-medium text-[var(--muted-strong)]">
+              <Zap className="h-3.5 w-3.5 text-[var(--accent)]" />
+              Pro unlocks
+            </p>
+            <div className="space-y-2">
+              {PRO_FEATURES.map((f) => (
+                <div key={f} className="flex items-start gap-2">
+                  <Check className="mt-0.5 h-3 w-3 shrink-0 text-[var(--accent)]" />
+                  <span className="text-xs text-[var(--muted-strong)]">{f}</span>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
 

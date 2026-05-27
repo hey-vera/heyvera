@@ -1,5 +1,5 @@
-import { Check, Copy, CreditCard, ExternalLink, ShieldCheck, Users } from 'lucide-react';
-import { useState } from 'react';
+import { AlertTriangle, Check, Copy, CreditCard, ExternalLink, Loader2, ShieldCheck, Users, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import type { BillingStatus } from '../../lib/cortexApi';
 import { createBillingPortal } from '../../lib/cortexApi';
 import BillingHistory from './BillingHistory';
@@ -10,9 +10,129 @@ interface BillingPageProps {
   billing: BillingStatus | null;
 }
 
+interface UsageData {
+  tasks: number;
+  runs: number;
+  groups: number;
+  limits: {
+    tasks: number;
+    runs: number;
+    groups: number;
+  };
+}
+
+// Placeholder usage — replace with real API call when endpoint exists
+const PLACEHOLDER_USAGE: UsageData = {
+  tasks: 14,
+  runs: 38,
+  groups: 2,
+  limits: {
+    tasks: 25,
+    runs: 100,
+    groups: 3,
+  },
+};
+
+function UsageBar({ label, value, limit }: { label: string; value: number; limit: number }) {
+  const pct = Math.min(100, Math.round((value / limit) * 100));
+  const isWarning = pct >= 80;
+  const isCritical = pct >= 95;
+  return (
+    <div>
+      <div className="mb-1 flex items-center justify-between">
+        <span className="text-xs text-[var(--muted)]">{label}</span>
+        <span className={`text-xs font-medium ${isCritical ? 'text-red-300' : isWarning ? 'text-amber-200' : 'text-[var(--muted-strong)]'}`}>
+          {value} / {limit}
+        </span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/8">
+        <div
+          className={`h-full rounded-full transition-all ${isCritical ? 'bg-red-400' : isWarning ? 'bg-amber-300' : 'bg-[var(--accent)]'}`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function UsageSummary({ isPro }: { isPro: boolean }) {
+  const usage = PLACEHOLDER_USAGE;
+  return (
+    <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">
+      <p className="mb-3 text-xs font-medium uppercase tracking-[0.08em] text-[var(--muted)]">
+        Usage this month
+        {!isPro && <span className="ml-2 text-[10px] normal-case tracking-normal text-[var(--accent)]">Free tier limits</span>}
+      </p>
+      <div className="space-y-3">
+        <UsageBar label="Tasks created" value={usage.tasks} limit={usage.limits.tasks} />
+        <UsageBar label="Agent runs" value={usage.runs} limit={usage.limits.runs} />
+        <UsageBar label="Team groups" value={usage.groups} limit={usage.limits.groups} />
+      </div>
+      {!isPro && (
+        <p className="mt-3 text-[11px] text-[var(--muted)]">
+          Upgrade to Cortex Pro for higher limits and priority routing.
+        </p>
+      )}
+    </div>
+  );
+}
+
+interface CancelFlowProps {
+  onPortal: () => void;
+  onDismiss: () => void;
+  isLoading: boolean;
+}
+
+function CancelConfirmation({ onPortal, onDismiss, isLoading }: CancelFlowProps) {
+  return (
+    <div className="rounded-xl border border-red-400/20 bg-red-400/8 p-4">
+      <div className="mb-3 flex items-start justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 text-red-300 shrink-0" />
+          <p className="text-sm font-medium text-white">Cancel subscription?</p>
+        </div>
+        <button type="button" onClick={onDismiss} className="p-0.5 text-[var(--muted)] transition hover:text-white">
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+      <p className="mb-2 text-xs text-red-100">You'll lose access to:</p>
+      <ul className="mb-4 space-y-1 text-xs text-[var(--muted-strong)]">
+        <li className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-red-300/60 shrink-0" />Higher task and run limits</li>
+        <li className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-red-300/60 shrink-0" />Priority routing and response speed</li>
+        <li className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-red-300/60 shrink-0" />Full sovereignty loop execution</li>
+        <li className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-red-300/60 shrink-0" />GitHub, Slack, and Replit integrations</li>
+        <li className="flex items-center gap-2"><span className="h-1 w-1 rounded-full bg-red-300/60 shrink-0" />Team collaboration controls</li>
+      </ul>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          onClick={onDismiss}
+          className="flex-1 rounded-lg border border-white/10 bg-white/6 px-3 py-2 text-xs font-medium text-white transition hover:bg-white/10 active:scale-95"
+        >
+          Keep subscription
+        </button>
+        <button
+          type="button"
+          onClick={onPortal}
+          disabled={isLoading}
+          className="flex items-center justify-center gap-1.5 rounded-lg border border-red-400/20 bg-red-400/12 px-3 py-2 text-xs text-red-200 transition hover:bg-red-400/20 active:scale-95 disabled:opacity-50"
+        >
+          {isLoading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
+          Cancel anyway
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export default function BillingPage({ billing }: BillingPageProps) {
   const [portalError, setPortalError] = useState<string | null>(null);
+  const [portalLoading, setPortalLoading] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+
+  const isActiveSub = billing?.plan?.status === 'active' || billing?.plan?.status === 'trialing';
+  const isPro = Boolean(billing?.plan);
 
   if (!billing || !billing.plan) {
     return (
@@ -29,6 +149,7 @@ export default function BillingPage({ billing }: BillingPageProps) {
             <ShieldCheck className="h-5 w-5 text-[var(--accent)]" />
           </div>
         </div>
+        <UsageSummary isPro={false} />
         <PricingCards compact />
       </div>
     );
@@ -41,11 +162,14 @@ export default function BillingPage({ billing }: BillingPageProps) {
 
   async function openPortal() {
     setPortalError(null);
+    setPortalLoading(true);
     try {
       const { portal_url } = await createBillingPortal();
       window.location.assign(portal_url);
     } catch (err) {
       setPortalError(err instanceof Error ? err.message : 'Could not open Stripe portal');
+    } finally {
+      setPortalLoading(false);
     }
   }
 
@@ -72,17 +196,41 @@ export default function BillingPage({ billing }: BillingPageProps) {
             <p className="mt-0.5 text-xs text-[var(--muted)]">Managed securely by Stripe</p>
           </div>
         </div>
-        <button
-          type="button"
-          onClick={() => void openPortal()}
-          className="mt-4 inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/8 active:scale-95"
-        >
-          <CreditCard className="h-4 w-4" />
-          Manage subscription
-          <ExternalLink className="h-3.5 w-3.5 text-[var(--muted)]" />
-        </button>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => void openPortal()}
+            disabled={portalLoading}
+            className="inline-flex items-center gap-2 rounded-lg border border-white/10 px-3 py-2 text-sm text-white transition hover:bg-white/8 active:scale-95 disabled:opacity-50"
+          >
+            {portalLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <CreditCard className="h-4 w-4" />}
+            Manage subscription
+            <ExternalLink className="h-3.5 w-3.5 text-[var(--muted)]" />
+          </button>
+          {isActiveSub && !showCancelConfirm && (
+            <button
+              type="button"
+              onClick={() => setShowCancelConfirm(true)}
+              className="inline-flex items-center gap-2 rounded-lg border border-white/8 px-3 py-2 text-sm text-[var(--muted)] transition hover:border-red-400/25 hover:text-red-200 active:scale-95"
+            >
+              Cancel subscription
+            </button>
+          )}
+        </div>
         {portalError && <p className="mt-3 text-xs text-red-200">{portalError}</p>}
       </div>
+
+      {/* Cancel confirmation */}
+      {showCancelConfirm && (
+        <CancelConfirmation
+          onPortal={() => void openPortal()}
+          onDismiss={() => setShowCancelConfirm(false)}
+          isLoading={portalLoading}
+        />
+      )}
+
+      {/* Usage summary */}
+      <UsageSummary isPro={isPro} />
 
       {billing.referral && (
         <div className="rounded-xl border border-white/8 bg-white/[0.03] p-4">

@@ -380,27 +380,27 @@ function TaskCard({
               </div>
               <div className="mt-1.5 flex items-center gap-1">
                 {task.status === 'created' && (
-                  <button type="button" title="Queue" onClick={(e) => { e.stopPropagation(); onUpdateTask(task.id, { status: 'queued' }); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-violet-300/20 bg-violet-400/10 text-[10px] text-violet-100 transition hover:bg-violet-400/20 active:scale-95">
+                  <button type="button" title="Queue" aria-label="Queue task" onClick={(e) => { e.stopPropagation(); onUpdateTask(task.id, { status: 'queued' }); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-violet-300/20 bg-violet-400/10 text-[10px] text-violet-100 transition hover:bg-violet-400/20 active:scale-95">
                     <Clock className="h-3 w-3" /> Queue
                   </button>
                 )}
                 {task.status === 'in-progress' && onPauseTask && (
-                  <button type="button" title="Pause" onClick={(e) => { e.stopPropagation(); onPauseTask(task.id); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-amber-300/20 bg-amber-300/10 text-[10px] text-amber-100 transition hover:bg-amber-300/20 active:scale-95">
+                  <button type="button" title="Pause" aria-label="Pause task" onClick={(e) => { e.stopPropagation(); onPauseTask(task.id); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-amber-300/20 bg-amber-300/10 text-[10px] text-amber-100 transition hover:bg-amber-300/20 active:scale-95">
                     <Pause className="h-3 w-3" /> Pause
                   </button>
                 )}
                 {task.status === 'paused' && onResumeTask && (
-                  <button type="button" title="Resume" onClick={(e) => { e.stopPropagation(); onResumeTask(task.id); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-emerald-300/20 bg-emerald-400/10 text-[10px] text-emerald-100 transition hover:bg-emerald-400/20 active:scale-95">
+                  <button type="button" title="Resume" aria-label="Resume task" onClick={(e) => { e.stopPropagation(); onResumeTask(task.id); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-emerald-300/20 bg-emerald-400/10 text-[10px] text-emerald-100 transition hover:bg-emerald-400/20 active:scale-95">
                     <Play className="h-3 w-3" /> Resume
                   </button>
                 )}
                 {(task.latestRunStatus === 'failed' || task.status === 'cancelled') && onRetryTask && (
-                  <button type="button" title="Retry" onClick={(e) => { e.stopPropagation(); onRetryTask(task.id); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-sky-300/20 bg-sky-400/10 text-[10px] text-sky-100 transition hover:bg-sky-400/20 active:scale-95">
+                  <button type="button" title="Retry" aria-label="Retry task" onClick={(e) => { e.stopPropagation(); onRetryTask(task.id); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-sky-300/20 bg-sky-400/10 text-[10px] text-sky-100 transition hover:bg-sky-400/20 active:scale-95">
                     <RefreshCw className="h-3 w-3" /> Retry
                   </button>
                 )}
                 {task.status !== 'done' && task.status !== 'cancelled' && onCancelTask && (
-                  <button type="button" title="Cancel" onClick={(e) => { e.stopPropagation(); onCancelTask(task.id); }} className="inline-flex h-6 w-8 shrink-0 items-center justify-center rounded-md border border-red-300/15 bg-red-400/[0.06] text-[var(--muted)] transition hover:bg-red-400/15 hover:text-red-100 active:scale-95">
+                  <button type="button" title="Cancel" aria-label="Cancel task" onClick={(e) => { e.stopPropagation(); onCancelTask(task.id); }} className="inline-flex h-6 w-8 shrink-0 items-center justify-center rounded-md border border-red-300/15 bg-red-400/[0.06] text-[var(--muted)] transition hover:bg-red-400/15 hover:text-red-100 active:scale-95">
                     <Ban className="h-3 w-3" />
                   </button>
                 )}
