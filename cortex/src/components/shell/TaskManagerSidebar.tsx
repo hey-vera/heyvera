@@ -220,11 +220,11 @@ export default function TaskManagerSidebar({
 
   // Expanded state
   return (
-    <div className={`flex h-full w-96 flex-col border-l border-white/6 bg-[var(--bg)] transition-all duration-300 ${
+    <div className={`flex h-full w-80 flex-col border-l border-white/6 bg-[var(--bg)] transition-all duration-300 ${
       groupTransition ? 'opacity-90' : 'opacity-100'
     }`}>
       {/* Header */}
-      <div className="border-b border-white/6 px-4 py-3">
+      <div className="border-b border-white/6 px-4 py-2">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">

@@ -77,7 +77,7 @@ export default function ChatTimeline({
       {isLoading ? (
         <TimelineSkeleton />
       ) : (
-        <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
+        <div className="mx-auto flex w-full max-w-2xl flex-col gap-3">
           {hiddenCount > 0 && (
             <div className="flex justify-center">
               <button

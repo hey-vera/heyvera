@@ -204,14 +204,14 @@ export default function ChatComposer({
         <div className="rounded-[24px] border border-white/8 bg-[var(--composer)] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
           <div className="flex min-h-[52px] items-center px-3 py-2">
             <p className="flex-1 text-sm text-[var(--muted)]">
-              Start your free trial to chat with Cortex.
+              Your payment method needs updating to continue.
             </p>
             <button
               type="button"
               onClick={onSubscribe}
               className="inline-flex h-10 items-center gap-2 rounded-full bg-[var(--accent)] px-5 text-sm font-semibold text-black transition hover:brightness-110 active:scale-95"
             >
-              Start free trial
+              Fix billing
               <ArrowRight className="h-4 w-4" />
             </button>
           </div>

@@ -55,7 +55,7 @@ export default function ChatMessage({
       <div className={`max-w-[85%] sm:max-w-[78%] ${isUser ? 'items-end' : 'items-start'} flex flex-col`}>
         <div
           className={[
-            'rounded-[24px] px-4 py-3 text-sm leading-6 shadow-[0_1px_0_rgba(255,255,255,0.02)]',
+            'rounded-[24px] px-4 py-2 text-sm leading-6 shadow-[0_1px_0_rgba(255,255,255,0.02)]',
             isUser
               ? 'bg-[var(--user-bubble)] text-white'
               : 'border border-white/6 bg-[var(--assistant-bubble)] text-[var(--fg)]',

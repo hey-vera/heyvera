@@ -29,6 +29,7 @@ interface ProjectChatProps {
   isStreaming: boolean;
   isLoadingConversation: boolean;
   needsSubscription: boolean;
+  isPreview?: boolean;
   onDraftChange: (value: string) => void;
   onSend: () => void;
   onStop?: () => void;
@@ -163,6 +164,7 @@ export default function ProjectChat({
   isStreaming,
   isLoadingConversation,
   needsSubscription,
+  isPreview = false,
   onDraftChange,
   onSend,
   onStop,
@@ -184,6 +186,9 @@ export default function ProjectChat({
     .filter((file, index, arr) => arr.indexOf(file) === index); // Unique files
 
   const recentMessages = messages.slice(-3).map(msg => msg.content);
+
+  // Count messages sent by the user (not system/assistant) for preview prompt
+  const userMessageCount = messages.filter(msg => msg.role === 'user').length;
 
   // Process message through memory system
   const processMemory = useCallback(async (message: string) => {
@@ -267,15 +272,13 @@ export default function ProjectChat({
 
   return (
     <main className="flex h-full min-h-0 flex-1 flex-col overflow-hidden">
-      <div className="border-b border-white/6 px-4 py-3">
+      <div className="border-b border-white/6 px-4 py-2">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2">
               <h1 className="truncate text-sm font-semibold text-white">Project Chat</h1>
+              <span className="truncate text-xs text-[var(--muted)]">{group.name}</span>
             </div>
-            <p className="mt-0.5 truncate text-xs text-[var(--muted)]">
-              AI assistant for your development work in {group.name}
-            </p>
           </div>
 
           <div className="flex items-center gap-2">
@@ -343,6 +346,23 @@ export default function ProjectChat({
             onPromptSelect={handleContextPromptSelect}
             visible={shouldShowContextPrompts}
           />
+        </div>
+      )}
+
+      {/* Soft subscription prompt for preview users who have sent 5+ messages */}
+      {isPreview && !needsSubscription && userMessageCount >= 5 && (
+        <div className="mx-4 mb-3 rounded-xl border border-[var(--accent)]/20 bg-[var(--accent)]/8 p-3">
+          <p className="text-xs text-[var(--muted-strong)]">
+            You're exploring Cortex in preview mode with sample data.
+            <button
+              type="button"
+              onClick={onSubscribe}
+              className="ml-1 font-medium text-[var(--accent)] hover:underline"
+            >
+              Subscribe to Cortex Pro
+            </button>
+            {' '}to connect real AI agents and unlock full capabilities.
+          </p>
         </div>
       )}
 

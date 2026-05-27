@@ -524,8 +524,9 @@ function CortexShell() {
 
   const headerTitle = activeConversationTitle?.trim() || 'New chat';
   const accessState = billing.status?.access_state;
-  const isFreeTier = billingEnabled && isFreeTierAccessState(accessState);
-  const runtimeLocked = billingEnabled && accessState === 'payment_failed';
+  const isAdminBypass = isAdmin; // Admin emails get full access without subscription
+  const isFreeTier = billingEnabled && !isAdminBypass && isFreeTierAccessState(accessState);
+  const runtimeLocked = billingEnabled && !isAdminBypass && accessState === 'payment_failed';
   useEffect(() => {
     if (!renamingTitle) return;
     titleInputRef.current?.focus();
@@ -939,6 +940,7 @@ function CortexShell() {
             isStreaming={isStreaming}
             isLoadingConversation={isLoadingConversation}
             needsSubscription={runtimeLocked}
+            isPreview={isFreeTier}
             onDraftChange={setDraft}
             onSend={sendMessage}
             onStop={isStreaming ? stopStreaming : undefined}

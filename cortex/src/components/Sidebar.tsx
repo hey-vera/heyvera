@@ -303,7 +303,7 @@ export default function Sidebar({
           onContextMenu={(event) => handleContextMenu(event, conversation.id)}
           onClick={() => queueSelectConversation(conversation.id)}
           onDoubleClick={() => handleDoubleClick(conversation)}
-          className={`flex w-full min-w-0 items-center gap-2 rounded-xl px-3 py-2.5 text-left outline-none transition-all duration-150 ${
+          className={`flex w-full min-w-0 items-center gap-2 rounded-xl px-3 py-2 text-left outline-none transition-all duration-150 ${
             isActive ? 'text-white' : 'text-[var(--muted-strong)]'
           }`}
         >
@@ -413,7 +413,7 @@ export default function Sidebar({
           type="button"
           onClick={onNewChat}
           aria-label="New chat"
-          className="flex w-full items-center gap-2 rounded-xl border border-white/8 bg-white/4 px-3 py-2.5 text-sm text-white transition-all duration-150 hover:bg-white/8 active:scale-[0.98]"
+          className="flex w-full items-center gap-2 rounded-xl border border-white/8 bg-white/4 px-3 py-2 text-sm text-white transition-all duration-150 hover:bg-white/8 active:scale-[0.98]"
         >
           <MessageSquarePlus className="h-4 w-4 text-[var(--accent)]" />
           New chat
@@ -437,7 +437,7 @@ export default function Sidebar({
         {showInitialLoading ? (
           <div className="space-y-2 px-2 py-3">
             {[0, 1, 2, 3].map((item) => (
-              <div key={item} className="rounded-xl px-3 py-2.5">
+              <div key={item} className="rounded-xl px-3 py-2">
                 <div className="h-4 w-36 animate-pulse rounded-full bg-white/[0.06]" />
                 <div className="mt-2 h-3 w-24 animate-pulse rounded-full bg-white/[0.04]" />
               </div>
