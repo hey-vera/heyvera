@@ -124,8 +124,8 @@ export default function TaskManagerSidebar({
     setIsExpanded(!isExpanded);
   }, [isExpanded]);
 
-  const handleLaunchTaskInProjectChat = useCallback((task: TaskManagerTask) => {
-    const linkedTask = taskManager.launchTaskInProjectChat(task.id, activeConversationId);
+  const handleLaunchTaskInProjectChat = useCallback(async (task: TaskManagerTask) => {
+    const linkedTask = await taskManager.launchTaskInProjectChat(task.id, activeConversationId);
     setSelectedTaskId(task.id);
     onLaunchTaskInProjectChat?.(linkedTask ?? task);
     setActiveView('chat');

@@ -38,8 +38,6 @@ interface TaskBoardProps {
   onCancelTask?: (taskId: string) => void;
 }
 
-const STATUSES: TaskStatus[] = ['queued', 'created', 'assigned', 'in-progress', 'paused', 'done', 'cancelled'];
-
 const BOARD_STATUSES: TaskStatus[] = ['created', 'assigned', 'in-progress', 'done'];
 
 const STATUS_ICON: Record<TaskStatus, typeof Circle> = {

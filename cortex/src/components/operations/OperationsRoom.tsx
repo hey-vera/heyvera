@@ -214,7 +214,6 @@ export default function OperationsRoom() {
     : summary;
   const attentionItems = useMemo(() => activeSummary?.attention ?? [], [activeSummary]);
   const failedCount = (activeSummary?.runs.failed ?? 0) + (activeSummary?.steps.failed ?? 0);
-  const _activeCount = (activeSummary?.tasks.active ?? 0) + (activeSummary?.runs.active ?? 0);
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
   const recentApprovals = approvals.filter((a) => a.status !== 'pending').slice(0, 10);
 

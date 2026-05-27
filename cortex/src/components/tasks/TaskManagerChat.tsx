@@ -446,8 +446,8 @@ export default function TaskManagerChat({
     onSend();
   }, [draft, onSend, taskManager, processMemory]);
 
-  const handleLaunchTaskInProjectChat = useCallback((task: TaskManagerTask) => {
-    const linkedTask = taskManager.launchTaskInProjectChat(task.id, activeConversationId);
+  const handleLaunchTaskInProjectChat = useCallback(async (task: TaskManagerTask) => {
+    const linkedTask = await taskManager.launchTaskInProjectChat(task.id, activeConversationId);
     setSelectedTaskId(task.id);
     onLaunchTaskInProjectChat?.(linkedTask ?? task);
   }, [activeConversationId, onLaunchTaskInProjectChat, taskManager]);

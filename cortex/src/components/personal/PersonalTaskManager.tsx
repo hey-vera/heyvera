@@ -4,12 +4,10 @@ import {
   AlertTriangle,
   ArrowRight,
   CheckCircle2,
-  Clock,
   Expand,
   GitBranch,
   Loader2,
   Pause,
-  RefreshCw,
   Shield,
   ShieldCheck,
   X,
@@ -20,7 +18,7 @@ import {
 } from 'lucide-react';
 import { buildTaskSummary, readTaskManagerState, useTaskManager } from '../../lib/taskManager';
 import type { CortexGroup } from '../../lib/groups';
-import { getPersonalOperationsSummary, type GroupOperationsAttentionItem, type PersonalOperationsGroupSummary, type PersonalOperationsSummary, type RunOperationEvent } from '../../lib/cortexApi';
+import { getPersonalOperationsSummary, type PersonalOperationsGroupSummary, type PersonalOperationsSummary, type RunOperationEvent } from '../../lib/cortexApi';
 
 interface PersonalTaskManagerProps {
   groups: CortexGroup[];

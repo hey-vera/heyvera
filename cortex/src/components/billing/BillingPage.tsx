@@ -1,5 +1,5 @@
 import { AlertTriangle, Check, Copy, CreditCard, ExternalLink, Loader2, ShieldCheck, Users, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { BillingStatus } from '../../lib/cortexApi';
 import { createBillingPortal } from '../../lib/cortexApi';
 import BillingHistory from './BillingHistory';
