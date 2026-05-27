@@ -1115,6 +1115,7 @@ export type OperationsGraphNodeType =
   | 'run'
   | 'step'
   | 'chat'
+  | 'attempt'
   | 'evidence'
   | 'approval'
   | 'resource_lease'

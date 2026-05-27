@@ -490,6 +490,20 @@ export default function TaskInspector({
             <Ban className="h-3.5 w-3.5" /> Cancel
           </button>
         )}
+        {pendingApprovals.length > 0 && (
+          <button
+            type="button"
+            disabled={Boolean(resolvingApprovalId)}
+            onClick={() => {
+              if (primaryPendingApproval) {
+                void resolvePendingApproval(primaryPendingApproval, 'approved');
+              }
+            }}
+            className="inline-flex h-7 flex-1 items-center justify-center gap-1.5 rounded-md border border-[var(--accent)]/20 bg-[var(--accent)]/10 text-xs text-[var(--accent)] transition hover:bg-[var(--accent)]/15 active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <CheckCircle2 className="h-3.5 w-3.5" /> Approve
+          </button>
+        )}
       </div>
 
       <div className="mt-3 space-y-2">

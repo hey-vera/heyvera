@@ -1,8 +1,66 @@
 import { ArrowRight, ArrowUp, Square, Brain } from 'lucide-react';
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { FormEvent, KeyboardEvent } from 'react';
 import MemorySuggestions from './MemorySuggestions';
 import { MEMORY_API_ENABLED } from '../../lib/cortexApi';
+
+const BUILTIN_PHRASES = [
+  'create task',
+  'assign to',
+  'pause',
+  'resume',
+  'retry',
+  'cancel',
+  'mark done',
+  'set priority',
+  'open in chat',
+];
+
+const PHRASE_HISTORY_KEY = 'cortex:phrase-history';
+const MAX_PHRASE_HISTORY = 50;
+
+function loadPhraseHistory(): string[] {
+  try {
+    const raw = localStorage.getItem(PHRASE_HISTORY_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function savePhraseToHistory(phrase: string) {
+  const trimmed = phrase.trim();
+  if (!trimmed) return;
+  const history = loadPhraseHistory().filter((p) => p !== trimmed);
+  history.unshift(trimmed);
+  if (history.length > MAX_PHRASE_HISTORY) history.length = MAX_PHRASE_HISTORY;
+  try {
+    localStorage.setItem(PHRASE_HISTORY_KEY, JSON.stringify(history));
+  } catch {
+    // localStorage full or unavailable
+  }
+}
+
+function computeGhostText(input: string): string {
+  const trimmed = input.toLowerCase().trim();
+  if (!trimmed) return '';
+  // Check phrase history first
+  const history = loadPhraseHistory();
+  for (const phrase of history) {
+    if (phrase.toLowerCase().startsWith(trimmed) && phrase.toLowerCase() !== trimmed) {
+      return phrase.slice(input.trimEnd().length);
+    }
+  }
+  // Fall back to built-in phrases
+  for (const phrase of BUILTIN_PHRASES) {
+    if (phrase.startsWith(trimmed) && phrase !== trimmed) {
+      return phrase.slice(trimmed.length);
+    }
+  }
+  return '';
+}
 
 interface ChatComposerProps {
   draft: string;
@@ -34,6 +92,11 @@ export default function ChatComposer({
   const canSend = draft.trim().length > 0 && !disabled && !locked;
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const [showMemorySuggestions, setShowMemorySuggestions] = useState(false);
+  const [ghostText, setGhostText] = useState('');
+
+  const recomputeGhost = useCallback((value: string) => {
+    setGhostText(computeGhostText(value));
+  }, []);
 
   // Check if the current draft looks like a memory command
   const isMemoryCommand = MEMORY_API_ENABLED
@@ -58,12 +121,25 @@ export default function ChatComposer({
       onSubscribe();
       return;
     }
-    if (canSend) onSend();
+    if (canSend) {
+      savePhraseToHistory(draft);
+      setGhostText('');
+      onSend();
+    }
   }
 
   function handleKeyDown(event: KeyboardEvent<HTMLTextAreaElement>) {
+    if (event.key === 'Tab' && ghostText) {
+      event.preventDefault();
+      const accepted = draft + ghostText;
+      onDraftChange(accepted);
+      setGhostText('');
+      return;
+    }
+
     if (event.key === 'Escape') {
       setShowMemorySuggestions(false);
+      setGhostText('');
       return;
     }
 
@@ -77,7 +153,11 @@ export default function ChatComposer({
         onSubscribe();
         return;
       }
-      if (canSend) onSend();
+      if (canSend) {
+        savePhraseToHistory(draft);
+        setGhostText('');
+        onSend();
+      }
     }
   }
 
@@ -127,16 +207,24 @@ export default function ChatComposer({
       )}
 
       <div className="rounded-[24px] border border-white/8 bg-[var(--composer)] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-        <textarea
-          ref={textareaRef}
-          value={draft}
-          disabled={disabled}
-          rows={1}
-          placeholder={placeholder}
-          className="max-h-48 min-h-[52px] w-full resize-none bg-transparent px-3 py-2 text-sm text-white outline-none placeholder:text-[var(--muted)]"
-          onChange={(event) => onDraftChange(event.target.value)}
-          onKeyDown={handleKeyDown}
-        />
+        <div className="relative">
+          <textarea
+            ref={textareaRef}
+            value={draft}
+            disabled={disabled}
+            rows={1}
+            placeholder={placeholder}
+            className="max-h-48 min-h-[52px] w-full resize-none bg-transparent px-3 py-2 text-sm text-white outline-none placeholder:text-[var(--muted)]"
+            onChange={(event) => { onDraftChange(event.target.value); recomputeGhost(event.target.value); }}
+            onKeyDown={handleKeyDown}
+          />
+          {ghostText && (
+            <div aria-hidden="true" className="pointer-events-none absolute left-0 top-0 max-h-48 min-h-[52px] w-full overflow-hidden px-3 py-2 text-sm">
+              <span className="invisible">{draft}</span>
+              <span className="text-white opacity-30">{ghostText}</span>
+            </div>
+          )}
+        </div>
         <div className="flex items-center justify-between px-1 pb-1">
           {/* Memory Indicator */}
           {showMemoryIndicator && MEMORY_API_ENABLED && (

@@ -415,6 +415,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 33 {
         migrate_v33(conn);
     }
+    if current < 34 {
+        migrate_v34(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -1689,6 +1692,28 @@ fn migrate_v33(conn: &Connection) {
         UPDATE schema_version SET version = 33;"
     ).expect("migration v33 failed");
     tracing::info!("applied migration v33: audit_log table");
+}
+
+fn migrate_v34(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS deployment_adapters (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            adapter_type TEXT NOT NULL,
+            environment TEXT NOT NULL,
+            config_json TEXT NOT NULL DEFAULT '{}',
+            status TEXT NOT NULL DEFAULT 'active',
+            last_inspected_at INTEGER,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+        CREATE INDEX IF NOT EXISTS idx_deployment_adapters_user
+            ON deployment_adapters(user_id, status);
+        CREATE INDEX IF NOT EXISTS idx_deployment_adapters_type
+            ON deployment_adapters(user_id, adapter_type);
+        UPDATE schema_version SET version = 34;"
+    ).expect("migration v34 failed");
+    tracing::info!("applied migration v34: deployment_adapters table");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -11393,6 +11418,40 @@ impl Database {
                 0
             }
         }
+    }
+
+    // --- Deployment adapters ---
+
+    pub fn list_deployment_adapters(&self, user_id: &str) -> Vec<crate::routes::DeploymentAdapter> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, user_id, adapter_type, environment, config_json, status,
+                        last_inspected_at, created_at, updated_at
+                 FROM deployment_adapters
+                 WHERE user_id = ?1 AND status = 'active'
+                 ORDER BY created_at ASC",
+            )
+            .unwrap();
+        stmt.query_map(params![user_id], |row| {
+            let config_raw: String = row.get(4)?;
+            let config_json: serde_json::Value =
+                serde_json::from_str(&config_raw).unwrap_or_else(|_| serde_json::json!({}));
+            Ok(crate::routes::DeploymentAdapter {
+                id: row.get(0)?,
+                user_id: row.get(1)?,
+                adapter_type: row.get(2)?,
+                environment: row.get(3)?,
+                config_json,
+                status: row.get(5)?,
+                last_inspected_at: row.get(6)?,
+                created_at: row.get(7)?,
+                updated_at: row.get(8)?,
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 }
 

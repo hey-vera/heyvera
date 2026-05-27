@@ -379,6 +379,11 @@ function TaskCard({
                 </button>
               </div>
               <div className="mt-1.5 flex items-center gap-1">
+                {task.status === 'created' && (
+                  <button type="button" title="Queue" onClick={(e) => { e.stopPropagation(); onUpdateTask(task.id, { status: 'queued' }); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-violet-300/20 bg-violet-400/10 text-[10px] text-violet-100 transition hover:bg-violet-400/20 active:scale-95">
+                    <Clock className="h-3 w-3" /> Queue
+                  </button>
+                )}
                 {task.status === 'in-progress' && onPauseTask && (
                   <button type="button" title="Pause" onClick={(e) => { e.stopPropagation(); onPauseTask(task.id); }} className="inline-flex h-6 flex-1 items-center justify-center gap-1 rounded-md border border-amber-300/20 bg-amber-300/10 text-[10px] text-amber-100 transition hover:bg-amber-300/20 active:scale-95">
                     <Pause className="h-3 w-3" /> Pause

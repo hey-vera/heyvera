@@ -9,16 +9,19 @@ import {
   Loader2,
   RefreshCw,
   Shield,
+  User,
   XCircle,
 } from 'lucide-react';
 import OperationsGraphPanel from '../tasks/OperationsGraphPanel';
 import {
   getAuthorityScopes,
   getGroupOperationsSummary,
+  getPersonalOperationsSummary,
   listGroupApprovals,
   type CortexApprovalRequest,
   type CortexAuthorityScope,
   type GroupOperationsSummary,
+  type PersonalOperationsSummary,
 } from '../../lib/cortexApi';
 
 const GROUP_LABELS: Record<string, string> = {
@@ -43,40 +46,100 @@ function SummaryCard({ label, value, detail, tone }: { label: string; value: num
   );
 }
 
-function EventTimeline({ events }: { events: GroupOperationsSummary['recent_events'] }) {
-  if (events.length === 0) {
-    return (
-      <div className="flex h-32 items-center justify-center rounded-lg border border-white/8 bg-black/15 text-sm text-[var(--muted)]">
-        No recent events
-      </div>
-    );
-  }
+const AUTHORITY_EVENT_KEYWORDS = ['authority', 'handoff', 'scope', 'approval'];
+
+function isAuthorityEvent(eventType: string) {
+  const lower = eventType.toLowerCase();
+  return AUTHORITY_EVENT_KEYWORDS.some((keyword) => lower.includes(keyword));
+}
+
+function EventTimeline({
+  events,
+  authorityOnly,
+  onToggleAuthority,
+}: {
+  events: GroupOperationsSummary['recent_events'];
+  authorityOnly: boolean;
+  onToggleAuthority: () => void;
+}) {
+  const filtered = authorityOnly
+    ? events.filter((event) => isAuthorityEvent(event.event_type))
+    : events;
+
   return (
-    <div className="max-h-[400px] space-y-1.5 overflow-y-auto rounded-lg border border-white/8 bg-black/15 p-3">
-      {events.slice(0, 30).map((event) => (
-        <div key={event.id} className="flex items-start gap-3 rounded-md border border-white/6 bg-white/[0.02] px-3 py-2">
-          <div className="mt-0.5 shrink-0">
-            {event.event_type.includes('failed') ? (
-              <XCircle className="h-3.5 w-3.5 text-red-300" />
-            ) : event.event_type.includes('completed') || event.event_type.includes('verified') ? (
-              <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />
-            ) : event.event_type.includes('approval') ? (
-              <Shield className="h-3.5 w-3.5 text-sky-300" />
-            ) : (
-              <GitBranch className="h-3.5 w-3.5 text-[var(--muted)]" />
-            )}
-          </div>
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-white">{event.event_type.replaceAll('.', ' ').replaceAll('_', ' ')}</p>
-            <p className="mt-0.5 truncate text-[10px] text-[var(--muted)]">
-              {event.entity_type} {event.entity_id ? `· ${event.entity_id.slice(0, 8)}` : ''}
-            </p>
-          </div>
-          <span className="shrink-0 text-[10px] text-[var(--muted)]">
-            {new Date(event.created_at).toLocaleTimeString()}
-          </span>
+    <div>
+      <div className="mb-2 flex gap-1">
+        <button
+          type="button"
+          onClick={() => { if (authorityOnly) onToggleAuthority(); }}
+          className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
+            !authorityOnly ? 'bg-white/10 text-white' : 'text-[var(--muted)] hover:text-white'
+          }`}
+        >
+          All Events
+        </button>
+        <button
+          type="button"
+          onClick={() => { if (!authorityOnly) onToggleAuthority(); }}
+          className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-[11px] font-medium transition ${
+            authorityOnly ? 'bg-white/10 text-white' : 'text-[var(--muted)] hover:text-white'
+          }`}
+        >
+          <Shield className="h-3 w-3" />
+          Authority Events
+        </button>
+      </div>
+      {filtered.length === 0 ? (
+        <div className="flex h-32 items-center justify-center rounded-lg border border-white/8 bg-black/15 text-sm text-[var(--muted)]">
+          {authorityOnly ? 'No authority events' : 'No recent events'}
         </div>
-      ))}
+      ) : (
+        <div className="max-h-[400px] space-y-1.5 overflow-y-auto rounded-lg border border-white/8 bg-black/15 p-3">
+          {filtered.slice(0, 30).map((event) => {
+            const isAuthority = isAuthorityEvent(event.event_type);
+            const authorityMeta = isAuthority && event.payload
+              ? Object.entries(event.payload)
+                  .filter(([key]) => ['actor', 'delegated_by', 'scope_name', 'authority_level', 'granted_to'].includes(key))
+                  .map(([key, val]) => `${key}: ${String(val)}`)
+                  .join(' · ')
+              : null;
+            return (
+              <div
+                key={event.id}
+                className={`flex items-start gap-3 rounded-md border px-3 py-2 ${
+                  isAuthority
+                    ? 'border-sky-300/15 bg-sky-400/[0.04]'
+                    : 'border-white/6 bg-white/[0.02]'
+                }`}
+              >
+                <div className="mt-0.5 shrink-0">
+                  {event.event_type.includes('failed') ? (
+                    <XCircle className="h-3.5 w-3.5 text-red-300" />
+                  ) : event.event_type.includes('completed') || event.event_type.includes('verified') ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-300" />
+                  ) : isAuthority ? (
+                    <Shield className="h-3.5 w-3.5 text-sky-300" />
+                  ) : (
+                    <GitBranch className="h-3.5 w-3.5 text-[var(--muted)]" />
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-xs font-medium text-white">{event.event_type.replaceAll('.', ' ').replaceAll('_', ' ')}</p>
+                  <p className="mt-0.5 truncate text-[10px] text-[var(--muted)]">
+                    {event.entity_type} {event.entity_id ? `· ${event.entity_id.slice(0, 8)}` : ''}
+                  </p>
+                  {authorityMeta && (
+                    <p className="mt-0.5 truncate text-[10px] text-sky-200/70">{authorityMeta}</p>
+                  )}
+                </div>
+                <span className="shrink-0 text-[10px] text-[var(--muted)]">
+                  {new Date(event.created_at).toLocaleTimeString()}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -100,21 +163,26 @@ function AttentionList({ items }: { items: GroupOperationsSummary['attention'] }
 export default function OperationsRoom() {
   const { groupId = 'personal' } = useParams<{ groupId: string }>();
   const navigate = useNavigate();
+  const [viewScope, setViewScope] = useState<'group' | 'personal'>('group');
   const [summary, setSummary] = useState<GroupOperationsSummary | null>(null);
+  const [personalSummary, setPersonalSummary] = useState<PersonalOperationsSummary | null>(null);
   const [scopes, setScopes] = useState<CortexAuthorityScope[]>([]);
   const [approvals, setApprovals] = useState<CortexApprovalRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [focusedTaskId, setFocusedTaskId] = useState<string | null>(null);
+  const [authorityFilter, setAuthorityFilter] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
-      const [next, scopeResponse, approvalList] = await Promise.all([
+      const [next, scopeResponse, approvalList, personal] = await Promise.all([
         getGroupOperationsSummary(groupId),
         getAuthorityScopes().catch(() => ({ scopes: [] })),
         listGroupApprovals(groupId).catch(() => []),
+        getPersonalOperationsSummary().catch(() => null),
       ]);
       setSummary(next);
+      setPersonalSummary(personal);
       setScopes(scopeResponse.scopes);
       setApprovals(approvalList);
       setError(null);
@@ -132,9 +200,20 @@ export default function OperationsRoom() {
     return () => window.clearInterval(interval);
   }, [refresh]);
 
-  const attentionItems = useMemo(() => summary?.attention ?? [], [summary]);
-  const failedCount = (summary?.runs.failed ?? 0) + (summary?.steps.failed ?? 0);
-  const activeCount = (summary?.tasks.active ?? 0) + (summary?.runs.active ?? 0);
+  const activeSummary = viewScope === 'personal' && personalSummary
+    ? {
+        tasks: personalSummary.tasks,
+        runs: { ...personalSummary.runs, latest_run_id: undefined as string | null | undefined },
+        steps: personalSummary.steps,
+        approvals: personalSummary.approvals,
+        resource_leases: personalSummary.resource_leases,
+        attention: personalSummary.attention,
+        recent_events: personalSummary.recent_events,
+      }
+    : summary;
+  const attentionItems = useMemo(() => activeSummary?.attention ?? [], [activeSummary]);
+  const failedCount = (activeSummary?.runs.failed ?? 0) + (activeSummary?.steps.failed ?? 0);
+  const _activeCount = (activeSummary?.tasks.active ?? 0) + (activeSummary?.runs.active ?? 0);
   const pendingApprovals = approvals.filter((a) => a.status === 'pending');
   const recentApprovals = approvals.filter((a) => a.status !== 'pending').slice(0, 10);
 
@@ -150,11 +229,37 @@ export default function OperationsRoom() {
             <ArrowLeft className="h-4 w-4" />
           </button>
           <div>
-            <h1 className="text-sm font-semibold text-white">{groupLabel(groupId)} Operations Room</h1>
+            <div className="flex items-center gap-3">
+              <h1 className="text-sm font-semibold text-white">{viewScope === 'personal' ? 'Personal' : groupLabel(groupId)} Operations Room</h1>
+              <div className="flex gap-0.5 rounded-md border border-white/8 bg-white/[0.03] p-0.5">
+                <button
+                  type="button"
+                  onClick={() => setViewScope('group')}
+                  className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium transition ${
+                    viewScope === 'group' ? 'bg-white/10 text-white' : 'text-[var(--muted)] hover:text-white'
+                  }`}
+                >
+                  <GitBranch className="h-3 w-3" />
+                  Group
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setViewScope('personal')}
+                  className={`inline-flex items-center gap-1 rounded px-2 py-1 text-[10px] font-medium transition ${
+                    viewScope === 'personal' ? 'bg-white/10 text-white' : 'text-[var(--muted)] hover:text-white'
+                  }`}
+                >
+                  <User className="h-3 w-3" />
+                  Personal
+                </button>
+              </div>
+            </div>
             <p className="text-[11px] text-[var(--muted)]">
-              {loading ? 'Loading...' : summary
-                ? `${summary.tasks.open + summary.tasks.active} open tasks · ${summary.runs.active} active runs · refreshed ${new Date().toLocaleTimeString()}`
-                : 'Waiting for data'}
+              {loading ? 'Loading...' : viewScope === 'personal' && personalSummary
+                ? `${personalSummary.tasks.open + personalSummary.tasks.active} open tasks · ${personalSummary.runs.active} active runs across ${personalSummary.groups_total} groups`
+                : summary
+                  ? `${summary.tasks.open + summary.tasks.active} open tasks · ${summary.runs.active} active runs · refreshed ${new Date().toLocaleTimeString()}`
+                  : 'Waiting for data'}
             </p>
           </div>
         </div>
@@ -183,29 +288,59 @@ export default function OperationsRoom() {
           </div>
         ) : (
           <div className="space-y-6">
-            {summary && (
+            {activeSummary && (
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
-                <SummaryCard label="Open Tasks" value={summary.tasks.open} detail={`${summary.tasks.active} active`} />
-                <SummaryCard label="Active Runs" value={summary.runs.active} detail={`${summary.runs.total} total`} />
+                <SummaryCard label="Open Tasks" value={activeSummary.tasks.open} detail={`${activeSummary.tasks.active} active`} />
+                <SummaryCard label="Active Runs" value={activeSummary.runs.active} detail={`${activeSummary.runs.total} total`} />
                 <SummaryCard
                   label="Completion"
-                  value={summary.tasks.completion.gated_done ?? summary.tasks.done_raw}
-                  detail={summary.tasks.completion.gated_done_available
-                    ? `${summary.tasks.completion.done_without_evidence ?? 0} need evidence`
-                    : `${summary.tasks.done_raw} raw done`}
+                  value={activeSummary.tasks.completion.gated_done ?? activeSummary.tasks.done_raw}
+                  detail={activeSummary.tasks.completion.gated_done_available
+                    ? `${activeSummary.tasks.completion.done_without_evidence ?? 0} need evidence`
+                    : `${activeSummary.tasks.done_raw} raw done`}
                 />
                 <SummaryCard
                   label="Attention"
                   value={attentionItems.length}
                   tone={attentionItems.length > 0 ? 'warning' : 'normal'}
-                  detail={`${summary.approvals?.pending ?? 0} pending approvals`}
+                  detail={`${activeSummary.approvals?.pending ?? 0} pending approvals`}
                 />
                 <SummaryCard
                   label="Failures"
                   value={failedCount}
                   tone={failedCount > 0 ? 'danger' : 'normal'}
-                  detail={`${summary.runs.failed} runs · ${summary.steps.failed} steps`}
+                  detail={`${activeSummary.runs.failed} runs · ${activeSummary.steps.failed} steps`}
                 />
+              </div>
+            )}
+
+            {viewScope === 'personal' && personalSummary && (
+              <div>
+                <h2 className="mb-3 text-sm font-semibold text-white">Aggregated Group Stats</h2>
+                <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                  {personalSummary.groups.map((g) => (
+                    <div key={g.group_id} className="rounded-lg border border-white/8 bg-white/[0.03] px-4 py-3">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: g.accent }} />
+                        <p className="text-sm font-medium text-white">{g.name}</p>
+                      </div>
+                      <div className="mt-2 grid grid-cols-3 gap-2 text-center text-[10px]">
+                        <div>
+                          <p className="text-sm font-semibold text-white">{g.tasks.open}</p>
+                          <p className="uppercase text-[var(--muted)]">Open</p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-emerald-300">{g.runs.active}</p>
+                          <p className="uppercase text-[var(--muted)]">Active</p>
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-blue-300">{g.tasks.completion.gated_done ?? g.tasks.done_raw}</p>
+                          <p className="uppercase text-[var(--muted)]">Done</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
@@ -222,7 +357,11 @@ export default function OperationsRoom() {
             <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
               <div>
                 <h2 className="mb-3 text-sm font-semibold text-white">Event Timeline</h2>
-                <EventTimeline events={summary?.recent_events ?? []} />
+                <EventTimeline
+                  events={activeSummary?.recent_events ?? []}
+                  authorityOnly={authorityFilter}
+                  onToggleAuthority={() => setAuthorityFilter((v) => !v)}
+                />
               </div>
               <div>
                 <h2 className="mb-3 text-sm font-semibold text-white">
@@ -236,16 +375,16 @@ export default function OperationsRoom() {
                   </div>
                 )}
 
-                {summary && (summary.resource_leases?.active ?? 0) > 0 && (
+                {activeSummary && (activeSummary.resource_leases?.active ?? 0) > 0 && (
                   <div className="mt-4">
                     <h3 className="mb-2 text-xs font-semibold uppercase text-[var(--muted)]">Resource Leases</h3>
                     <div className="grid grid-cols-2 gap-2">
                       <div className="rounded-md border border-white/8 bg-black/10 px-3 py-2 text-center">
-                        <p className="text-lg font-semibold text-white">{summary.resource_leases?.by_type.path ?? 0}</p>
+                        <p className="text-lg font-semibold text-white">{activeSummary.resource_leases?.by_type.path ?? 0}</p>
                         <p className="text-[9px] uppercase text-[var(--muted)]">Path Locks</p>
                       </div>
                       <div className="rounded-md border border-white/8 bg-black/10 px-3 py-2 text-center">
-                        <p className="text-lg font-semibold text-white">{summary.resource_leases?.by_type.task ?? 0}</p>
+                        <p className="text-lg font-semibold text-white">{activeSummary.resource_leases?.by_type.task ?? 0}</p>
                         <p className="text-[9px] uppercase text-[var(--muted)]">Task Locks</p>
                       </div>
                     </div>

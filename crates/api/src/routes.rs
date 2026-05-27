@@ -743,7 +743,13 @@ pub struct CreatePrResponse {
 }
 
 /// Build a rich PR body with step summaries, files changed, cost, and duration.
-fn build_pr_body(run_id: &str, goal: &str, branch: &str, db: &crate::db::Database) -> String {
+fn build_pr_body(
+    run_id: &str,
+    goal: &str,
+    branch: &str,
+    db: &crate::db::Database,
+    authority_scope_id: Option<&str>,
+) -> String {
     let steps = db.get_all_step_statuses(run_id);
     let mut body =
         format!("## Cortex Run `{run_id}`\n\n**Goal:** {goal}\n\n**Branch:** `{branch}`\n");
@@ -813,6 +819,36 @@ fn build_pr_body(run_id: &str, goal: &str, branch: &str, db: &crate::db::Databas
             let secs = duration_secs % 60;
             body.push_str(&format!("\n**Duration:** {mins}m {secs}s\n"));
         }
+    }
+
+    // --- Provenance section ---
+    body.push_str("\n### Provenance\n\n");
+    body.push_str(&format!("- **Run ID:** `{run_id}`\n"));
+    body.push_str(&format!("- **Cortex Link:** `cortex://runs/{run_id}`\n"));
+
+    // Authority scope (if present on the run)
+    if let Some(scope_id) = authority_scope_id {
+        body.push_str(&format!("- **Authority Scope:** `{scope_id}`\n"));
+    }
+
+    // Step summary counts
+    if !steps.is_empty() {
+        let total = steps.len();
+        let passed = steps.iter().filter(|(_, s)| s == "completed").count();
+        let failed = steps.iter().filter(|(_, s)| s == "failed").count();
+        body.push_str(&format!(
+            "- **Steps:** {total} total, {passed} passed, {failed} failed\n"
+        ));
+    }
+
+    // Verified by Cortex badge — check if any step has verified evidence
+    let has_evidence = steps.iter().any(|(step_id, _)| {
+        db.get_latest_verifier_report(step_id)
+            .map(|r| r.is_verified_success())
+            .unwrap_or(false)
+    });
+    if has_evidence {
+        body.push_str("\n> **Verified by Cortex** — this PR includes steps with verified evidence.\n");
     }
 
     body.push_str("\n---\n*Automated PR created by [Cortex](https://github.com/cortex)*\n");
@@ -904,7 +940,10 @@ pub async fn create_pr(
 
     // Build PR metadata
     let title = req.title.unwrap_or_else(|| format!("cortex: {goal}"));
-    let body = build_pr_body(&id, &goal, &branch, db);
+    let authority_scope_id = db
+        .get_run_pr_authority_context(&id, &user.user_id)
+        .and_then(|ctx| ctx.authority_scope_id);
+    let body = build_pr_body(&id, &goal, &branch, db, authority_scope_id.as_deref());
 
     // Try GitHub API first, fall back to gh CLI
     if let Some(gh_client) = &state.github_client {
@@ -1062,4 +1101,135 @@ pub async fn estimate_run(
         step_estimates,
         confidence,
     }))
+}
+
+// --- Deployment Capability Adapters ---
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DeploymentAdapter {
+    pub id: String,
+    pub user_id: String,
+    pub adapter_type: String,
+    pub environment: String,
+    pub config_json: serde_json::Value,
+    pub status: String,
+    pub last_inspected_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct DeploymentStatus {
+    pub adapter_type: String,
+    pub environment: String,
+    pub status: String,
+    pub commit_sha: Option<String>,
+    pub deployed_at: Option<i64>,
+    pub health_check_url: Option<String>,
+    pub drift_detected: bool,
+}
+
+/// Inspect the deployment status for a given adapter.
+///
+/// For `github_actions` and `cloudflare_pages`, extracts status from the adapter
+/// config. Other adapter types return a placeholder status.
+fn inspect_deployment_status(adapter: &DeploymentAdapter) -> DeploymentStatus {
+    let config = &adapter.config_json;
+
+    match adapter.adapter_type.as_str() {
+        "github_actions" => DeploymentStatus {
+            adapter_type: adapter.adapter_type.clone(),
+            environment: adapter.environment.clone(),
+            status: config
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string(),
+            commit_sha: config.get("commit_sha").and_then(|v| v.as_str()).map(String::from),
+            deployed_at: config.get("deployed_at").and_then(|v| v.as_i64()),
+            health_check_url: config
+                .get("health_check_url")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            drift_detected: config
+                .get("drift_detected")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        },
+        "cloudflare_pages" => DeploymentStatus {
+            adapter_type: adapter.adapter_type.clone(),
+            environment: adapter.environment.clone(),
+            status: config
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_string(),
+            commit_sha: config.get("commit_sha").and_then(|v| v.as_str()).map(String::from),
+            deployed_at: config.get("deployed_at").and_then(|v| v.as_i64()),
+            health_check_url: config
+                .get("health_check_url")
+                .and_then(|v| v.as_str())
+                .map(String::from),
+            drift_detected: config
+                .get("drift_detected")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false),
+        },
+        _ => DeploymentStatus {
+            adapter_type: adapter.adapter_type.clone(),
+            environment: adapter.environment.clone(),
+            status: "unsupported".to_string(),
+            commit_sha: None,
+            deployed_at: None,
+            health_check_url: None,
+            drift_detected: false,
+        },
+    }
+}
+
+/// `GET /api/deployment-adapters` — list all configured deployment adapters for the user.
+pub async fn get_deployment_adapters(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "database not available".into(),
+            }),
+        )
+    })?;
+
+    let adapters = db.list_deployment_adapters(&user.user_id);
+    let statuses: Vec<serde_json::Value> = adapters
+        .iter()
+        .map(|adapter| {
+            let status = inspect_deployment_status(adapter);
+            serde_json::json!({
+                "adapter": {
+                    "id": adapter.id,
+                    "adapter_type": adapter.adapter_type,
+                    "environment": adapter.environment,
+                    "status": adapter.status,
+                    "last_inspected_at": adapter.last_inspected_at,
+                    "created_at": adapter.created_at,
+                    "updated_at": adapter.updated_at,
+                },
+                "deployment_status": {
+                    "adapter_type": status.adapter_type,
+                    "environment": status.environment,
+                    "status": status.status,
+                    "commit_sha": status.commit_sha,
+                    "deployed_at": status.deployed_at,
+                    "health_check_url": status.health_check_url,
+                    "drift_detected": status.drift_detected,
+                },
+            })
+        })
+        .collect();
+
+    Ok(Json(serde_json::json!({
+        "adapters": statuses,
+    })))
 }
