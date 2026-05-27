@@ -33,7 +33,7 @@ const PLACEHOLDER_USAGE: UsageData = {
   },
 };
 
-function UsageBar({ label, value, limit }: { label: string; value: number; limit: number }) {
+function UsageBar({ label, value, limit, showUpgrade }: { label: string; value: number; limit: number; showUpgrade?: boolean }) {
   const pct = Math.min(100, Math.round((value / limit) * 100));
   const isWarning = pct >= 80;
   const isCritical = pct >= 95;
@@ -51,6 +51,14 @@ function UsageBar({ label, value, limit }: { label: string; value: number; limit
           style={{ width: `${pct}%` }}
         />
       </div>
+      {isCritical && showUpgrade && (
+        <a
+          href="#pricing"
+          className="mt-1 inline-block text-[11px] font-medium text-[var(--accent)] transition hover:underline"
+        >
+          Upgrade to Pro &rarr;
+        </a>
+      )}
     </div>
   );
 }
@@ -64,9 +72,9 @@ function UsageSummary({ isPro }: { isPro: boolean }) {
         {!isPro && <span className="ml-2 text-[10px] normal-case tracking-normal text-[var(--accent)]">Free tier limits</span>}
       </p>
       <div className="space-y-3">
-        <UsageBar label="Tasks created" value={usage.tasks} limit={usage.limits.tasks} />
-        <UsageBar label="Agent runs" value={usage.runs} limit={usage.limits.runs} />
-        <UsageBar label="Team groups" value={usage.groups} limit={usage.limits.groups} />
+        <UsageBar label="Tasks created" value={usage.tasks} limit={usage.limits.tasks} showUpgrade={!isPro} />
+        <UsageBar label="Agent runs" value={usage.runs} limit={usage.limits.runs} showUpgrade={!isPro} />
+        <UsageBar label="Team groups" value={usage.groups} limit={usage.limits.groups} showUpgrade={!isPro} />
       </div>
       {!isPro && (
         <p className="mt-3 text-[11px] text-[var(--muted)]">
