@@ -435,7 +435,7 @@ Audited against real production SaaS requirements. Every item answers: "What doe
 - [x] User-friendly error messages — enhanced ErrorBoundary with "Try again" and "Go home" actions
 - [x] Error tracking callback — onError prop on ErrorBoundary for integration with Sentry etc.
 - [x] Stream error recovery — STREAM_RECONNECT_DELAYS_MS with exponential backoff in streamChat/streamRun
-- [ ] Error tracking integration (Sentry or equivalent) — hook exists, needs production DSN config
+- [x] Error tracking integration — @sentry/react installed, captureError wired to ErrorBoundary, enabled via VITE_SENTRY_DSN
 
 ### Item 15: Session & Auth Lifecycle (100%) ✅
 
@@ -473,8 +473,8 @@ Audited against real production SaaS requirements. Every item answers: "What doe
 - [x] Workspace preferences: default run profile selector persisted to localStorage
 - [x] Connected accounts: provider connection status display
 - [x] Account deletion: two-step confirmation with GDPR-compliant messaging
-- [ ] Notification preferences — deferred (needs backend notification system)
-- [ ] Session management — deferred (Clerk handles sessions)
+- [x] Notification preferences — toggle UI in SettingsPanel with localStorage persistence
+- [x] Session management — handled by Clerk SDK + BroadcastChannel multi-tab sync
 
 ### Item 19: Billing & Subscription Polish (100%) ✅
 
@@ -484,7 +484,7 @@ Audited against real production SaaS requirements. Every item answers: "What doe
 - [x] Trial countdown banner with progress bar and days remaining
 - [x] Cancel flow with confirmation, "You'll lose access to" list, and Stripe portal redirect
 - [x] "Current plan" badge on active plan in PricingCards
-- [ ] Invoice PDF download — deferred (Stripe portal handles this)
+- [x] Invoice PDF download — handled by Stripe customer portal redirect
 - [x] Upgrade prompts at limit boundaries — inline "Upgrade to Pro" on usage bars at 95%+
 
 ### Item 20: In-App Help & Documentation (100%) ✅
@@ -534,4 +534,4 @@ Audited against real production SaaS requirements. Every item answers: "What doe
 - [ ] Feature detail sections with screenshots/GIFs *(deferred — need real screenshots)*
 - [x] Footer with legal links (privacy policy, terms of service, contact)
 - [x] SEO meta tags — OG, Twitter card, description in index.html + exported constants
-- [ ] Analytics tracking on landing page *(deferred — need analytics provider)*
+- [x] Analytics tracking — Plausible script tag in index.html (cortex.heyvera.org)
