@@ -331,12 +331,11 @@ function AccountTab({ providers }: { providers: ProviderAuthInfo[] }) {
   );
 }
 
-const BYOK_PROVIDERS = [
-  { id: 'claude', label: 'Claude (Anthropic)', placeholder: 'sk-ant-api03-...' },
-  { id: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
-] as const;
-
-function ApiKeysTab() {
+function _LegacyApiKeysTab() {
+  const BYOK_PROVIDERS = [
+    { id: 'claude', label: 'Claude (Anthropic)', placeholder: 'sk-ant-api03-...' },
+    { id: 'openai', label: 'OpenAI', placeholder: 'sk-...' },
+  ] as const;
   const [keys, setKeys] = useState<StoredApiKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -823,7 +822,6 @@ export default function SettingsPanel({
   onClose,
   initialTab = 'providers',
   billing,
-  isAdmin = false,
 }: SettingsPanelProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab);
   const [providers, setProviders] = useState<ProviderAuthInfo[]>([]);
@@ -840,8 +838,6 @@ export default function SettingsPanel({
       setProviders(status);
     } catch {
       // silent
-    } finally {
-      setLoading(false);
     }
   }, []);
 
