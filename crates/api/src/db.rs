@@ -1901,18 +1901,12 @@ fn migrate_v40(conn: &Connection) {
 fn migrate_v41(conn: &Connection) {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS audit_log (
-            id TEXT PRIMARY KEY,
-            user_id TEXT NOT NULL,
-            action TEXT NOT NULL,
-            target_type TEXT,
-            target_id TEXT,
-            metadata TEXT,
-            ip_address TEXT,
-            created_at INTEGER NOT NULL DEFAULT (unixepoch())
+            id TEXT PRIMARY KEY, actor_id TEXT NOT NULL, actor_type TEXT NOT NULL DEFAULT 'user',
+            action TEXT NOT NULL, target_type TEXT, target_id TEXT, details TEXT, ip_address TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
-        CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id);
         CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
-        CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_created_desc ON audit_log(created_at DESC);
         UPDATE schema_version SET version = 41;"
     ).expect("migration v41 failed");
     tracing::info!("applied migration v41: audit_log indexes");
