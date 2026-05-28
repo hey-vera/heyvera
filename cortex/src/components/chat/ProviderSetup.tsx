@@ -3,7 +3,7 @@ import { CheckCircle, ExternalLink, Loader2, XCircle } from 'lucide-react';
 import {
   getAuthStatus,
   startAuth,
-  refreshAuth,
+  submitAuthCode,
   type ProviderAuthInfo,
 } from '../../lib/cortexApi';
 
@@ -14,8 +14,10 @@ interface ProviderSetupProps {
 export default function ProviderSetup({ onReady }: ProviderSetupProps) {
   const [providers, setProviders] = useState<ProviderAuthInfo[]>([]);
   const [loading, setLoading] = useState(true);
-  const [authInProgress, setAuthInProgress] = useState<string | null>(null);
-  const [authUrl, setAuthUrl] = useState<string | null>(null);
+  const [connectingProvider, setConnectingProvider] = useState<string | null>(null);
+  const [authInfo, setAuthInfo] = useState<{ auth_url?: string; message?: string } | null>(null);
+  const [codeInput, setCodeInput] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const fetchStatus = useCallback(async () => {
@@ -37,48 +39,50 @@ export default function ProviderSetup({ onReady }: ProviderSetupProps) {
   }, [fetchStatus]);
 
   const handleConnect = async (provider: string) => {
-    setAuthInProgress(provider);
-    setAuthUrl(null);
+    setConnectingProvider(provider);
+    setAuthInfo(null);
+    setCodeInput('');
     setError(null);
 
     try {
-      const result = await startAuth(provider);
+      const result = await startAuth(provider, 'subscription');
+      setAuthInfo({ auth_url: result.auth_url ?? undefined, message: result.message });
       if (result.auth_url) {
-        setAuthUrl(result.auth_url);
         window.open(result.auth_url, '_blank', 'noopener');
-        pollUntilAuth(provider);
-      } else {
-        setError(result.message);
-        setAuthInProgress(null);
       }
     } catch {
       setError('Failed to start authentication');
-      setAuthInProgress(null);
+      setConnectingProvider(null);
     }
   };
 
-  const pollUntilAuth = async (provider: string) => {
-    for (let i = 0; i < 60; i++) {
-      await new Promise((r) => setTimeout(r, 3000));
-      try {
-        const status = await refreshAuth();
-        setProviders(status);
-        const p = status.find((s) => s.provider === provider);
-        if (p?.authenticated) {
-          setAuthInProgress(null);
-          setAuthUrl(null);
-          if (status.some((s) => s.authenticated)) {
-            onReady();
-          }
-          return;
-        }
-      } catch {
-        // keep polling
+  const handleSubmit = async () => {
+    if (!connectingProvider || !codeInput.trim()) return;
+    setSubmitting(true);
+    setError(null);
+
+    try {
+      const result = await submitAuthCode(connectingProvider, codeInput.trim(), undefined, 'subscription');
+      if (result.success) {
+        setConnectingProvider(null);
+        setCodeInput('');
+        setAuthInfo(null);
+        await fetchStatus();
+      } else {
+        setError(result.message);
       }
+    } catch {
+      setError('Failed to save credential');
+    } finally {
+      setSubmitting(false);
     }
-    setAuthInProgress(null);
-    setAuthUrl(null);
-    setError('Authentication timed out — try again');
+  };
+
+  const handleCancel = () => {
+    setConnectingProvider(null);
+    setCodeInput('');
+    setAuthInfo(null);
+    setError(null);
   };
 
   const anyAuthed = providers.some((p) => p.authenticated);
@@ -130,39 +134,62 @@ export default function ProviderSetup({ onReady }: ProviderSetupProps) {
               </div>
             </div>
 
-            {!p.authenticated && (
+            {!p.authenticated && !connectingProvider && (
               <button
                 onClick={() => handleConnect(p.provider)}
-                disabled={authInProgress !== null}
-                className="rounded-lg border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/20 disabled:opacity-40"
+                className="rounded-lg border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-3 py-1.5 text-xs font-medium text-[var(--accent)] transition hover:bg-[var(--accent)]/20"
               >
-                {authInProgress === p.provider ? (
-                  <span className="flex items-center gap-1.5">
-                    <Loader2 className="h-3 w-3 animate-spin" />
-                    Waiting...
-                  </span>
-                ) : (
-                  'Connect'
-                )}
+                Connect
               </button>
             )}
           </div>
         ))}
       </div>
 
-      {authUrl && (
-        <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3">
-          <p className="text-xs text-amber-200">
-            Complete sign-in in the browser tab that opened. If it didn't open:
-          </p>
-          <a
-            href={authUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-amber-100 underline"
-          >
-            Open authentication page <ExternalLink className="h-3 w-3" />
-          </a>
+      {connectingProvider && (
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+          <div className="flex items-center justify-between mb-3">
+            <span className="text-sm font-medium text-white">
+              Connect {connectingProvider === 'claude' ? 'Claude' : 'OpenAI'}
+            </span>
+            <button onClick={handleCancel} className="text-xs text-[var(--muted)] hover:text-white transition">
+              Cancel
+            </button>
+          </div>
+
+          {authInfo?.message && (
+            <p className="text-xs text-[var(--muted)] mb-3">{authInfo.message}</p>
+          )}
+
+          {authInfo?.auth_url && (
+            <a
+              href={authInfo.auth_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mb-3 inline-flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+            >
+              Open provider page <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+
+          <div className="flex gap-2 mt-2">
+            <input
+              type="password"
+              value={codeInput}
+              onChange={(e) => setCodeInput(e.target.value)}
+              placeholder="Paste your API key or session token..."
+              className="flex-1 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
+              onKeyDown={(e) => e.key === 'Enter' && handleSubmit()}
+              autoFocus
+            />
+            <button
+              onClick={handleSubmit}
+              disabled={submitting || !codeInput.trim()}
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition disabled:opacity-50"
+            >
+              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Save'}
+            </button>
+          </div>
         </div>
       )}
 

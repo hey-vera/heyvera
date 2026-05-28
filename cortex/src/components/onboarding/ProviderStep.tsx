@@ -5,7 +5,6 @@ import {
   getProviders,
   startAuth,
   submitAuthCode,
-  refreshAuth,
   deleteCredential,
   setDefaultCredential,
   type ProviderAuthInfo,
@@ -158,11 +157,9 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
       const result = await submitAuthCode(provider, code, `${providerLabel(provider)} subscription`, 'subscription');
       if (result.success) {
         updateState(provider, { ...INITIAL_STATE });
-        const status = await refreshAuth();
-        setProviders(status);
+        await fetchStatus();
       } else {
-        updateState(provider, { phase: 'polling' });
-        pollUntilAuth(provider);
+        updateState(provider, { phase: 'awaiting_code', error: result.message || 'Authentication failed' });
       }
     } catch {
       updateState(provider, { phase: 'awaiting_code', error: 'Failed to submit code' });
@@ -173,7 +170,7 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
     for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 3000));
       try {
-        const status = await refreshAuth();
+        const status = await getAuthStatus();
         setProviders(status);
         if (status.find((s) => s.provider === provider)?.authenticated) {
           updateState(provider, { ...INITIAL_STATE });

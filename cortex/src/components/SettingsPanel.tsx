@@ -787,9 +787,7 @@ export default function SettingsPanel({
           ) : tab === 'account' ? (
             <AccountTab providers={providers} />
           ) : (
-            <div className="text-center py-8 text-sm text-[var(--muted)]">
-              Go to the <button onClick={() => setTab('credentials')} className="text-[var(--accent)] hover:underline">Credentials</button> tab to manage your AI provider connections.
-            </div>
+            <CredentialsTab />
           )}
         </div>
       </div>
