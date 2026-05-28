@@ -10509,12 +10509,12 @@ impl Database {
             conn.query_row("SELECT COUNT(*) FROM social_posts WHERE reply_to_post_id = ?1 AND deleted_at IS NULL", [post_id], |r| r.get(0)).unwrap_or(0)
         };
 
-        let mut results: Vec<serde_json::Value> = rows.into_iter().map(|mut reply| {
-            let reply_id = reply["id"].as_str().unwrap();
-            let like_count = count_likes(reply_id);
-            let repost_count = count_reposts(reply_id);
-            let bookmark_count = count_bookmarks(reply_id);
-            let reply_count = count_replies(reply_id);
+        let results: Vec<serde_json::Value> = rows.into_iter().map(|mut reply| {
+            let reply_id = reply["id"].as_str().unwrap().to_string();
+            let like_count = count_likes(&reply_id);
+            let repost_count = count_reposts(&reply_id);
+            let bookmark_count = count_bookmarks(&reply_id);
+            let reply_count = count_replies(&reply_id);
 
             if let Some(m) = reply.as_object_mut() {
                 m.insert("likeCount".into(), serde_json::json!(like_count));
@@ -10522,19 +10522,18 @@ impl Database {
                 m.insert("bookmarkCount".into(), serde_json::json!(bookmark_count));
                 m.insert("replyCount".into(), serde_json::json!(reply_count));
 
-                // Check viewer engagement if viewer is provided
                 if let Some(viewer_id) = viewer_profile_id {
                     let liked = conn.query_row(
                         "SELECT 1 FROM social_likes WHERE profile_id = ?1 AND post_id = ?2",
-                        [viewer_id, reply_id], |_| Ok(())
+                        [viewer_id, &reply_id], |_| Ok(())
                     ).is_ok();
                     let bookmarked = conn.query_row(
                         "SELECT 1 FROM social_bookmarks WHERE profile_id = ?1 AND post_id = ?2",
-                        [viewer_id, reply_id], |_| Ok(())
+                        [viewer_id, &reply_id], |_| Ok(())
                     ).is_ok();
                     let reposted = conn.query_row(
                         "SELECT 1 FROM social_reposts WHERE profile_id = ?1 AND post_id = ?2",
-                        [viewer_id, reply_id], |_| Ok(())
+                        [viewer_id, &reply_id], |_| Ok(())
                     ).is_ok();
 
                     m.insert("liked".into(), serde_json::json!(liked));
