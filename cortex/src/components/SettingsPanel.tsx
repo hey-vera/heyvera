@@ -833,7 +833,7 @@ export default function SettingsPanel({
                             <div className="flex items-center gap-1 text-xs text-emerald-300">
                               <CheckCircle className="h-3 w-3" />
                               {p.email || 'Connected'}
-                              {p.subscription ? ` · ${p.subscription}` : ''}
+                              {p.credential_type ? ` · ${p.credential_type}` : ''}
                             </div>
                           ) : (
                             <div className="flex items-center gap-1 text-xs text-[var(--muted)]">

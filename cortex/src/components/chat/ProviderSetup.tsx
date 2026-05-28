@@ -118,8 +118,8 @@ export default function ProviderSetup({ onReady }: ProviderSetupProps) {
                 {p.authenticated ? (
                   <div className="flex items-center gap-1 text-xs text-emerald-300">
                     <CheckCircle className="h-3 w-3" />
-                    {p.email ?? p.subscription ?? 'Connected'}
-                    {p.subscription ? ` · ${p.subscription}` : ''}
+                    {p.email ?? p.label ?? 'Connected'}
+                    {p.credential_type ? ` · ${p.credential_type}` : ''}
                   </div>
                 ) : (
                   <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
