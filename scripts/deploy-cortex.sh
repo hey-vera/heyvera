@@ -86,16 +86,35 @@ sudo rsync -a --delete "$REPO_DIR/cortex/dist/" "$CORTEX_WWW/"
 echo "[vite] Deployed to $CORTEX_WWW"
 
 # ── backend ──────────────────────────────────
-echo "[rust] Building cortex-server..."
+echo "[rust] Building cortex-api..."
 if [ -f "$HOME/.cargo/env" ]; then
   # shellcheck disable=SC1091
   source "$HOME/.cargo/env"
 fi
-cargo build --release 2>&1 | tail -5
+cargo build --release -p cortex-api 2>&1 | tail -5
 
-sudo systemctl stop cortex 2>/dev/null || true
-sudo cp target/release/cortex-server /usr/local/bin/cortex-server
-echo "[rust] Installed binary"
+# Detect which service name is in use
+if systemctl list-units --type=service --all | grep -q "heyvera.service"; then
+  SVC="heyvera"
+elif systemctl list-units --type=service --all | grep -q "cortex.service"; then
+  SVC="cortex"
+else
+  echo "[warn] No cortex/heyvera service found, skipping service restart"
+  SVC=""
+fi
+
+if [ -n "$SVC" ]; then
+  sudo systemctl stop "$SVC" 2>/dev/null || true
+fi
+
+# Install whichever binary was built
+for bin in cortex-server cortex-api; do
+  if [ -f "target/release/$bin" ]; then
+    sudo cp "target/release/$bin" "/usr/local/bin/$bin"
+    echo "[rust] Installed $bin"
+    break
+  fi
+done
 
 if [ -f target/release/cortex-worker ]; then
   sudo cp target/release/cortex-worker /usr/local/bin/cortex-worker
@@ -109,7 +128,9 @@ if [ -f "$REPO_DIR/Caddyfile" ]; then
 fi
 
 # ── start + health ───────────────────────────
-sudo systemctl start cortex
+if [ -n "$SVC" ]; then
+  sudo systemctl start "$SVC"
+fi
 echo -n "[health] Waiting"
 HEALTHY=false
 for _ in $(seq 1 "$MAX_WAIT"); do
@@ -126,10 +147,10 @@ if $HEALTHY; then
   echo ""
   echo "  ✓ Cortex deployed — $BRANCH @ $COMMIT"
   echo "    https://cortex.heyvera.org"
-  echo "    Logs: sudo journalctl -u cortex -f"
+  echo "    Logs: sudo journalctl -u ${SVC:-cortex} -f"
   echo ""
 else
   echo "[fail] Health check failed. Recent logs:"
-  sudo journalctl -u cortex --no-pager -n 20
+  sudo journalctl -u "${SVC:-cortex}" --no-pager -n 20
   exit 1
 fi
