@@ -1,8 +1,0 @@
-{
-  "name": "dual-brain-orchestrator",
-  "description": "Tiered model routing and dual-brain code review for Claude Code. Routes cheap work to cheap models, reserves expensive models for thinking, and optionally sends diffs to GPT for independent review.",
-  "version": "1.0.0",
-  "keywords": ["orchestrator", "dual-brain", "cost-optimization", "model-routing", "code-review"],
-  "author": "ClawNet",
-  "setup": "node hooks/setup-wizard.mjs"
-}

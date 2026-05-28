@@ -1,7 +1,0 @@
-node_modules/
-hooks/usage-*.jsonl
-hooks/usage.jsonl
-hooks/.drift-warned
-hooks/.budget-alerted
-reviews/
-.npmrc
