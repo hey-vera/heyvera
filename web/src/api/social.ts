@@ -392,6 +392,13 @@ export async function createPost(
   return apiAuthFetch("/posts", { method: "POST", token, body: data });
 }
 
+export async function fetchSinglePost(postId: string): Promise<{
+  post: FeedPost;
+  replies: FeedPost[];
+}> {
+  return apiFetch(`/posts/${postId}`);
+}
+
 export async function fetchFollowStatus(
   token: string,
   handle: string,

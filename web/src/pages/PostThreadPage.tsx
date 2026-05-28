@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { bookmarkPost, feedPostToPost, fetchHomeFeed, likePost, repostPost, unbookmarkPost, unlikePost } from '../api/social';
+import { bookmarkPost, feedPostToPost, fetchSinglePost, likePost, repostPost, unbookmarkPost, unlikePost } from '../api/social';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
@@ -30,21 +30,10 @@ export function PostThreadPage() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetchHomeFeed(50);
-        const allPosts = response.feed.map(feedPostToPost);
-        const postResponse = allPosts.find((p) => p.id === id) ?? null;
-
-        if (!postResponse) {
-          if (!cancelled) {
-            setPost(null);
-            setReplies([]);
-            setError(null);
-          }
-          return;
-        }
-
-        const directReplies = allPosts
-          .filter((feedPost) => feedPost.reply_to === postResponse.id && feedPost.id !== postResponse.id)
+        const response = await fetchSinglePost(id);
+        const postResponse = feedPostToPost(response.post);
+        const directReplies = response.replies
+          .map(feedPostToPost)
           .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
 
         if (!cancelled) {
