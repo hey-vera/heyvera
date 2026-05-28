@@ -8,7 +8,16 @@ set -euo pipefail
 REPO_DIR="/home/guardian/claw-net"
 ENV_FILE="/etc/cortex/cortex.env"
 CORTEX_WWW="/var/www/cortex"
-MAX_WAIT=45
+MAX_WAIT=60
+
+# Auto-detect systemd service name (try cortex first, fall back to heyvera)
+if systemctl list-unit-files cortex.service &>/dev/null && systemctl cat cortex.service &>/dev/null; then
+  SVC_NAME="cortex"
+elif systemctl list-unit-files heyvera.service &>/dev/null && systemctl cat heyvera.service &>/dev/null; then
+  SVC_NAME="heyvera"
+else
+  SVC_NAME="heyvera"
+fi
 
 cd "$REPO_DIR"
 
@@ -111,8 +120,8 @@ if [ -f "$HOME/.cargo/env" ]; then
 fi
 cargo build --release -p cortex-api 2>&1 | tail -5
 
-# Stop the cortex service (and legacy heyvera if still running)
-for svc in cortex heyvera; do
+# Stop the service (and legacy name if still running)
+for svc in "$SVC_NAME" cortex heyvera; do
   if sudo systemctl is-active --quiet "$svc" 2>/dev/null; then
     sudo systemctl stop "$svc"
     echo "[svc] Stopped $svc"
@@ -140,8 +149,9 @@ if [ -f "$REPO_DIR/Caddyfile" ]; then
 fi
 
 # ── start + health ───────────────────────────
-sudo systemctl start cortex
-echo "[svc] Started cortex"
+echo "[svc] Using service: $SVC_NAME"
+sudo systemctl start "$SVC_NAME"
+echo "[svc] Started $SVC_NAME"
 echo -n "[health] Waiting"
 HEALTHY=false
 for _ in $(seq 1 "$MAX_WAIT"); do
@@ -158,10 +168,13 @@ if $HEALTHY; then
   echo ""
   echo "  ✓ Cortex deployed — $BRANCH @ $COMMIT"
   echo "    https://cortex.heyvera.org"
-  echo "    Logs: sudo journalctl -u cortex -f"
+  echo "    Logs: sudo journalctl -u $SVC_NAME -f"
   echo ""
 else
-  echo "[fail] Health check failed. Recent logs:"
-  sudo journalctl -u heyvera --no-pager -n 20
+  echo "[fail] Health check failed after ${MAX_WAIT}s. Recent logs:"
+  sudo journalctl -u "$SVC_NAME" --no-pager -n 30
+  echo ""
+  echo "[fail] Service status:"
+  sudo systemctl status "$SVC_NAME" --no-pager 2>&1 || true
   exit 1
 fi
