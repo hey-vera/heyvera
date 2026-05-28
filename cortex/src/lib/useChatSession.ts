@@ -20,6 +20,14 @@ import {
   type ConversationMessage,
 } from './cortexApi';
 import { createImplementationMessage } from './projectImplementation';
+// TODO: Implement workspace routing integration
+// import {
+//   getWorkspaceContext,
+//   getWorkspaceUserId,
+//   getWorkspaceRoutingPreferences,
+//   shouldRouteToWorkspace,
+//   getWorkspaceStatusMessage
+// } from './workspaceRouting';
 
 function createId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -520,14 +528,18 @@ export function useChatSession({
 
         if (requestVersionRef.current !== streamVersion) return;
 
+        const workspacePreferences = undefined;
+        const routingContext = {
+          controls: sessionControls,
+          run_profile: runProfile,
+          sovereignty,
+          routing_preferences: workspacePreferences,
+        };
+
         const controller = streamChat(
           text,
           [],
-          {
-            controls: sessionControls,
-            run_profile: runProfile,
-            sovereignty,
-          },
+          routingContext,
           (event) => {
             if (requestVersionRef.current !== streamVersion) return;
 

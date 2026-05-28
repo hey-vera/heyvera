@@ -77,8 +77,10 @@ fn system_prompt_for_intent(intent: Option<cortex_core::routing::Intent>) -> &'s
 }
 
 /// Determine the best available provider path for a user.
-/// Priority: BYOS subscription (CLI) > BYOK API key > None
+/// Priority: Workspace (isolated) > BYOS subscription (CLI) > BYOK API key > None
 enum ProviderPath {
+    /// Workspace: route to user's isolated Replit workspace
+    Workspace { workspace_id: String },
     /// BYOS: authenticated subscription via CLI tool on the server
     Subscription { provider: Provider, model: String },
     /// BYOK: raw API key (use cheap model by default)
@@ -101,6 +103,14 @@ fn byok_model(provider: &Provider, tier: Option<&str>) -> String {
 }
 
 async fn resolve_provider(state: &AppState, user_id: &str, model_tier: Option<&str>) -> ProviderPath {
+    // 0. Check if this is a workspace request (workspace:{workspace_id})
+    if user_id.starts_with("workspace:") {
+        let workspace_id = &user_id[10..]; // Remove "workspace:" prefix
+        return ProviderPath::Workspace {
+            workspace_id: workspace_id.to_string(),
+        };
+    }
+
     // 1. Check for BYOS subscription auth (server-side CLI)
     let providers = state.providers.read().await;
     let has_claude = providers.iter().any(|p| p.provider == cortex_core::provider::ProviderId::Claude && p.authenticated);
@@ -168,6 +178,58 @@ pub async fn chat(
     let provider_path = resolve_provider(&state, &user.user_id, model_tier).await;
 
     match provider_path {
+        ProviderPath::Workspace { workspace_id } => {
+            let system_prompt = system_prompt_for_intent(intent).to_string();
+            let user_message = req.message.clone();
+            let state_clone = state.clone();
+            let user_id = user.user_id.clone();
+            let conv_id = req.conversation_id.clone();
+
+            state.vera_tracker.record_conversation(&user.user_id);
+            if let Some(i) = intent {
+                state.vera_tracker.record_routed(&user.user_id, i);
+            }
+
+            if let (Some(db), Some(cid)) = (&state.db, &conv_id) {
+                db.add_message(cid, "user", &user_message, None, None);
+            }
+
+            tokio::spawn(async move {
+                let _ = tx.send(StepEvent::Started {
+                    step_id: "workspace-chat".into(),
+                    provider: "replit".into(),
+                    model: workspace_id.clone(),
+                }).await;
+
+                // Route to workspace instead of CLI
+                match route_to_workspace(&state_clone, &workspace_id, &system_prompt, &user_message).await {
+                    Ok(response) => {
+                        let _ = tx.send(StepEvent::Output {
+                            step_id: "workspace-chat".into(),
+                            line: response,
+                        }).await;
+
+                        let _ = tx.send(StepEvent::Completed {
+                            step_id: "workspace-chat".into(),
+                            exit_code: 0,
+                        }).await;
+                    }
+                    Err(error) => {
+                        let _ = tx.send(StepEvent::Failed {
+                            step_id: "workspace-chat".into(),
+                            error,
+                        }).await;
+                    }
+                }
+
+                if let (Some(db), Some(cid)) = (&state_clone.db, &conv_id) {
+                    // For now, just acknowledge the workspace routing
+                    let response = format!("Routed to workspace: {}", workspace_id);
+                    db.add_message(cid, "assistant", &response, Some("replit"), None);
+                }
+            });
+        }
+
         ProviderPath::Subscription { provider, model } => {
             let system_prompt = system_prompt_for_intent(intent).to_string();
             let user_message = req.message.clone();
@@ -552,4 +614,33 @@ fn extract_options_from_response(message: &str) -> Vec<ChatOption> {
         }
     }
     options
+}
+
+// --- Workspace Routing ---
+
+async fn route_to_workspace(
+    state: &Arc<AppState>,
+    workspace_id: &str,
+    system_prompt: &str,
+    user_message: &str,
+) -> Result<String, String> {
+    // TODO: Implement actual workspace communication
+    // This would connect to the Replit workspace and execute commands there
+
+    // For now, return a workspace-aware response
+    Ok(format!(
+        "🔧 **Workspace Mode** (Replit: `{}`)\n\n\
+         I received your message: \"{}\"\n\n\
+         *This workspace is isolated from the shared VPS and has access to your \
+         authenticated Claude/OpenAI subscriptions. Full workspace execution \
+         is being implemented.*\n\n\
+         **System Context**: {}\n\n\
+         Next steps:\n\
+         - Connect to workspace runtime\n\
+         - Execute commands in workspace environment\n\
+         - Stream results back to frontend",
+        workspace_id,
+        user_message,
+        system_prompt.split('\n').next().unwrap_or(system_prompt)
+    ))
 }

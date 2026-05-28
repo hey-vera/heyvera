@@ -26,6 +26,7 @@ mod pulse;
 pub mod notifications;
 // mod orchestrator; // removed for Context-Flow Pipeline deployment
 mod ratelimit;
+pub mod replit;
 pub mod storage;
 pub mod routes;
 mod run_payload;
@@ -296,6 +297,11 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // API Keys (BYOK) — rate-limited
         .route("/api/keys", get(api_keys::list_api_keys))
         .route("/api/keys/{provider}", put(api_keys::save_api_key).delete(api_keys::delete_api_key))
+        // Project Workspaces (Replit integration) — rate-limited
+        .route("/api/projects", get(replit::list_projects).post(replit::create_project))
+        .route("/api/projects/import", post(replit::import_project))
+        .route("/api/projects/{id}", get(replit::get_project).delete(replit::delete_project))
+        .route("/api/projects/{id}/chat", post(replit::proxy_chat_to_workspace))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             ratelimit::rate_limit_middleware,

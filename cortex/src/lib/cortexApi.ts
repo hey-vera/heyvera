@@ -147,7 +147,7 @@ function dispatchUnauthorized() {
   }
 }
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
+export async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await authedFetch(apiUrl(path), init);
   if (!res.ok) {
     if (res.status === 401) dispatchUnauthorized();
@@ -183,6 +183,7 @@ export function streamChat(
     controls: ChatSessionControls;
     run_profile: RunProfile;
     sovereignty: SovereigntyLoopState;
+    routing_preferences?: any;
   } | null,
   onEvent: (event: WorkerEvent) => void,
   onDone: () => void,
@@ -199,7 +200,10 @@ export function streamChat(
           body: JSON.stringify({
             message,
             file_paths: filePaths,
-            routing_context: routingContext,
+            routing_context: routingContext?.routing_preferences ? {
+              ...routingContext,
+              routing_preferences: routingContext.routing_preferences,
+            } : routingContext,
           }),
           signal: controller.signal,
         });

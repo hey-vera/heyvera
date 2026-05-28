@@ -53,6 +53,7 @@ import OperationsRoom from './components/operations/OperationsRoom';
 import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import NotFoundPage from './components/NotFoundPage';
 import ProjectsView from './components/project/ProjectsView';
+import ReplitProjects from './components/ReplitProjects';
 import {
   AUTH_CHANNEL_NAME,
   CortexApiError,
@@ -1063,6 +1064,7 @@ export default function App() {
         <Route path="/app/groups/:groupId/operations" element={<OperationsRoom />} />
         <Route path="/projects" element={<ProjectsView />} />
         <Route path="/projects/:projectId" element={<ProjectsView />} />
+        <Route path="/replit-projects" element={<ReplitProjects />} />
         {/* Legacy redirects */}
         <Route path="/groups/:groupId/tasks" element={<LegacyGroupRedirect />} />
         <Route path="*" element={<NotFoundPage />} />

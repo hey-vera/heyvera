@@ -424,6 +424,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 36 {
         migrate_v36(conn);
     }
+    if current < 37 {
+        migrate_v37(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -1784,6 +1787,30 @@ fn migrate_v36(conn: &Connection) {
         UPDATE schema_version SET version = 36;"
     ).expect("migration v36 failed");
     tracing::info!("applied migration v36: cost tracking tables (user_budgets, cost_sessions, cost_warnings)");
+}
+
+fn migrate_v37(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS project_workspaces (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            project_name TEXT NOT NULL,
+            workspace_id TEXT NOT NULL,
+            workspace_url TEXT NOT NULL,
+            chat_endpoint TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'creating',
+            metadata TEXT
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_project_workspaces_user ON project_workspaces(user_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_project_workspaces_workspace ON project_workspaces(workspace_id);
+        CREATE INDEX IF NOT EXISTS idx_project_workspaces_status ON project_workspaces(status);
+
+        UPDATE schema_version SET version = 37;"
+    ).expect("migration v37 failed");
+    tracing::info!("applied migration v37: project_workspaces table for Replit integration");
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -10420,6 +10447,179 @@ impl Database {
         }
         tracing::info!(method = "social_get_post_by_id", duration_ms = _t.elapsed().as_millis(), "db query");
         Some(post)
+    }
+
+    pub fn social_get_post_replies(
+        &self,
+        post_id: &str,
+        viewer_profile_id: Option<&str>,
+    ) -> Vec<serde_json::Value> {
+        let _t = std::time::Instant::now();
+        let conn = self.conn.lock().unwrap();
+
+        let mut stmt = conn.prepare(
+            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                    sp.created_at, sp.updated_at,
+                    p.handle, p.display_name, p.avatar_url,
+                    la.agent_name, la.agent_slug
+             FROM social_posts sp
+             JOIN social_profiles p ON p.id = sp.profile_id
+             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+             WHERE sp.reply_to_post_id = ?1 AND sp.deleted_at IS NULL
+             ORDER BY sp.created_at ASC"
+        ).unwrap();
+
+        let rows = stmt.query_map([post_id], |row| {
+            let agent_name: Option<String> = row.get(14)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proof_state": row.get::<_, String>(5)?,
+                "author_mode": row.get::<_, String>(6)?,
+                "reply_to_post_id": row.get::<_, Option<String>>(7)?,
+                "quote_post_id": row.get::<_, Option<String>>(8)?,
+                "created_at": row.get::<_, String>(9)?,
+                "updated_at": row.get::<_, String>(10)?,
+                "author": {
+                    "profile_id": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "display_name": row.get::<_, String>(12)?,
+                    "avatar_url": row.get::<_, Option<String>>(13)?
+                },
+                "agent": agent_name.map(|name| serde_json::json!({
+                    "name": name,
+                    "slug": row.get::<_, Option<String>>(15)?
+                }))
+            }))
+        }).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+
+        // Add engagement data for each reply
+        let count_likes = |post_id: &str| -> i64 {
+            conn.query_row("SELECT COUNT(*) FROM social_likes WHERE post_id = ?1", [post_id], |r| r.get(0)).unwrap_or(0)
+        };
+        let count_reposts = |post_id: &str| -> i64 {
+            conn.query_row("SELECT COUNT(*) FROM social_reposts WHERE post_id = ?1", [post_id], |r| r.get(0)).unwrap_or(0)
+        };
+        let count_bookmarks = |post_id: &str| -> i64 {
+            conn.query_row("SELECT COUNT(*) FROM social_bookmarks WHERE post_id = ?1", [post_id], |r| r.get(0)).unwrap_or(0)
+        };
+        let count_replies = |post_id: &str| -> i64 {
+            conn.query_row("SELECT COUNT(*) FROM social_posts WHERE reply_to_post_id = ?1 AND deleted_at IS NULL", [post_id], |r| r.get(0)).unwrap_or(0)
+        };
+
+        let mut results: Vec<serde_json::Value> = rows.into_iter().map(|mut reply| {
+            let reply_id = reply["id"].as_str().unwrap();
+            let like_count = count_likes(reply_id);
+            let repost_count = count_reposts(reply_id);
+            let bookmark_count = count_bookmarks(reply_id);
+            let reply_count = count_replies(reply_id);
+
+            if let Some(m) = reply.as_object_mut() {
+                m.insert("likeCount".into(), serde_json::json!(like_count));
+                m.insert("repostCount".into(), serde_json::json!(repost_count));
+                m.insert("bookmarkCount".into(), serde_json::json!(bookmark_count));
+                m.insert("replyCount".into(), serde_json::json!(reply_count));
+
+                // Check viewer engagement if viewer is provided
+                if let Some(viewer_id) = viewer_profile_id {
+                    let liked = conn.query_row(
+                        "SELECT 1 FROM social_likes WHERE profile_id = ?1 AND post_id = ?2",
+                        [viewer_id, reply_id], |_| Ok(())
+                    ).is_ok();
+                    let bookmarked = conn.query_row(
+                        "SELECT 1 FROM social_bookmarks WHERE profile_id = ?1 AND post_id = ?2",
+                        [viewer_id, reply_id], |_| Ok(())
+                    ).is_ok();
+                    let reposted = conn.query_row(
+                        "SELECT 1 FROM social_reposts WHERE profile_id = ?1 AND post_id = ?2",
+                        [viewer_id, reply_id], |_| Ok(())
+                    ).is_ok();
+
+                    m.insert("liked".into(), serde_json::json!(liked));
+                    m.insert("bookmarked".into(), serde_json::json!(bookmarked));
+                    m.insert("reposted".into(), serde_json::json!(reposted));
+                } else {
+                    m.insert("liked".into(), serde_json::json!(false));
+                    m.insert("bookmarked".into(), serde_json::json!(false));
+                    m.insert("reposted".into(), serde_json::json!(false));
+                }
+            }
+            reply
+        }).collect();
+
+        tracing::info!(method = "social_get_post_replies", duration_ms = _t.elapsed().as_millis(), row_count = results.len(), "db query");
+        results
+    }
+
+    /// Enrich a list of feed posts with engagement counts and viewer state.
+    /// Call this on the Vec returned by any social_list_feed_posts* or social_get_*_feed function.
+    pub fn social_enrich_feed_posts(
+        &self,
+        posts: &mut [serde_json::Value],
+        viewer_profile_id: Option<&str>,
+    ) {
+        let conn = self.conn.lock().unwrap();
+        for post in posts.iter_mut() {
+            let post_id = match post["id"].as_str() {
+                Some(id) => id.to_string(),
+                None => continue,
+            };
+
+            let like_count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM social_likes WHERE post_id = ?1", [&post_id], |r| r.get(0),
+            ).unwrap_or(0);
+            let repost_count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM social_reposts WHERE post_id = ?1", [&post_id], |r| r.get(0),
+            ).unwrap_or(0);
+            let bookmark_count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM social_bookmarks WHERE post_id = ?1", [&post_id], |r| r.get(0),
+            ).unwrap_or(0);
+            let reply_count: i64 = conn.query_row(
+                "SELECT COUNT(*) FROM social_posts WHERE reply_to_post_id = ?1 AND deleted_at IS NULL", [&post_id], |r| r.get(0),
+            ).unwrap_or(0);
+
+            // Also fetch avatar_url for the author
+            let profile_id_str = post["author"]["profileId"].as_str().unwrap_or("").to_string();
+            let avatar_url: Option<String> = conn.query_row(
+                "SELECT avatar_url FROM social_profiles WHERE id = ?1", [&profile_id_str], |r| r.get(0),
+            ).unwrap_or(None);
+
+            if let Some(m) = post.as_object_mut() {
+                m.insert("likeCount".into(), serde_json::json!(like_count));
+                m.insert("repostCount".into(), serde_json::json!(repost_count));
+                m.insert("bookmarkCount".into(), serde_json::json!(bookmark_count));
+                m.insert("replyCount".into(), serde_json::json!(reply_count));
+
+                // Inject avatar_url into author
+                if let Some(author) = m.get_mut("author").and_then(|a| a.as_object_mut()) {
+                    author.insert("avatar_url".into(), serde_json::json!(avatar_url));
+                }
+
+                if let Some(viewer_id) = viewer_profile_id {
+                    let liked = conn.query_row(
+                        "SELECT 1 FROM social_likes WHERE profile_id = ?1 AND post_id = ?2",
+                        [viewer_id, &post_id], |_| Ok(())
+                    ).is_ok();
+                    let bookmarked = conn.query_row(
+                        "SELECT 1 FROM social_bookmarks WHERE profile_id = ?1 AND post_id = ?2",
+                        [viewer_id, &post_id], |_| Ok(())
+                    ).is_ok();
+                    let reposted = conn.query_row(
+                        "SELECT 1 FROM social_reposts WHERE profile_id = ?1 AND post_id = ?2",
+                        [viewer_id, &post_id], |_| Ok(())
+                    ).is_ok();
+                    m.insert("liked".into(), serde_json::json!(liked));
+                    m.insert("bookmarked".into(), serde_json::json!(bookmarked));
+                    m.insert("reposted".into(), serde_json::json!(reposted));
+                } else {
+                    m.insert("liked".into(), serde_json::json!(false));
+                    m.insert("bookmarked".into(), serde_json::json!(false));
+                    m.insert("reposted".into(), serde_json::json!(false));
+                }
+            }
+        }
     }
 
     pub fn social_get_following_feed(
