@@ -200,43 +200,65 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
       style={{ borderColor: 'var(--border-primary)' }}
     >
       {/* Avatar */}
-      <div className="shrink-0">
+      <button
+        type="button"
+        className="shrink-0"
+        onClick={() => navigate(`/profile/${post.author.handle}`)}
+        style={{ background: 'transparent', border: 'none', padding: 0 }}
+      >
         {post.author.avatar_url ? (
           <img
             src={post.author.avatar_url}
             alt={post.author.display_name}
-            className="h-10 w-10 rounded-full object-cover"
+            className="h-10 w-10 rounded-full object-cover hover:brightness-90 transition-all"
             style={{ backgroundColor: 'var(--border-primary)' }}
           />
         ) : (
           <div
-            className="flex h-10 w-10 items-center justify-center rounded-full text-sm"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-sm hover:brightness-90 transition-all"
             style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
           >
             {post.author.display_name.charAt(0)}
           </div>
         )}
-      </div>
+      </button>
 
       {/* Content */}
       <div className="min-w-0 flex-1">
         {/* Header: name, handle, timestamp */}
         <div className="flex items-center gap-1 text-[15px] leading-5">
-          <span className="truncate font-bold" style={{ color: 'var(--text-primary)' }}>
+          <button
+            type="button"
+            className="truncate font-bold hover:underline"
+            style={{ color: 'var(--text-primary)', background: 'transparent', border: 'none', padding: 0 }}
+            onClick={() => navigate(`/profile/${post.author.handle}`)}
+          >
             {post.author.display_name}
-          </span>
+          </button>
           {post.author.verified && (
             <span className="shrink-0 text-xs" style={{ color: 'var(--accent)' }}>✓</span>
           )}
-          <span className="truncate" style={{ color: 'var(--text-secondary)' }}>@{post.author.handle}</span>
+          <button
+            type="button"
+            className="truncate hover:underline"
+            style={{ color: 'var(--text-secondary)', background: 'transparent', border: 'none', padding: 0 }}
+            onClick={() => navigate(`/profile/${post.author.handle}`)}
+          >
+            @{post.author.handle}
+          </button>
           <span className="shrink-0" style={{ color: 'var(--text-secondary)' }}>·</span>
           <span className="shrink-0" style={{ color: 'var(--text-secondary)' }}>{relativeTime(post.created_at)}</span>
         </div>
 
         {/* Body */}
-        <p className="mt-0.5 whitespace-pre-wrap break-words text-[15px] leading-5" style={{ color: 'var(--text-primary)' }}>
+        <button
+          type="button"
+          className="mt-0.5 w-full text-left whitespace-pre-wrap break-words text-[15px] leading-5 hover:bg-opacity-5 hover:bg-gray-500 rounded p-1 -m-1 transition-colors"
+          style={{ color: 'var(--text-primary)', background: 'transparent', border: 'none' }}
+          onClick={() => navigate(`/post/${post.id}`)}
+        >
           {post.content}
-        </p>
+        </button>
 
         {/* Media */}
         {post.media && post.media.length > 0 && (
