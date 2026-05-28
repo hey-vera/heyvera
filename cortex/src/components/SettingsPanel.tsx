@@ -7,8 +7,12 @@ import {
   submitAuthCode,
   deleteCredential,
   setDefaultCredential,
+  assignCredential,
+  listCredentialAssignments,
+  removeCredentialAssignment,
   type BillingStatus,
   type ProviderAuthInfo,
+  type CredentialAssignment,
 } from '../lib/cortexApi';
 import BillingPage from './billing/BillingPage';
 import SpendDashboard from './spend/SpendDashboard';
@@ -338,6 +342,15 @@ function CredentialsTab() {
   const [authInfo, setAuthInfo] = useState<{ auth_url?: string; message?: string } | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // Assignments state
+  const [assignments, setAssignments] = useState<CredentialAssignment[]>([]);
+  const [assignmentsLoading, setAssignmentsLoading] = useState(true);
+  const [showAssignForm, setShowAssignForm] = useState(false);
+  const [assignCredId, setAssignCredId] = useState('');
+  const [assignTargetType, setAssignTargetType] = useState('project');
+  const [assignTargetId, setAssignTargetId] = useState('');
+  const [assignSubmitting, setAssignSubmitting] = useState(false);
+
   const fetchCredentials = useCallback(async () => {
     try {
       const creds = await getAuthStatus();
@@ -349,9 +362,22 @@ function CredentialsTab() {
     }
   }, []);
 
+  const fetchAssignments = useCallback(async () => {
+    setAssignmentsLoading(true);
+    try {
+      const list = await listCredentialAssignments();
+      setAssignments(list);
+    } catch {
+      // silent — assignments are optional
+    } finally {
+      setAssignmentsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     fetchCredentials();
-  }, [fetchCredentials]);
+    fetchAssignments();
+  }, [fetchCredentials, fetchAssignments]);
 
   const handleDelete = async (credentialId: string) => {
     try {
@@ -419,6 +445,32 @@ function CredentialsTab() {
     setLabelInput('');
     setAuthInfo(null);
     setError(null);
+  };
+
+  const handleAssign = async () => {
+    if (!assignCredId) return;
+    setAssignSubmitting(true);
+    try {
+      await assignCredential(assignCredId, assignTargetType, assignTargetId.trim() || undefined);
+      setShowAssignForm(false);
+      setAssignCredId('');
+      setAssignTargetType('project');
+      setAssignTargetId('');
+      await fetchAssignments();
+    } catch {
+      setError('Failed to create assignment');
+    } finally {
+      setAssignSubmitting(false);
+    }
+  };
+
+  const handleRemoveAssignment = async (assignmentId: string) => {
+    try {
+      await removeCredentialAssignment(assignmentId);
+      await fetchAssignments();
+    } catch {
+      setError('Failed to remove assignment');
+    }
   };
 
   if (loading) {
@@ -600,6 +652,115 @@ function CredentialsTab() {
                 {submitting ? 'Saving...' : 'Save Credential'}
               </button>
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Assignments section */}
+      <div className="border-t border-white/8 pt-4">
+        <div className="flex items-center justify-between mb-3">
+          <h4 className="text-sm font-medium text-white">Assignments</h4>
+          {!showAssignForm && credentials.length > 0 && (
+            <button
+              onClick={() => {
+                setShowAssignForm(true);
+                setAssignCredId(credentials[0]?.credential_id ?? '');
+              }}
+              className="rounded px-2 py-1 text-xs bg-white/6 text-[var(--muted)] hover:text-white transition"
+            >
+              + Assign
+            </button>
+          )}
+        </div>
+        <p className="text-xs text-[var(--muted)] mb-3">
+          Assign credentials to projects or teams so they can use a specific provider account.
+        </p>
+
+        {showAssignForm && (
+          <div className="rounded-lg border border-white/8 bg-white/[0.02] p-3 mb-3 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-medium text-white">New assignment</span>
+              <button
+                onClick={() => setShowAssignForm(false)}
+                className="text-xs text-[var(--muted)] hover:text-white"
+              >
+                Cancel
+              </button>
+            </div>
+            <select
+              value={assignCredId}
+              onChange={(e) => setAssignCredId(e.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-[var(--composer)] px-3 py-2 text-sm text-white focus:border-[var(--accent)]/50 focus:outline-none"
+            >
+              {credentials.map((c) => (
+                <option key={c.credential_id} value={c.credential_id}>
+                  {c.label || `${c.provider} ${c.credential_type}`}
+                </option>
+              ))}
+            </select>
+            <select
+              value={assignTargetType}
+              onChange={(e) => setAssignTargetType(e.target.value)}
+              className="w-full rounded-lg border border-white/10 bg-[var(--composer)] px-3 py-2 text-sm text-white focus:border-[var(--accent)]/50 focus:outline-none"
+            >
+              <option value="project">Project</option>
+              <option value="team">Team</option>
+              <option value="global">Global (all)</option>
+            </select>
+            {assignTargetType !== 'global' && (
+              <input
+                type="text"
+                value={assignTargetId}
+                onChange={(e) => setAssignTargetId(e.target.value)}
+                placeholder={`${assignTargetType === 'project' ? 'Project' : 'Team'} ID`}
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
+              />
+            )}
+            <button
+              onClick={handleAssign}
+              disabled={assignSubmitting || !assignCredId || (assignTargetType !== 'global' && !assignTargetId.trim())}
+              className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition disabled:opacity-50"
+            >
+              {assignSubmitting ? 'Assigning...' : 'Save Assignment'}
+            </button>
+          </div>
+        )}
+
+        {assignmentsLoading ? (
+          <div className="flex items-center gap-2 py-4 text-xs text-[var(--muted)]">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+            Loading assignments...
+          </div>
+        ) : assignments.length === 0 ? (
+          <div className="rounded-lg border border-white/8 bg-white/[0.02] px-4 py-4 text-center text-xs text-[var(--muted)]">
+            No assignments yet.
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {assignments.map((a) => {
+              const cred = credentials.find((c) => c.credential_id === a.credential_id);
+              const credLabel = cred ? (cred.label || `${cred.provider} ${cred.credential_type}`) : a.credential_id.slice(0, 8);
+              return (
+                <div
+                  key={a.id}
+                  className="flex items-center justify-between rounded-lg border border-white/8 bg-white/[0.02] px-4 py-2.5"
+                >
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-sm text-white">{credLabel}</span>
+                    <span className="text-xs text-[var(--muted)]">
+                      {a.target_type}{a.target_id ? ` — ${a.target_id}` : ''}
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => handleRemoveAssignment(a.id)}
+                    className="rounded p-1.5 text-[var(--muted)] hover:bg-white/8 hover:text-red-400 transition"
+                    title="Remove assignment"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

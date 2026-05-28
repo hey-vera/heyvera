@@ -2190,3 +2190,42 @@ export async function deleteApiKey(provider: string): Promise<void> {
     method: 'DELETE',
   });
 }
+
+// --- Credential Assignments ---
+
+export interface CredentialAssignment {
+  id: string;
+  credential_id: string;
+  user_id: string;
+  target_type: string;
+  target_id: string | null;
+  permissions: Record<string, unknown> | null;
+  created_at: string;
+}
+
+export async function assignCredential(
+  credentialId: string,
+  targetType: string,
+  targetId?: string,
+  permissions?: Record<string, unknown>,
+): Promise<CredentialAssignment> {
+  return requestJson<CredentialAssignment>('/api/credentials/assign', {
+    method: 'POST',
+    body: JSON.stringify({
+      credential_id: credentialId,
+      target_type: targetType,
+      target_id: targetId ?? null,
+      permissions: permissions ?? null,
+    }),
+  });
+}
+
+export async function listCredentialAssignments(): Promise<CredentialAssignment[]> {
+  return requestJson<CredentialAssignment[]>('/api/credentials/assignments');
+}
+
+export async function removeCredentialAssignment(assignmentId: string): Promise<{ deleted: boolean }> {
+  return requestJson<{ deleted: boolean }>(`/api/credentials/assignments/${encodeURIComponent(assignmentId)}`, {
+    method: 'DELETE',
+  });
+}
