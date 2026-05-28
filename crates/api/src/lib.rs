@@ -37,6 +37,7 @@ pub mod soma;
 mod soma_bridge;
 mod sse;
 pub mod state;
+pub mod token_refresh;
 pub mod stripe_client;
 mod usage_api;
 mod user;
@@ -343,7 +344,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/deployment/status", get(deploy_status::deploy_status))
         .route("/api/deployment/events", get(deploy_status::deployment_events))
         .route("/api/deployment/adapters", get(routes::get_deployment_adapters))
-        .route("/api/auth/status", get(auth::auth_status))
+        // auth/status moved to protected layer (requires ClerkUser)
         // Soma identity (public — lets clients discover Cortex's DID)
         .route("/api/soma/identity", get(soma_identity))
         // Vera observation layer — live network state
@@ -408,9 +409,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Protected — lightweight
         .route("/api/providers", get(routes::get_providers))
         .route("/api/ledger", get(routes::get_ledger))
+        .route("/api/auth/status", get(auth::auth_status))
         .route("/api/auth/start", post(auth::auth_start))
         .route("/api/auth/submit", post(auth::auth_submit))
         .route("/api/auth/refresh", post(auth::auth_refresh))
+        .route("/api/auth/credential/delete", post(auth::credential_delete))
+        .route("/api/auth/credential/default", post(auth::credential_set_default))
         // Conversations (reads)
         .route("/api/conversations", get(conversations::list_conversations))
         .route("/api/conversations/{id}", get(conversations::get_conversation))

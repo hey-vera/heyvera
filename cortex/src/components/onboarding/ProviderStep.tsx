@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { CheckCircle, Copy, ExternalLink, Loader2, XCircle } from 'lucide-react';
+import { CheckCircle, Copy, ExternalLink, Loader2, Star, Trash2, XCircle } from 'lucide-react';
 import {
   getAuthStatus,
   getProviders,
   startAuth,
   submitAuthCode,
   refreshAuth,
+  deleteCredential,
+  setDefaultCredential,
   type ProviderAuthInfo,
 } from '../../lib/cortexApi';
 
@@ -112,7 +114,7 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
     updateState(provider, { phase: 'starting', error: null });
 
     try {
-      const result = await startAuth(provider);
+      const result = await startAuth(provider, 'subscription');
       if (result.auth_url) {
         if (isDeviceCodeFlow(provider) && result.device_code) {
           updateState(provider, {
@@ -153,7 +155,7 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
     updateState(provider, { phase: 'submitting', error: null });
 
     try {
-      const result = await submitAuthCode(provider, code);
+      const result = await submitAuthCode(provider, code, `${providerLabel(provider)} subscription`, 'subscription');
       if (result.success) {
         updateState(provider, { ...INITIAL_STATE });
         const status = await refreshAuth();
@@ -194,13 +196,35 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
     }
   };
 
+  const handleDelete = async (credentialId: string) => {
+    try {
+      await deleteCredential(credentialId);
+      await fetchStatus();
+    } catch {
+      // silently fail, fetchStatus will show current state
+    }
+  };
+
+  const handleSetDefault = async (credentialId: string) => {
+    try {
+      await setDefaultCredential(credentialId);
+      await fetchStatus();
+    } catch {
+      // silently fail
+    }
+  };
+
   const displayProviders = providers.length > 0
     ? providers
     : availableProviders.map((provider) => ({
         provider: provider.provider,
+        credential_type: 'subscription',
+        label: null,
         authenticated: false,
         email: null,
-        subscription: null,
+        is_default: false,
+        credential_id: '',
+        status: 'active',
       }));
   const anyAuthed = providers.some((p) => p.authenticated);
 
@@ -259,10 +283,17 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
                       {providerLabel(p.provider)}
                     </div>
                     {p.authenticated ? (
-                      <div className="flex items-center gap-1 text-xs text-emerald-300">
+                      <div className="flex items-center gap-1.5 text-xs text-emerald-300">
                         <CheckCircle className="h-3 w-3" />
-                        {p.email ?? 'Connected'}
-                        {p.subscription ? ` · ${p.subscription}` : ''}
+                        {p.label ?? p.email ?? 'Connected'}
+                        <span className="rounded-full border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] capitalize text-emerald-400">
+                          {p.credential_type}
+                        </span>
+                        {p.is_default && (
+                          <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-400">
+                            default
+                          </span>
+                        )}
                       </div>
                     ) : (
                       <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
@@ -277,6 +308,27 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
                     <span className="rounded-full border border-white/8 bg-white/4 px-2 py-0.5 text-[10px] capitalize text-[var(--muted)]">
                       {availability.available ? availability.health : 'unavailable'}
                     </span>
+                  )}
+
+                  {p.authenticated && p.credential_id && (
+                    <>
+                      {!p.is_default && (
+                        <button
+                          onClick={() => handleSetDefault(p.credential_id)}
+                          title="Set as default"
+                          className="rounded-lg border border-white/8 bg-white/4 p-1.5 text-[var(--muted)] transition hover:text-amber-400"
+                        >
+                          <Star className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                      <button
+                        onClick={() => handleDelete(p.credential_id)}
+                        title="Remove credential"
+                        className="rounded-lg border border-white/8 bg-white/4 p-1.5 text-[var(--muted)] transition hover:text-red-400"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    </>
                   )}
 
                   {!p.authenticated && !isActive && (

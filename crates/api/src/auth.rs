@@ -4,39 +4,22 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use serde::{Deserialize, Serialize};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
-use tokio::process::Command;
-
-use cortex_core::provider::{ProviderId, ProviderStatus, Tier};
+use uuid::Uuid;
 
 use crate::clerk::ClerkUser;
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
 
-async fn require_admin(
-    state: &AppState,
-    user: &ClerkUser,
-) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    let provider_auth_enabled = std::env::var("CORTEX_PROVIDER_AUTH_ENABLED")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false);
-    if !provider_auth_enabled {
-        return Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "provider auth management is disabled".into(),
-            }),
-        ));
-    }
-    crate::admin::authorize_admin(state, user).await
-}
-
 #[derive(Serialize)]
 pub struct ProviderAuthInfo {
     pub provider: String,
+    pub credential_type: String,
+    pub label: Option<String>,
     pub authenticated: bool,
     pub email: Option<String>,
-    pub subscription: Option<String>,
+    pub is_default: bool,
+    pub credential_id: String,
+    pub status: String,
 }
 
 #[derive(Serialize)]
@@ -50,65 +33,101 @@ pub struct AuthStartResponse {
 #[derive(Deserialize)]
 pub struct AuthStartRequest {
     pub provider: String,
+    #[serde(default)]
+    pub credential_type: Option<String>,
 }
 
 #[derive(Deserialize)]
 pub struct AuthSubmitRequest {
     pub provider: String,
     pub code: String,
+    #[serde(default)]
+    pub label: Option<String>,
+    #[serde(default)]
+    pub credential_type: Option<String>,
 }
 
 #[derive(Serialize)]
 pub struct AuthSubmitResponse {
     pub success: bool,
     pub message: String,
+    pub credential_id: Option<String>,
 }
 
-pub async fn auth_status() -> Json<Vec<ProviderAuthInfo>> {
-    let mut results = Vec::new();
+#[derive(Deserialize)]
+pub struct CredentialDeleteRequest {
+    pub credential_id: String,
+}
 
-    if let Some(info) = check_claude_auth().await {
-        results.push(info);
-    } else {
-        results.push(ProviderAuthInfo {
-            provider: "claude".to_string(),
-            authenticated: false,
-            email: None,
-            subscription: None,
-        });
-    }
+#[derive(Deserialize)]
+pub struct SetDefaultRequest {
+    pub credential_id: String,
+}
 
-    if let Some(info) = check_codex_auth().await {
-        results.push(info);
-    } else {
-        results.push(ProviderAuthInfo {
-            provider: "openai".to_string(),
-            authenticated: false,
-            email: None,
-            subscription: None,
-        });
-    }
+pub async fn auth_status(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+) -> Json<Vec<ProviderAuthInfo>> {
+    let db = match &state.db {
+        Some(db) => db,
+        None => return Json(vec![]),
+    };
+
+    let creds = db.list_credentials(&user.user_id);
+    let results: Vec<ProviderAuthInfo> = creds
+        .into_iter()
+        .map(|c| ProviderAuthInfo {
+            provider: c.provider,
+            credential_type: c.credential_type,
+            label: c.label,
+            authenticated: c.status == "active",
+            email: c.email,
+            is_default: c.is_default,
+            credential_id: c.id,
+            status: c.status,
+        })
+        .collect();
 
     Json(results)
 }
 
 pub async fn auth_start(
-    State(state): State<Arc<AppState>>,
-    user: ClerkUser,
+    State(_state): State<Arc<AppState>>,
+    _user: ClerkUser,
     Json(req): Json<AuthStartRequest>,
 ) -> Result<Json<AuthStartResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_admin(&state, &user).await?;
     let provider = req.provider.to_lowercase();
+    let cred_type = req.credential_type.as_deref().unwrap_or("subscription");
 
-    match provider.as_str() {
-        "claude" => start_provider_auth(&state, "claude", "claude", &["auth", "login"]).await,
-        "openai" | "codex" => {
-            start_provider_auth(&state, "openai", "codex", &["login", "--device-auth"]).await
-        }
+    match (provider.as_str(), cred_type) {
+        ("claude", "subscription") => Ok(Json(AuthStartResponse {
+            provider: "claude".into(),
+            auth_url: Some("https://console.anthropic.com/settings/keys".into()),
+            device_code: None,
+            message: "Open the link and copy your session token or API key. Paste it in the next step.".into(),
+        })),
+        ("openai" | "codex", "subscription") => Ok(Json(AuthStartResponse {
+            provider: "openai".into(),
+            auth_url: Some("https://platform.openai.com/account/api-keys".into()),
+            device_code: None,
+            message: "Open the link to authorize. Copy the code shown and paste it in the next step.".into(),
+        })),
+        ("claude", "api_key") => Ok(Json(AuthStartResponse {
+            provider: "claude".into(),
+            auth_url: Some("https://console.anthropic.com/settings/keys".into()),
+            device_code: None,
+            message: "Create an API key at Anthropic Console and paste it in the next step.".into(),
+        })),
+        ("openai" | "codex", "api_key") => Ok(Json(AuthStartResponse {
+            provider: "openai".into(),
+            auth_url: Some("https://platform.openai.com/api-keys".into()),
+            device_code: None,
+            message: "Create an API key at OpenAI and paste it in the next step.".into(),
+        })),
         _ => Err((
             StatusCode::BAD_REQUEST,
             Json(ErrorResponse {
-                error: format!("unknown provider: {provider}"),
+                error: format!("unknown provider: {}", req.provider),
             }),
         )),
     }
@@ -119,74 +138,90 @@ pub async fn auth_submit(
     user: ClerkUser,
     Json(req): Json<AuthSubmitRequest>,
 ) -> Result<Json<AuthSubmitResponse>, (StatusCode, Json<ErrorResponse>)> {
-    require_admin(&state, &user).await?;
-    let provider = req.provider.to_lowercase();
-
-    let mut pending = state.pending_auths.write().await;
-    let stdin = pending.remove(&provider).ok_or_else(|| {
+    let db = state.db.as_ref().ok_or_else(|| {
         (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: format!("no pending auth for {provider}"),
-            }),
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: "database unavailable".into() }),
         )
     })?;
-    drop(pending);
 
-    let mut stdin = stdin;
-    let code_with_newline = format!("{}\n", req.code.trim());
-
-    stdin
-        .write_all(code_with_newline.as_bytes())
-        .await
-        .map_err(|e| {
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("failed to send code: {e}"),
-                }),
-            )
-        })?;
-
-    stdin.flush().await.ok();
-
-    // Give the CLI a moment to process
-    tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
-
-    // Check if auth succeeded
-    let authenticated = match provider.as_str() {
-        "claude" => check_claude_auth().await.is_some_and(|i| i.authenticated),
-        "openai" => check_codex_auth().await.is_some_and(|i| i.authenticated),
-        _ => false,
+    let provider = req.provider.to_lowercase();
+    let provider_normalized = match provider.as_str() {
+        "claude" | "anthropic" => "claude",
+        "openai" | "codex" => "openai",
+        other => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse { error: format!("unknown provider: {other}") }),
+            ));
+        }
     };
 
-    if authenticated {
-        // Update provider list
-        let mut providers = state.providers.write().await;
-        let all_tiers = vec![Tier::Search, Tier::Execute, Tier::Think];
-        let id = if provider == "claude" {
-            ProviderId::Claude
-        } else {
-            ProviderId::Openai
-        };
-
-        if !providers.iter().any(|p| p.provider == id) {
-            providers.push(ProviderStatus {
-                provider: id,
-                authenticated: true,
-                pressure: 0.0,
-                available_tiers: all_tiers,
-            });
-        }
+    let credential_type = req.credential_type.as_deref().unwrap_or("subscription");
+    let code = req.code.trim();
+    if code.is_empty() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse { error: "code cannot be empty".into() }),
+        ));
     }
 
+    // Build the data blob to encrypt
+    let data_to_encrypt = match credential_type {
+        "api_key" => code.to_string(),
+        "subscription" => {
+            serde_json::json!({
+                "auth_code": code,
+                "provider": provider_normalized,
+                "authed_at": chrono::Utc::now().timestamp(),
+            }).to_string()
+        }
+        _ => code.to_string(),
+    };
+
+    let encrypted = crate::crypto::encrypt(&data_to_encrypt).map_err(|e| {
+        tracing::error!("encryption failed: {e}");
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: "failed to encrypt credential".into() }),
+        )
+    })?;
+
+    let now = chrono::Utc::now().timestamp();
+    let cred_id = Uuid::new_v4().to_string();
+
+    let cred = crate::db::UserCredential {
+        id: cred_id.clone(),
+        user_id: user.user_id.clone(),
+        provider: provider_normalized.to_string(),
+        credential_type: credential_type.to_string(),
+        label: req.label.or_else(|| Some(format!("{} {}", provider_normalized, credential_type))),
+        email: None,
+        is_default: db.list_credentials(&user.user_id)
+            .iter()
+            .filter(|c| c.provider == provider_normalized)
+            .count() == 0,
+        status: "active".to_string(),
+        last_used_at: None,
+        token_expires_at: None,
+        created_at: now,
+        updated_at: now,
+    };
+
+    db.insert_credential_with_data(&cred, &encrypted);
+
+    tracing::info!(
+        user_id = %user.user_id,
+        provider = provider_normalized,
+        credential_type,
+        credential_id = %cred_id,
+        "credential stored"
+    );
+
     Ok(Json(AuthSubmitResponse {
-        success: authenticated,
-        message: if authenticated {
-            format!("{provider} connected successfully")
-        } else {
-            format!("Code submitted — verifying {provider} auth...")
-        },
+        success: true,
+        message: format!("{} {} connected successfully", provider_normalized, credential_type),
+        credential_id: Some(cred_id),
     }))
 }
 
@@ -194,327 +229,49 @@ pub async fn auth_refresh(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
 ) -> Result<Json<Vec<ProviderAuthInfo>>, (StatusCode, Json<ErrorResponse>)> {
-    require_admin(&state, &user).await?;
-    let mut providers = state.providers.write().await;
-    providers.clear();
-
-    let all_tiers = vec![Tier::Search, Tier::Execute, Tier::Think];
-
-    if check_claude_auth().await.is_some_and(|i| i.authenticated) {
-        providers.push(ProviderStatus {
-            provider: ProviderId::Claude,
-            authenticated: true,
-            pressure: 0.0,
-            available_tiers: all_tiers.clone(),
-        });
-    }
-
-    if check_codex_auth().await.is_some_and(|i| i.authenticated) {
-        providers.push(ProviderStatus {
-            provider: ProviderId::Openai,
-            authenticated: true,
-            pressure: 0.0,
-            available_tiers: all_tiers,
-        });
-    }
-
-    drop(providers);
-    Ok(auth_status().await)
+    Ok(auth_status(State(state), user).await)
 }
 
-async fn check_claude_auth() -> Option<ProviderAuthInfo> {
-    // Check CLI authentication first
-    if let Ok(output) = Command::new("claude")
-        .args(["auth", "status", "--json"])
-        .output()
-        .await
-    {
-        if output.status.success() {
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&stdout) {
-                let logged_in = v.get("loggedIn")?.as_bool().unwrap_or(false);
-                if logged_in {
-                    return Some(ProviderAuthInfo {
-                        provider: "claude".to_string(),
-                        authenticated: true,
-                        email: v
-                            .get("email")
-                            .and_then(|e| e.as_str())
-                            .map(|s| s.to_string()),
-                        subscription: v
-                            .get("subscriptionType")
-                            .and_then(|s| s.as_str())
-                            .map(|s| s.to_string()),
-                    });
-                }
-            }
-        }
-    }
+pub async fn credential_delete(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Json(req): Json<CredentialDeleteRequest>,
+) -> Result<Json<AuthSubmitResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: "database unavailable".into() }),
+        )
+    })?;
 
-    // Fall back to environment variable check
-    if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-        Some(ProviderAuthInfo {
-            provider: "claude".to_string(),
-            authenticated: true,
-            email: Some("environment-api-key@cortex.local".to_string()),
-            subscription: Some("api".to_string()),
-        })
-    } else {
-        Some(ProviderAuthInfo {
-            provider: "claude".to_string(),
-            authenticated: false,
-            email: None,
-            subscription: None,
-        })
-    }
-}
-
-async fn check_codex_auth() -> Option<ProviderAuthInfo> {
-    // Check CLI authentication first
-    if let Ok(output) = Command::new("codex")
-        .args(["login", "status"])
-        .output()
-        .await
-    {
-        let all_output = format!(
-            "{} {}",
-            String::from_utf8_lossy(&output.stdout),
-            String::from_utf8_lossy(&output.stderr)
-        );
-        if all_output.contains("Logged in") {
-            return Some(ProviderAuthInfo {
-                provider: "openai".to_string(),
-                authenticated: true,
-                email: None, // Codex CLI doesn't typically expose email
-                subscription: Some("pro".to_string()),
-            });
-        }
-    }
-
-    // Fall back to environment variable check
-    if std::env::var("OPENAI_API_KEY").is_ok() {
-        Some(ProviderAuthInfo {
-            provider: "openai".to_string(),
-            authenticated: true,
-            email: Some("environment-api-key@cortex.local".to_string()),
-            subscription: Some("api".to_string()),
-        })
-    } else {
-        Some(ProviderAuthInfo {
-            provider: "openai".to_string(),
-            authenticated: false,
-            email: None,
-            subscription: None,
-        })
-    }
-}
-
-async fn start_provider_auth(
-    state: &AppState,
-    provider_name: &str,
-    cmd: &str,
-    args: &[&str],
-) -> Result<Json<AuthStartResponse>, (StatusCode, Json<ErrorResponse>)> {
-    // Kill any existing pending auth for this provider
-    {
-        let mut pending = state.pending_auths.write().await;
-        pending.remove(provider_name);
-    }
-
-    let mut child = Command::new(cmd)
-        .args(args)
-        .env("NO_COLOR", "1")
-        .env("TERM", "dumb")
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::piped())
-        .stdin(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| {
-            tracing::error!("failed to spawn {cmd} {}: {e}", args.join(" "));
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: format!("{cmd} not found or failed to start — is it installed?"),
-                }),
-            )
-        })?;
-
-    // Take stdin before scanning output
-    let stdin = child.stdin.take();
-
-    // Scan stdout/stderr for URL and device code
-    let result = scan_for_auth_info(&mut child).await;
-
-    // Store stdin for later code submission
-    if let Some(stdin) = stdin {
-        let mut pending = state.pending_auths.write().await;
-        pending.insert(provider_name.to_string(), stdin);
-    }
-
-    // Let the child process keep running in background
-    tokio::spawn(async move {
-        let _ = child.wait().await;
-    });
-
-    if result.url.is_none() {
-        if let Some(err) = &result.error {
-            return Err((
-                StatusCode::BAD_GATEWAY,
-                Json(ErrorResponse { error: err.clone() }),
-            ));
-        }
-    }
-
-    Ok(Json(AuthStartResponse {
-        provider: provider_name.to_string(),
-        auth_url: result.url.clone(),
-        device_code: result.code,
-        message: if result.url.is_some() {
-            format!("Open the link, authorize, and paste the code below")
+    let deleted = db.delete_credential(&user.user_id, &req.credential_id);
+    Ok(Json(AuthSubmitResponse {
+        success: deleted,
+        message: if deleted {
+            "credential removed".into()
         } else {
-            format!("Authentication started — waiting for response...")
+            "credential not found".into()
         },
+        credential_id: None,
     }))
 }
 
-struct AuthScanResult {
-    url: Option<String>,
-    code: Option<String>,
-    error: Option<String>,
-}
+pub async fn credential_set_default(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Json(req): Json<SetDefaultRequest>,
+) -> Result<Json<AuthSubmitResponse>, (StatusCode, Json<ErrorResponse>)> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: "database unavailable".into() }),
+        )
+    })?;
 
-async fn scan_for_auth_info(child: &mut tokio::process::Child) -> AuthScanResult {
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<String>(64);
-
-    if let Some(stdout) = child.stdout.take() {
-        let tx2 = tx.clone();
-        tokio::spawn(async move {
-            let mut lines = tokio::io::BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                tracing::info!("auth stdout: {}", line);
-                let _ = tx2.send(line).await;
-            }
-        });
-    }
-    if let Some(stderr) = child.stderr.take() {
-        let tx2 = tx.clone();
-        tokio::spawn(async move {
-            let mut lines = tokio::io::BufReader::new(stderr).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                tracing::info!("auth stderr: {}", line);
-                let _ = tx2.send(line).await;
-            }
-        });
-    }
-    drop(tx);
-
-    let mut url = None;
-    let mut code = None;
-    let mut error = None;
-
-    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(15);
-    while tokio::time::Instant::now() < deadline {
-        match tokio::time::timeout(tokio::time::Duration::from_secs(3), rx.recv()).await {
-            Ok(Some(line)) => {
-                let clean = strip_ansi(&line);
-                let lower = clean.to_lowercase();
-                if lower.contains("error")
-                    || lower.contains("failed")
-                    || lower.contains("forbidden")
-                {
-                    error = Some(clean.trim().to_string());
-                }
-                if url.is_none() {
-                    if let Some(u) = extract_url(&line) {
-                        url = Some(u);
-                    }
-                }
-                if code.is_none() {
-                    if let Some(c) = extract_device_code(&line) {
-                        code = Some(c);
-                    }
-                }
-            }
-            Ok(None) => break,
-            Err(_) => {
-                if url.is_some() && code.is_some() {
-                    break;
-                }
-            }
-        }
-    }
-
-    tracing::info!(
-        "auth scan complete — url: {:?}, code: {:?}, error: {:?}",
-        url,
-        code,
-        error
-    );
-    AuthScanResult { url, code, error }
-}
-
-fn strip_ansi(text: &str) -> String {
-    let mut result = String::with_capacity(text.len());
-    let mut chars = text.chars().peekable();
-    while let Some(c) = chars.next() {
-        if c == '\x1b' {
-            if chars.peek() == Some(&'[') {
-                chars.next();
-                while let Some(&next) = chars.peek() {
-                    chars.next();
-                    if next.is_ascii_alphabetic() {
-                        break;
-                    }
-                }
-            }
-        } else {
-            result.push(c);
-        }
-    }
-    result
-}
-
-fn extract_url(text: &str) -> Option<String> {
-    let clean = strip_ansi(text);
-    clean
-        .split_whitespace()
-        .find(|word| word.starts_with("http://") || word.starts_with("https://"))
-        .map(|url| {
-            url.trim_matches(|c: char| {
-                !c.is_alphanumeric()
-                    && c != ':'
-                    && c != '/'
-                    && c != '?'
-                    && c != '='
-                    && c != '&'
-                    && c != '.'
-                    && c != '-'
-                    && c != '_'
-                    && c != '%'
-            })
-            .to_string()
-        })
-}
-
-fn extract_device_code(text: &str) -> Option<String> {
-    let text = &strip_ansi(text);
-    for word in text.split_whitespace() {
-        let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '-');
-        if clean.len() < 7 || clean.len() > 20 || !clean.contains('-') {
-            continue;
-        }
-        let parts: Vec<&str> = clean.split('-').collect();
-        if parts.len() < 2 || parts.len() > 4 {
-            continue;
-        }
-        if !parts.iter().all(|p| {
-            p.len() >= 2
-                && p.chars()
-                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
-        }) {
-            continue;
-        }
-        return Some(clean.to_string());
-    }
-    None
+    db.set_default_credential(&user.user_id, &req.credential_id);
+    Ok(Json(AuthSubmitResponse {
+        success: true,
+        message: "default credential updated".into(),
+        credential_id: Some(req.credential_id),
+    }))
 }

@@ -5,6 +5,7 @@ use tokio::process::Command;
 use tokio::sync::mpsc;
 use std::process::Stdio;
 use std::time::Duration;
+use uuid::Uuid;
 
 /// Resolve the CLI binary path from an env var, falling back to a default name.
 /// Logs a warning on first use if the binary cannot be found on $PATH.
@@ -212,6 +213,62 @@ impl Provider {
     }
 }
 
+// --- tmpfs credential isolation ---
+
+struct TmpfsCredentialDir {
+    path: std::path::PathBuf,
+}
+
+impl TmpfsCredentialDir {
+    fn create(user_id: &str) -> Result<Self, String> {
+        let dir_name = format!("cortex-{}-{}", user_id, Uuid::new_v4().simple());
+        let path = std::path::PathBuf::from("/dev/shm").join(&dir_name);
+
+        std::fs::create_dir_all(&path).map_err(|e| {
+            format!("failed to create tmpfs dir {}: {e}", path.display())
+        })?;
+
+        // Restrict permissions to owner only
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o700))
+                .map_err(|e| format!("failed to set tmpfs permissions: {e}"))?;
+        }
+
+        Ok(Self { path })
+    }
+
+    fn write_credential_file(&self, filename: &str, content: &str) -> Result<(), String> {
+        let file_path = self.path.join(filename);
+        std::fs::write(&file_path, content)
+            .map_err(|e| format!("failed to write credential to tmpfs: {e}"))?;
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&file_path, std::fs::Permissions::from_mode(0o600))
+                .map_err(|e| format!("failed to set credential file permissions: {e}"))?;
+        }
+
+        Ok(())
+    }
+
+    fn path(&self) -> &std::path::Path {
+        &self.path
+    }
+}
+
+impl Drop for TmpfsCredentialDir {
+    fn drop(&mut self) {
+        if let Err(e) = std::fs::remove_dir_all(&self.path) {
+            tracing::warn!("failed to clean up tmpfs credential dir {}: {e}", self.path.display());
+        } else {
+            tracing::debug!("cleaned up tmpfs credential dir {}", self.path.display());
+        }
+    }
+}
+
 /// Stream a chat response using the CLI tools (BYOS — uses subscription auth).
 /// Calls `claude` or `codex` as a subprocess, streaming output line by line.
 /// Falls back to API mode if CLI tools are not available/authenticated.
@@ -268,6 +325,189 @@ pub async fn stream_chat_cli(
         }
     } else {
         result
+    }
+}
+
+/// Stream a chat response using CLI tools with tmpfs credential isolation.
+/// Decrypted credentials are written to a tmpfs directory, CLI is spawned with
+/// HOME pointing there, and the directory is wiped after the process exits.
+pub async fn stream_chat_cli_isolated(
+    provider: &Provider,
+    model: Option<&str>,
+    credential_data: &str,
+    user_id: &str,
+    system_prompt: &str,
+    user_message: &str,
+    tx: mpsc::Sender<String>,
+) -> Result<(), String> {
+    let tmpdir = TmpfsCredentialDir::create(user_id)?;
+
+    // Write credential data to tmpfs based on provider
+    match provider {
+        Provider::Claude => {
+            // Claude CLI expects credentials in ~/.claude/ or ANTHROPIC_API_KEY
+            // For subscription auth, write the session data
+            let claude_dir = tmpdir.path().join(".claude");
+            std::fs::create_dir_all(&claude_dir)
+                .map_err(|e| format!("failed to create .claude dir: {e}"))?;
+            tmpdir.write_credential_file(".claude/credentials.json", credential_data)?;
+        }
+        Provider::Openai => {
+            // Codex CLI uses OPENAI_API_KEY or ~/.codex/auth.json
+            let codex_dir = tmpdir.path().join(".codex");
+            std::fs::create_dir_all(&codex_dir)
+                .map_err(|e| format!("failed to create .codex dir: {e}"))?;
+            tmpdir.write_credential_file(".codex/auth.json", credential_data)?;
+        }
+    }
+
+    let model_str = model.unwrap_or(provider.default_model());
+    let prompt = if system_prompt.is_empty() {
+        user_message.to_string()
+    } else {
+        format!("{system_prompt}\n\n{user_message}")
+    };
+
+    let timeout = cli_timeout();
+    let home_path = tmpdir.path().to_string_lossy().to_string();
+
+    let result = match provider {
+        Provider::Claude => {
+            let cli_path = resolve_cli_path("CORTEX_CLAUDE_PATH", "claude");
+            let mut cmd = Command::new(&cli_path);
+            cmd.args([
+                "-p",
+                "--output-format", "stream-json",
+                "--verbose",
+                "--no-session-persistence",
+                "--model", model_str,
+            ])
+            .arg(&prompt)
+            .env("HOME", &home_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+            spawn_and_stream_cli(cmd, &cli_path, "claude", timeout, tx).await
+        }
+        Provider::Openai => {
+            let cli_path = resolve_cli_path("CORTEX_CODEX_PATH", "codex");
+            let mut cmd = Command::new(&cli_path);
+            cmd.args([
+                "exec",
+                "-c", &format!("model={model_str}"),
+                "-c", "approval_policy=never",
+            ])
+            .arg(&prompt)
+            .env("HOME", &home_path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+
+            spawn_and_stream_codex(cmd, &cli_path, timeout, tx).await
+        }
+    };
+
+    // tmpdir drops here, wiping credentials from tmpfs
+    // (Drop impl handles cleanup even if result is Err)
+
+    result
+}
+
+async fn spawn_and_stream_cli(
+    mut cmd: Command,
+    cli_path: &str,
+    label: &str,
+    timeout: Duration,
+    tx: mpsc::Sender<String>,
+) -> Result<(), String> {
+    let mut child = cmd.spawn().map_err(|e| {
+        format!("failed to spawn {label} CLI at '{cli_path}': {e}")
+    })?;
+
+    let stdout = child.stdout.take().ok_or("failed to capture stdout")?;
+
+    let stream_fut = async {
+        let reader = BufReader::new(stdout);
+        let mut lines = reader.lines();
+
+        while let Ok(Some(line)) = lines.next_line().await {
+            if let Ok(event) = serde_json::from_str::<ClaudeStreamEvent>(&line) {
+                match event {
+                    ClaudeStreamEvent::Assistant { message } => {
+                        if let Some(content) = extract_claude_text(&message) {
+                            if tx.send(content).await.is_err() { break; }
+                        }
+                    }
+                    ClaudeStreamEvent::ContentBlockDelta { delta } => {
+                        if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
+                            if tx.send(text.to_string()).await.is_err() { break; }
+                        }
+                    }
+                    ClaudeStreamEvent::Result { result } => {
+                        if let Some(text) = extract_claude_text(&result) {
+                            if tx.send(text).await.is_err() { break; }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        Ok::<(), String>(())
+    };
+
+    match tokio::time::timeout(timeout, stream_fut).await {
+        Ok(result) => {
+            result?;
+            let status = child.wait().await.map_err(|e| format!("{label} process error: {e}"))?;
+            if !status.success() {
+                return Err(format!("{label} exited with status {status}"));
+            }
+            Ok(())
+        }
+        Err(_) => {
+            let _ = child.kill().await;
+            Err(format!("{label} CLI timed out after {} seconds", timeout.as_secs()))
+        }
+    }
+}
+
+async fn spawn_and_stream_codex(
+    mut cmd: Command,
+    cli_path: &str,
+    timeout: Duration,
+    tx: mpsc::Sender<String>,
+) -> Result<(), String> {
+    let mut child = cmd.spawn().map_err(|e| {
+        format!("failed to spawn codex CLI at '{cli_path}': {e}")
+    })?;
+
+    let stdout = child.stdout.take().ok_or("failed to capture stdout")?;
+
+    let stream_fut = async {
+        let reader = BufReader::new(stdout);
+        let mut lines = reader.lines();
+
+        while let Ok(Some(line)) = lines.next_line().await {
+            let trimmed = line.trim();
+            if !trimmed.is_empty() {
+                if tx.send(format!("{trimmed}\n")).await.is_err() { break; }
+            }
+        }
+        Ok::<(), String>(())
+    };
+
+    match tokio::time::timeout(timeout, stream_fut).await {
+        Ok(result) => {
+            result?;
+            let status = child.wait().await.map_err(|e| format!("codex process error: {e}"))?;
+            if !status.success() {
+                return Err(format!("codex exited with status {status}"));
+            }
+            Ok(())
+        }
+        Err(_) => {
+            let _ = child.kill().await;
+            Err(format!("codex CLI timed out after {} seconds", timeout.as_secs()))
+        }
     }
 }
 

@@ -4,7 +4,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use cortex_core::protocol::{BrainMessage, StepContext};
-use cortex_core::provider::{ProviderId, ProviderStatus, Tier};
+use cortex_core::provider::{ProviderId, ProviderStatus};
 use cortex_core::routing::RoutingDecision;
 use cortex_core::task::TaskContract;
 use cortex_core::usage::UsageLimits;
@@ -13,8 +13,6 @@ use cortex_engine::captain::SchedulerEvent;
 use cortex_engine::ledger::Ledger;
 use cortex_engine::store::CortexStore;
 use std::sync::Mutex;
-use cortex_worker::executor::detect_available_providers;
-use tokio::process::ChildStdin;
 use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
 
@@ -44,7 +42,6 @@ pub struct AppState {
     pub clerk_secret_key: Option<String>,
     pub jwks_cache: RwLock<JwksCache>,
     pub jwks_stampede: JwksStampedeGuard,
-    pub pending_auths: RwLock<HashMap<String, ChildStdin>>,
     pub db: Option<Database>,
     pub workers: RwLock<HashMap<String, ConnectedWorker>>,
     pub step_senders: RwLock<HashMap<String, mpsc::Sender<StepEvent>>>,
@@ -101,28 +98,8 @@ impl AppState {
         workspace_dir: PathBuf,
         clerk_secret_key: Option<String>,
     ) -> Arc<Self> {
-        let detected = detect_available_providers();
-        let all_tiers = vec![Tier::Search, Tier::Execute, Tier::Think];
-
-        let providers: Vec<ProviderStatus> = detected
-            .into_iter()
-            .map(|id| ProviderStatus {
-                provider: id,
-                authenticated: true,
-                pressure: 0.0,
-                available_tiers: all_tiers.clone(),
-            })
-            .collect();
-
-        tracing::info!(
-            "detected {} provider(s): {}",
-            providers.len(),
-            providers
-                .iter()
-                .map(|p| p.provider.to_string())
-                .collect::<Vec<_>>()
-                .join(", ")
-        );
+        let providers: Vec<ProviderStatus> = Vec::new();
+        tracing::info!("provider detection disabled — credentials are per-user via user_credentials table");
 
         tracing::info!("workspace directory: {}", workspace_dir.display());
         if clerk_secret_key.is_some() {
@@ -267,7 +244,6 @@ impl AppState {
             clerk_secret_key,
             jwks_cache: RwLock::new(JwksCache::empty()),
             jwks_stampede: JwksStampedeGuard::new(),
-            pending_auths: RwLock::new(HashMap::new()),
             db: Some(db),
             workers: RwLock::new(HashMap::new()),
             step_senders: RwLock::new(HashMap::new()),

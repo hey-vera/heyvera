@@ -427,6 +427,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 37 {
         migrate_v37(conn);
     }
+    if current < 38 {
+        migrate_v38(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -1813,11 +1816,69 @@ fn migrate_v37(conn: &Connection) {
     tracing::info!("applied migration v37: project_workspaces table for Replit integration");
 }
 
+fn migrate_v38(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS user_credentials (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            credential_type TEXT NOT NULL,
+            label TEXT,
+            encrypted_data TEXT NOT NULL,
+            email TEXT,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'active',
+            last_used_at INTEGER,
+            token_expires_at INTEGER,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_user_credentials_user ON user_credentials(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_credentials_user_provider ON user_credentials(user_id, provider);
+        CREATE INDEX IF NOT EXISTS idx_user_credentials_status ON user_credentials(user_id, status);
+
+        INSERT OR IGNORE INTO user_credentials (id, user_id, provider, credential_type, encrypted_data, created_at)
+            SELECT id, user_id, provider, 'api_key', encrypted_key, created_at FROM user_api_keys;
+
+        UPDATE schema_version SET version = 38;"
+    ).expect("migration v38 failed");
+    tracing::info!("applied migration v38: user_credentials table for multi-credential system");
+}
+
 #[derive(Debug, Serialize, Clone)]
 pub struct UserApiKeyInfo {
     pub provider: String,
     pub created_at: i64,
     pub key_prefix: String,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UserCredential {
+    pub id: String,
+    pub user_id: String,
+    pub provider: String,
+    pub credential_type: String,
+    pub label: Option<String>,
+    pub email: Option<String>,
+    pub is_default: bool,
+    pub status: String,
+    pub last_used_at: Option<i64>,
+    pub token_expires_at: Option<i64>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UserCredentialSummary {
+    pub id: String,
+    pub provider: String,
+    pub credential_type: String,
+    pub label: Option<String>,
+    pub email: Option<String>,
+    pub is_default: bool,
+    pub status: String,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -12014,6 +12075,217 @@ impl Database {
             params![user_id, provider],
         ).unwrap_or(0);
         count > 0
+    }
+
+    // --- User credentials (multi-credential system) ---
+
+    pub fn insert_credential(&self, cred: &UserCredential) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO user_credentials (id, user_id, provider, credential_type, label, encrypted_data, email, is_default, status, last_used_at, token_expires_at, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                cred.id, cred.user_id, cred.provider, cred.credential_type,
+                cred.label, "", cred.email, cred.is_default as i32,
+                cred.status, cred.last_used_at, cred.token_expires_at,
+                cred.created_at, cred.updated_at,
+            ],
+        ).expect("insert_credential failed");
+    }
+
+    pub fn insert_credential_with_data(&self, cred: &UserCredential, encrypted_data: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO user_credentials (id, user_id, provider, credential_type, label, encrypted_data, email, is_default, status, last_used_at, token_expires_at, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            params![
+                cred.id, cred.user_id, cred.provider, cred.credential_type,
+                cred.label, encrypted_data, cred.email, cred.is_default as i32,
+                cred.status, cred.last_used_at, cred.token_expires_at,
+                cred.created_at, cred.updated_at,
+            ],
+        ).expect("insert_credential_with_data failed");
+    }
+
+    pub fn list_credentials(&self, user_id: &str) -> Vec<UserCredentialSummary> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, provider, credential_type, label, email, is_default, status, created_at
+             FROM user_credentials WHERE user_id = ?1 AND status != 'revoked' ORDER BY is_default DESC, created_at DESC"
+        ).expect("list_credentials prepare failed");
+        stmt.query_map(params![user_id], |row| {
+            Ok(UserCredentialSummary {
+                id: row.get(0)?,
+                provider: row.get(1)?,
+                credential_type: row.get(2)?,
+                label: row.get(3)?,
+                email: row.get(4)?,
+                is_default: row.get::<_, i32>(5)? != 0,
+                status: row.get(6)?,
+                created_at: row.get(7)?,
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    pub fn get_credential(&self, credential_id: &str) -> Option<(UserCredential, String)> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, user_id, provider, credential_type, label, encrypted_data, email, is_default, status, last_used_at, token_expires_at, created_at, updated_at
+             FROM user_credentials WHERE id = ?1",
+            params![credential_id],
+            |row| {
+                let encrypted_data: String = row.get(5)?;
+                Ok((UserCredential {
+                    id: row.get(0)?,
+                    user_id: row.get(1)?,
+                    provider: row.get(2)?,
+                    credential_type: row.get(3)?,
+                    label: row.get(4)?,
+                    email: row.get(6)?,
+                    is_default: row.get::<_, i32>(7)? != 0,
+                    status: row.get(8)?,
+                    last_used_at: row.get(9)?,
+                    token_expires_at: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                }, encrypted_data))
+            },
+        ).ok()
+    }
+
+    pub fn get_default_credential(&self, user_id: &str, provider: &str) -> Option<(UserCredential, String)> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, user_id, provider, credential_type, label, encrypted_data, email, is_default, status, last_used_at, token_expires_at, created_at, updated_at
+             FROM user_credentials WHERE user_id = ?1 AND provider = ?2 AND status = 'active' ORDER BY is_default DESC, created_at DESC LIMIT 1",
+            params![user_id, provider],
+            |row| {
+                let encrypted_data: String = row.get(5)?;
+                Ok((UserCredential {
+                    id: row.get(0)?,
+                    user_id: row.get(1)?,
+                    provider: row.get(2)?,
+                    credential_type: row.get(3)?,
+                    label: row.get(4)?,
+                    email: row.get(6)?,
+                    is_default: row.get::<_, i32>(7)? != 0,
+                    status: row.get(8)?,
+                    last_used_at: row.get(9)?,
+                    token_expires_at: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                }, encrypted_data))
+            },
+        ).ok()
+    }
+
+    pub fn get_any_credential(&self, user_id: &str) -> Option<(UserCredential, String)> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, user_id, provider, credential_type, label, encrypted_data, email, is_default, status, last_used_at, token_expires_at, created_at, updated_at
+             FROM user_credentials WHERE user_id = ?1 AND status = 'active' ORDER BY is_default DESC, updated_at DESC LIMIT 1",
+            params![user_id],
+            |row| {
+                let encrypted_data: String = row.get(5)?;
+                Ok((UserCredential {
+                    id: row.get(0)?,
+                    user_id: row.get(1)?,
+                    provider: row.get(2)?,
+                    credential_type: row.get(3)?,
+                    label: row.get(4)?,
+                    email: row.get(6)?,
+                    is_default: row.get::<_, i32>(7)? != 0,
+                    status: row.get(8)?,
+                    last_used_at: row.get(9)?,
+                    token_expires_at: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
+                }, encrypted_data))
+            },
+        ).ok()
+    }
+
+    pub fn update_credential_status(&self, credential_id: &str, status: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE user_credentials SET status = ?1, updated_at = unixepoch() WHERE id = ?2",
+            params![status, credential_id],
+        ).expect("update_credential_status failed");
+    }
+
+    pub fn touch_credential(&self, credential_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE user_credentials SET last_used_at = unixepoch(), updated_at = unixepoch() WHERE id = ?1",
+            params![credential_id],
+        ).expect("touch_credential failed");
+    }
+
+    pub fn delete_credential(&self, user_id: &str, credential_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let count = conn.execute(
+            "UPDATE user_credentials SET status = 'revoked', updated_at = unixepoch() WHERE id = ?1 AND user_id = ?2",
+            params![credential_id, user_id],
+        ).unwrap_or(0);
+        count > 0
+    }
+
+    pub fn set_default_credential(&self, user_id: &str, credential_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        let provider: Option<String> = conn.query_row(
+            "SELECT provider FROM user_credentials WHERE id = ?1 AND user_id = ?2",
+            params![credential_id, user_id],
+            |row| row.get(0),
+        ).ok();
+        if let Some(provider) = provider {
+            conn.execute(
+                "UPDATE user_credentials SET is_default = 0, updated_at = unixepoch() WHERE user_id = ?1 AND provider = ?2",
+                params![user_id, provider],
+            ).ok();
+            conn.execute(
+                "UPDATE user_credentials SET is_default = 1, updated_at = unixepoch() WHERE id = ?1",
+                params![credential_id],
+            ).ok();
+        }
+    }
+
+    pub fn update_credential_expiry(&self, credential_id: &str, expires_at: Option<i64>) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE user_credentials SET token_expires_at = ?1, updated_at = unixepoch() WHERE id = ?2",
+            params![expires_at, credential_id],
+        ).expect("update_credential_expiry failed");
+    }
+
+    pub fn get_expiring_credentials(&self, before_epoch: i64) -> Vec<(UserCredential, String)> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, user_id, provider, credential_type, label, encrypted_data, email, is_default, status, last_used_at, token_expires_at, created_at, updated_at
+             FROM user_credentials WHERE status = 'active' AND credential_type = 'subscription' AND token_expires_at IS NOT NULL AND token_expires_at < ?1"
+        ).expect("get_expiring_credentials prepare failed");
+        stmt.query_map(params![before_epoch], |row| {
+            let encrypted_data: String = row.get(5)?;
+            Ok((UserCredential {
+                id: row.get(0)?,
+                user_id: row.get(1)?,
+                provider: row.get(2)?,
+                credential_type: row.get(3)?,
+                label: row.get(4)?,
+                email: row.get(6)?,
+                is_default: row.get::<_, i32>(7)? != 0,
+                status: row.get(8)?,
+                last_used_at: row.get(9)?,
+                token_expires_at: row.get(10)?,
+                created_at: row.get(11)?,
+                updated_at: row.get(12)?,
+            }, encrypted_data))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     // --- Cost tracking methods ---

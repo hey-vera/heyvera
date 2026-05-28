@@ -111,8 +111,55 @@ async fn resolve_provider(state: &AppState, user_id: &str, model_tier: Option<&s
         };
     }
 
-    // 1. BYOK API keys first — most reliable (direct HTTP, no CLI dependency)
+    // 1. Check user_credentials table (unified multi-credential system)
     if let Some(db) = &state.db {
+        if let Some((cred, encrypted_data)) = db.get_any_credential(user_id) {
+            match crate::crypto::decrypt(&encrypted_data) {
+                Ok(decrypted) => {
+                    let provider = match Provider::from_str(&cred.provider) {
+                        Some(p) => p,
+                        None => return ProviderPath::None,
+                    };
+
+                    // Touch the credential (update last_used_at)
+                    db.touch_credential(&cred.id);
+
+                    match cred.credential_type.as_str() {
+                        "api_key" => {
+                            let model = byok_model(&provider, model_tier);
+                            return ProviderPath::ApiKey {
+                                provider,
+                                api_key: decrypted,
+                                model,
+                            };
+                        }
+                        "subscription" => {
+                            let model = match (&provider, model_tier.unwrap_or("fast")) {
+                                (Provider::Claude, "powerful") => "claude-sonnet-4-6".into(),
+                                (Provider::Claude, _) => "claude-sonnet-4-6".into(),
+                                (Provider::Openai, "powerful") => "gpt-4.1".into(),
+                                (Provider::Openai, _) => "gpt-4.1-mini".into(),
+                            };
+                            return ProviderPath::Subscription { provider, model };
+                        }
+                        _ => {
+                            let model = byok_model(&provider, model_tier);
+                            return ProviderPath::ApiKey {
+                                provider,
+                                api_key: decrypted,
+                                model,
+                            };
+                        }
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(user_id, provider = %cred.provider, "failed to decrypt credential: {e}");
+                    return ProviderPath::DecryptFailed { provider: cred.provider };
+                }
+            }
+        }
+
+        // 2. Fallback: check legacy user_api_keys table
         if let Some((provider_name, encrypted_key)) = db.get_any_api_key(user_id) {
             match crate::crypto::decrypt(&encrypted_key) {
                 Ok(api_key) => {
@@ -122,30 +169,11 @@ async fn resolve_provider(state: &AppState, user_id: &str, model_tier: Option<&s
                     }
                 }
                 Err(e) => {
-                    tracing::warn!(user_id, provider = %provider_name, "failed to decrypt stored API key: {e} — user should re-add their key");
+                    tracing::warn!(user_id, provider = %provider_name, "failed to decrypt legacy API key: {e}");
                     return ProviderPath::DecryptFailed { provider: provider_name };
                 }
             }
         }
-    }
-
-    // 2. BYOS subscription auth (server-side CLI) — fallback
-    let providers = state.providers.read().await;
-    let has_claude = providers.iter().any(|p| p.provider == cortex_core::provider::ProviderId::Claude && p.authenticated);
-    let has_openai = providers.iter().any(|p| p.provider == cortex_core::provider::ProviderId::Openai && p.authenticated);
-    drop(providers);
-
-    if has_claude {
-        return ProviderPath::Subscription {
-            provider: Provider::Claude,
-            model: "claude-sonnet-4-6".into(),
-        };
-    }
-    if has_openai {
-        return ProviderPath::Subscription {
-            provider: Provider::Openai,
-            model: "gpt-4.1-mini".into(),
-        };
     }
 
     ProviderPath::None

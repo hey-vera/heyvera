@@ -286,9 +286,13 @@ export function streamChat(
 
 export interface ProviderAuthInfo {
   provider: string;
+  credential_type: string;
+  label: string | null;
   authenticated: boolean;
   email: string | null;
-  subscription: string | null;
+  is_default: boolean;
+  credential_id: string;
+  status: string;
 }
 
 export interface AuthStartResponse {
@@ -302,22 +306,41 @@ export async function getAuthStatus(): Promise<ProviderAuthInfo[]> {
   return requestJson<ProviderAuthInfo[]>('/api/auth/status');
 }
 
-export async function startAuth(provider: string): Promise<AuthStartResponse> {
+export async function startAuth(provider: string, credentialType?: string): Promise<AuthStartResponse> {
   return requestJson<AuthStartResponse>('/api/auth/start', {
     method: 'POST',
-    body: JSON.stringify({ provider }),
+    body: JSON.stringify({ provider, credential_type: credentialType }),
   });
 }
 
-export async function submitAuthCode(provider: string, code: string): Promise<{ success: boolean; message: string }> {
-  return requestJson<{ success: boolean; message: string }>('/api/auth/submit', {
+export async function submitAuthCode(
+  provider: string,
+  code: string,
+  label?: string,
+  credentialType?: string,
+): Promise<{ success: boolean; message: string; credential_id?: string }> {
+  return requestJson<{ success: boolean; message: string; credential_id?: string }>('/api/auth/submit', {
     method: 'POST',
-    body: JSON.stringify({ provider, code }),
+    body: JSON.stringify({ provider, code, label, credential_type: credentialType }),
   });
 }
 
 export async function refreshAuth(): Promise<ProviderAuthInfo[]> {
   return requestJson<ProviderAuthInfo[]>('/api/auth/refresh', { method: 'POST' });
+}
+
+export async function deleteCredential(credentialId: string): Promise<{ success: boolean; message: string }> {
+  return requestJson<{ success: boolean; message: string }>('/api/auth/credential/delete', {
+    method: 'POST',
+    body: JSON.stringify({ credential_id: credentialId }),
+  });
+}
+
+export async function setDefaultCredential(credentialId: string): Promise<{ success: boolean; message: string }> {
+  return requestJson<{ success: boolean; message: string }>('/api/auth/credential/default', {
+    method: 'POST',
+    body: JSON.stringify({ credential_id: credentialId }),
+  });
 }
 
 export async function getProviders() {

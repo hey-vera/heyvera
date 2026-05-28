@@ -191,6 +191,9 @@ async fn main() {
     let scheduler_tx = scheduler::spawn_scheduler(state.clone());
     state.set_scheduler_tx(scheduler_tx).await;
 
+    // Start background token refresh job
+    cortex_api::token_refresh::spawn_token_refresh_job(state.clone());
+
     let app = cortex_api::build_router(state.clone());
 
     let port: u16 = std::env::var("CORTEX_PORT")
