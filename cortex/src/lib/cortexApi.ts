@@ -8,7 +8,7 @@ import type {
 } from '../types';
 
 const CONFIGURED_API_BASE = import.meta.env.VITE_CORTEX_API as string | undefined;
-const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : '');
+const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.heyvera.org');
 export const MEMORY_API_ENABLED = import.meta.env.VITE_CORTEX_MEMORY_ENABLED === 'true';
 
 /** Returns true when the browser believes it has no network connectivity. */

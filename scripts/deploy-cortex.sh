@@ -76,14 +76,20 @@ COMMIT=$(git rev-parse --short HEAD)
 echo "[git] ✓ Nuclear reset complete → $COMMIT"
 
 # ── frontend ─────────────────────────────────
-echo "[vite] Building frontend..."
+# Cloudflare Pages auto-deploys the cortex frontend on push to main.
+# Build here only to keep VPS fallback in sync for deploy-drift detection.
+echo "[vite] Building frontend (VPS fallback copy)..."
 cd "$REPO_DIR/cortex"
 npm ci --silent 2>&1 | tail -1
-npm run build 2>&1 | tail -3
-cd "$REPO_DIR"
-sudo mkdir -p "$CORTEX_WWW"
-sudo rsync -a --delete "$REPO_DIR/cortex/dist/" "$CORTEX_WWW/"
-echo "[vite] Deployed to $CORTEX_WWW"
+if npm run build 2>&1 | tail -3; then
+  cd "$REPO_DIR"
+  sudo mkdir -p "$CORTEX_WWW"
+  sudo rsync -a --delete "$REPO_DIR/cortex/dist/" "$CORTEX_WWW/"
+  echo "[vite] Synced VPS fallback to $CORTEX_WWW"
+else
+  echo "[vite] ⚠ Frontend build failed — Cloudflare Pages is the live frontend, continuing..."
+  cd "$REPO_DIR"
+fi
 
 # ── backend ──────────────────────────────────
 echo "[rust] Building cortex-api..."

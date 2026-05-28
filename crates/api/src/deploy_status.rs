@@ -431,6 +431,7 @@ fn read_deploy_meta() -> Option<DeployMeta> {
 
 fn frontend_root() -> PathBuf {
     std::env::var("CORTEX_FRONTEND_DIST")
+        .or_else(|_| std::env::var("CORTEX_STATIC_DIR"))
         .map(PathBuf::from)
         .unwrap_or_else(|_| PathBuf::from("/var/www/cortex"))
 }
