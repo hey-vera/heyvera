@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { AlertTriangle, CheckCircle, Copy, ExternalLink, Key, Loader2, Trash2, User, X, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle, Copy, ExternalLink, Key, Loader2, Star, Trash2, User, X, XCircle } from 'lucide-react';
 import { useUser } from '@clerk/clerk-react';
 import {
   getAuthStatus,
   startAuth,
   submitAuthCode,
   refreshAuth,
+  deleteCredential,
+  setDefaultCredential,
   listApiKeys,
   saveApiKey,
   deleteApiKey,
@@ -20,7 +22,7 @@ import BudgetSettings from './settings/BudgetSettings';
 import type { RunProfile } from '../types';
 import { getBudgetSettings, updateBudgetSettings, getCurrentUsage, type BudgetSettings as BudgetSettingsType, type UsageData } from '../lib/cortexApi';
 
-type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing' | 'budget' | 'notifications' | 'account' | 'apikeys';
+type SettingsTab = 'providers' | 'integrations' | 'spend' | 'billing' | 'budget' | 'notifications' | 'account' | 'apikeys' | 'credentials';
 
 const RUN_PROFILE_LABELS: Record<RunProfile, string> = {
   auto: 'Auto (adaptive)',
@@ -530,6 +532,286 @@ function ApiKeysTab() {
   );
 }
 
+function CredentialsTab() {
+  const [credentials, setCredentials] = useState<ProviderAuthInfo[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [addingProvider, setAddingProvider] = useState<string | null>(null);
+  const [addType, setAddType] = useState<'subscription' | 'api_key'>('subscription');
+  const [codeInput, setCodeInput] = useState('');
+  const [labelInput, setLabelInput] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [authInfo, setAuthInfo] = useState<{ auth_url?: string; message?: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const fetchCredentials = useCallback(async () => {
+    try {
+      const creds = await getAuthStatus();
+      setCredentials(creds);
+    } catch {
+      setError('Failed to load credentials');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchCredentials();
+  }, [fetchCredentials]);
+
+  const handleDelete = async (credentialId: string) => {
+    try {
+      await deleteCredential(credentialId);
+      await fetchCredentials();
+    } catch {
+      setError('Failed to delete credential');
+    }
+  };
+
+  const handleSetDefault = async (credentialId: string) => {
+    try {
+      await setDefaultCredential(credentialId);
+      await fetchCredentials();
+    } catch {
+      setError('Failed to set default');
+    }
+  };
+
+  const handleStartAdd = async (provider: string) => {
+    setAddingProvider(provider);
+    setError(null);
+    setAuthInfo(null);
+    setCodeInput('');
+    setLabelInput('');
+    try {
+      const result = await startAuth(provider, addType);
+      setAuthInfo({ auth_url: result.auth_url ?? undefined, message: result.message });
+    } catch {
+      setError('Failed to start auth flow');
+      setAddingProvider(null);
+    }
+  };
+
+  const handleSubmitCode = async () => {
+    if (!addingProvider || !codeInput.trim()) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await submitAuthCode(
+        addingProvider,
+        codeInput.trim(),
+        labelInput.trim() || undefined,
+        addType,
+      );
+      if (result.success) {
+        setAddingProvider(null);
+        setCodeInput('');
+        setLabelInput('');
+        setAuthInfo(null);
+        await fetchCredentials();
+      } else {
+        setError(result.message);
+      }
+    } catch {
+      setError('Failed to submit credential');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const handleCancelAdd = () => {
+    setAddingProvider(null);
+    setCodeInput('');
+    setLabelInput('');
+    setAuthInfo(null);
+    setError(null);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center gap-2 py-8 text-sm text-[var(--muted)]">
+        <Loader2 className="h-4 w-4 animate-spin" />
+        Loading credentials...
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-4">
+      <div>
+        <h3 className="text-sm font-medium text-white mb-1">Your Credentials</h3>
+        <p className="text-xs text-[var(--muted)]">
+          Manage your AI provider subscriptions and API keys. You can add multiple credentials per provider.
+        </p>
+      </div>
+
+      {error && (
+        <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-300">
+          {error}
+        </div>
+      )}
+
+      {credentials.length === 0 ? (
+        <div className="rounded-lg border border-white/8 bg-white/[0.02] px-4 py-6 text-center text-sm text-[var(--muted)]">
+          No credentials yet. Add a subscription or API key below.
+        </div>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {credentials.map((cred) => (
+            <div
+              key={cred.credential_id}
+              className="flex items-center justify-between rounded-lg border border-white/8 bg-white/[0.02] px-4 py-3"
+            >
+              <div className="flex items-center gap-3">
+                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-white/6 text-xs font-bold uppercase text-[var(--muted-strong)]">
+                  {cred.provider === 'claude' ? 'CL' : 'OA'}
+                </div>
+                <div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-sm font-medium text-white">
+                      {cred.label || `${cred.provider} ${cred.credential_type}`}
+                    </span>
+                    <span className="rounded bg-white/8 px-1.5 py-0.5 text-[10px] font-medium text-[var(--muted)]">
+                      {cred.credential_type}
+                    </span>
+                    {cred.is_default && (
+                      <span className="rounded bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-medium text-emerald-300">
+                        default
+                      </span>
+                    )}
+                    <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                      cred.status === 'active' ? 'bg-emerald-500/10 text-emerald-400' :
+                      cred.status === 'expired' ? 'bg-amber-500/10 text-amber-400' :
+                      'bg-red-500/10 text-red-400'
+                    }`}>
+                      {cred.status}
+                    </span>
+                  </div>
+                  {cred.email && (
+                    <div className="text-xs text-[var(--muted)]">{cred.email}</div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1">
+                {!cred.is_default && cred.status === 'active' && (
+                  <button
+                    onClick={() => handleSetDefault(cred.credential_id)}
+                    className="rounded p-1.5 text-[var(--muted)] hover:bg-white/8 hover:text-amber-300 transition"
+                    title="Set as default"
+                  >
+                    <Star className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                <button
+                  onClick={() => handleDelete(cred.credential_id)}
+                  className="rounded p-1.5 text-[var(--muted)] hover:bg-white/8 hover:text-red-400 transition"
+                  title="Remove credential"
+                >
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Add credential section */}
+      <div className="border-t border-white/8 pt-4">
+        <h4 className="text-sm font-medium text-white mb-3">Add Credential</h4>
+
+        {!addingProvider ? (
+          <div className="flex flex-col gap-3">
+            <div className="flex items-center gap-2 mb-2">
+              <label className="text-xs text-[var(--muted)]">Type:</label>
+              <button
+                onClick={() => setAddType('subscription')}
+                className={`rounded px-2 py-1 text-xs transition ${
+                  addType === 'subscription' ? 'bg-[var(--accent)] text-white' : 'bg-white/6 text-[var(--muted)] hover:text-white'
+                }`}
+              >
+                Subscription
+              </button>
+              <button
+                onClick={() => setAddType('api_key')}
+                className={`rounded px-2 py-1 text-xs transition ${
+                  addType === 'api_key' ? 'bg-[var(--accent)] text-white' : 'bg-white/6 text-[var(--muted)] hover:text-white'
+                }`}
+              >
+                API Key
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => handleStartAdd('claude')}
+                className="flex-1 rounded-lg border border-white/8 bg-white/[0.02] px-4 py-3 text-sm text-white hover:bg-white/6 transition"
+              >
+                + Claude (Anthropic)
+              </button>
+              <button
+                onClick={() => handleStartAdd('openai')}
+                className="flex-1 rounded-lg border border-white/8 bg-white/[0.02] px-4 py-3 text-sm text-white hover:bg-white/6 transition"
+              >
+                + OpenAI
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-white/8 bg-white/[0.02] p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-sm font-medium text-white">
+                Adding {addingProvider === 'claude' ? 'Claude' : 'OpenAI'} {addType === 'subscription' ? 'Subscription' : 'API Key'}
+              </span>
+              <button onClick={handleCancelAdd} className="text-xs text-[var(--muted)] hover:text-white">
+                Cancel
+              </button>
+            </div>
+
+            {authInfo?.message && (
+              <p className="text-xs text-[var(--muted)] mb-3">{authInfo.message}</p>
+            )}
+
+            {authInfo?.auth_url && (
+              <a
+                href={authInfo.auth_url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="mb-3 flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
+              >
+                Open provider page <ExternalLink className="h-3 w-3" />
+              </a>
+            )}
+
+            <div className="flex flex-col gap-2">
+              <input
+                type="text"
+                value={labelInput}
+                onChange={(e) => setLabelInput(e.target.value)}
+                placeholder="Label (optional, e.g. 'Work Claude')"
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
+              />
+              <input
+                type="password"
+                value={codeInput}
+                onChange={(e) => setCodeInput(e.target.value)}
+                placeholder={addType === 'api_key' ? 'Paste API key...' : 'Paste auth code...'}
+                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
+                onKeyDown={(e) => e.key === 'Enter' && handleSubmitCode()}
+              />
+              <button
+                onClick={handleSubmitCode}
+                disabled={submitting || !codeInput.trim()}
+                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition disabled:opacity-50"
+              >
+                {submitting ? 'Saving...' : 'Save Credential'}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 interface SettingsPanelProps {
   onClose: () => void;
   initialTab?: SettingsTab;
@@ -770,16 +1052,14 @@ export default function SettingsPanel({
           >
             Account
           </button>
-          {isAdmin && (
-            <button
-              onClick={() => setTab('apikeys')}
-              className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
-                tab === 'apikeys' ? 'border-[var(--accent)] text-white' : 'border-transparent text-[var(--muted)] hover:text-white'
-              }`}
-            >
-              API Keys
-            </button>
-          )}
+          <button
+            onClick={() => setTab('credentials')}
+            className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
+              tab === 'credentials' ? 'border-[var(--accent)] text-white' : 'border-transparent text-[var(--muted)] hover:text-white'
+            }`}
+          >
+            Credentials
+          </button>
         </div>
 
         {/* Content */}
@@ -800,153 +1080,13 @@ export default function SettingsPanel({
             />
           ) : tab === 'notifications' ? (
             <NotificationsTab />
-          ) : tab === 'apikeys' && isAdmin ? (
-            <ApiKeysTab />
+          ) : tab === 'credentials' ? (
+            <CredentialsTab />
           ) : tab === 'account' ? (
             <AccountTab providers={providers} />
-          ) : loading ? (
-            <div className="flex items-center justify-center gap-2 py-8 text-sm text-[var(--muted)]">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Loading...
-            </div>
           ) : (
-            <div className="flex flex-col gap-3">
-              <p className="text-xs text-[var(--muted)]">
-                Connect your AI subscriptions to use them with Cortex.
-              </p>
-              {providers.map((p) => {
-                const state = getState(p.provider);
-                const isActive = state.phase !== 'idle';
-                const providerLabel = p.provider === 'claude' ? 'Claude (Anthropic)' : 'OpenAI (Codex)';
-                const initials = p.provider === 'claude' ? 'CL' : 'OA';
-
-                return (
-                  <div key={p.provider} className="rounded-xl border border-white/8 bg-white/[0.02]">
-                    <div className="flex items-center justify-between px-4 py-3">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-white/6 text-xs font-bold uppercase text-[var(--muted-strong)]">
-                          {initials}
-                        </div>
-                        <div>
-                          <div className="text-sm font-medium text-white">{providerLabel}</div>
-                          {p.authenticated ? (
-                            <div className="flex items-center gap-1 text-xs text-emerald-300">
-                              <CheckCircle className="h-3 w-3" />
-                              {p.email || 'Connected'}
-                              {p.credential_type ? ` · ${p.credential_type}` : ''}
-                            </div>
-                          ) : (
-                            <div className="flex items-center gap-1 text-xs text-[var(--muted)]">
-                              <XCircle className="h-3 w-3" />
-                              Not connected
-                            </div>
-                          )}
-                        </div>
-                      </div>
-
-                      {!p.authenticated && !isActive && (
-                        <button
-                          onClick={() => handleConnect(p.provider)}
-                          className="rounded-lg border border-[var(--accent)]/30 bg-[var(--accent-soft)] px-3.5 py-2 text-xs font-semibold text-[var(--accent)] shadow-[0_1px_2px_rgba(0,0,0,0.3)] transition-all duration-150 hover:bg-[var(--accent)]/20 hover:shadow-[0_2px_8px_rgba(156,199,184,0.15)] active:scale-95 active:shadow-none"
-                        >
-                          Connect
-                        </button>
-                      )}
-
-                      {state.phase === 'starting' && (
-                        <span className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
-                          <Loader2 className="h-3 w-3 animate-spin" />
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Device code flow (OpenAI) */}
-                    {isDeviceCodeFlow(p.provider) && state.phase === 'polling' && state.deviceCode && (
-                      <div className="border-t border-white/6 px-4 py-3">
-                        <div className="flex flex-col gap-3">
-                          <div className="flex items-start gap-2">
-                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[10px] font-bold text-[var(--accent)]">1</span>
-                            <div>
-                              <p className="text-xs text-[var(--muted)]">Copy this code:</p>
-                              <button
-                                onClick={() => navigator.clipboard.writeText(state.deviceCode!)}
-                                className="mt-1 inline-flex items-center gap-2 rounded-lg border border-white/10 bg-[var(--composer)] px-3 py-1.5 font-mono text-base font-bold tracking-widest text-white transition hover:border-[var(--accent)]/40 active:scale-95"
-                              >
-                                {state.deviceCode}
-                                <Copy className="h-3.5 w-3.5 text-[var(--muted)]" />
-                              </button>
-                            </div>
-                          </div>
-                          <div className="flex items-start gap-2">
-                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[10px] font-bold text-[var(--accent)]">2</span>
-                            <div>
-                              <p className="text-xs text-[var(--muted)]">Open OpenAI and enter the code:</p>
-                              <a href={state.authUrl!} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] underline">
-                                Open OpenAI <ExternalLink className="h-3 w-3" />
-                              </a>
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2 rounded-lg bg-white/4 px-3 py-2">
-                            <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--accent)]" />
-                            <span className="text-xs text-[var(--muted)]">Waiting for authorization...</span>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Paste code flow (Claude) */}
-                    {!isDeviceCodeFlow(p.provider) && (state.phase === 'awaiting_code' || state.phase === 'submitting' || state.phase === 'polling') && (
-                      <div className="border-t border-white/6 px-4 py-3">
-                        <div className="flex flex-col gap-3">
-                          <div className="flex items-start gap-2">
-                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[10px] font-bold text-[var(--accent)]">1</span>
-                            <div>
-                              <p className="text-xs text-[var(--muted)]">Sign in and authorize access:</p>
-                              <a href={state.authUrl!} target="_blank" rel="noopener noreferrer" className="mt-1 inline-flex items-center gap-1.5 text-xs font-medium text-[var(--accent)] underline">
-                                Open Anthropic <ExternalLink className="h-3 w-3" />
-                              </a>
-                            </div>
-                          </div>
-                          <div className="flex items-start gap-2">
-                            <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-[10px] font-bold text-[var(--accent)]">2</span>
-                            <div className="flex-1">
-                              <p className="mb-1.5 text-xs text-[var(--muted)]">Paste the authorization code:</p>
-                              <div className="flex gap-2">
-                                <input
-                                  ref={(el) => { inputRefs.current[p.provider] = el; }}
-                                  type="text"
-                                  placeholder="Paste code here"
-                                  value={state.codeInput}
-                                  onChange={(e) => updateState(p.provider, { codeInput: e.target.value })}
-                                  onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleSubmitCode(p.provider); } }}
-                                  disabled={state.phase === 'submitting' || state.phase === 'polling'}
-                                  className="flex-1 rounded-lg border border-white/10 bg-[var(--composer)] px-3 py-2 font-mono text-sm text-white placeholder:text-white/20 focus:border-[var(--accent)]/50 focus:outline-none disabled:opacity-50"
-                                  autoComplete="off"
-                                  spellCheck={false}
-                                />
-                                <button
-                                  onClick={() => handleSubmitCode(p.provider)}
-                                  disabled={!state.codeInput.trim() || state.phase === 'submitting' || state.phase === 'polling'}
-                                  className="shrink-0 rounded-lg bg-[var(--accent-soft)] px-3.5 py-2 text-xs font-semibold text-[var(--accent)] shadow-[0_1px_2px_rgba(0,0,0,0.3)] transition-all duration-150 hover:bg-[var(--accent)]/20 active:scale-95 disabled:opacity-30 disabled:shadow-none"
-                                >
-                                  {state.phase === 'submitting' ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> :
-                                   state.phase === 'polling' ? <span className="flex items-center gap-1"><Loader2 className="h-3 w-3 animate-spin" />Verifying</span> : 'Submit'}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        </div>
-                      </div>
-                    )}
-
-                    {state.error && (
-                      <div className="border-t border-white/6 px-4 py-2.5">
-                        <p className="text-xs text-red-300">{state.error}</p>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+            <div className="text-center py-8 text-sm text-[var(--muted)]">
+              Go to the <button onClick={() => setTab('credentials')} className="text-[var(--accent)] hover:underline">Credentials</button> tab to manage your AI provider connections.
             </div>
           )}
         </div>

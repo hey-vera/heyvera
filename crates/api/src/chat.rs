@@ -82,7 +82,7 @@ enum ProviderPath {
     /// Workspace: route to user's isolated Replit workspace
     Workspace { workspace_id: String },
     /// BYOS: authenticated subscription via CLI tool on the server
-    Subscription { provider: Provider, model: String },
+    Subscription { provider: Provider, model: String, credential_data: String },
     /// BYOK: raw API key (use cheap model by default)
     ApiKey { provider: Provider, api_key: String, model: String },
     /// Stored key exists but decryption failed (key rotation or corruption)
@@ -140,7 +140,7 @@ async fn resolve_provider(state: &AppState, user_id: &str, model_tier: Option<&s
                                 (Provider::Openai, "powerful") => "gpt-4.1".into(),
                                 (Provider::Openai, _) => "gpt-4.1-mini".into(),
                             };
-                            return ProviderPath::Subscription { provider, model };
+                            return ProviderPath::Subscription { provider, model, credential_data: decrypted };
                         }
                         _ => {
                             let model = byok_model(&provider, model_tier);
@@ -258,7 +258,7 @@ pub async fn chat(
             });
         }
 
-        ProviderPath::Subscription { provider, model } => {
+        ProviderPath::Subscription { provider, model, credential_data } => {
             let system_prompt = system_prompt_for_intent(intent).to_string();
             let user_message = req.message.clone();
             let state_clone = state.clone();
@@ -286,9 +286,11 @@ pub async fn chat(
                 let tx_clone = tx.clone();
 
                 let stream_handle = tokio::spawn(async move {
-                    llm_client::stream_chat_cli(
+                    llm_client::stream_chat_cli_isolated(
                         &provider,
                         Some(&model),
+                        &credential_data,
+                        &user_id,
                         &system_prompt,
                         &user_message,
                         chunk_tx,
