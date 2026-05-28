@@ -52,6 +52,7 @@ import SignInScreen from './components/auth/SignInScreen';
 import OperationsRoom from './components/operations/OperationsRoom';
 import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import NotFoundPage from './components/NotFoundPage';
+import ProjectsView from './components/project/ProjectsView';
 import {
   AUTH_CHANNEL_NAME,
   CortexApiError,
@@ -1060,6 +1061,8 @@ export default function App() {
         <Route path="/app" element={<Navigate to="/" replace />} />
         <Route path="/app/groups/:groupId/tasks" element={<CortexShell />} />
         <Route path="/app/groups/:groupId/operations" element={<OperationsRoom />} />
+        <Route path="/projects" element={<ProjectsView />} />
+        <Route path="/projects/:projectId" element={<ProjectsView />} />
         {/* Legacy redirects */}
         <Route path="/groups/:groupId/tasks" element={<LegacyGroupRedirect />} />
         <Route path="*" element={<NotFoundPage />} />

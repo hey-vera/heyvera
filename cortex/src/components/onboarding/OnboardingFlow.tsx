@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ArrowLeft, ArrowRight, CheckCircle, Code2, MessageSquare, Settings, Shield, Terminal } from 'lucide-react';
+import { ArrowLeft, ArrowRight, CheckCircle, Code2, MessageSquare, Settings, Shield, Terminal, FolderPlus } from 'lucide-react';
 import { markOnboardingComplete } from '../../lib/onboarding';
 
 interface OnboardingFlowProps {
@@ -7,7 +7,7 @@ interface OnboardingFlowProps {
   onComplete: () => void;
 }
 
-const TOTAL_STEPS = 3;
+const TOTAL_STEPS = 4;
 
 function ProgressDots({ current }: { current: number }) {
   return (
@@ -179,7 +179,112 @@ function ConnectProviderStep({
   );
 }
 
-// Step 3: First Task
+// Step 3: Create Project
+function ProjectStep({
+  onNext,
+  onBack,
+  onSkip,
+}: {
+  onNext: () => void;
+  onBack: () => void;
+  onSkip: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-6">
+      <div>
+        <h2 className="text-base font-semibold text-white">Create your first project</h2>
+        <p className="mt-1.5 text-sm text-[var(--muted)]">
+          Projects help organize your code and tasks. You can create one now or skip and set up later.
+        </p>
+      </div>
+
+      <div className="space-y-3">
+        {[
+          {
+            icon: '🌐',
+            title: 'Web Application',
+            description: 'React/Next.js frontend with TypeScript',
+            popular: true
+          },
+          {
+            icon: '🔌',
+            title: 'API Service',
+            description: 'REST API with authentication and database',
+            popular: false
+          },
+          {
+            icon: '📱',
+            title: 'Mobile App',
+            description: 'React Native or Flutter application',
+            popular: false
+          },
+          {
+            icon: '📝',
+            title: 'Start from scratch',
+            description: 'Create a blank project with basic structure',
+            popular: false
+          }
+        ].map((template) => (
+          <div
+            key={template.title}
+            className="flex items-center gap-3 rounded-xl border border-white/8 bg-white/[0.025] px-4 py-3 hover:border-white/15 hover:bg-white/[0.04] transition cursor-pointer"
+          >
+            <span className="text-2xl">{template.icon}</span>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-medium text-white">{template.title}</span>
+                {template.popular && (
+                  <span className="px-2 py-0.5 bg-[var(--accent)]/20 text-[var(--accent)] text-[10px] rounded">
+                    Popular
+                  </span>
+                )}
+              </div>
+              <p className="text-xs text-[var(--muted)]">{template.description}</p>
+            </div>
+            <FolderPlus className="h-4 w-4 text-[var(--muted)]" />
+          </div>
+        ))}
+      </div>
+
+      <div className="rounded-xl border border-blue-400/20 bg-blue-400/10 p-4">
+        <p className="text-xs text-blue-200">
+          Don't worry about choosing the perfect template now. You can always create more projects
+          later or import existing code from GitHub.
+        </p>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        <div className="flex items-center justify-between">
+          <button
+            type="button"
+            onClick={onBack}
+            className="inline-flex items-center gap-1 text-sm text-[var(--muted)] transition hover:text-white"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </button>
+          <button
+            type="button"
+            onClick={onNext}
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-[var(--accent)] px-4 text-sm font-medium text-black transition hover:brightness-110 active:scale-95"
+          >
+            I'll set up later
+            <ArrowRight className="h-4 w-4" />
+          </button>
+        </div>
+        <button
+          type="button"
+          onClick={onSkip}
+          className="text-center text-xs text-[var(--muted)] transition hover:text-white"
+        >
+          Skip project setup
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// Step 4: First Task
 function FirstTaskStep({
   onComplete,
   onBack,
@@ -282,9 +387,16 @@ export default function OnboardingFlow({ userId, onComplete }: OnboardingFlowPro
           />
         )}
         {step === 2 && (
+          <ProjectStep
+            onNext={() => setStep(3)}
+            onBack={() => setStep(1)}
+            onSkip={completeOnboarding}
+          />
+        )}
+        {step === 3 && (
           <FirstTaskStep
             onComplete={completeOnboarding}
-            onBack={() => setStep(1)}
+            onBack={() => setStep(2)}
             onSkip={completeOnboarding}
           />
         )}
