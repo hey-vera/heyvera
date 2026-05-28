@@ -19,6 +19,7 @@ import { useNavigate } from 'react-router-dom';
 import { fetchMyProfile } from '../../api/social';
 import type { Post } from '../../api/types';
 import { useAuth } from '../../hooks/useAuth';
+import { ReplyCompose } from './ReplyCompose';
 
 interface PostCardProps {
   post: Post;
@@ -64,6 +65,7 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(false);
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
+  const [replyOpen, setReplyOpen] = useState(false);
   const likeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -166,7 +168,7 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
   const gateReply = async () => {
     const token = await ensureCanMutate();
     if (!token) return;
-    navigate(`/post/${post.id}?compose=reply`);
+    setReplyOpen(true);
   };
 
   const gateQuote = async () => {
@@ -349,6 +351,14 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
           message={authMessage}
           checking={checkingAuth}
           onClose={() => setAuthPrompt(null)}
+        />
+      )}
+
+      {replyOpen && (
+        <ReplyCompose
+          replyToPost={post}
+          onClose={() => setReplyOpen(false)}
+          onReplyCreated={() => setReplyOpen(false)}
         />
       )}
     </article>
