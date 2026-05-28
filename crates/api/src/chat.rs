@@ -103,15 +103,33 @@ fn byok_model(provider: &Provider, tier: Option<&str>) -> String {
 }
 
 async fn resolve_provider(state: &AppState, user_id: &str, model_tier: Option<&str>) -> ProviderPath {
-    // 0. Check if this is a workspace request (workspace:{workspace_id})
+    // 0. Workspace request (workspace:{workspace_id})
     if user_id.starts_with("workspace:") {
-        let workspace_id = &user_id[10..]; // Remove "workspace:" prefix
+        let workspace_id = &user_id[10..];
         return ProviderPath::Workspace {
             workspace_id: workspace_id.to_string(),
         };
     }
 
-    // 1. Check for BYOS subscription auth (server-side CLI)
+    // 1. BYOK API keys first — most reliable (direct HTTP, no CLI dependency)
+    if let Some(db) = &state.db {
+        if let Some((provider_name, encrypted_key)) = db.get_any_api_key(user_id) {
+            match crate::crypto::decrypt(&encrypted_key) {
+                Ok(api_key) => {
+                    if let Some(provider) = Provider::from_str(&provider_name) {
+                        let model = byok_model(&provider, model_tier);
+                        return ProviderPath::ApiKey { provider, api_key, model };
+                    }
+                }
+                Err(e) => {
+                    tracing::warn!(user_id, provider = %provider_name, "failed to decrypt stored API key: {e} — user should re-add their key");
+                    return ProviderPath::DecryptFailed { provider: provider_name };
+                }
+            }
+        }
+    }
+
+    // 2. BYOS subscription auth (server-side CLI) — fallback
     let providers = state.providers.read().await;
     let has_claude = providers.iter().any(|p| p.provider == cortex_core::provider::ProviderId::Claude && p.authenticated);
     let has_openai = providers.iter().any(|p| p.provider == cortex_core::provider::ProviderId::Openai && p.authenticated);
@@ -128,24 +146,6 @@ async fn resolve_provider(state: &AppState, user_id: &str, model_tier: Option<&s
             provider: Provider::Openai,
             model: "gpt-4.1-mini".into(),
         };
-    }
-
-    // 2. Check for BYOK API keys
-    if let Some(db) = &state.db {
-        if let Some((provider_name, encrypted_key)) = db.get_any_api_key(user_id) {
-            match crate::crypto::decrypt(&encrypted_key) {
-                Ok(api_key) => {
-                    if let Some(provider) = Provider::from_str(&provider_name) {
-                        let model = byok_model(&provider, model_tier);
-                        return ProviderPath::ApiKey { provider, api_key, model };
-                    }
-                }
-                Err(e) => {
-                    tracing::warn!(user_id, provider = %provider_name, "failed to decrypt stored API key: {e} — user should re-add their key");
-                    return ProviderPath::DecryptFailed { provider: provider_name };
-                }
-            }
-        }
     }
 
     ProviderPath::None
