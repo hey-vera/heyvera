@@ -1,11 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle, Copy, ExternalLink, Key, Loader2, Star, Trash2, User, X, XCircle } from 'lucide-react';
 import { useUser } from '@clerk/clerk-react';
 import {
   getAuthStatus,
   startAuth,
   submitAuthCode,
-  refreshAuth,
   deleteCredential,
   setDefaultCredential,
   listApiKeys,
@@ -819,21 +818,6 @@ interface SettingsPanelProps {
   isAdmin?: boolean;
 }
 
-interface ProviderAuthState {
-  phase: 'idle' | 'starting' | 'awaiting_code' | 'submitting' | 'polling';
-  authUrl: string | null;
-  deviceCode: string | null;
-  codeInput: string;
-  error: string | null;
-}
-
-const INITIAL_STATE: ProviderAuthState = {
-  phase: 'idle',
-  authUrl: null,
-  deviceCode: null,
-  codeInput: '',
-  error: null,
-};
 
 export default function SettingsPanel({
   onClose,
@@ -843,9 +827,6 @@ export default function SettingsPanel({
 }: SettingsPanelProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab);
   const [providers, setProviders] = useState<ProviderAuthInfo[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [authStates, setAuthStates] = useState<Record<string, ProviderAuthState>>({});
-  const inputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   // Budget settings state
   const [budgetSettings, setBudgetSettings] = useState<BudgetSettingsType | null>(null);
@@ -901,78 +882,6 @@ export default function SettingsPanel({
       fetchBudgetData();
     }
   }, [tab, fetchBudgetData]);
-
-  const getState = (provider: string): ProviderAuthState =>
-    authStates[provider] ?? INITIAL_STATE;
-
-  const updateState = (provider: string, update: Partial<ProviderAuthState>) => {
-    setAuthStates((prev) => ({
-      ...prev,
-      [provider]: { ...(prev[provider] ?? INITIAL_STATE), ...update },
-    }));
-  };
-
-  const isDeviceCodeFlow = (provider: string) => provider === 'openai';
-
-  const handleConnect = async (provider: string) => {
-    updateState(provider, { phase: 'starting', error: null });
-    try {
-      const result = await startAuth(provider);
-      if (result.auth_url) {
-        if (isDeviceCodeFlow(provider) && result.device_code) {
-          updateState(provider, { phase: 'polling', authUrl: result.auth_url, deviceCode: result.device_code });
-          window.open(result.auth_url, '_blank', 'noopener');
-          pollUntilAuth(provider);
-        } else {
-          updateState(provider, { phase: 'awaiting_code', authUrl: result.auth_url, deviceCode: result.device_code });
-          window.open(result.auth_url, '_blank', 'noopener');
-          setTimeout(() => inputRefs.current[provider]?.focus(), 100);
-        }
-      } else {
-        updateState(provider, { phase: 'idle', error: result.message || 'Could not start' });
-      }
-    } catch (err) {
-      updateState(provider, {
-        phase: 'idle',
-        error: err instanceof Error ? err.message : 'Failed to start authentication',
-      });
-    }
-  };
-
-  const handleSubmitCode = async (provider: string) => {
-    const state = getState(provider);
-    const code = state.codeInput.trim();
-    if (!code) return;
-    updateState(provider, { phase: 'submitting', error: null });
-    try {
-      const result = await submitAuthCode(provider, code);
-      if (result.success) {
-        updateState(provider, { ...INITIAL_STATE });
-        const status = await refreshAuth();
-        setProviders(status);
-      } else {
-        updateState(provider, { phase: 'polling' });
-        pollUntilAuth(provider);
-      }
-    } catch {
-      updateState(provider, { phase: 'awaiting_code', error: 'Failed to submit code' });
-    }
-  };
-
-  const pollUntilAuth = async (provider: string) => {
-    for (let i = 0; i < 20; i++) {
-      await new Promise((r) => setTimeout(r, 3000));
-      try {
-        const status = await refreshAuth();
-        setProviders(status);
-        if (status.find((s) => s.provider === provider)?.authenticated) {
-          updateState(provider, { ...INITIAL_STATE });
-          return;
-        }
-      } catch { /* keep polling */ }
-    }
-    updateState(provider, { phase: 'idle', error: 'Timed out — try again' });
-  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6">
