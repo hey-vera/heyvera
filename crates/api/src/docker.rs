@@ -141,6 +141,12 @@ impl ContainerManager {
         db.upsert_user_container(&id, user_id, &container_id, provider, "running");
         self.cache.write().await.insert(user_id.to_string(), container_id.clone());
 
+        db.audit_log(
+            user_id, "system", "container.created",
+            Some("container"), Some(&container_id),
+            Some(&format!("{{\"provider\":\"{provider}\"}}")),
+            None,
+        );
         tracing::info!(user_id, container_id = %container_id, "created BYOS container");
         Ok(container_id)
     }

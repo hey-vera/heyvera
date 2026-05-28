@@ -306,6 +306,13 @@ pub async fn auth_submit(
 
     db.insert_credential_with_data(&cred, &encrypted);
 
+    db.audit_log(
+        &user.user_id, "user", "credential.created",
+        Some("credential"), Some(&cred_id),
+        Some(&format!("{{\"provider\":\"{provider_normalized}\",\"type\":\"{credential_type}\"}}")),
+        None,
+    );
+
     tracing::info!(
         user_id = %user.user_id,
         provider = provider_normalized,
@@ -354,6 +361,12 @@ pub async fn credential_delete(
     }
 
     let deleted = db.delete_credential(&user.user_id, &req.credential_id);
+    if deleted {
+        db.audit_log(
+            &user.user_id, "user", "credential.deleted",
+            Some("credential"), Some(&req.credential_id), None, None,
+        );
+    }
     Ok(Json(AuthSubmitResponse {
         success: deleted,
         message: if deleted {

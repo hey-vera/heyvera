@@ -112,6 +112,13 @@ pub async fn assign_credential(
         permissions_json.as_deref(),
     );
 
+    db.audit_log(
+        &user.user_id, "user", "credential.assigned",
+        Some("credential_assignment"), Some(&assignment_id),
+        Some(&format!("{{\"credential_id\":\"{}\",\"target_type\":\"{}\"}}", req.credential_id, req.target_type)),
+        None,
+    );
+
     Ok(Json(AssignmentResponse {
         success: true,
         assignment_id: Some(assignment_id),
@@ -146,6 +153,10 @@ pub async fn remove_assignment(
     let removed = db.remove_credential_assignment(&user.user_id, &assignment_id);
 
     if removed {
+        db.audit_log(
+            &user.user_id, "user", "credential.unassigned",
+            Some("credential_assignment"), Some(&assignment_id), None, None,
+        );
         Ok(Json(AssignmentResponse {
             success: true,
             assignment_id: Some(assignment_id),
