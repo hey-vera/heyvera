@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::collections::HashMap;
 
-use axum::extract::{Path, Query, State};
+use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::Json;
 use serde::{Deserialize, Serialize};
@@ -216,10 +216,11 @@ impl crate::db::Database {
              WHERE user_id = ? AND id = ?"
         ).ok()?;
 
-        let mut rows = stmt.query_map(rusqlite::params![user_id, project_id], |row| {
+        let mut rows = stmt.query_map(rusqlite::params![user_id, project_id], |row: &rusqlite::Row| {
             let metadata_str: Option<String> = row.get(9)?;
             let metadata = metadata_str
-                .and_then(|s| serde_json::from_str(&s).ok());
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok());
 
             Ok(ProjectWorkspace {
                 id: row.get(0)?,
@@ -235,7 +236,7 @@ impl crate::db::Database {
             })
         }).ok()?;
 
-        rows.next().and_then(|row| row.ok())
+        rows.next().and_then(|row: Result<ProjectWorkspace, _>| row.ok())
     }
 
     pub fn list_user_project_workspaces(&self, user_id: &str) -> Vec<ProjectWorkspace> {
@@ -251,10 +252,11 @@ impl crate::db::Database {
             Err(_) => return Vec::new(),
         };
 
-        let rows = stmt.query_map(rusqlite::params![user_id], |row| {
+        match stmt.query_map(rusqlite::params![user_id], |row: &rusqlite::Row| {
             let metadata_str: Option<String> = row.get(9)?;
             let metadata = metadata_str
-                .and_then(|s| serde_json::from_str(&s).ok());
+                .as_deref()
+                .and_then(|s| serde_json::from_str(s).ok());
 
             Ok(ProjectWorkspace {
                 id: row.get(0)?,
@@ -268,11 +270,10 @@ impl crate::db::Database {
                 status: row.get(8)?,
                 metadata,
             })
-        });
-
-        rows.map(|rows| {
-            rows.filter_map(|row| row.ok()).collect()
-        }).unwrap_or_default()
+        }) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(_) => Vec::new(),
+        }
     }
 
     pub fn update_project_workspace_status(&self, user_id: &str, project_id: &str, status: &str) -> bool {
@@ -508,6 +509,12 @@ pub async fn proxy_chat_to_workspace(
     Path(project_id): Path<String>,
     Json(chat_req): Json<crate::chat::ChatRequest>,
 ) -> Result<axum::response::sse::Sse<impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+    use tokio::sync::mpsc;
+    use tokio_stream::wrappers::ReceiverStream;
+    use tokio_stream::StreamExt;
+    use axum::response::sse::{Event, KeepAlive};
+    use std::convert::Infallible;
+
     let db = db_ref(&state)?;
     let workspace = db.get_project_workspace(&user.user_id, &project_id)
         .ok_or_else(|| (
@@ -517,8 +524,43 @@ pub async fn proxy_chat_to_workspace(
             })
         ))?;
 
-    // Route chat request to workspace instead of VPS CLI
-    route_chat_to_workspace(&state, &user, &workspace, chat_req).await
+    let (tx, rx) = mpsc::channel::<crate::state::StepEvent>(64);
+    let workspace_clone = workspace.clone();
+
+    tokio::spawn(async move {
+        let _ = tx.send(crate::state::StepEvent::Started {
+            step_id: "workspace-chat".into(),
+            provider: "replit".into(),
+            model: "workspace".into(),
+        }).await;
+
+        match proxy_to_replit_workspace(&workspace_clone, &chat_req).await {
+            Ok(response) => {
+                let _ = tx.send(crate::state::StepEvent::Output {
+                    step_id: "workspace-chat".into(),
+                    line: response,
+                }).await;
+                let _ = tx.send(crate::state::StepEvent::Completed {
+                    step_id: "workspace-chat".into(),
+                    exit_code: 0,
+                }).await;
+            }
+            Err(error) => {
+                let _ = tx.send(crate::state::StepEvent::Failed {
+                    step_id: "workspace-chat".into(),
+                    error,
+                }).await;
+            }
+        }
+    });
+
+    fn step_event_to_sse(event: crate::state::StepEvent) -> Result<Event, Infallible> {
+        let data = serde_json::to_string(&event).unwrap_or_default();
+        Ok(Event::default().data(data))
+    }
+
+    let stream = ReceiverStream::new(rx).map(step_event_to_sse);
+    Ok(axum::response::sse::Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 // --- Helper Functions ---
@@ -553,66 +595,6 @@ async fn clone_github_to_workspace(
     files.insert("clone.sh".to_string(), clone_script);
 
     replit_client.update_workspace_files(workspace_id, &files).await
-}
-
-async fn route_chat_to_workspace(
-    state: &Arc<AppState>,
-    user: &ClerkUser,
-    workspace: &ProjectWorkspace,
-    mut chat_req: crate::chat::ChatRequest,
-) -> Result<axum::response::sse::Sse<impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
-    use tokio::sync::mpsc;
-    use tokio_stream::wrappers::ReceiverStream;
-    use tokio_stream::StreamExt;
-    use axum::response::sse::{Event, KeepAlive};
-    use std::convert::Infallible;
-
-    // Modify the chat request to include workspace context
-    chat_req.user_id = Some(format!("workspace:{}", workspace.workspace_id));
-
-    // Create a proxied chat session that routes to the workspace
-    let (tx, rx) = mpsc::channel::<crate::state::StepEvent>(64);
-
-    let workspace_clone = workspace.clone();
-    let user_clone = user.clone();
-    let state_clone = state.clone();
-
-    tokio::spawn(async move {
-        let _ = tx.send(crate::state::StepEvent::Started {
-            step_id: "workspace-chat".into(),
-            provider: "replit".into(),
-            model: "workspace".into(),
-        }).await;
-
-        // Instead of CLI, send commands to Replit workspace
-        match proxy_to_replit_workspace(&workspace_clone, &chat_req).await {
-            Ok(response) => {
-                let _ = tx.send(crate::state::StepEvent::Output {
-                    step_id: "workspace-chat".into(),
-                    line: response,
-                }).await;
-
-                let _ = tx.send(crate::state::StepEvent::Completed {
-                    step_id: "workspace-chat".into(),
-                    exit_code: 0,
-                }).await;
-            }
-            Err(error) => {
-                let _ = tx.send(crate::state::StepEvent::Failed {
-                    step_id: "workspace-chat".into(),
-                    error,
-                }).await;
-            }
-        }
-    });
-
-    fn step_event_to_sse(event: crate::state::StepEvent) -> Result<Event, Infallible> {
-        let data = serde_json::to_string(&event).unwrap_or_default();
-        Ok(Event::default().data(data))
-    }
-
-    let stream = ReceiverStream::new(rx).map(step_event_to_sse);
-    Ok(axum::response::sse::Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 async fn proxy_to_replit_workspace(

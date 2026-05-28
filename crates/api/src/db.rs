@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 pub struct Database {
-    conn: Mutex<Connection>,
+    pub(crate) conn: Mutex<Connection>,
 }
 
 // --- Conversation types (existing) ---
@@ -10490,7 +10490,7 @@ impl Database {
                 },
                 "agent": agent_name.map(|name| serde_json::json!({
                     "name": name,
-                    "slug": row.get::<_, Option<String>>(15)?
+                    "slug": row.get::<_, Option<String>>(15).unwrap_or(None)
                 }))
             }))
         }).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
