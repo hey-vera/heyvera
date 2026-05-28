@@ -157,7 +157,7 @@ pub async fn search(
         (vec![], vec![])
     };
 
-    let posts = if search_type == "profiles" {
+    let mut posts = if search_type == "profiles" {
         vec![]
     } else {
         db(&state).social_search_posts_keyset(
@@ -169,6 +169,7 @@ pub async fn search(
             &muted_ids,
         )
     };
+    db(&state).social_enrich_feed_posts(&mut posts, viewer_pid.as_deref());
 
     let profiles = if search_type == "posts" {
         vec![]
@@ -217,7 +218,7 @@ pub async fn get_home_feed(
         (vec![], vec![])
     };
 
-    let posts = db(&state).social_list_feed_posts_keyset(
+    let mut posts = db(&state).social_list_feed_posts_keyset(
         limit,
         cursor_created_at.as_deref(),
         cursor_id.as_deref(),
@@ -225,6 +226,7 @@ pub async fn get_home_feed(
         &blocked_ids,
         &muted_ids,
     );
+    db(&state).social_enrich_feed_posts(&mut posts, viewer_pid.as_deref());
     let next_cursor = next_cursor_from_posts(&posts, limit);
     let has_more = posts.len() as i64 == limit;
 
@@ -520,7 +522,8 @@ pub async fn get_user_posts(
         None => 0,
     };
 
-    let posts = db(&state).social_get_user_posts(profile_id, limit, legacy_offset);
+    let mut posts = db(&state).social_get_user_posts(profile_id, limit, legacy_offset);
+    db(&state).social_enrich_feed_posts(&mut posts, None);
     let next_cursor = next_cursor_from_posts(&posts, limit);
     let has_more = posts.len() as i64 == limit;
 
@@ -540,7 +543,13 @@ pub async fn get_single_post(
 ) -> impl IntoResponse {
     let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
     match db(&state).social_get_post_by_id(&id, viewer_pid.as_deref()) {
-        Some(post) => ok(post),
+        Some(post) => {
+            let replies = db(&state).social_get_post_replies(&id, viewer_pid.as_deref());
+            ok(serde_json::json!({
+                "post": post,
+                "replies": replies,
+            }))
+        },
         None => not_found("Post not found"),
     }
 }
@@ -561,7 +570,8 @@ pub async fn get_following_feed(
     let blocked_ids = db(&state).social_get_blocked_ids(&profile_id);
     let muted_ids = db(&state).social_get_muted_ids(&profile_id);
 
-    let posts = db(&state).social_get_following_feed(&profile_id, limit, legacy_offset, &blocked_ids, &muted_ids);
+    let mut posts = db(&state).social_get_following_feed(&profile_id, limit, legacy_offset, &blocked_ids, &muted_ids);
+    db(&state).social_enrich_feed_posts(&mut posts, Some(&profile_id));
     let next_cursor = next_cursor_from_posts(&posts, limit);
     let has_more = posts.len() as i64 == limit;
 
@@ -686,7 +696,7 @@ pub async fn get_community_feed(
         (vec![], vec![])
     };
 
-    let posts = db(&state).social_get_community_feed(
+    let mut posts = db(&state).social_get_community_feed(
         &community_id,
         limit,
         cursor_created_at.as_deref(),
@@ -694,6 +704,7 @@ pub async fn get_community_feed(
         &blocked_ids,
         &muted_ids,
     );
+    db(&state).social_enrich_feed_posts(&mut posts, viewer_pid.as_deref());
     let next_cursor = next_cursor_from_posts(&posts, limit);
     let has_more = posts.len() as i64 == limit;
 

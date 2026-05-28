@@ -4,28 +4,35 @@ import {
   BarChart3,
   Bookmark,
   Copy,
+  Flag,
   Heart,
   Link,
   LogIn,
   MessageCircle,
+  MoreHorizontal,
   Quote,
   Repeat2,
   Share,
+  ShieldOff,
   UserRound,
+  VolumeX,
   X,
 } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
-import { fetchMyProfile } from '../../api/social';
+import { blockUser, fetchMyProfile, muteUser, reportContent } from '../../api/social';
 import type { Post } from '../../api/types';
 import { useAuth } from '../../hooks/useAuth';
+import { QuoteCompose } from './QuoteCompose';
 import { ReplyCompose } from './ReplyCompose';
+import { extractFirstUrl, LinkPreviewCard, renderRichText } from '../../utils/richText';
 
 interface PostCardProps {
   post: Post;
   onLike?: (id: string, liked: boolean, token: string) => void;
   onRepost?: (id: string, reposted: boolean, token: string) => void;
   onBookmark?: (id: string, bookmarked: boolean, token: string) => void;
+  onReply?: () => void;
 }
 
 type AuthPrompt = 'signin' | 'profile' | 'unconfigured' | 'error' | null;
@@ -51,7 +58,7 @@ function formatCount(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) {
+export function PostCard({ post, onLike, onRepost, onBookmark, onReply }: PostCardProps) {
   const navigate = useNavigate();
   const { authEnabled, isSignedIn, getToken, userId } = useAuth();
   const [liked, setLiked] = useState(post.liked);
@@ -60,12 +67,13 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
   const [likeCount, setLikeCount] = useState(post.like_count);
   const [repostCount, setRepostCount] = useState(post.repost_count);
   const [likeAnimating, setLikeAnimating] = useState(false);
-  const [openMenu, setOpenMenu] = useState<'repost' | 'share' | null>(null);
+  const [openMenu, setOpenMenu] = useState<'repost' | 'share' | 'more' | null>(null);
   const [authPrompt, setAuthPrompt] = useState<AuthPrompt>(null);
   const [authMessage, setAuthMessage] = useState<string | null>(null);
   const [checkingAuth, setCheckingAuth] = useState(false);
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [replyOpen, setReplyOpen] = useState(false);
+  const [quoteOpen, setQuoteOpen] = useState(false);
   const likeTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -175,7 +183,7 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
     setOpenMenu(null);
     const token = await ensureCanMutate();
     if (!token) return;
-    navigate(`/post/${post.id}?compose=quote`);
+    setQuoteOpen(true);
   };
 
   const copyPostLink = () => {
@@ -194,6 +202,27 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
       text: post.content,
       url: postUrl,
     });
+  };
+
+  const handleBlock = async () => {
+    setOpenMenu(null);
+    const token = await ensureCanMutate();
+    if (!token) return;
+    void blockUser(token, post.author.id);
+  };
+
+  const handleMute = async () => {
+    setOpenMenu(null);
+    const token = await ensureCanMutate();
+    if (!token) return;
+    void muteUser(token, post.author.id);
+  };
+
+  const handleReport = async () => {
+    setOpenMenu(null);
+    const token = await ensureCanMutate();
+    if (!token) return;
+    void reportContent(token, { targetType: 'post', targetId: post.id, reason: 'user_reported' });
   };
 
   return (
@@ -250,6 +279,20 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
           </button>
           <span className="shrink-0" style={{ color: 'var(--text-secondary)' }}>·</span>
           <span className="shrink-0" style={{ color: 'var(--text-secondary)' }}>{relativeTime(post.created_at)}</span>
+          <div className="ml-auto relative">
+            <DropdownAction
+              icon={MoreHorizontal}
+              label="More"
+              color="reply"
+              open={openMenu === 'more'}
+              onToggle={() => setOpenMenu((m) => (m === 'more' ? null : 'more'))}
+              onClose={() => setOpenMenu(null)}
+            >
+              <MenuItem icon={VolumeX} label={`Mute @${post.author.handle}`} onClick={handleMute} />
+              <MenuItem icon={ShieldOff} label={`Block @${post.author.handle}`} onClick={handleBlock} />
+              <MenuItem icon={Flag} label="Report post" onClick={handleReport} />
+            </DropdownAction>
+          </div>
         </div>
 
         {/* Body */}
@@ -259,8 +302,21 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
           style={{ color: 'var(--text-primary)', background: 'transparent', border: 'none' }}
           onClick={() => navigate(`/post/${post.id}`)}
         >
-          {post.content}
+          {renderRichText(post.content)}
         </button>
+
+        {/* Reply-to indicator */}
+        {post.reply_to && (
+          <div className="mt-1 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+            Replying to a post
+          </div>
+        )}
+
+        {/* Link preview */}
+        {!post.media?.length && (() => {
+          const url = extractFirstUrl(post.content);
+          return url ? <LinkPreviewCard url={url} /> : null;
+        })()}
 
         {/* Media */}
         {post.media && post.media.length > 0 && (
@@ -358,7 +414,18 @@ export function PostCard({ post, onLike, onRepost, onBookmark }: PostCardProps) 
         <ReplyCompose
           replyToPost={post}
           onClose={() => setReplyOpen(false)}
-          onReplyCreated={() => setReplyOpen(false)}
+          onReplyCreated={() => {
+            setReplyOpen(false);
+            onReply?.();
+          }}
+        />
+      )}
+
+      {quoteOpen && (
+        <QuoteCompose
+          quotedPost={post}
+          onClose={() => setQuoteOpen(false)}
+          onQuoteCreated={() => setQuoteOpen(false)}
         />
       )}
     </article>

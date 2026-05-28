@@ -76,12 +76,22 @@ export type FeedPost = {
     profileId: string;
     handle: string;
     displayName: string;
+    avatar_url?: string | null;
   };
   linkedAgent: {
     id: string;
     agentName: string;
     agentSlug: string;
   } | null;
+  // Engagement counts (returned by backend when available)
+  likeCount?: number;
+  repostCount?: number;
+  bookmarkCount?: number;
+  replyCount?: number;
+  // Viewer state
+  liked?: boolean;
+  bookmarked?: boolean;
+  reposted?: boolean;
 };
 
 export type Community = {
@@ -499,6 +509,45 @@ export async function unrepostPost(
   return apiAuthFetch(`/posts/${postId}/repost`, { method: "DELETE", token });
 }
 
+// ─── Moderation ────────────────────────────────────────────────────────────
+
+export async function blockUser(
+  token: string,
+  userId: string,
+): Promise<{ ok: true }> {
+  return apiAuthFetch(`/users/${userId}/block`, { method: "POST", token });
+}
+
+export async function unblockUser(
+  token: string,
+  userId: string,
+): Promise<{ ok: true }> {
+  return apiAuthFetch(`/users/${userId}/block`, { method: "DELETE", token });
+}
+
+export async function muteUser(
+  token: string,
+  userId: string,
+): Promise<{ ok: true }> {
+  return apiAuthFetch(`/users/${userId}/mute`, { method: "POST", token });
+}
+
+export async function unmuteUser(
+  token: string,
+  userId: string,
+): Promise<{ ok: true }> {
+  return apiAuthFetch(`/users/${userId}/mute`, { method: "DELETE", token });
+}
+
+export async function reportContent(
+  token: string,
+  data: { targetType: string; targetId: string; reason: string },
+): Promise<{ ok: true }> {
+  return apiAuthFetch("/report", { method: "POST", token, body: data });
+}
+
+// ─── Linked agents ─────────────────────────────────────────────────────────
+
 export async function linkAgent(
   token: string,
   data: {
@@ -524,18 +573,18 @@ export function feedPostToPost(fp: FeedPost): Post {
       id: fp.author.profileId,
       display_name: fp.author.displayName,
       handle: fp.author.handle,
-      avatar_url: '',
+      avatar_url: fp.author.avatar_url ?? '',
       verified: false,
     },
     content: fp.body,
     created_at: fp.createdAt,
-    reply_count: 0,
-    repost_count: 0,
-    like_count: 0,
+    reply_count: fp.replyCount ?? 0,
+    repost_count: fp.repostCount ?? 0,
+    like_count: fp.likeCount ?? 0,
     view_count: 0,
-    bookmarked: false,
-    liked: false,
-    reposted: false,
+    bookmarked: fp.bookmarked ?? false,
+    liked: fp.liked ?? false,
+    reposted: fp.reposted ?? false,
     reply_to: fp.replyToPostId ?? undefined,
   };
 }

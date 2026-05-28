@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { bookmarkPost, feedPostToPost, fetchSinglePost, likePost, repostPost, unbookmarkPost, unlikePost } from '../api/social';
+import { bookmarkPost, createPost, feedPostToPost, fetchMyProfile, fetchSinglePost, likePost, repostPost, unbookmarkPost, unlikePost } from '../api/social';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
+import { useAuth } from '../hooks/useAuth';
 
 export function PostThreadPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [post, setPost] = useState<Post | null>(null);
   const [replies, setReplies] = useState<Post[]>([]);
   const [loading, setLoading] = useState(true);
@@ -84,7 +86,19 @@ export function PostThreadPage() {
       )}
       {!loading && !error && post && (
         <section aria-label="Post thread">
-          <ThreadPost post={post} hasConnector={replies.length > 0} />
+          <ThreadPost
+            post={post}
+            hasConnector={replies.length > 0}
+            onReplyPosted={() => setReloadKey((key) => key + 1)}
+          />
+          <InlineReplyCompose
+            postId={post.id}
+            authorHandle={post.author.handle}
+            authEnabled={authEnabled}
+            isSignedIn={isSignedIn}
+            getToken={getToken}
+            onReplyPosted={() => setReloadKey((key) => key + 1)}
+          />
           {replies.length > 0 ? (
             replies.map((reply, index) => (
               <ThreadReply
@@ -107,6 +121,7 @@ export default PostThreadPage;
 interface ThreadPostProps {
   post: Post;
   hasConnector: boolean;
+  onReplyPosted: () => void;
 }
 
 interface ThreadReplyProps {
@@ -114,11 +129,17 @@ interface ThreadReplyProps {
   isLast: boolean;
 }
 
-function ThreadPost({ post, hasConnector }: ThreadPostProps) {
+function ThreadPost({ post, hasConnector, onReplyPosted }: ThreadPostProps) {
   return (
     <div className="relative">
       {hasConnector && <ConnectorLine className="top-16 bottom-0" />}
-      <PostCard post={post} onLike={handleLike} onRepost={handleRepost} onBookmark={handleBookmark} />
+      <PostCard
+        post={post}
+        onLike={handleLike}
+        onRepost={handleRepost}
+        onBookmark={handleBookmark}
+        onReply={onReplyPosted}
+      />
     </div>
   );
 }
@@ -143,6 +164,92 @@ function ConnectorLine({ className }: ConnectorLineProps) {
       className={`pointer-events-none absolute left-9 w-px ${className}`}
       style={{ backgroundColor: 'var(--border-secondary)' }}
     />
+  );
+}
+
+function InlineReplyCompose({
+  postId,
+  authorHandle,
+  authEnabled,
+  isSignedIn,
+  getToken,
+  onReplyPosted,
+}: {
+  postId: string;
+  authorHandle: string;
+  authEnabled: boolean;
+  isSignedIn: boolean;
+  getToken: () => Promise<string | null>;
+  onReplyPosted: () => void;
+}) {
+  const [text, setText] = useState('');
+  const [posting, setPosting] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const canPost = text.trim().length > 0 && !posting && text.length <= 280;
+
+  const submit = async () => {
+    if (!canPost) return;
+    if (!authEnabled || !isSignedIn) { setErr('Sign in to reply'); return; }
+    const token = await getToken();
+    if (!token) { setErr('Sign in to reply'); return; }
+
+    setPosting(true);
+    setErr(null);
+    try {
+      await fetchMyProfile(token);
+      await createPost(token, { body: text.trim(), replyToPostId: postId });
+      setText('');
+      onReplyPosted();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message.toLowerCase() : '';
+      if (msg.includes('404') || msg.includes('not found')) {
+        setErr('Create your profile first');
+      } else {
+        setErr(e instanceof Error ? e.message : 'Reply failed');
+      }
+    } finally {
+      setPosting(false);
+    }
+  };
+
+  return (
+    <div
+      className="border-b px-4 py-3"
+      style={{ borderColor: 'var(--border-primary)' }}
+    >
+      <div className="text-[13px] mb-2" style={{ color: 'var(--text-secondary)' }}>
+        Replying to <span style={{ color: 'var(--accent)' }}>@{authorHandle}</span>
+      </div>
+      <div className="flex gap-3">
+        <textarea
+          placeholder="Post your reply"
+          className="flex-1 resize-none border-none bg-transparent text-[15px] outline-none placeholder:text-[var(--text-secondary)]"
+          style={{ color: 'var(--text-primary)', minHeight: '44px' }}
+          value={text}
+          onChange={(e) => { setText(e.target.value.slice(0, 280)); setErr(null); }}
+          onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) void submit(); }}
+          maxLength={280}
+          disabled={posting}
+          rows={1}
+        />
+        <button
+          type="button"
+          className="self-end rounded-full px-4 py-1.5 text-sm font-bold transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-primary)' }}
+          disabled={!canPost}
+          onClick={() => void submit()}
+        >
+          {posting ? 'Replying' : 'Reply'}
+        </button>
+      </div>
+      {text.length > 0 && (
+        <div className="mt-1 text-right text-[13px]" style={{ color: 280 - text.length <= 20 ? 'var(--color-danger)' : 'var(--text-secondary)' }}>
+          {280 - text.length}
+        </div>
+      )}
+      {err && <p className="mt-1 text-[13px]" style={{ color: 'var(--color-danger)' }}>{err}</p>}
+    </div>
   );
 }
 

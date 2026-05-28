@@ -1,5 +1,6 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import {
   bookmarkPost,
   feedPostToPost,
@@ -38,15 +39,33 @@ const EMPTY_SEARCH_RESULTS: SearchState = {
 
 export function ExplorePage() {
   const { authEnabled, isSignedIn } = useAuth();
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const initialQuery = searchParams.get('q') ?? '';
   const [activeTab, setActiveTab] = useState<Tab>('For you');
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState(initialQuery);
+  const [debouncedQuery, setDebouncedQuery] = useState(initialQuery);
   const [trending, setTrending] = useState<TrendingItem[]>([]);
   const [searchResults, setSearchResults] = useState<SearchState>(EMPTY_SEARCH_RESULTS);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
-  const trimmedQuery = query.trim();
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>();
+  const trimmedQuery = debouncedQuery.trim();
   const isSearching = trimmedQuery.length > 0;
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      setDebouncedQuery(query);
+      if (query.trim()) {
+        setSearchParams({ q: query.trim() }, { replace: true });
+      } else {
+        setSearchParams({}, { replace: true });
+      }
+    }, 300);
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
+  }, [query, setSearchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -136,6 +155,7 @@ export function ExplorePage() {
               type="button"
               className="w-full px-4 py-3 text-left transition-colors hover:bg-[color:color-mix(in_srgb,var(--text-primary)_5%,transparent)]"
               style={{ borderBottom: index < trending.length - 1 ? '1px solid var(--border-primary)' : undefined }}
+              onClick={() => setQuery(item.tag)}
             >
               <p className="mb-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>Trending</p>
               <p className="text-[15px] font-bold leading-tight">{item.tag}</p>
@@ -154,7 +174,7 @@ export function ExplorePage() {
           {searchResults.profiles.length > 0 && (
             <SearchSection title="People">
               {searchResults.profiles.map((profile, index) => (
-                <UserRow key={profile.id} user={profile} showBorder={index < searchResults.profiles.length - 1} />
+                <UserRow key={profile.id} user={profile} showBorder={index < searchResults.profiles.length - 1} onNavigate={(handle) => navigate(`/profile/${handle}`)} />
               ))}
             </SearchSection>
           )}
@@ -188,12 +208,13 @@ function SearchSection({ title, children }: { title: string; children: ReactNode
   );
 }
 
-function UserRow({ user, showBorder }: { user: { id: string; handle: string; displayName: string; avatarUrl: string | null; bio: string }; showBorder: boolean }) {
+function UserRow({ user, showBorder, onNavigate }: { user: { id: string; handle: string; displayName: string; avatarUrl: string | null; bio: string }; showBorder: boolean; onNavigate: (handle: string) => void }) {
   return (
     <button
       type="button"
       className="flex w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-[color:color-mix(in_srgb,var(--text-primary)_3%,transparent)]"
       style={{ borderBottom: showBorder ? '1px solid var(--border-primary)' : undefined }}
+      onClick={() => onNavigate(user.handle)}
     >
       {user.avatarUrl ? (
         <img
@@ -216,6 +237,9 @@ function UserRow({ user, showBorder }: { user: { id: string; handle: string; dis
           <span className="truncate font-bold" style={{ color: 'var(--text-primary)' }}>{user.displayName}</span>
         </div>
         <p className="truncate text-[15px] leading-5" style={{ color: 'var(--text-secondary)' }}>@{user.handle}</p>
+        {user.bio && (
+          <p className="mt-0.5 line-clamp-2 text-[13px] leading-4" style={{ color: 'var(--text-secondary)' }}>{user.bio}</p>
+        )}
       </div>
     </button>
   );

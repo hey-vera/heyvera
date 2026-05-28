@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
-import { Heart, Repeat2, UserPlus } from 'lucide-react';
+import { AtSign, Heart, MessageCircle, Repeat2, UserPlus } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import { fetchNotifications } from '../api/social';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';
+import { relativeTime } from '../utils/time';
 
-type NotificationType = 'like' | 'follow' | 'repost';
+type NotificationType = 'like' | 'follow' | 'repost' | 'reply' | 'mention';
 
 type ApiNotification = {
   id: string;
@@ -18,10 +20,15 @@ type ApiNotification = {
   createdAt: string;
 };
 
+const FILTER_TABS = ['All', 'Mentions'] as const;
+type FilterTab = typeof FILTER_TABS[number];
+
 const notificationIcons: Record<NotificationType, { icon: LucideIcon; color: string }> = {
   like: { icon: Heart, color: 'var(--color-like)' },
   repost: { icon: Repeat2, color: 'var(--color-repost)' },
   follow: { icon: UserPlus, color: 'var(--accent)' },
+  reply: { icon: MessageCircle, color: 'var(--color-reply)' },
+  mention: { icon: AtSign, color: 'var(--accent)' },
 };
 
 function notificationText(notification: ApiNotification): string {
@@ -34,15 +41,21 @@ function notificationText(notification: ApiNotification): string {
       return `${name} reposted your post`;
     case 'follow':
       return `${name} followed you`;
+    case 'reply':
+      return `${name} replied to your post`;
+    case 'mention':
+      return `${name} mentioned you`;
   }
 }
 
 export function NotificationsPage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
+  const navigate = useNavigate();
   const [notifications, setNotifications] = useState<ApiNotification[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
 
   useEffect(() => {
     let cancelled = false;
@@ -76,50 +89,94 @@ export function NotificationsPage() {
     };
   }, [authEnabled, isSignedIn, reloadKey]);
 
+  const filtered = activeFilter === 'All'
+    ? notifications
+    : notifications.filter((n) => n.type === 'mention' || n.type === 'reply');
+
+  const handleNotificationClick = (notification: ApiNotification) => {
+    if (notification.postId) {
+      navigate(`/post/${notification.postId}`);
+    } else if (notification.type === 'follow') {
+      navigate(`/profile/${notification.actorHandle}`);
+    }
+  };
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
       <div className="sticky top-[var(--top-bar-height)] z-10 border-b sticky-header-bg backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
         <div className="px-4 py-3">
           <h1 className="text-[20px] font-bold">Notifications</h1>
         </div>
+        <div className="flex" style={{ borderTop: '1px solid var(--border-primary)' }}>
+          {FILTER_TABS.map((tab) => (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => setActiveFilter(tab)}
+              className="flex-1 px-4 py-3 text-[15px] font-medium transition-colors hover:bg-[color:color-mix(in_srgb,var(--text-primary)_5%,transparent)]"
+              style={{ color: activeFilter === tab ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+            >
+              <span className="relative inline-block">
+                {tab}
+                {activeFilter === tab && (
+                  <span className="absolute -bottom-[13px] left-0 right-0 h-[4px] rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
+                )}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
 
       {loading && <LoadingState label="Loading notifications" />}
       {!loading && authEnabled && !isSignedIn && <SignedOutNotificationsPrompt />}
       {!loading && error && <ErrorState detail={error} onRetry={() => setReloadKey((key) => key + 1)} />}
-      {!loading && !(authEnabled && !isSignedIn) && !error && notifications.length === 0 && (
-        <EmptyState title="Nothing yet" detail="Likes, reposts, and follows will appear here." />
+      {!loading && !(authEnabled && !isSignedIn) && !error && filtered.length === 0 && (
+        <EmptyState
+          title="Nothing yet"
+          detail={activeFilter === 'Mentions' ? 'Mentions and replies will appear here.' : 'Likes, reposts, follows, and replies will appear here.'}
+        />
       )}
-      {!loading && !(authEnabled && !isSignedIn) && !error && notifications.map((notification) => {
-        const meta = notificationIcons[notification.type];
+      {!loading && !(authEnabled && !isSignedIn) && !error && filtered.map((notification) => {
+        const meta = notificationIcons[notification.type] ?? notificationIcons.like;
         const Icon = meta.icon;
         return (
           <article
             key={notification.id}
             className="flex cursor-pointer gap-3 border-b px-4 py-3 transition-colors hover-overlay"
             style={{ borderColor: 'var(--border-primary)' }}
+            onClick={() => handleNotificationClick(notification)}
           >
             <div className="flex w-10 flex-shrink-0 justify-center pt-1" style={{ color: meta.color }}>
               <Icon className="h-6 w-6" fill={notification.type === 'like' ? 'currentColor' : 'none'} aria-hidden="true" />
             </div>
 
             <div className="min-w-0 flex-1">
-              <div className="mb-2 flex gap-1">
-                {notification.actorAvatarUrl ? (
-                  <img
-                    src={notification.actorAvatarUrl}
-                    alt={notification.actorDisplayName}
-                    className="h-8 w-8 rounded-full object-cover"
-                    style={{ backgroundColor: 'var(--border-primary)' }}
-                  />
-                ) : (
-                  <div
-                    className="flex h-8 w-8 items-center justify-center rounded-full text-xs"
-                    style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
-                  >
-                    {notification.actorDisplayName.charAt(0)}
-                  </div>
-                )}
+              <div className="mb-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={(e) => { e.stopPropagation(); navigate(`/profile/${notification.actorHandle}`); }}
+                  className="shrink-0"
+                  style={{ background: 'transparent', border: 'none', padding: 0 }}
+                >
+                  {notification.actorAvatarUrl ? (
+                    <img
+                      src={notification.actorAvatarUrl}
+                      alt={notification.actorDisplayName}
+                      className="h-8 w-8 rounded-full object-cover hover:brightness-90 transition-all"
+                      style={{ backgroundColor: 'var(--border-primary)' }}
+                    />
+                  ) : (
+                    <div
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-xs hover:brightness-90 transition-all"
+                      style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+                    >
+                      {notification.actorDisplayName.charAt(0)}
+                    </div>
+                  )}
+                </button>
+                <span className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                  {relativeTime(notification.createdAt)}
+                </span>
               </div>
 
               <p className="text-[15px] leading-snug">{notificationText(notification)}</p>

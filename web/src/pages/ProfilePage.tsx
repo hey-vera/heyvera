@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   bookmarkPost,
   createProfile,
+  feedPostToPost,
   fetchFollowStatus,
   fetchMyProfile,
   fetchProfile,
@@ -18,35 +19,12 @@ import {
   unlikePost,
   updateProfile,
 } from '../api/social';
-import type { FeedPost, Profile, ProfileStats } from '../api/social';
+import type { Profile, ProfileStats } from '../api/social';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
-
-/** Map a real FeedPost from the /v1/social API into the legacy Post shape that PostCard expects. */
-function feedPostToLegacyPost(fp: FeedPost): Post {
-  return {
-    id: fp.id,
-    content: fp.body,
-    created_at: fp.createdAt,
-    author: {
-      id: fp.author.profileId,
-      display_name: fp.author.displayName,
-      handle: fp.author.handle,
-      avatar_url: '',
-      verified: false,
-    },
-    reply_count: 0,
-    repost_count: 0,
-    like_count: 0,
-    view_count: 0,
-    bookmarked: false,
-    liked: false,
-    reposted: false,
-    reply_to: fp.replyToPostId ?? undefined,
-  };
-}
+import { renderRichText } from '../utils/richText';
 
 const TABS = ['Posts', 'Replies', 'Media', 'Likes'] as const;
 type Tab = typeof TABS[number];
@@ -145,7 +123,7 @@ export function ProfilePage() {
           if (!cancelled) {
             setProfile(nextProfile);
             setStats(statsRes.stats);
-            setPosts(feedRes.feed.map(feedPostToLegacyPost));
+            setPosts(feedRes.feed.map(feedPostToPost));
             setIsFollowing(false);
           }
           return;
@@ -169,7 +147,7 @@ export function ProfilePage() {
         if (!cancelled) {
           setProfile(profileRes.profile);
           setStats(statsRes.stats);
-          setPosts(feedRes.feed.map(feedPostToLegacyPost));
+          setPosts(feedRes.feed.map(feedPostToPost));
           setIsFollowing(following);
         }
       } catch (err) {
@@ -199,7 +177,7 @@ export function ProfilePage() {
       let nextPosts: Post[] = [];
       try {
         const feedRes = await fetchProfileFeed(nextProfile.handle);
-        nextPosts = feedRes.feed.map(feedPostToLegacyPost);
+        nextPosts = feedRes.feed.map(feedPostToPost);
       } catch {
         nextPosts = [];
       }
@@ -367,12 +345,21 @@ export function ProfilePage() {
         )}
 
         <div className="absolute -bottom-16 left-4">
-          <img
-            src={profile.avatarUrl ?? ''}
-            alt={profile.displayName}
-            className="h-[134px] w-[134px] rounded-full border-4 border-[var(--bg-primary)] object-cover"
-            style={{ backgroundColor: 'var(--border-primary)' }}
-          />
+          {profile.avatarUrl ? (
+            <img
+              src={profile.avatarUrl}
+              alt={profile.displayName}
+              className="h-[134px] w-[134px] rounded-full border-4 border-[var(--bg-primary)] object-cover"
+              style={{ backgroundColor: 'var(--border-primary)' }}
+            />
+          ) : (
+            <div
+              className="flex h-[134px] w-[134px] items-center justify-center rounded-full border-4 border-[var(--bg-primary)] text-4xl font-bold"
+              style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+            >
+              {profile.displayName.charAt(0)}
+            </div>
+          )}
         </div>
 
         <div className="absolute bottom-3 right-4">
@@ -398,7 +385,7 @@ export function ProfilePage() {
         </h2>
         <p className="text-[15px]" style={{ color: 'var(--text-secondary)' }}>@{profile.handle}</p>
 
-        <p className="mt-3 whitespace-pre-wrap text-[15px] leading-relaxed">{profile.bio}</p>
+        <p className="mt-3 whitespace-pre-wrap text-[15px] leading-relaxed">{renderRichText(profile.bio)}</p>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
           {profile.location && (

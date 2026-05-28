@@ -6577,3 +6577,48 @@ button:active {
   /* Hide bottom nav on desktop */
   .bottom-region-nav { display: none; }
 }
+
+/* ─── Shared animations ─── */
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes scale-in {
+  from { opacity: 0; transform: scale(0.95); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.animate-fade-in {
+  animation: fade-in 200ms ease both;
+}
+
+.animate-slide-up {
+  animation: slide-up 250ms ease both;
+}
+
+.animate-scale-in {
+  animation: scale-in 200ms ease both;
+}
+
+/* Stagger children: apply to parent, each child gets a slight delay */
+.stagger-children > * {
+  animation: slide-up 250ms ease both;
+}
+.stagger-children > *:nth-child(1) { animation-delay: 0ms; }
+.stagger-children > *:nth-child(2) { animation-delay: 30ms; }
+.stagger-children > *:nth-child(3) { animation-delay: 60ms; }
+.stagger-children > *:nth-child(4) { animation-delay: 90ms; }
+.stagger-children > *:nth-child(5) { animation-delay: 120ms; }
+.stagger-children > *:nth-child(n+6) { animation-delay: 150ms; }
+
+/* Smooth page transitions */
+.page-enter {
+  animation: fade-in 180ms ease both;
+}
