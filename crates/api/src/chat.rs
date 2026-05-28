@@ -103,6 +103,7 @@ fn byok_model(provider: &Provider, tier: Option<&str>) -> String {
 }
 
 async fn resolve_provider(state: &AppState, user_id: &str, model_tier: Option<&str>) -> ProviderPath {
+    // TODO: check credential_assignments when project context is available
     // 0. Workspace request (workspace:{workspace_id})
     if user_id.starts_with("workspace:") {
         let workspace_id = &user_id[10..];

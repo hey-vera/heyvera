@@ -433,6 +433,12 @@ fn apply_migrations(conn: &Connection) {
     if current < 39 {
         migrate_v39(conn);
     }
+    if current < 40 {
+        migrate_v40(conn);
+    }
+    if current < 41 {
+        migrate_v41(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -1868,6 +1874,71 @@ fn migrate_v39(conn: &Connection) {
         UPDATE schema_version SET version = 39;"
     ).expect("migration v39 failed");
     tracing::info!("applied migration v39: user_containers table for Docker BYOS");
+}
+
+fn migrate_v40(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS credential_assignments (
+            id TEXT PRIMARY KEY,
+            credential_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            target_type TEXT NOT NULL,
+            target_id TEXT,
+            permissions TEXT,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            UNIQUE(credential_id, target_type, target_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_cred_assign_user ON credential_assignments(user_id);
+        CREATE INDEX IF NOT EXISTS idx_cred_assign_cred ON credential_assignments(credential_id);
+        CREATE INDEX IF NOT EXISTS idx_cred_assign_target ON credential_assignments(target_type, target_id);
+
+        UPDATE schema_version SET version = 40;"
+    ).expect("migration v40 failed");
+    tracing::info!("applied migration v40: credential_assignments table");
+}
+
+fn migrate_v41(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS audit_log (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            target_type TEXT,
+            target_id TEXT,
+            metadata TEXT,
+            ip_address TEXT,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+        CREATE INDEX IF NOT EXISTS idx_audit_log_user ON audit_log(user_id);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_action ON audit_log(action);
+        CREATE INDEX IF NOT EXISTS idx_audit_log_created ON audit_log(created_at DESC);
+        UPDATE schema_version SET version = 41;"
+    ).expect("migration v41 failed");
+    tracing::info!("applied migration v41: audit_log indexes");
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct CredentialAssignment {
+    pub id: String,
+    pub credential_id: String,
+    pub user_id: String,
+    pub target_type: String,
+    pub target_id: Option<String>,
+    pub permissions: Option<String>,
+    pub created_at: i64,
+}
+
+#[derive(Debug, Serialize, Clone)]
+pub struct AuditEntry {
+    pub id: String,
+    pub user_id: String,
+    pub action: String,
+    pub target_type: Option<String>,
+    pub target_id: Option<String>,
+    pub metadata: Option<String>,
+    pub ip_address: Option<String>,
+    pub created_at: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -11840,6 +11911,89 @@ impl Database {
         .collect()
     }
 
+    /// Write a structured audit entry (user_id-centric API).
+    #[allow(clippy::too_many_arguments)]
+    pub fn log_audit(
+        &self,
+        id: &str,
+        user_id: &str,
+        action: &str,
+        target_type: Option<&str>,
+        target_id: Option<&str>,
+        metadata: Option<&str>,
+        ip_address: Option<&str>,
+    ) {
+        // Delegate to the existing audit_log writer, using actor_type = "user".
+        self.audit_log(user_id, "user", action, target_type, target_id, metadata, ip_address);
+        let _ = id; // id is generated internally by audit_log
+    }
+
+    /// Return recent audit log entries with explicit limit/offset.
+    pub fn get_audit_log(&self, limit: i64, offset: i64) -> Vec<AuditEntry> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = match conn.prepare(
+            "SELECT id, actor_id, action, target_type, target_id, details, ip_address, created_at
+             FROM audit_log ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
+        ) {
+            Ok(s) => s,
+            Err(_) => return vec![],
+        };
+        stmt.query_map(params![limit, offset], |row| {
+            let created_raw: rusqlite::types::Value = row.get(7)?;
+            let created_at: i64 = match created_raw {
+                rusqlite::types::Value::Integer(n) => n,
+                rusqlite::types::Value::Text(s) => s.parse().unwrap_or(0),
+                _ => 0,
+            };
+            Ok(AuditEntry {
+                id: row.get(0)?,
+                user_id: row.get(1)?,
+                action: row.get(2)?,
+                target_type: row.get(3)?,
+                target_id: row.get(4)?,
+                metadata: row.get(5)?,
+                ip_address: row.get(6)?,
+                created_at,
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    /// Return audit log entries for a specific user.
+    pub fn get_user_audit_log(&self, user_id: &str, limit: i64) -> Vec<AuditEntry> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = match conn.prepare(
+            "SELECT id, actor_id, action, target_type, target_id, details, ip_address, created_at
+             FROM audit_log WHERE actor_id = ?1 ORDER BY created_at DESC LIMIT ?2",
+        ) {
+            Ok(s) => s,
+            Err(_) => return vec![],
+        };
+        stmt.query_map(params![user_id, limit], |row| {
+            let created_raw: rusqlite::types::Value = row.get(7)?;
+            let created_at: i64 = match created_raw {
+                rusqlite::types::Value::Integer(n) => n,
+                rusqlite::types::Value::Text(s) => s.parse().unwrap_or(0),
+                _ => 0,
+            };
+            Ok(AuditEntry {
+                id: row.get(0)?,
+                user_id: row.get(1)?,
+                action: row.get(2)?,
+                target_type: row.get(3)?,
+                target_id: row.get(4)?,
+                metadata: row.get(5)?,
+                ip_address: row.get(6)?,
+                created_at,
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
     // ─── Counter Reconciliation ───────────────────────────────────────────────
 
     /// Reconcile denormalized counter columns on social_posts from actual table counts.
@@ -12394,12 +12548,96 @@ impl Database {
         .collect()
     }
 
+    pub fn list_all_containers(&self) -> Vec<UserContainer> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, user_id, container_id, provider, status, last_activity_at, created_at, updated_at
+             FROM user_containers ORDER BY last_activity_at DESC"
+        ).expect("list_all_containers prepare failed");
+        stmt.query_map([], |row| {
+            Ok(UserContainer {
+                id: row.get(0)?,
+                user_id: row.get(1)?,
+                container_id: row.get(2)?,
+                provider: row.get(3)?,
+                status: row.get(4)?,
+                last_activity_at: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
     pub fn delete_user_container(&self, user_id: &str) {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "DELETE FROM user_containers WHERE user_id = ?1",
             params![user_id],
         ).expect("delete_user_container failed");
+    }
+
+    // --- Credential assignment methods ---
+
+    pub fn assign_credential(&self, id: &str, credential_id: &str, user_id: &str, target_type: &str, target_id: Option<&str>, permissions: Option<&str>) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO credential_assignments (id, credential_id, user_id, target_type, target_id, permissions)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+             ON CONFLICT(credential_id, target_type, target_id) DO UPDATE SET permissions = ?6",
+            rusqlite::params![id, credential_id, user_id, target_type, target_id, permissions],
+        ).expect("assign_credential failed");
+    }
+
+    pub fn get_credential_assignments(&self, user_id: &str) -> Vec<CredentialAssignment> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, credential_id, user_id, target_type, target_id, permissions, created_at
+             FROM credential_assignments WHERE user_id = ?1 ORDER BY created_at DESC"
+        ).expect("get_credential_assignments prepare failed");
+        stmt.query_map(rusqlite::params![user_id], |row| {
+            Ok(CredentialAssignment {
+                id: row.get(0)?,
+                credential_id: row.get(1)?,
+                user_id: row.get(2)?,
+                target_type: row.get(3)?,
+                target_id: row.get(4)?,
+                permissions: row.get(5)?,
+                created_at: row.get(6)?,
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    pub fn get_credential_for_target(&self, user_id: &str, target_type: &str, target_id: &str) -> Option<CredentialAssignment> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, credential_id, user_id, target_type, target_id, permissions, created_at
+             FROM credential_assignments WHERE user_id = ?1 AND target_type = ?2 AND target_id = ?3",
+            rusqlite::params![user_id, target_type, target_id],
+            |row| Ok(CredentialAssignment {
+                id: row.get(0)?,
+                credential_id: row.get(1)?,
+                user_id: row.get(2)?,
+                target_type: row.get(3)?,
+                target_id: row.get(4)?,
+                permissions: row.get(5)?,
+                created_at: row.get(6)?,
+            }),
+        ).ok()
+    }
+
+    pub fn remove_credential_assignment(&self, user_id: &str, assignment_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let rows = conn.execute(
+            "DELETE FROM credential_assignments WHERE id = ?1 AND user_id = ?2",
+            rusqlite::params![assignment_id, user_id],
+        ).unwrap_or(0);
+        rows > 0
     }
 
     // --- Cost tracking methods ---

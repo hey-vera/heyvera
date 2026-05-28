@@ -14,6 +14,7 @@ pub mod cost_estimator;
 mod crypto;
 mod deploy_status;
 pub mod db;
+pub mod credentials;
 pub mod docker;
 pub mod github;
 mod integrations;
@@ -327,6 +328,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/admin/reports", get(moderation::list_reports))
         .route("/api/admin/audit-log", get(admin::get_audit_log))
         .route("/api/admin/reconcile-counters", post(admin::reconcile_counters))
+        .route("/api/admin/containers", get(admin::list_containers))
+        .route("/api/admin/containers/stats", get(admin::container_stats))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             admin::require_admin_middleware,
@@ -416,6 +419,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/auth/refresh", post(auth::auth_refresh))
         .route("/api/auth/credential/delete", post(auth::credential_delete))
         .route("/api/auth/credential/default", post(auth::credential_set_default))
+        // Credential assignments
+        .route("/api/credentials/assign", post(credentials::assign_credential))
+        .route("/api/credentials/assignments", get(credentials::list_assignments))
+        .route("/api/credentials/assignments/{id}", delete(credentials::remove_assignment))
         // Conversations (reads)
         .route("/api/conversations", get(conversations::list_conversations))
         .route("/api/conversations/{id}", get(conversations::get_conversation))

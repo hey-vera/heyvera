@@ -571,11 +571,15 @@ pub async fn delete_promo_code(
 
 #[derive(Deserialize)]
 pub struct AuditLogQuery {
-    #[serde(default = "default_page")]
-    pub page: i64,
+    #[serde(default = "default_audit_limit")]
+    pub limit: i64,
+    #[serde(default)]
+    pub offset: i64,
+    /// Legacy page-based navigation (overrides offset when present).
+    pub page: Option<i64>,
 }
 
-fn default_page() -> i64 { 1 }
+fn default_audit_limit() -> i64 { 50 }
 
 pub async fn get_audit_log(
     State(state): State<Arc<AppState>>,
@@ -587,14 +591,19 @@ pub async fn get_audit_log(
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(ErrorResponse { error: "database unavailable".into() }),
     ))?;
-    let page = query.page.max(1);
-    let entries = db.audit_log_list(page);
-    let total = entries.len();
+    let limit = query.limit.clamp(1, 200);
+    let offset = if let Some(page) = query.page {
+        page.saturating_sub(1).max(0) * limit
+    } else {
+        query.offset.max(0)
+    };
+    let entries = db.get_audit_log(limit, offset);
+    let count = entries.len();
     Ok(Json(serde_json::json!({
         "entries": entries,
-        "page": page,
-        "per_page": 50,
-        "count": total,
+        "limit": limit,
+        "offset": offset,
+        "count": count,
     })))
 }
 
@@ -709,6 +718,55 @@ pub async fn reconcile_counters(
 #[derive(Deserialize)]
 pub struct RedemptionQuery {
     pub code: Option<String>,
+}
+
+// ─── Container Monitoring ─────────────────────────────────────────────────────
+
+pub async fn list_containers(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    resolve_admin(&state, &user).await?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    let containers = db.list_all_containers();
+    let count = containers.len();
+    Ok(Json(serde_json::json!({
+        "containers": containers,
+        "count": count,
+    })))
+}
+
+pub async fn container_stats(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    resolve_admin(&state, &user).await?;
+    let db = state.db.as_ref().ok_or((
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(ErrorResponse { error: "database unavailable".into() }),
+    ))?;
+    let containers = db.list_all_containers();
+    let total = containers.len();
+    let running = containers.iter().filter(|c| c.status == "running").count();
+    let stopped = containers.iter().filter(|c| c.status != "running").count();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
+    let avg_age_secs = if total > 0 {
+        containers.iter().map(|c| now - c.created_at).sum::<i64>() / total as i64
+    } else {
+        0
+    };
+    Ok(Json(serde_json::json!({
+        "total": total,
+        "running": running,
+        "stopped": stopped,
+        "avg_age_secs": avg_age_secs,
+    })))
 }
 
 pub async fn list_redemptions(
