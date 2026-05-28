@@ -183,7 +183,7 @@ pub struct ChatMessage {
     pub content: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Provider {
     Claude,
     Openai,
@@ -410,6 +410,98 @@ pub async fn stream_chat_cli_isolated(
     // (Drop impl handles cleanup even if result is Err)
 
     result
+}
+
+pub async fn stream_chat_via_container(
+    provider: &Provider,
+    model: &str,
+    system_prompt: &str,
+    user_message: &str,
+    container_manager: &crate::docker::ContainerManager,
+    container_id: &str,
+    tx: mpsc::Sender<String>,
+) -> Result<(), String> {
+    let prompt = if system_prompt.is_empty() {
+        user_message.to_string()
+    } else {
+        format!("{system_prompt}\n\n{user_message}")
+    };
+
+    let timeout = cli_timeout();
+
+    let cmd: Vec<String> = match provider {
+        Provider::Claude => vec![
+            "claude".into(),
+            "-p".into(),
+            "--output-format".into(), "stream-json".into(),
+            "--verbose".into(),
+            "--no-session-persistence".into(),
+            "--model".into(), model.into(),
+            prompt,
+        ],
+        Provider::Openai => vec![
+            "codex".into(),
+            "exec".into(),
+            "-c".into(), format!("model={model}"),
+            "-c".into(), "approval_policy=never".into(),
+            prompt,
+        ],
+    };
+
+    let cmd_refs: Vec<&str> = cmd.iter().map(|s| s.as_str()).collect();
+
+    // For Claude, we get stream-json and need to parse it
+    // For Codex, raw lines are fine
+    let (raw_tx, mut raw_rx) = mpsc::channel::<String>(64);
+
+    let parse_handle = {
+        let provider = provider.clone();
+        let tx = tx.clone();
+        tokio::spawn(async move {
+            match provider {
+                Provider::Claude => {
+                    while let Some(chunk) = raw_rx.recv().await {
+                        for line in chunk.lines() {
+                            let trimmed = line.trim();
+                            if trimmed.is_empty() { continue; }
+                            if let Ok(event) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                                let text = event.get("result")
+                                    .and_then(|r| r.get("content"))
+                                    .and_then(|c| c.as_array())
+                                    .and_then(|arr| arr.iter().find_map(|b| b.get("text").and_then(|t| t.as_str())))
+                                    .or_else(|| event.get("delta").and_then(|d| d.get("text").and_then(|t| t.as_str())))
+                                    .or_else(|| event.get("message").and_then(|m| m.get("content"))
+                                        .and_then(|c| c.as_array())
+                                        .and_then(|arr| arr.iter().find_map(|b| b.get("text").and_then(|t| t.as_str()))));
+                                if let Some(text) = text {
+                                    if tx.send(text.to_string()).await.is_err() { return; }
+                                }
+                            }
+                        }
+                    }
+                }
+                Provider::Openai => {
+                    while let Some(chunk) = raw_rx.recv().await {
+                        for line in chunk.lines() {
+                            let trimmed = line.trim();
+                            if !trimmed.is_empty() {
+                                if tx.send(format!("{trimmed}\n")).await.is_err() { return; }
+                            }
+                        }
+                    }
+                }
+            }
+        })
+    };
+
+    let exit_code = container_manager.exec_stream(container_id, &cmd_refs, raw_tx, timeout).await?;
+    drop(tx); // signal parser we're done
+    let _ = parse_handle.await;
+
+    if exit_code != 0 {
+        return Err(format!("{} CLI exited with code {exit_code}", provider.name()));
+    }
+    Ok(())
 }
 
 async fn spawn_and_stream_cli(

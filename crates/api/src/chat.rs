@@ -285,17 +285,42 @@ pub async fn chat(
                 let (chunk_tx, mut chunk_rx) = mpsc::channel::<String>(64);
                 let tx_clone = tx.clone();
 
-                let stream_handle = tokio::spawn(async move {
-                    llm_client::stream_chat_cli_isolated(
-                        &provider,
-                        Some(&model),
-                        &credential_data,
-                        &user_id,
-                        &system_prompt,
-                        &user_message,
-                        chunk_tx,
-                    ).await
-                });
+                // Resolve container or tmpfs path, then stream in a child task
+                let use_container = if let (Some(cm), Some(db)) = (&state_clone.container_manager, &state_clone.db) {
+                    match cm.ensure_container(db, &user_id, provider.name()).await {
+                        Ok(container_id) => {
+                            db.touch_container_activity(&user_id);
+                            Some(container_id)
+                        }
+                        Err(e) => {
+                            tracing::warn!("container unavailable, falling back to tmpfs: {e}");
+                            None
+                        }
+                    }
+                } else {
+                    None
+                };
+
+                let stream_handle = if let Some(container_id) = use_container {
+                    let sc = state_clone.clone();
+                    tokio::spawn(async move {
+                        if let Some(cm) = &sc.container_manager {
+                            llm_client::stream_chat_via_container(
+                                &provider, &model, &system_prompt, &user_message,
+                                cm, &container_id, chunk_tx,
+                            ).await
+                        } else {
+                            Err("container manager disappeared".into())
+                        }
+                    })
+                } else {
+                    tokio::spawn(async move {
+                        llm_client::stream_chat_cli_isolated(
+                            &provider, Some(&model), &credential_data,
+                            &user_id, &system_prompt, &user_message, chunk_tx,
+                        ).await
+                    })
+                };
 
                 let mut full_response = String::new();
                 while let Some(chunk) = chunk_rx.recv().await {

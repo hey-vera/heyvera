@@ -14,6 +14,7 @@ pub mod cost_estimator;
 mod crypto;
 mod deploy_status;
 pub mod db;
+pub mod docker;
 pub mod github;
 mod integrations;
 pub mod llm_client;

@@ -91,6 +91,18 @@ else
   cd "$REPO_DIR"
 fi
 
+# ── byos docker image ────────────────────────
+if command -v docker &>/dev/null; then
+  echo "[docker] Building BYOS sandbox image..."
+  if docker build -f "$REPO_DIR/Dockerfile.byos" -t cortex-byos:latest "$REPO_DIR" 2>&1 | tail -3; then
+    echo "[docker] cortex-byos:latest built"
+  else
+    echo "[docker] ⚠ BYOS image build failed — container auth will be unavailable"
+  fi
+else
+  echo "[docker] Docker not installed — skipping BYOS image build"
+fi
+
 # ── backend ──────────────────────────────────
 echo "[rust] Building cortex-api..."
 if [ -f "$HOME/.cargo/env" ]; then

@@ -68,6 +68,10 @@ pub struct AppState {
     pub vera_tracker: VeraTracker,
     /// Context-Flow Pipeline — enables AI models to feed each other.
     pub context_bus: ContextBus,
+    /// Docker container manager for BYOS credential isolation.
+    pub container_manager: Option<crate::docker::ContainerManager>,
+    /// Pending interactive container auth sessions (user_id → session).
+    pub pending_container_auths: RwLock<HashMap<String, crate::docker::PendingContainerAuth>>,
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
@@ -237,6 +241,17 @@ impl AppState {
 
         // Memory system removed for Context-Flow Pipeline deployment
 
+        let container_manager = match crate::docker::ContainerManager::new() {
+            Ok(cm) => {
+                tracing::info!("Docker container manager initialized for BYOS");
+                Some(cm)
+            }
+            Err(e) => {
+                tracing::warn!("Docker not available — BYOS containers disabled: {e}");
+                None
+            }
+        };
+
         Arc::new(Self {
             providers: RwLock::new(providers),
             ledger: Ledger::new(ledger_path),
@@ -261,6 +276,8 @@ impl AppState {
             stripe_webhook_secret,
             vera_tracker,
             context_bus,
+            container_manager,
+            pending_container_auths: RwLock::new(HashMap::new()),
         })
     }
 

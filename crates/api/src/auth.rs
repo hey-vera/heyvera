@@ -92,45 +92,112 @@ pub async fn auth_status(
 }
 
 pub async fn auth_start(
-    State(_state): State<Arc<AppState>>,
-    _user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
     Json(req): Json<AuthStartRequest>,
 ) -> Result<Json<AuthStartResponse>, (StatusCode, Json<ErrorResponse>)> {
     let provider = req.provider.to_lowercase();
     let cred_type = req.credential_type.as_deref().unwrap_or("subscription");
 
-    match (provider.as_str(), cred_type) {
-        ("claude", "subscription") => Ok(Json(AuthStartResponse {
-            provider: "claude".into(),
-            auth_url: Some("https://console.anthropic.com/settings/keys".into()),
+    let provider_normalized = match provider.as_str() {
+        "claude" | "anthropic" => "claude",
+        "openai" | "codex" => "openai",
+        other => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse { error: format!("unknown provider: {other}") }),
+            ));
+        }
+    };
+
+    // API key flow: return static console URLs (no container needed)
+    if cred_type == "api_key" {
+        let (auth_url, message) = match provider_normalized {
+            "claude" => (
+                "https://console.anthropic.com/settings/keys",
+                "Create an API key at Anthropic Console and paste it in the next step.",
+            ),
+            _ => (
+                "https://platform.openai.com/api-keys",
+                "Create an API key at OpenAI and paste it in the next step.",
+            ),
+        };
+        return Ok(Json(AuthStartResponse {
+            provider: provider_normalized.into(),
+            auth_url: Some(auth_url.into()),
             device_code: None,
-            message: "Open the link and copy your session token or API key. Paste it in the next step.".into(),
-        })),
-        ("openai" | "codex", "subscription") => Ok(Json(AuthStartResponse {
-            provider: "openai".into(),
-            auth_url: Some("https://platform.openai.com/account/api-keys".into()),
-            device_code: None,
-            message: "Open the link to authorize. Copy the code shown and paste it in the next step.".into(),
-        })),
-        ("claude", "api_key") => Ok(Json(AuthStartResponse {
-            provider: "claude".into(),
-            auth_url: Some("https://console.anthropic.com/settings/keys".into()),
-            device_code: None,
-            message: "Create an API key at Anthropic Console and paste it in the next step.".into(),
-        })),
-        ("openai" | "codex", "api_key") => Ok(Json(AuthStartResponse {
-            provider: "openai".into(),
-            auth_url: Some("https://platform.openai.com/api-keys".into()),
-            device_code: None,
-            message: "Create an API key at OpenAI and paste it in the next step.".into(),
-        })),
-        _ => Err((
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: format!("unknown provider: {}", req.provider),
-            }),
-        )),
+            message: message.into(),
+        }));
     }
+
+    // Subscription flow: try container-based auth if Docker available
+    if let (Some(cm), Some(db)) = (&state.container_manager, &state.db) {
+        let container_id = cm.ensure_container(db, &user.user_id, provider_normalized)
+            .await
+            .map_err(|e| {
+                tracing::error!("failed to ensure container for BYOS auth: {e}");
+                (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("container setup failed: {e}") }))
+            })?;
+
+        let login_cmd: Vec<&str> = match provider_normalized {
+            "claude" => vec!["claude", "login", "--no-open"],
+            _ => vec!["codex", "login", "--device-auth"],
+        };
+
+        match cm.start_login_exec(&container_id, &login_cmd).await {
+            Ok((exec_id, output)) => {
+                // Extract URL from CLI output
+                let auth_url = extract_url_from_output(&output);
+
+                // Store pending auth session
+                let pending = crate::docker::PendingContainerAuth {
+                    container_id: container_id.clone(),
+                    provider: provider_normalized.to_string(),
+                    exec_id,
+                    started_at: chrono::Utc::now().timestamp(),
+                };
+                state.pending_container_auths.write().await
+                    .insert(user.user_id.clone(), pending);
+
+                return Ok(Json(AuthStartResponse {
+                    provider: provider_normalized.into(),
+                    auth_url,
+                    device_code: None,
+                    message: "Open the link to authorize your subscription. Paste the code in the next step.".into(),
+                }));
+            }
+            Err(e) => {
+                tracing::warn!("container login exec failed, falling back to static URLs: {e}");
+            }
+        }
+    }
+
+    // Fallback: static URLs when Docker is not available
+    let (auth_url, message) = match provider_normalized {
+        "claude" => (
+            "https://console.anthropic.com/settings/keys",
+            "Open the link and copy your session token or API key. Paste it in the next step.",
+        ),
+        _ => (
+            "https://platform.openai.com/account/api-keys",
+            "Open the link to authorize. Copy the code shown and paste it in the next step.",
+        ),
+    };
+    Ok(Json(AuthStartResponse {
+        provider: provider_normalized.into(),
+        auth_url: Some(auth_url.into()),
+        device_code: None,
+        message: message.into(),
+    }))
+}
+
+fn extract_url_from_output(output: &str) -> Option<String> {
+    for word in output.split_whitespace() {
+        if word.starts_with("https://") || word.starts_with("http://") {
+            return Some(word.trim_matches(|c: char| !c.is_alphanumeric() && c != ':' && c != '/' && c != '.' && c != '-' && c != '_' && c != '?' && c != '=' && c != '&').to_string());
+        }
+    }
+    None
 }
 
 pub async fn auth_submit(
@@ -166,12 +233,41 @@ pub async fn auth_submit(
         ));
     }
 
+    // For subscription credentials with container auth, complete the login inside the container
+    if credential_type == "subscription" {
+        if let Some(cm) = &state.container_manager {
+            let pending = state.pending_container_auths.write().await.remove(&user.user_id);
+            if let Some(pending) = pending {
+                match cm.complete_login_exec(&pending.container_id, &pending.provider, code).await {
+                    Ok(_output) => {
+                        tracing::info!(
+                            user_id = %user.user_id,
+                            provider = %provider_normalized,
+                            "container CLI auth completed successfully"
+                        );
+                    }
+                    Err(e) => {
+                        tracing::warn!(
+                            user_id = %user.user_id,
+                            provider = %provider_normalized,
+                            "container CLI auth failed: {e}"
+                        );
+                        return Err((
+                            StatusCode::BAD_REQUEST,
+                            Json(ErrorResponse { error: format!("subscription auth failed: {e}") }),
+                        ));
+                    }
+                }
+            }
+        }
+    }
+
     // Build the data blob to encrypt
     let data_to_encrypt = match credential_type {
         "api_key" => code.to_string(),
         "subscription" => {
             serde_json::json!({
-                "auth_code": code,
+                "container_auth": state.container_manager.is_some(),
                 "provider": provider_normalized,
                 "authed_at": chrono::Utc::now().timestamp(),
             }).to_string()
@@ -243,6 +339,19 @@ pub async fn credential_delete(
             Json(ErrorResponse { error: "database unavailable".into() }),
         )
     })?;
+
+    // Check if this is a subscription credential — if so, clean up the container
+    if let Some((cred, _)) = db.get_credential(&req.credential_id) {
+        if cred.credential_type == "subscription" {
+            if let Some(cm) = &state.container_manager {
+                if let Some(container) = db.get_user_container(&user.user_id) {
+                    let _ = cm.remove_container(&container.container_id).await;
+                    db.delete_user_container(&user.user_id);
+                    tracing::info!(user_id = %user.user_id, "removed BYOS container on credential delete");
+                }
+            }
+        }
+    }
 
     let deleted = db.delete_credential(&user.user_id, &req.credential_id);
     Ok(Json(AuthSubmitResponse {

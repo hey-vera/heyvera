@@ -430,6 +430,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 38 {
         migrate_v38(conn);
     }
+    if current < 39 {
+        migrate_v39(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -1844,6 +1847,39 @@ fn migrate_v38(conn: &Connection) {
         UPDATE schema_version SET version = 38;"
     ).expect("migration v38 failed");
     tracing::info!("applied migration v38: user_credentials table for multi-credential system");
+}
+
+fn migrate_v39(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS user_containers (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL UNIQUE,
+            container_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'created',
+            last_activity_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            updated_at INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_user_containers_user ON user_containers(user_id);
+        CREATE INDEX IF NOT EXISTS idx_user_containers_status ON user_containers(status);
+
+        UPDATE schema_version SET version = 39;"
+    ).expect("migration v39 failed");
+    tracing::info!("applied migration v39: user_containers table for Docker BYOS");
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct UserContainer {
+    pub id: String,
+    pub user_id: String,
+    pub container_id: String,
+    pub provider: String,
+    pub status: String,
+    pub last_activity_at: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -12286,6 +12322,84 @@ impl Database {
         .unwrap()
         .filter_map(|r| r.ok())
         .collect()
+    }
+
+    // --- Container methods ---
+
+    pub fn upsert_user_container(&self, id: &str, user_id: &str, container_id: &str, provider: &str, status: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO user_containers (id, user_id, container_id, provider, status)
+             VALUES (?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(user_id) DO UPDATE SET container_id = ?3, provider = ?4, status = ?5, updated_at = unixepoch()",
+            params![id, user_id, container_id, provider, status],
+        ).expect("upsert_user_container failed");
+    }
+
+    pub fn get_user_container(&self, user_id: &str) -> Option<UserContainer> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, user_id, container_id, provider, status, last_activity_at, created_at, updated_at
+             FROM user_containers WHERE user_id = ?1",
+            params![user_id],
+            |row| Ok(UserContainer {
+                id: row.get(0)?,
+                user_id: row.get(1)?,
+                container_id: row.get(2)?,
+                provider: row.get(3)?,
+                status: row.get(4)?,
+                last_activity_at: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            }),
+        ).ok()
+    }
+
+    pub fn update_container_status(&self, user_id: &str, status: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE user_containers SET status = ?2, updated_at = unixepoch() WHERE user_id = ?1",
+            params![user_id, status],
+        ).expect("update_container_status failed");
+    }
+
+    pub fn touch_container_activity(&self, user_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE user_containers SET last_activity_at = unixepoch(), updated_at = unixepoch() WHERE user_id = ?1",
+            params![user_id],
+        ).expect("touch_container_activity failed");
+    }
+
+    pub fn list_idle_containers(&self, threshold_epoch: i64) -> Vec<UserContainer> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn.prepare(
+            "SELECT id, user_id, container_id, provider, status, last_activity_at, created_at, updated_at
+             FROM user_containers WHERE status = 'running' AND last_activity_at < ?1"
+        ).expect("list_idle_containers prepare failed");
+        stmt.query_map(params![threshold_epoch], |row| {
+            Ok(UserContainer {
+                id: row.get(0)?,
+                user_id: row.get(1)?,
+                container_id: row.get(2)?,
+                provider: row.get(3)?,
+                status: row.get(4)?,
+                last_activity_at: row.get(5)?,
+                created_at: row.get(6)?,
+                updated_at: row.get(7)?,
+            })
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    pub fn delete_user_container(&self, user_id: &str) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM user_containers WHERE user_id = ?1",
+            params![user_id],
+        ).expect("delete_user_container failed");
     }
 
     // --- Cost tracking methods ---
