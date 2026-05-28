@@ -291,6 +291,7 @@ async fn stream_claude_cli(
     cmd.args([
         "-p",
         "--output-format", "stream-json",
+        "--verbose",
         "--no-session-persistence",
         "--model", model,
     ])
