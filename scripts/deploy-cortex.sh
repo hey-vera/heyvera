@@ -93,19 +93,15 @@ if [ -f "$HOME/.cargo/env" ]; then
 fi
 cargo build --release -p cortex-api 2>&1 | tail -5
 
-# Detect which service name is in use
-if systemctl list-units --type=service --all | grep -q "heyvera.service"; then
-  SVC="heyvera"
-elif systemctl list-units --type=service --all | grep -q "cortex.service"; then
-  SVC="cortex"
-else
-  echo "[warn] No cortex/heyvera service found, skipping service restart"
-  SVC=""
-fi
-
-if [ -n "$SVC" ]; then
-  sudo systemctl stop "$SVC" 2>/dev/null || true
-fi
+# Stop ALL services that might hold the binary
+SVC=""
+for svc in heyvera cortex; do
+  if systemctl list-units --type=service --all | grep -q "${svc}.service"; then
+    sudo systemctl stop "$svc" 2>/dev/null || true
+    echo "[svc] Stopped $svc"
+    SVC="$svc"
+  fi
+done
 
 # Install whichever binary was built
 for bin in cortex-server cortex-api; do
@@ -128,9 +124,11 @@ if [ -f "$REPO_DIR/Caddyfile" ]; then
 fi
 
 # ── start + health ───────────────────────────
-if [ -n "$SVC" ]; then
-  sudo systemctl start "$SVC"
-fi
+for svc in heyvera cortex; do
+  if systemctl list-unit-files "${svc}.service" &>/dev/null; then
+    sudo systemctl start "$svc" 2>/dev/null || true
+  fi
+done
 echo -n "[health] Waiting"
 HEALTHY=false
 for _ in $(seq 1 "$MAX_WAIT"); do
