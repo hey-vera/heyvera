@@ -94,12 +94,10 @@ fi
 cargo build --release -p cortex-api 2>&1 | tail -5
 
 # Stop ALL services that might hold the binary
-SVC=""
 for svc in heyvera cortex; do
-  if systemctl list-units --type=service --all | grep -q "${svc}.service"; then
-    sudo systemctl stop "$svc" 2>/dev/null || true
+  if sudo systemctl is-active --quiet "$svc" 2>/dev/null; then
+    sudo systemctl stop "$svc"
     echo "[svc] Stopped $svc"
-    SVC="$svc"
   fi
 done
 
@@ -125,8 +123,9 @@ fi
 
 # ── start + health ───────────────────────────
 for svc in heyvera cortex; do
-  if systemctl list-unit-files "${svc}.service" &>/dev/null; then
+  if sudo systemctl list-unit-files "${svc}.service" 2>/dev/null | grep -q "$svc"; then
     sudo systemctl start "$svc" 2>/dev/null || true
+    echo "[svc] Started $svc"
   fi
 done
 echo -n "[health] Waiting"
@@ -145,10 +144,10 @@ if $HEALTHY; then
   echo ""
   echo "  ✓ Cortex deployed — $BRANCH @ $COMMIT"
   echo "    https://cortex.heyvera.org"
-  echo "    Logs: sudo journalctl -u ${SVC:-cortex} -f"
+  echo "    Logs: sudo journalctl -u heyvera -f"
   echo ""
 else
   echo "[fail] Health check failed. Recent logs:"
-  sudo journalctl -u "${SVC:-cortex}" --no-pager -n 20
+  sudo journalctl -u heyvera --no-pager -n 20
   exit 1
 fi
