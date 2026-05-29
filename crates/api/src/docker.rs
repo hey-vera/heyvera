@@ -161,12 +161,31 @@ impl ContainerManager {
             create_start,
             if create_res.is_ok() { "ok" } else { "error" },
         );
-        let resp = create_res.map_err(|e| {
-            tracing::error!(user_id, error = %e, "failed to create BYOS container");
-            format!("failed to create container: {e}")
-        })?;
 
-        let container_id = resp.id;
+        let container_id = match create_res {
+            Ok(resp) => resp.id,
+            Err(bollard::errors::Error::DockerResponseServerError { status_code: 409, .. }) => {
+                tracing::info!(user_id, container_name = %name, "container name conflict, reusing existing");
+                let inspect = self.docker.inspect_container(&name, None).await.map_err(|e| {
+                    format!("failed to inspect conflicting container: {e}")
+                })?;
+                let id = inspect.id.ok_or("conflicting container has no id")?;
+                let running = inspect.state.as_ref().and_then(|s| s.running).unwrap_or(false);
+                if !running {
+                    self.docker.start_container(&id, None::<StartContainerOptions<String>>).await.map_err(|e| {
+                        format!("failed to start existing container: {e}")
+                    })?;
+                }
+                let record_id = uuid::Uuid::new_v4().to_string();
+                db.upsert_user_container(&record_id, user_id, &id, provider, "running");
+                self.cache.write().await.insert(user_id.to_string(), id.clone());
+                return Ok(id);
+            }
+            Err(e) => {
+                tracing::error!(user_id, error = %e, "failed to create BYOS container");
+                return Err(format!("failed to create container: {e}"));
+            }
+        };
 
         let start = std::time::Instant::now();
         let start_res = self.docker.start_container(&container_id, None::<StartContainerOptions<String>>).await;
