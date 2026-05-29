@@ -130,100 +130,61 @@ pub async fn auth_start(
         }));
     }
 
-    // Subscription flow: try container-based auth if Docker available
-    if let (Some(cm), Some(db)) = (&state.container_manager, &state.db) {
-        let container_id = cm.ensure_container(db, &user.user_id, provider_normalized)
-            .await
-            .map_err(|e| {
-                tracing::error!("failed to ensure container for BYOS auth: {e}");
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("container setup failed: {e}") }))
-            })?;
-
-        let login_cmd: Vec<&str> = match provider_normalized {
-            "claude" => vec!["claude", "login", "--no-open"],
-            _ => vec!["codex", "login", "--device-auth"],
-        };
-
-        match cm.start_login_exec(&container_id, &login_cmd).await {
-            Ok((exec_id, output)) => {
-                let auth_url = extract_url_from_output(&output);
-
-                if auth_url.is_some() {
-                    let pending = crate::docker::PendingContainerAuth {
-                        container_id: container_id.clone(),
-                        provider: provider_normalized.to_string(),
-                        exec_id,
-                        started_at: chrono::Utc::now().timestamp(),
-                    };
-                    state.pending_container_auths.write().await
-                        .insert(user.user_id.clone(), pending);
-
-                    return Ok(Json(AuthStartResponse {
-                        provider: provider_normalized.into(),
-                        auth_url,
-                        device_code: None,
-                        message: "Open the link to authorize your subscription. Paste the code in the next step.".into(),
-                    }));
-                }
-                tracing::warn!("container login exec produced no auth URL, falling back to static flow");
-            }
-            Err(e) => {
-                tracing::warn!("container login exec failed, falling back to static URLs: {e}");
-            }
+    // Subscription flow: container CLI auth is the only path
+    let (cm, db) = match (&state.container_manager, &state.db) {
+        (Some(cm), Some(db)) => (cm, db),
+        _ => {
+            return Err((
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(ErrorResponse { error: "container system not available — cannot authenticate subscriptions".into() }),
+            ));
         }
-    }
-
-    // Fallback: BYOS subscription auth flows when Docker is not available
-    if cred_type == "subscription" {
-        // Generate unique auth session for BYOS flows
-        let session_code = format!("cortex-{}", Uuid::new_v4().to_string()[..8].to_uppercase());
-
-        // Store pending auth session in memory (TODO: persist in database)
-        let pending_session = crate::state::PendingAuthSession {
-            user_id: user.user_id.clone(),
-            provider: provider_normalized.to_string(),
-            session_code: session_code.clone(),
-            created_at: chrono::Utc::now().timestamp(),
-        };
-
-        // For now, store in app state (in production this should be database-backed)
-        if let Some(sessions) = &state.pending_auth_sessions {
-            sessions.write().await.insert(session_code.clone(), pending_session);
-        }
-
-        let (auth_url, message) = match provider_normalized {
-            "claude" => (
-                "https://claude.ai/login",
-                &format!("1. Click the link to open Claude\n2. Sign into your Claude subscription\n3. Copy this code: {}\n4. Paste the code in Claude's console, then paste your auth token below.", session_code),
-            ),
-            _ => (
-                "https://chatgpt.com",
-                &format!("1. Copy this code: {}\n2. Click the link to open ChatGPT\n3. Sign into your ChatGPT subscription\n4. Look for 'Connect External App' and paste the code\n5. Copy the resulting auth token and paste it below.", session_code),
-            ),
-        };
-
-        return Ok(Json(AuthStartResponse {
-            provider: provider_normalized.into(),
-            auth_url: Some(auth_url.into()),
-            device_code: Some(session_code),
-            message: message.to_string(),
-        }));
-    }
-
-    // Fallback for API keys
-    let (auth_url, message) = match provider_normalized {
-        "claude" => (
-            "https://console.anthropic.com/settings/keys",
-            "Create an API key at Anthropic Console and paste it below.",
-        ),
-        _ => (
-            "https://platform.openai.com/api-keys",
-            "Create an API key at OpenAI and paste it below.",
-        ),
     };
+
+    let container_id = cm.ensure_container(db, &user.user_id, provider_normalized)
+        .await
+        .map_err(|e| {
+            tracing::error!("failed to ensure container for BYOS auth: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("container setup failed: {e}") }))
+        })?;
+
+    let login_cmd: Vec<&str> = match provider_normalized {
+        "claude" => vec!["claude", "auth", "login"],
+        _ => vec!["codex", "login", "--device-auth"],
+    };
+
+    let (exec_id, output) = cm.start_login_exec(&container_id, &login_cmd).await
+        .map_err(|e| {
+            tracing::error!("container login exec failed: {e}");
+            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("failed to start CLI login: {e}") }))
+        })?;
+
+    let auth_url = extract_url_from_output(&output);
+    if auth_url.is_none() {
+        tracing::error!(output = %output, "CLI login produced no auth URL");
+        return Err((
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse { error: format!("CLI login did not produce an auth URL. Output: {}", output.chars().take(200).collect::<String>()) }),
+        ));
+    }
+
+    let pending = crate::docker::PendingContainerAuth {
+        container_id: container_id.clone(),
+        provider: provider_normalized.to_string(),
+        exec_id,
+        started_at: chrono::Utc::now().timestamp(),
+    };
+    state.pending_container_auths.write().await
+        .insert(user.user_id.clone(), pending);
+
+    let message = match provider_normalized {
+        "claude" => "Open the link to sign into your Claude subscription. Once authenticated, your container will be ready.",
+        _ => "Open the link and enter the device code to authorize your OpenAI subscription.",
+    };
+
     Ok(Json(AuthStartResponse {
         provider: provider_normalized.into(),
-        auth_url: Some(auth_url.into()),
+        auth_url,
         device_code: None,
         message: message.into(),
     }))
