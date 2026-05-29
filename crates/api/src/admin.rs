@@ -752,6 +752,8 @@ pub async fn container_stats(
     let total = containers.len();
     let running = containers.iter().filter(|c| c.status == "running").count();
     let stopped = containers.iter().filter(|c| c.status != "running").count();
+    // Keep Prometheus population gauge fresh on admin views.
+    crate::metrics::set_container_population(running as i64, stopped as i64);
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

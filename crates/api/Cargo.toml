@@ -48,6 +48,8 @@ futures-util.workspace = true
 which = "6"
 bollard = "0.18"
 socket2 = "0.5"
+prometheus.workspace = true
+once_cell.workspace = true
 sentry = { version = "0.35", features = ["tracing"], optional = true }
 opentelemetry = { version = "0.27", optional = true }
 opentelemetry-otlp = { version = "0.27", optional = true, features = ["tonic"] }

@@ -71,6 +71,62 @@ impl GitHubClient {
     }
 }
 
+/// Fetch a user's GitHub OAuth access token from Clerk.
+///
+/// Clerk brokers the GitHub OAuth connection, so the token is retrieved from
+/// Clerk's `oauth_access_tokens` endpoint rather than stored locally. Returns
+/// `Ok(None)` when Clerk is not configured or the user hasn't linked GitHub.
+pub async fn github_oauth_token(
+    clerk_secret_key: Option<&str>,
+    user_id: &str,
+) -> Result<Option<String>, String> {
+    let Some(clerk_secret) = clerk_secret_key else {
+        return Ok(None);
+    };
+    let client = reqwest::Client::new();
+    let token_res = client
+        .get(format!(
+            "https://api.clerk.com/v1/users/{user_id}/oauth_access_tokens/oauth_github"
+        ))
+        .bearer_auth(clerk_secret)
+        .send()
+        .await
+        .map_err(|e| format!("Clerk API error: {e}"))?;
+
+    if !token_res.status().is_success() {
+        return Ok(None);
+    }
+
+    let tokens: Vec<serde_json::Value> = token_res.json().await.unwrap_or_default();
+    Ok(tokens
+        .first()
+        .and_then(|t| t.get("token"))
+        .and_then(|t| t.as_str())
+        .map(String::from))
+}
+
+/// Validate that a GitHub `owner/repo` slug is well-formed and safe to embed in
+/// a shell command or filesystem path. Rejects anything outside the GitHub
+/// naming charset to prevent command/path injection.
+pub fn is_valid_repo_full_name(full_name: &str) -> bool {
+    let mut parts = full_name.splitn(2, '/');
+    let (owner, repo) = match (parts.next(), parts.next()) {
+        (Some(o), Some(r)) => (o, r),
+        _ => return false,
+    };
+    if owner.is_empty() || repo.is_empty() || full_name.len() > 200 {
+        return false;
+    }
+    let valid_segment = |s: &str| {
+        !s.is_empty()
+            && s.chars()
+                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.'))
+            && s != "."
+            && s != ".."
+    };
+    valid_segment(owner) && valid_segment(repo)
+}
+
 /// Parse `owner` and `repo` from a git remote URL.
 ///
 /// Supports both SSH (`git@github.com:owner/repo.git`) and HTTPS
@@ -149,5 +205,22 @@ mod tests {
     fn parse_invalid_url() {
         assert!(parse_owner_repo("https://gitlab.com/foo/bar").is_none());
         assert!(parse_owner_repo("not-a-url").is_none());
+    }
+
+    #[test]
+    fn valid_repo_names() {
+        assert!(is_valid_repo_full_name("hey-vera/cortex"));
+        assert!(is_valid_repo_full_name("octocat/Hello-World.js"));
+    }
+
+    #[test]
+    fn rejects_injection_and_traversal() {
+        assert!(!is_valid_repo_full_name("foo/bar; rm -rf /"));
+        assert!(!is_valid_repo_full_name("../../etc/passwd"));
+        assert!(!is_valid_repo_full_name("owner/.."));
+        assert!(!is_valid_repo_full_name("noslash"));
+        assert!(!is_valid_repo_full_name("owner/"));
+        assert!(!is_valid_repo_full_name("/repo"));
+        assert!(!is_valid_repo_full_name("a b/c"));
     }
 }

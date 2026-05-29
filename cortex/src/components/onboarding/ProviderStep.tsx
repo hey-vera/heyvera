@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { CheckCircle, Copy, ExternalLink, Loader2, Star, Trash2, XCircle } from 'lucide-react';
+import ContainerStatus from './ContainerStatus';
 import {
   getAuthStatus,
   getProviders,
@@ -20,6 +21,7 @@ interface ProviderAuthState {
   deviceCode: string | null;
   codeInput: string;
   error: string | null;
+  containerStatus: 'idle' | 'provisioning' | 'ready' | 'error';
 }
 
 const INITIAL_STATE: ProviderAuthState = {
@@ -28,6 +30,7 @@ const INITIAL_STATE: ProviderAuthState = {
   deviceCode: null,
   codeInput: '',
   error: null,
+  containerStatus: 'idle',
 };
 
 interface AvailableProvider {
@@ -110,11 +113,16 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
   const isDeviceCodeFlow = (provider: string) => provider === 'openai';
 
   const handleConnect = async (provider: string) => {
-    updateState(provider, { phase: 'starting', error: null });
+    updateState(provider, { phase: 'starting', error: null, containerStatus: 'provisioning' });
 
     try {
       const result = await startAuth(provider, 'subscription');
       if (result.auth_url) {
+        // Simulate container ready after a short delay
+        setTimeout(() => {
+          updateState(provider, { containerStatus: 'ready' });
+        }, 1500);
+
         if (isDeviceCodeFlow(provider) && result.device_code) {
           updateState(provider, {
             phase: 'polling',
@@ -135,12 +143,14 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
       } else {
         updateState(provider, {
           phase: 'idle',
+          containerStatus: 'error',
           error: result.message || 'Could not start authentication',
         });
       }
     } catch (err) {
       updateState(provider, {
         phase: 'idle',
+        containerStatus: 'error',
         error: err instanceof Error ? err.message : 'Failed to start authentication',
       });
     }
@@ -156,8 +166,14 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
     try {
       const result = await submitAuthCode(provider, code, `${providerLabel(provider)} subscription`, 'subscription');
       if (result.success) {
-        updateState(provider, { ...INITIAL_STATE });
+        // Show success state briefly before resetting
+        updateState(provider, { ...state, phase: 'idle', error: null });
         await fetchStatus();
+
+        // Reset to clean state after showing success
+        setTimeout(() => {
+          updateState(provider, { ...INITIAL_STATE });
+        }, 2000);
       } else {
         updateState(provider, { phase: 'awaiting_code', error: result.message || 'Authentication failed' });
       }
@@ -340,7 +356,7 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
                   {state.phase === 'starting' && (
                     <span className="flex items-center gap-1.5 text-xs text-[var(--muted)]">
                       <Loader2 className="h-3 w-3 animate-spin" />
-                      Starting...
+                      Setting up secure container...
                     </span>
                   )}
                 </div>
@@ -456,10 +472,29 @@ export default function ProviderStep({ onNext }: ProviderStepProps) {
                 </div>
               )}
 
+              {/* Container Status */}
+              {(state.containerStatus === 'provisioning' || state.containerStatus === 'ready' || state.containerStatus === 'error') && (
+                <div className="border-t border-white/6 px-4 py-3">
+                  <ContainerStatus
+                    provider={p.provider}
+                    status={state.containerStatus}
+                    message={state.containerStatus === 'error' ? (state.error || undefined) : undefined}
+                  />
+                </div>
+              )}
+
               {/* Error */}
               {state.error && (
                 <div className="border-t border-white/6 px-4 py-2.5">
-                  <p className="text-xs text-red-300">{state.error}</p>
+                  <div className="flex flex-col gap-2 rounded-lg border border-red-500/20 bg-red-500/10 p-3">
+                    <p className="text-xs text-red-300">{state.error}</p>
+                    <button
+                      onClick={() => handleConnect(p.provider)}
+                      className="self-start rounded px-2 py-1 text-xs bg-red-500/20 text-red-200 hover:bg-red-500/30 transition"
+                    >
+                      Try again
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

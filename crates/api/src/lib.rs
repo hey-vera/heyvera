@@ -17,10 +17,12 @@ pub mod db;
 pub mod credentials;
 pub mod docker;
 pub mod github;
+pub mod github_repos;
 mod integrations;
 pub mod llm_client;
 pub mod media;
 mod messaging;
+pub mod metrics;
 pub mod mission_control;
 mod moderation;
 mod pulse;
@@ -186,13 +188,44 @@ async fn deploy_metadata() -> impl axum::response::IntoResponse {
 #[derive(Clone, Debug)]
 pub struct RequestId(pub String);
 
+/// Correlation + observability middleware.
+///
+/// Responsibilities:
+///   - Assign (or honour an inbound) request id and surface it on the response
+///     as `x-request-id`, plus stash it in request extensions for handlers.
+///   - Open a tracing span carrying the request id, method and matched route so
+///     every log line emitted while serving the request is correlated.
+///   - Record Prometheus metrics: in-flight gauge, total count by
+///     method/route/status-class, 5xx error count, and a latency histogram.
+///
+/// The `route` label is the matched router template (e.g.
+/// `/api/runs/{id}`), never the raw path, to keep metric cardinality bounded.
 async fn request_id_middleware(
     req: axum::http::Request<axum::body::Body>,
     next: axum::middleware::Next,
 ) -> axum::response::Response {
-    let request_id = uuid::Uuid::new_v4().to_string();
+    // Honour an upstream-supplied request id if present (lets a gateway thread
+    // correlation through), otherwise mint a fresh one.
+    let request_id = req
+        .headers()
+        .get("x-request-id")
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty() && s.len() <= 128)
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| uuid::Uuid::new_v4().to_string());
+
     let method = req.method().clone();
     let path = req.uri().path().to_string();
+
+    // Matched route template for low-cardinality metric labels. Falls back to a
+    // sentinel for unmatched paths (static files, 404s) so we never label
+    // metrics with unbounded raw paths.
+    let route = req
+        .extensions()
+        .get::<axum::extract::MatchedPath>()
+        .map(|m| m.as_str().to_string())
+        .unwrap_or_else(|| "<unmatched>".to_string());
+
     let start = std::time::Instant::now();
 
     let incoming_traceparent = req
@@ -205,18 +238,60 @@ async fn request_id_middleware(
     parts.extensions.insert(RequestId(request_id.clone()));
     let req = axum::http::Request::from_parts(parts, body);
 
-    let response = next.run(req).await;
-    let duration_ms = start.elapsed().as_millis() as u64;
-    let status = response.status().as_u16();
-
-    tracing::info!(
+    // Span ties all downstream logs to this request for correlation. It is
+    // attached to the handler future via `.instrument` so it follows the
+    // request across every `.await` point.
+    let span = tracing::info_span!(
+        "http_request",
         request_id = %request_id,
         method = %method,
-        path = %path,
-        status = status,
-        duration_ms = duration_ms,
-        "request completed"
+        route = %route,
     );
+
+    let m = metrics::metrics();
+    m.http_in_flight.inc();
+
+    let response = {
+        use tracing::Instrument as _;
+        next.run(req).instrument(span).await
+    };
+
+    let elapsed = start.elapsed();
+    let duration_ms = elapsed.as_millis() as u64;
+    let status = response.status().as_u16();
+    let class = metrics::status_class(status);
+
+    m.http_in_flight.dec();
+    m.http_requests_total
+        .with_label_values(&[method.as_str(), &route, class])
+        .inc();
+    m.http_request_duration_seconds
+        .with_label_values(&[method.as_str(), &route])
+        .observe(elapsed.as_secs_f64());
+    if status >= 500 {
+        m.http_errors_total
+            .with_label_values(&[method.as_str(), &route])
+            .inc();
+        tracing::error!(
+            request_id = %request_id,
+            method = %method,
+            path = %path,
+            route = %route,
+            status = status,
+            duration_ms = duration_ms,
+            "request failed"
+        );
+    } else {
+        tracing::info!(
+            request_id = %request_id,
+            method = %method,
+            path = %path,
+            route = %route,
+            status = status,
+            duration_ms = duration_ms,
+            "request completed"
+        );
+    }
 
     let (mut parts, body) = response.into_parts();
     parts.headers.insert(
@@ -233,6 +308,49 @@ async fn request_id_middleware(
     }
 
     axum::response::Response::from_parts(parts, body)
+}
+
+/// GET /metrics — Prometheus text exposition format.
+///
+/// Refreshes subsystem and container-population gauges on scrape so the
+/// snapshot is current, then renders the registry. Unauthenticated by design:
+/// it is meant to be scraped on the internal network; restrict via network
+/// policy / reverse proxy in production.
+async fn metrics_handler(
+    axum::extract::State(state): axum::extract::State<Arc<AppState>>,
+) -> impl axum::response::IntoResponse {
+    // Refresh point-in-time gauges so a scrape reflects live state even between
+    // event-driven updates.
+    let db_up = state.db.as_ref().map(|d| d.health_check()).unwrap_or(false);
+    metrics::set_subsystem_up("database", db_up);
+    metrics::set_subsystem_up("docker", state.container_manager.is_some());
+
+    if let Some(db) = &state.db {
+        let containers = db.list_all_containers();
+        let running = containers.iter().filter(|c| c.status == "running").count() as i64;
+        let stopped = (containers.len() as i64) - running;
+        metrics::set_container_population(running, stopped);
+    }
+
+    match metrics::render() {
+        Ok(body) => (
+            axum::http::StatusCode::OK,
+            [(
+                axum::http::header::CONTENT_TYPE,
+                "text/plain; version=0.0.4; charset=utf-8",
+            )],
+            body,
+        )
+            .into_response(),
+        Err(e) => {
+            tracing::error!("failed to render metrics: {e}");
+            (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                "failed to render metrics",
+            )
+                .into_response()
+        }
+    }
 }
 
 fn is_production_env() -> bool {
@@ -300,6 +418,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // API Keys (BYOK) — rate-limited
         .route("/api/keys", get(api_keys::list_api_keys))
         .route("/api/keys/{provider}", put(api_keys::save_api_key).delete(api_keys::delete_api_key))
+        // GitHub repo import + sync (BYOS container clones) — rate-limited
+        .route("/api/github/repos", get(github_repos::list_repos))
+        .route("/api/github/imports", get(github_repos::list_imports))
+        .route("/api/github/import", post(github_repos::import_repo))
+        .route("/api/github/status/{import_id}", get(github_repos::import_status))
+        .route("/api/github/sync/{import_id}", post(github_repos::sync_repo))
         // Project Workspaces (Replit integration) — rate-limited
         .route("/api/projects", get(replit::list_projects).post(replit::create_project))
         .route("/api/projects/import", post(replit::import_project))
@@ -340,6 +464,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Public — v1 health/ready
         .route("/v1/health", get(v1_health))
         .route("/v1/ready", get(v1_ready))
+        // Prometheus metrics (scrape target — restrict via network policy)
+        .route("/metrics", get(metrics_handler))
         // Public
         .route("/api/health", get(routes::health))
         .route("/api/deploy-info", get(routes::deploy_info))

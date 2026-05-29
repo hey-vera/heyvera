@@ -252,7 +252,7 @@ impl crate::db::Database {
             Err(_) => return Vec::new(),
         };
 
-        match stmt.query_map(rusqlite::params![user_id], |row: &rusqlite::Row| {
+        let rows_result = stmt.query_map(rusqlite::params![user_id], |row: &rusqlite::Row| {
             let metadata_str: Option<String> = row.get(9)?;
             let metadata = metadata_str
                 .as_deref()
@@ -270,7 +270,9 @@ impl crate::db::Database {
                 status: row.get(8)?,
                 metadata,
             })
-        }) {
+        });
+
+        match rows_result {
             Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
             Err(_) => Vec::new(),
         }

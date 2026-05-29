@@ -146,25 +146,26 @@ pub async fn auth_start(
 
         match cm.start_login_exec(&container_id, &login_cmd).await {
             Ok((exec_id, output)) => {
-                // Extract URL from CLI output
                 let auth_url = extract_url_from_output(&output);
 
-                // Store pending auth session
-                let pending = crate::docker::PendingContainerAuth {
-                    container_id: container_id.clone(),
-                    provider: provider_normalized.to_string(),
-                    exec_id,
-                    started_at: chrono::Utc::now().timestamp(),
-                };
-                state.pending_container_auths.write().await
-                    .insert(user.user_id.clone(), pending);
+                if auth_url.is_some() {
+                    let pending = crate::docker::PendingContainerAuth {
+                        container_id: container_id.clone(),
+                        provider: provider_normalized.to_string(),
+                        exec_id,
+                        started_at: chrono::Utc::now().timestamp(),
+                    };
+                    state.pending_container_auths.write().await
+                        .insert(user.user_id.clone(), pending);
 
-                return Ok(Json(AuthStartResponse {
-                    provider: provider_normalized.into(),
-                    auth_url,
-                    device_code: None,
-                    message: "Open the link to authorize your subscription. Paste the code in the next step.".into(),
-                }));
+                    return Ok(Json(AuthStartResponse {
+                        provider: provider_normalized.into(),
+                        auth_url,
+                        device_code: None,
+                        message: "Open the link to authorize your subscription. Paste the code in the next step.".into(),
+                    }));
+                }
+                tracing::warn!("container login exec produced no auth URL, falling back to static flow");
             }
             Err(e) => {
                 tracing::warn!("container login exec failed, falling back to static URLs: {e}");

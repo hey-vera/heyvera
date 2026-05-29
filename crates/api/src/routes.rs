@@ -40,22 +40,93 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+/// GET /api/health — detailed subsystem health.
+///
+/// Reports the status of each subsystem (database, docker, soma, scheduler,
+/// workers). The top-level `status` reflects only *critical* subsystems so the
+/// check stays stable across environments where optional subsystems (Docker
+/// BYOS, Soma) are intentionally absent:
+///   - `ok`        all critical subsystems healthy
+///   - `unhealthy` a critical subsystem (database) is down
+///
+/// A separate `degraded` boolean flags when a non-critical subsystem is down
+/// (useful for dashboards) without flipping the liveness contract. Returns
+/// HTTP 503 when `unhealthy` so load balancers can drain the node, otherwise
+/// HTTP 200. Subsystem gauges are also published to Prometheus.
 pub async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let started = std::time::Instant::now();
+
+    // ── Database (critical) ───────────────────────────────────────────────
+    let db_ok = state.db.as_ref().map(|d| d.health_check()).unwrap_or(false);
+    crate::metrics::set_subsystem_up("database", db_ok);
+
+    // ── Docker / BYOS (non-critical: API still serves without it) ──────────
+    let docker_ok = state.container_manager.is_some();
+    crate::metrics::set_subsystem_up("docker", docker_ok);
+
+    // ── Soma identity (non-critical) ──────────────────────────────────────
     let soma_did = state.soma_heart.as_ref().map(|h| h.did().to_string());
     let heartbeat_count = state
         .soma_heart
         .as_ref()
         .map(|h| h.heartbeat_chain.lock().unwrap().len())
         .unwrap_or(0);
-    Json(serde_json::json!({
-        "status": "ok",
+    let soma_ok = state.soma_heart.is_some();
+    crate::metrics::set_subsystem_up("soma", soma_ok);
+
+    // ── Scheduler + workers (informational) ───────────────────────────────
+    let scheduler_ok = state.scheduler_tx.read().await.is_some();
+    let worker_count = state.workers.read().await.len();
+    crate::metrics::set_subsystem_up("scheduler", scheduler_ok);
+
+    // ── Container population (best-effort; published to Prometheus) ────────
+    let (containers_total, containers_running) = match &state.db {
+        Some(db) => {
+            let containers = db.list_all_containers();
+            let running = containers.iter().filter(|c| c.status == "running").count();
+            let stopped = containers.len() - running;
+            crate::metrics::set_container_population(running as i64, stopped as i64);
+            (containers.len(), running)
+        }
+        None => (0, 0),
+    };
+
+    // Aggregate. Database is the only hard dependency for serving the API; the
+    // top-level status therefore tracks critical subsystems only. Non-critical
+    // subsystems being down is surfaced via `degraded` without flipping `ok`.
+    let (status, http_status) = if !db_ok {
+        ("unhealthy", StatusCode::SERVICE_UNAVAILABLE)
+    } else {
+        ("ok", StatusCode::OK)
+    };
+    let degraded = !docker_ok || !soma_ok || !scheduler_ok;
+
+    let body = serde_json::json!({
+        "status": status,
+        "degraded": degraded,
         "service": "cortex",
+        "version": env!("CARGO_PKG_VERSION"),
+        "timestamp": chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+        "checks": {
+            "database": { "ok": db_ok, "critical": true },
+            "docker": { "ok": docker_ok, "critical": false },
+            "soma": { "ok": soma_ok, "critical": false },
+            "scheduler": { "ok": scheduler_ok, "critical": false },
+        },
+        "workers": worker_count,
+        "containers": {
+            "total": containers_total,
+            "running": containers_running,
+        },
         "soma": {
             "did": soma_did,
             "protocol": "soma-delegation/0.1",
             "heartbeats": heartbeat_count,
-        }
-    }))
+        },
+        "check_duration_ms": started.elapsed().as_millis() as u64,
+    });
+
+    (http_status, Json(body))
 }
 
 pub async fn deploy_info() -> impl IntoResponse {

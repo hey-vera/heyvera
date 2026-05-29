@@ -99,29 +99,7 @@ fn write_user_data(state: &AppState, user_id: &str, data: &UserData) -> Result<(
 }
 
 async fn github_oauth_token(state: &AppState, user_id: &str) -> Result<Option<String>, String> {
-    let Some(clerk_secret) = &state.clerk_secret_key else {
-        return Ok(None);
-    };
-    let client = reqwest::Client::new();
-    let token_res = client
-        .get(format!(
-            "https://api.clerk.com/v1/users/{user_id}/oauth_access_tokens/oauth_github"
-        ))
-        .bearer_auth(clerk_secret)
-        .send()
-        .await
-        .map_err(|e| format!("Clerk API error: {e}"))?;
-
-    if !token_res.status().is_success() {
-        return Ok(None);
-    }
-
-    let tokens: Vec<serde_json::Value> = token_res.json().await.unwrap_or_default();
-    Ok(tokens
-        .first()
-        .and_then(|t| t.get("token"))
-        .and_then(|t| t.as_str())
-        .map(String::from))
+    crate::github::github_oauth_token(state.clerk_secret_key.as_deref(), user_id).await
 }
 
 async fn fetch_github_repos(github_token: &str) -> Vec<GitHubRepo> {

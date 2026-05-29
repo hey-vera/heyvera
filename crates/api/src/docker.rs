@@ -13,6 +13,7 @@ use futures_util::StreamExt;
 use tokio::sync::{mpsc, RwLock};
 use uuid::Uuid;
 
+use crate::metrics::{record_container_op, ContainerOp};
 use crate::state::AppState;
 
 const BYOS_IMAGE: &str = "cortex-byos:latest";
@@ -62,20 +63,33 @@ impl ContainerManager {
         {
             let cache = self.cache.read().await;
             if let Some(id) = cache.get(user_id) {
-                match self.docker.inspect_container(id, None).await {
+                let inspect_start = std::time::Instant::now();
+                let inspect = self.docker.inspect_container(id, None).await;
+                record_container_op(
+                    ContainerOp::Inspect,
+                    inspect_start,
+                    if inspect.is_ok() { "ok" } else { "error" },
+                );
+                match inspect {
                     Ok(info) => {
                         let running = info.state
                             .as_ref()
                             .and_then(|s| s.running)
                             .unwrap_or(false);
                         if running {
+                            tracing::debug!(user_id, container_id = %id, "reusing running container (cache hit)");
                             return Ok(id.clone());
                         }
                         // Container exists but stopped — start it
-                        self.docker.start_container(id, None::<StartContainerOptions<String>>)
-                            .await
-                            .map_err(|e| format!("failed to start container: {e}"))?;
+                        let start = std::time::Instant::now();
+                        let res = self.docker.start_container(id, None::<StartContainerOptions<String>>).await;
+                        record_container_op(ContainerOp::Start, start, if res.is_ok() { "ok" } else { "error" });
+                        res.map_err(|e| {
+                            tracing::warn!(user_id, container_id = %id, error = %e, "failed to start cached container");
+                            format!("failed to start container: {e}")
+                        })?;
                         db.update_container_status(user_id, "running");
+                        tracing::info!(user_id, container_id = %id, "started stopped container (cache hit)");
                         return Ok(id.clone());
                     }
                     Err(_) => {
@@ -87,16 +101,28 @@ impl ContainerManager {
 
         // Check DB
         if let Some(uc) = db.get_user_container(user_id) {
-            match self.docker.inspect_container(&uc.container_id, None).await {
+            let inspect_start = std::time::Instant::now();
+            let inspect = self.docker.inspect_container(&uc.container_id, None).await;
+            record_container_op(
+                ContainerOp::Inspect,
+                inspect_start,
+                if inspect.is_ok() { "ok" } else { "error" },
+            );
+            match inspect {
                 Ok(info) => {
                     let running = info.state
                         .as_ref()
                         .and_then(|s| s.running)
                         .unwrap_or(false);
                     if !running {
-                        self.docker.start_container(&uc.container_id, None::<StartContainerOptions<String>>)
-                            .await
-                            .map_err(|e| format!("failed to start container: {e}"))?;
+                        let start = std::time::Instant::now();
+                        let res = self.docker.start_container(&uc.container_id, None::<StartContainerOptions<String>>).await;
+                        record_container_op(ContainerOp::Start, start, if res.is_ok() { "ok" } else { "error" });
+                        res.map_err(|e| {
+                            tracing::warn!(user_id, container_id = %uc.container_id, error = %e, "failed to start db-tracked container");
+                            format!("failed to start container: {e}")
+                        })?;
+                        tracing::info!(user_id, container_id = %uc.container_id, "started stopped container (db hit)");
                     }
                     db.update_container_status(user_id, "running");
                     self.cache.write().await.insert(user_id.to_string(), uc.container_id.clone());
@@ -104,6 +130,7 @@ impl ContainerManager {
                 }
                 Err(_) => {
                     // Container was removed externally, clean up DB
+                    tracing::warn!(user_id, container_id = %uc.container_id, "db-tracked container missing from docker; cleaning up");
                     db.delete_user_container(user_id);
                 }
             }
@@ -127,15 +154,27 @@ impl ContainerManager {
         };
 
         let create_opts = CreateContainerOptions { name: name.clone(), ..Default::default() };
-        let resp = self.docker.create_container(Some(create_opts), config)
-            .await
-            .map_err(|e| format!("failed to create container: {e}"))?;
+        let create_start = std::time::Instant::now();
+        let create_res = self.docker.create_container(Some(create_opts), config).await;
+        record_container_op(
+            ContainerOp::Create,
+            create_start,
+            if create_res.is_ok() { "ok" } else { "error" },
+        );
+        let resp = create_res.map_err(|e| {
+            tracing::error!(user_id, error = %e, "failed to create BYOS container");
+            format!("failed to create container: {e}")
+        })?;
 
         let container_id = resp.id;
 
-        self.docker.start_container(&container_id, None::<StartContainerOptions<String>>)
-            .await
-            .map_err(|e| format!("failed to start container: {e}"))?;
+        let start = std::time::Instant::now();
+        let start_res = self.docker.start_container(&container_id, None::<StartContainerOptions<String>>).await;
+        record_container_op(ContainerOp::Start, start, if start_res.is_ok() { "ok" } else { "error" });
+        start_res.map_err(|e| {
+            tracing::error!(user_id, container_id = %container_id, error = %e, "failed to start newly created container");
+            format!("failed to start container: {e}")
+        })?;
 
         let id = Uuid::new_v4().to_string();
         db.upsert_user_container(&id, user_id, &container_id, provider, "running");
@@ -158,6 +197,7 @@ impl ContainerManager {
         stdin_data: Option<&str>,
         timeout: Duration,
     ) -> Result<ExecResult, String> {
+        let op_start = std::time::Instant::now();
         let exec_opts = CreateExecOptions {
             cmd: Some(cmd.iter().map(|s| s.to_string()).collect()),
             attach_stdout: Some(true),
@@ -166,13 +206,21 @@ impl ContainerManager {
             ..Default::default()
         };
 
-        let exec = self.docker.create_exec(container_id, exec_opts)
-            .await
-            .map_err(|e| format!("failed to create exec: {e}"))?;
+        let exec = match self.docker.create_exec(container_id, exec_opts).await {
+            Ok(e) => e,
+            Err(e) => {
+                record_container_op(ContainerOp::Exec, op_start, "error");
+                return Err(format!("failed to create exec: {e}"));
+            }
+        };
 
-        let start_result = self.docker.start_exec(&exec.id, None)
-            .await
-            .map_err(|e| format!("failed to start exec: {e}"))?;
+        let start_result = match self.docker.start_exec(&exec.id, None).await {
+            Ok(r) => r,
+            Err(e) => {
+                record_container_op(ContainerOp::Exec, op_start, "error");
+                return Err(format!("failed to start exec: {e}"));
+            }
+        };
 
         let mut stdout = String::new();
         let mut stderr = String::new();
@@ -200,14 +248,26 @@ impl ContainerManager {
             };
 
             if tokio::time::timeout(timeout, collect_fut).await.is_err() {
+                record_container_op(ContainerOp::Exec, op_start, "timeout");
+                tracing::warn!(container_id, timeout_secs = timeout.as_secs(), "container exec timed out");
                 return Err(format!("exec timed out after {}s", timeout.as_secs()));
             }
         }
 
-        let inspect = self.docker.inspect_exec(&exec.id)
-            .await
-            .map_err(|e| format!("failed to inspect exec: {e}"))?;
+        let inspect = match self.docker.inspect_exec(&exec.id).await {
+            Ok(i) => i,
+            Err(e) => {
+                record_container_op(ContainerOp::Exec, op_start, "error");
+                return Err(format!("failed to inspect exec: {e}"));
+            }
+        };
         let exit_code = inspect.exit_code.unwrap_or(-1);
+
+        record_container_op(ContainerOp::Exec, op_start, "ok");
+        if exit_code != 0 {
+            crate::metrics::metrics().container_exec_failures_total.inc();
+            tracing::debug!(container_id, exit_code, "container exec returned non-zero exit code");
+        }
 
         Ok(ExecResult { stdout, stderr, exit_code })
     }
@@ -258,18 +318,26 @@ impl ContainerManager {
     }
 
     pub async fn stop_container(&self, container_id: &str) -> Result<(), String> {
+        let op_start = std::time::Instant::now();
         let opts = StopContainerOptions { t: 10 };
-        self.docker.stop_container(container_id, Some(opts))
-            .await
-            .map_err(|e| format!("failed to stop container: {e}"))
+        let res = self.docker.stop_container(container_id, Some(opts)).await;
+        record_container_op(ContainerOp::Stop, op_start, if res.is_ok() { "ok" } else { "error" });
+        res.map_err(|e| {
+            tracing::warn!(container_id, error = %e, "failed to stop container");
+            format!("failed to stop container: {e}")
+        })
     }
 
     pub async fn remove_container(&self, container_id: &str) -> Result<(), String> {
         // Stop first if running
         let _ = self.stop_container(container_id).await;
-        self.docker.remove_container(container_id, None)
-            .await
-            .map_err(|e| format!("failed to remove container: {e}"))
+        let op_start = std::time::Instant::now();
+        let res = self.docker.remove_container(container_id, None).await;
+        record_container_op(ContainerOp::Remove, op_start, if res.is_ok() { "ok" } else { "error" });
+        res.map_err(|e| {
+            tracing::warn!(container_id, error = %e, "failed to remove container");
+            format!("failed to remove container: {e}")
+        })
     }
 
     /// Start an interactive exec for CLI login (returns exec_id for later stdin piping)
@@ -278,6 +346,7 @@ impl ContainerManager {
         container_id: &str,
         cmd: &[&str],
     ) -> Result<(String, String), String> {
+        let op_start = std::time::Instant::now();
         let exec_opts = CreateExecOptions {
             cmd: Some(cmd.iter().map(|s| s.to_string()).collect()),
             attach_stdout: Some(true),
@@ -287,13 +356,21 @@ impl ContainerManager {
             ..Default::default()
         };
 
-        let exec = self.docker.create_exec(container_id, exec_opts)
-            .await
-            .map_err(|e| format!("failed to create login exec: {e}"))?;
+        let exec = match self.docker.create_exec(container_id, exec_opts).await {
+            Ok(e) => e,
+            Err(e) => {
+                record_container_op(ContainerOp::LoginExec, op_start, "error");
+                return Err(format!("failed to create login exec: {e}"));
+            }
+        };
 
-        let start_result = self.docker.start_exec(&exec.id, None)
-            .await
-            .map_err(|e| format!("failed to start login exec: {e}"))?;
+        let start_result = match self.docker.start_exec(&exec.id, None).await {
+            Ok(r) => r,
+            Err(e) => {
+                record_container_op(ContainerOp::LoginExec, op_start, "error");
+                return Err(format!("failed to start login exec: {e}"));
+            }
+        };
 
         // Read initial stdout to capture the OAuth URL
         let mut captured_output = String::new();
@@ -317,10 +394,13 @@ impl ContainerManager {
 
             // Give the CLI 15 seconds to output the OAuth URL
             if tokio::time::timeout(Duration::from_secs(15), read_url).await.is_err() {
+                record_container_op(ContainerOp::LoginExec, op_start, "timeout");
+                tracing::warn!(container_id, "timeout waiting for login CLI to output auth URL");
                 return Err("timeout waiting for CLI to output auth URL".into());
             }
         }
 
+        record_container_op(ContainerOp::LoginExec, op_start, "ok");
         Ok((exec.id, captured_output))
     }
 
@@ -364,6 +444,7 @@ pub fn spawn_idle_reaper(state: Arc<AppState>) {
                 match cm.stop_container(&container.container_id).await {
                     Ok(()) => {
                         db.update_container_status(&container.user_id, "stopped");
+                        crate::metrics::metrics().containers_reaped_total.inc();
                         tracing::info!(
                             user_id = %container.user_id,
                             container_id = %container.container_id,
@@ -378,6 +459,13 @@ pub fn spawn_idle_reaper(state: Arc<AppState>) {
                     }
                 }
             }
+
+            // Refresh the container population gauge on each reaper tick so the
+            // Prometheus snapshot stays current even with no /metrics scrapes.
+            let all = db.list_all_containers();
+            let running = all.iter().filter(|c| c.status == "running").count() as i64;
+            let stopped = (all.len() as i64) - running;
+            crate::metrics::set_container_population(running, stopped);
         }
     });
 }

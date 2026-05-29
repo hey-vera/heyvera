@@ -439,6 +439,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 41 {
         migrate_v41(conn);
     }
+    if current < 42 {
+        migrate_v42(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -1912,6 +1915,38 @@ fn migrate_v41(conn: &Connection) {
     tracing::info!("applied migration v41: audit_log indexes");
 }
 
+fn migrate_v42(conn: &Connection) {
+    // GitHub repo imports — tracks repos a user has cloned into their BYOS
+    // container, the import lifecycle status, and sync state. Supports multiple
+    // repos per user (UNIQUE on user_id + repo_full_name).
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS github_imports (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            repo_id INTEGER NOT NULL,
+            repo_full_name TEXT NOT NULL,
+            default_branch TEXT NOT NULL DEFAULT 'main',
+            clone_path TEXT NOT NULL,
+            private INTEGER NOT NULL DEFAULT 0,
+            status TEXT NOT NULL DEFAULT 'pending',
+            progress INTEGER NOT NULL DEFAULT 0,
+            stage TEXT NOT NULL DEFAULT 'queued',
+            error TEXT,
+            last_synced_at INTEGER,
+            head_commit TEXT,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            updated_at INTEGER NOT NULL DEFAULT (unixepoch()),
+            UNIQUE(user_id, repo_full_name)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_github_imports_user ON github_imports(user_id);
+        CREATE INDEX IF NOT EXISTS idx_github_imports_status ON github_imports(status);
+
+        UPDATE schema_version SET version = 42;"
+    ).expect("migration v42 failed");
+    tracing::info!("applied migration v42: github_imports table for repo import + sync");
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CredentialAssignment {
     pub id: String,
@@ -1943,6 +1978,28 @@ pub struct UserContainer {
     pub provider: String,
     pub status: String,
     pub last_activity_at: i64,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct GithubImport {
+    pub id: String,
+    pub user_id: String,
+    pub repo_id: i64,
+    pub repo_full_name: String,
+    pub default_branch: String,
+    pub clone_path: String,
+    pub private: bool,
+    /// Lifecycle: pending | importing | ready | failed
+    pub status: String,
+    /// 0..100 progress for UI feedback.
+    pub progress: i64,
+    /// Human-readable stage label (e.g. "cloning", "ready").
+    pub stage: String,
+    pub error: Option<String>,
+    pub last_synced_at: Option<i64>,
+    pub head_commit: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -2215,8 +2272,9 @@ fn index_group_task_state_checked(
     let existing_ids = {
         let mut stmt =
             conn.prepare("SELECT id FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2")?;
-        stmt.query_map(params![user_id, group_id], |row| row.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?
+        let results: Vec<_> = stmt.query_map(params![user_id, group_id], |row| row.get::<_, String>(0))?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        results
     };
 
     for existing_id in existing_ids {
@@ -2752,7 +2810,7 @@ fn find_resource_lease_conflict_tx(
                AND mode IN ('write', 'exclusive')
              ORDER BY acquired_at ASC",
         )?;
-        stmt.query_map(
+        let rows = stmt.query_map(
             params![
                 authority_scope_id,
                 now,
@@ -2760,9 +2818,8 @@ fn find_resource_lease_conflict_tx(
                 request.repo_key
             ],
             resource_conflict_from_row,
-        )?
-        .filter_map(|row| row.ok())
-        .collect()
+        )?;
+        rows.filter_map(|row| row.ok()).collect()
     } else {
         let mut stmt = conn.prepare(
             "SELECT id, run_id, step_id, holder_type, resource_type, repo_key, resource_key, mode, expires_at
@@ -2776,12 +2833,11 @@ fn find_resource_lease_conflict_tx(
                AND mode IN ('write', 'exclusive')
              ORDER BY acquired_at ASC",
         )?;
-        stmt.query_map(
+        let rows = stmt.query_map(
             params![user_id, now, request.resource_type, request.repo_key],
             resource_conflict_from_row,
-        )?
-        .filter_map(|row| row.ok())
-        .collect()
+        )?;
+        rows.filter_map(|row| row.ok()).collect()
     };
 
     for candidate in candidates {
@@ -12571,6 +12627,123 @@ impl Database {
             "DELETE FROM user_containers WHERE user_id = ?1",
             params![user_id],
         ).expect("delete_user_container failed");
+    }
+
+    // --- GitHub repo imports ---
+
+    /// Create or reset an import record for (user, repo). Returns the import id.
+    /// If a record already exists for this repo it is reset to a fresh `pending`
+    /// state so the import can be safely retried.
+    pub fn upsert_github_import(
+        &self,
+        id: &str,
+        user_id: &str,
+        repo_id: i64,
+        repo_full_name: &str,
+        default_branch: &str,
+        clone_path: &str,
+        private: bool,
+    ) -> String {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO github_imports
+                (id, user_id, repo_id, repo_full_name, default_branch, clone_path, private,
+                 status, progress, stage, error)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'pending', 0, 'queued', NULL)
+             ON CONFLICT(user_id, repo_full_name) DO UPDATE SET
+                repo_id = ?3,
+                default_branch = ?5,
+                clone_path = ?6,
+                private = ?7,
+                status = 'pending',
+                progress = 0,
+                stage = 'queued',
+                error = NULL,
+                updated_at = unixepoch()",
+            params![id, user_id, repo_id, repo_full_name, default_branch, clone_path, private as i64],
+        ).expect("upsert_github_import failed");
+
+        // Return the canonical id for this (user, repo), which may differ from
+        // `id` when an existing record was updated.
+        conn.query_row(
+            "SELECT id FROM github_imports WHERE user_id = ?1 AND repo_full_name = ?2",
+            params![user_id, repo_full_name],
+            |row| row.get::<_, String>(0),
+        ).unwrap_or_else(|_| id.to_string())
+    }
+
+    pub fn update_github_import_progress(
+        &self,
+        import_id: &str,
+        status: &str,
+        progress: i64,
+        stage: &str,
+        error: Option<&str>,
+    ) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE github_imports
+                SET status = ?2, progress = ?3, stage = ?4, error = ?5, updated_at = unixepoch()
+             WHERE id = ?1",
+            params![import_id, status, progress, stage, error],
+        ).expect("update_github_import_progress failed");
+    }
+
+    pub fn mark_github_import_synced(&self, import_id: &str, head_commit: Option<&str>) {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE github_imports
+                SET last_synced_at = unixepoch(), head_commit = ?2, updated_at = unixepoch()
+             WHERE id = ?1",
+            params![import_id, head_commit],
+        ).expect("mark_github_import_synced failed");
+    }
+
+    fn map_github_import(row: &rusqlite::Row) -> rusqlite::Result<GithubImport> {
+        Ok(GithubImport {
+            id: row.get(0)?,
+            user_id: row.get(1)?,
+            repo_id: row.get(2)?,
+            repo_full_name: row.get(3)?,
+            default_branch: row.get(4)?,
+            clone_path: row.get(5)?,
+            private: row.get::<_, i64>(6)? != 0,
+            status: row.get(7)?,
+            progress: row.get(8)?,
+            stage: row.get(9)?,
+            error: row.get(10)?,
+            last_synced_at: row.get(11)?,
+            head_commit: row.get(12)?,
+            created_at: row.get(13)?,
+            updated_at: row.get(14)?,
+        })
+    }
+
+    const GITHUB_IMPORT_COLS: &'static str =
+        "id, user_id, repo_id, repo_full_name, default_branch, clone_path, private, \
+         status, progress, stage, error, last_synced_at, head_commit, created_at, updated_at";
+
+    /// Fetch a single import scoped to the owning user (prevents cross-user access).
+    pub fn get_github_import(&self, user_id: &str, import_id: &str) -> Option<GithubImport> {
+        let conn = self.conn.lock().unwrap();
+        let sql = format!(
+            "SELECT {} FROM github_imports WHERE id = ?1 AND user_id = ?2",
+            Self::GITHUB_IMPORT_COLS
+        );
+        conn.query_row(&sql, params![import_id, user_id], Self::map_github_import).ok()
+    }
+
+    pub fn list_github_imports(&self, user_id: &str) -> Vec<GithubImport> {
+        let conn = self.conn.lock().unwrap();
+        let sql = format!(
+            "SELECT {} FROM github_imports WHERE user_id = ?1 ORDER BY updated_at DESC",
+            Self::GITHUB_IMPORT_COLS
+        );
+        let mut stmt = conn.prepare(&sql).expect("list_github_imports prepare failed");
+        stmt.query_map(params![user_id], Self::map_github_import)
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
     }
 
     // --- Credential assignment methods ---

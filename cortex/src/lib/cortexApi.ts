@@ -8,7 +8,8 @@ import type {
 } from '../types';
 
 const CONFIGURED_API_BASE = import.meta.env.VITE_CORTEX_API as string | undefined;
-const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? 'http://localhost:3001' : 'https://api.heyvera.org');
+// In dev mode, use relative URLs so the Vite proxy handles /api → localhost:3001
+const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? '' : 'https://api.heyvera.org');
 export const MEMORY_API_ENABLED = import.meta.env.VITE_CORTEX_MEMORY_ENABLED === 'true';
 
 /** Returns true when the browser believes it has no network connectivity. */
@@ -667,6 +668,74 @@ export async function selectRepos(repoIds: number[]): Promise<void> {
     if (res.status === 401) dispatchUnauthorized();
     throw new CortexApiError(res.status, await readErrorMessage(res), res.headers.get('Retry-After'));
   }
+}
+
+// --- GitHub repo import + sync ---
+
+export interface GitHubReposResponse {
+  linked: boolean;
+  repos: GitHubRepo[];
+}
+
+export interface GitHubImportResponse {
+  import_id: string;
+  status: string;
+  clone_path: string;
+}
+
+export interface GitHubImportStatus {
+  import_id: string;
+  repo_full_name: string;
+  status: 'pending' | 'importing' | 'ready' | 'failed';
+  progress: number;
+  stage: string;
+  clone_path: string;
+  error: string | null;
+  last_synced_at: number | null;
+  head_commit: string | null;
+}
+
+export interface GitHubSyncResponse {
+  status: string;
+  committed: boolean;
+  pushed: boolean;
+  conflict: boolean;
+  head_commit: string | null;
+  detail: string;
+}
+
+/** List the user's GitHub repositories available to import. */
+export async function listGitHubRepos(): Promise<GitHubReposResponse> {
+  return requestJson<GitHubReposResponse>('/api/github/repos');
+}
+
+/** List the user's imported repos. */
+export async function listGitHubImports(): Promise<GitHubImportStatus[]> {
+  return requestJson<GitHubImportStatus[]>('/api/github/imports');
+}
+
+/** Start importing (cloning) a repo into the user's container. */
+export async function importGitHubRepo(repoFullName: string): Promise<GitHubImportResponse> {
+  return requestJson<GitHubImportResponse>('/api/github/import', {
+    method: 'POST',
+    body: JSON.stringify({ repo_full_name: repoFullName }),
+  });
+}
+
+/** Poll the status of an in-progress or completed import. */
+export async function getGitHubImportStatus(importId: string): Promise<GitHubImportStatus> {
+  return requestJson<GitHubImportStatus>(`/api/github/status/${encodeURIComponent(importId)}`);
+}
+
+/** Bidirectionally sync an imported repo with GitHub. */
+export async function syncGitHubRepo(
+  importId: string,
+  opts?: { message?: string; push?: boolean },
+): Promise<GitHubSyncResponse> {
+  return requestJson<GitHubSyncResponse>(`/api/github/sync/${encodeURIComponent(importId)}`, {
+    method: 'POST',
+    body: JSON.stringify(opts ?? {}),
+  });
 }
 
 export async function getUserProfile() {

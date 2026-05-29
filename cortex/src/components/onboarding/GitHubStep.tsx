@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ArrowLeft, CheckCircle, GitBranch, Loader2 } from 'lucide-react';
 import { getGitHubStatus, selectRepos, type GitHubRepo } from '../../lib/cortexApi';
+import RepoImport from './RepoImport';
 
 interface GitHubStepProps {
   onNext: () => void;
@@ -63,11 +64,16 @@ export default function GitHubStep({ onNext, onBack }: GitHubStepProps) {
   return (
     <div className="flex flex-col gap-4 p-5">
       <div>
-        <h2 className="text-base font-medium text-white">Link GitHub</h2>
+        <h2 className="text-base font-medium text-white">Import a repository</h2>
         <p className="mt-1 text-sm text-[var(--muted)]">
-          Connect your GitHub account so Cortex can access your repositories.
+          Import a GitHub repo into your Cortex container and start coding with
+          AI right away.
         </p>
       </div>
+
+      {linked && (
+        <RepoImport />
+      )}
 
       {!linked ? (
         <div className="flex flex-col items-center gap-4 rounded-xl border border-white/8 bg-white/4 px-6 py-8">

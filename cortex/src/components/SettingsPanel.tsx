@@ -355,8 +355,9 @@ function CredentialsTab() {
     try {
       const creds = await getAuthStatus();
       setCredentials(creds);
-    } catch {
-      setError('Failed to load credentials');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(`Failed to load credentials: ${msg}`);
     } finally {
       setLoading(false);
     }
@@ -406,8 +407,9 @@ function CredentialsTab() {
     try {
       const result = await startAuth(provider, addType);
       setAuthInfo({ auth_url: result.auth_url ?? undefined, message: result.message });
-    } catch {
-      setError('Failed to start auth flow');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setError(`Failed to start auth flow: ${msg}`);
       setAddingProvider(null);
     }
   };

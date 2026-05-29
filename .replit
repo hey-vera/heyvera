@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web", "bash"]
+modules = ["nodejs-20", "web", "bash", "rust"]
 [agent]
 expertMode = true
 stack = "BEST_EFFORT_FALLBACK"
@@ -33,8 +33,8 @@ author = "agent"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "cd dashboard && npm run dev"
-waitForPort = 5000
+args = "cd cortex && npm run dev"
+waitForPort = 5001
 
 [workflows.workflow.metadata]
 outputType = "webview"
@@ -48,24 +48,32 @@ outputType = "console"
 
 [[workflows.workflow.tasks]]
 task = "shell.exec"
-args = "npm run dev"
-waitForPort = 3000
+args = "CORTEX_ADMIN_EMAILS='jfair1028@gmail.com' ./target/release/cortex-server"
+waitForPort = 3001
 
 [[ports]]
 localPort = 3000
 externalPort = 3000
 
 [[ports]]
+localPort = 3001
+externalPort = 3001
+
+[[ports]]
+localPort = 3009
+externalPort = 4200
+
+[[ports]]
 localPort = 3499
 externalPort = 3002
 
 [[ports]]
-localPort = 5000
+localPort = 5001
 externalPort = 80
 
 [[ports]]
-localPort = 5001
-externalPort = 3001
+localPort = 5000
+externalPort = 5000
 
 [[ports]]
 localPort = 5173
