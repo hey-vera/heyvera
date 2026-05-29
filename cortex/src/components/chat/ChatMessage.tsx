@@ -45,7 +45,7 @@ export default function ChatMessage({
   }
 
   return (
-    <div role="article" aria-label={`${isUser ? 'You' : message.providerLabel} at ${formatTime(message.createdAt)}`} className={`group flex gap-3 ${isUser ? 'justify-end' : 'justify-start'}`}>
+    <div role="article" aria-label={`${isUser ? 'You' : message.providerLabel} at ${formatTime(message.createdAt)}`} className={`group flex gap-3 animate-fade-in ${isUser ? 'justify-end' : 'justify-start'}`}>
       {!isUser ? (
         <div className="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[var(--accent-soft)] text-white">
           {message.isStreaming ? <Sparkles className="h-4 w-4" /> : <Bot className="h-4 w-4" />}

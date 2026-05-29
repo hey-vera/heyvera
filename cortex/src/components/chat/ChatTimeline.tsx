@@ -26,16 +26,20 @@ const LOAD_MORE_MESSAGES = 80;
 function TimelineSkeleton() {
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4">
-      {[0, 1, 2].map((item) => (
-        <div key={item} className={`flex gap-3 ${item === 1 ? 'justify-end' : 'justify-start'}`}>
-          {item !== 1 && (
+      {[
+        { align: 'start' as const, bubbleW: 'w-3/4', metaW: 'w-24' },
+        { align: 'end' as const, bubbleW: 'w-1/2', metaW: 'w-16' },
+        { align: 'start' as const, bubbleW: 'w-2/3', metaW: 'w-20' },
+      ].map((item, idx) => (
+        <div key={idx} className={`flex gap-3 ${item.align === 'end' ? 'justify-end' : 'justify-start'}`}>
+          {item.align !== 'end' && (
             <div className="mt-1 h-8 w-8 shrink-0 animate-pulse rounded-full bg-white/8" />
           )}
-          <div className={`flex max-w-[78%] flex-col gap-2 ${item === 1 ? 'items-end' : 'items-start'}`}>
-            <div className="h-20 w-64 max-w-[70vw] animate-pulse rounded-3xl bg-white/[0.06]" />
-            <div className="h-3 w-28 animate-pulse rounded-full bg-white/[0.05]" />
+          <div className={`flex max-w-[78%] flex-col gap-2 ${item.align === 'end' ? 'items-end' : 'items-start'}`}>
+            <div className={`h-20 ${item.bubbleW} max-w-[70vw] animate-pulse rounded-3xl bg-white/[0.06]`} />
+            <div className={`h-3 ${item.metaW} animate-pulse rounded-full bg-white/[0.05]`} />
           </div>
-          {item === 1 && (
+          {item.align === 'end' && (
             <div className="mt-1 h-8 w-8 shrink-0 animate-pulse rounded-full bg-white/8" />
           )}
         </div>

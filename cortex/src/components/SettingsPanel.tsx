@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, CheckCircle, ExternalLink, Loader2, Star, Trash2, User, X, XCircle } from 'lucide-react';
+import { AlertTriangle, CheckCircle, ExternalLink, Key, Loader2, Star, Trash2, User, X, XCircle } from 'lucide-react';
 import { useUser } from '@clerk/clerk-react';
 import {
   getAuthStatus,
@@ -477,9 +477,16 @@ function CredentialsTab({ isAdmin }: { isAdmin?: boolean }) {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center gap-2 py-8 text-sm text-[var(--muted)]">
-        <Loader2 className="h-4 w-4 animate-spin" />
-        Loading credentials...
+      <div className="flex flex-col gap-2 py-4">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="rounded-lg border border-white/8 bg-white/[0.02] p-4 flex items-center gap-3">
+            <div className="h-8 w-8 shrink-0 rounded-lg bg-white/6 animate-pulse" />
+            <div className="flex flex-col gap-2">
+              <div className="h-3 w-32 rounded bg-white/8 animate-pulse" />
+              <div className="h-3 w-20 rounded bg-white/8 animate-pulse" />
+            </div>
+          </div>
+        ))}
       </div>
     );
   }
@@ -501,6 +508,7 @@ function CredentialsTab({ isAdmin }: { isAdmin?: boolean }) {
 
       {credentials.length === 0 ? (
         <div className="rounded-lg border border-white/8 bg-white/[0.02] px-4 py-6 text-center text-sm text-[var(--muted)]">
+          <Key className="text-[var(--muted)] opacity-40 h-8 w-8 mx-auto mb-2" />
           No credentials yet. Add a subscription or API key below.
         </div>
       ) : (
@@ -860,7 +868,7 @@ export default function SettingsPanel({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 backdrop-blur-sm sm:p-6">
-      <div className={`relative flex max-h-[min(44rem,calc(100dvh-1.5rem))] w-full flex-col overflow-hidden rounded-2xl border border-white/8 bg-[var(--panel)] shadow-2xl sm:max-h-[min(44rem,calc(100dvh-3rem))] ${tab === 'billing' || tab === 'budget' ? 'max-w-2xl' : 'max-w-lg'}`}>
+      <div className={`relative flex max-h-[min(44rem,calc(100dvh-1.5rem))] w-full flex-col overflow-hidden rounded-2xl border border-white/8 bg-[var(--panel)] animate-scale-in shadow-2xl sm:max-h-[min(44rem,calc(100dvh-3rem))] ${tab === 'billing' || tab === 'budget' ? 'max-w-2xl' : 'max-w-lg'}`}>
         {/* Header */}
         <div className="shrink-0 border-b border-white/6 px-5 py-4">
           <div className="flex items-center justify-between gap-4">
