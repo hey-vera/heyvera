@@ -57,7 +57,7 @@ export default function ChatMessage({
           className={[
             'rounded-[24px] px-4 py-2 text-sm leading-6 shadow-[0_1px_0_rgba(255,255,255,0.02)]',
             isUser
-              ? 'bg-[var(--user-bubble)] text-white'
+              ? 'border border-white/8 bg-[var(--user-bubble)] text-white shadow-[0_8px_24px_rgba(156,199,184,0.1),inset_0_1px_0_rgba(255,255,255,0.06)]'
               : 'border border-white/6 bg-[var(--assistant-bubble)] text-[var(--fg)]',
           ].join(' ')}
         >

@@ -200,8 +200,8 @@ export default function ChatComposer({
 
   if (locked) {
     return (
-      <div className="border-t border-white/6 p-3 sm:p-4">
-        <div className="rounded-[24px] border border-white/8 bg-[var(--composer)] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <div className="border-t border-white/6 p-3 shadow-[0_-18px_40px_rgba(0,0,0,0.26),inset_0_1px_0_rgba(156,199,184,0.12)] sm:p-4">
+        <div className="glass-strong rounded-[24px] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
           <div className="flex min-h-[52px] items-center px-3 py-2">
             <p className="flex-1 text-sm text-[var(--muted)]">
               Your payment method needs updating to continue.
@@ -221,7 +221,7 @@ export default function ChatComposer({
   }
 
   return (
-    <form className="sticky bottom-0 border-t border-white/6 p-3 sm:p-4 relative bg-[var(--panel)]" onSubmit={handleSubmit} aria-label="Chat message composer">
+    <form className="sticky bottom-0 relative border-t border-white/6 bg-[var(--panel)] p-3 shadow-[0_-18px_40px_rgba(0,0,0,0.26),inset_0_1px_0_rgba(156,199,184,0.12)] sm:p-4" onSubmit={handleSubmit} aria-label="Chat message composer">
       {MEMORY_API_ENABLED && (
         <MemorySuggestions
           currentInput={draft}
@@ -234,7 +234,7 @@ export default function ChatComposer({
         />
       )}
 
-      <div className="rounded-[24px] border border-white/8 bg-[var(--composer)] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+      <div className="glass-strong rounded-[24px] p-2 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
         <div className="relative">
           <textarea
             ref={textareaRef}
@@ -289,7 +289,7 @@ export default function ChatComposer({
               <button
                 type="submit"
                 disabled={!canSend}
-                className="inline-flex h-10 w-10 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-[var(--accent)] text-black transition hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:min-w-0"
+                className="inline-flex h-10 w-10 min-h-[44px] min-w-[44px] items-center justify-center rounded-full bg-[var(--accent)] text-black shadow-[0_8px_20px_rgba(156,199,184,0.18)] transition hover:brightness-110 hover:shadow-[0_10px_24px_rgba(156,199,184,0.24)] active:scale-95 disabled:cursor-not-allowed disabled:opacity-50 sm:min-h-0 sm:min-w-0"
                 aria-label="Send message"
               >
                 <ArrowUp className="h-4 w-4" />
