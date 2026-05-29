@@ -331,7 +331,7 @@ function AccountTab({ providers }: { providers: ProviderAuthInfo[] }) {
   );
 }
 
-function CredentialsTab() {
+function CredentialsTab({ isAdmin }: { isAdmin?: boolean }) {
   const [credentials, setCredentials] = useState<ProviderAuthInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [addingProvider, setAddingProvider] = useState<string | null>(null);
@@ -570,25 +570,27 @@ function CredentialsTab() {
 
         {!addingProvider ? (
           <div className="flex flex-col gap-3">
-            <div className="flex items-center gap-2 mb-2">
-              <label className="text-xs text-[var(--muted)]">Type:</label>
-              <button
-                onClick={() => setAddType('subscription')}
-                className={`rounded px-2 py-1 text-xs transition ${
-                  addType === 'subscription' ? 'bg-[var(--accent)] text-white' : 'bg-white/6 text-[var(--muted)] hover:text-white'
-                }`}
-              >
-                Subscription
-              </button>
-              <button
-                onClick={() => setAddType('api_key')}
-                className={`rounded px-2 py-1 text-xs transition ${
-                  addType === 'api_key' ? 'bg-[var(--accent)] text-white' : 'bg-white/6 text-[var(--muted)] hover:text-white'
-                }`}
-              >
-                API Key
-              </button>
-            </div>
+            {isAdmin && (
+              <div className="flex items-center gap-2 mb-2">
+                <label className="text-xs text-[var(--muted)]">Type:</label>
+                <button
+                  onClick={() => setAddType('subscription')}
+                  className={`rounded px-2 py-1 text-xs transition ${
+                    addType === 'subscription' ? 'bg-[var(--accent)] text-white' : 'bg-white/6 text-[var(--muted)] hover:text-white'
+                  }`}
+                >
+                  Subscription
+                </button>
+                <button
+                  onClick={() => setAddType('api_key')}
+                  className={`rounded px-2 py-1 text-xs transition ${
+                    addType === 'api_key' ? 'bg-[var(--accent)] text-white' : 'bg-white/6 text-[var(--muted)] hover:text-white'
+                  }`}
+                >
+                  API Key (Admin)
+                </button>
+              </div>
+            )}
             <div className="flex gap-2">
               <button
                 onClick={() => handleStartAdd('claude')}
@@ -608,52 +610,68 @@ function CredentialsTab() {
           <div className="rounded-lg border border-white/8 bg-white/[0.02] p-4">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm font-medium text-white">
-                Adding {addingProvider === 'claude' ? 'Claude' : 'OpenAI'} {addType === 'subscription' ? 'Subscription' : 'API Key'}
+                {addType === 'subscription'
+                  ? `Connect ${addingProvider === 'claude' ? 'Claude' : 'OpenAI'} Subscription`
+                  : `Add ${addingProvider === 'claude' ? 'Claude' : 'OpenAI'} API Key`}
               </span>
               <button onClick={handleCancelAdd} className="text-xs text-[var(--muted)] hover:text-white">
                 Cancel
               </button>
             </div>
 
-            {authInfo?.message && (
-              <p className="text-xs text-[var(--muted)] mb-3">{authInfo.message}</p>
+            {!authInfo && (
+              <div className="flex items-center gap-2 py-4 text-sm text-[var(--muted)]">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Setting up container...
+              </div>
             )}
 
             {authInfo?.auth_url && (
-              <a
-                href={authInfo.auth_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="mb-3 flex items-center gap-1 text-xs text-[var(--accent)] hover:underline"
-              >
-                Open provider page <ExternalLink className="h-3 w-3" />
-              </a>
+              <div className="mb-4">
+                <a
+                  href={authInfo.auth_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 transition"
+                >
+                  {addType === 'subscription'
+                    ? `Sign in to ${addingProvider === 'claude' ? 'Claude' : 'OpenAI'}`
+                    : `Open ${addingProvider === 'claude' ? 'Anthropic Console' : 'OpenAI Platform'}`}
+                  <ExternalLink className="h-3.5 w-3.5" />
+                </a>
+              </div>
             )}
 
-            <div className="flex flex-col gap-2">
-              <input
-                type="text"
-                value={labelInput}
-                onChange={(e) => setLabelInput(e.target.value)}
-                placeholder="Label (optional, e.g. 'Work Claude')"
-                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
-              />
-              <input
-                type="password"
-                value={codeInput}
-                onChange={(e) => setCodeInput(e.target.value)}
-                placeholder={addType === 'api_key' ? 'Paste API key...' : 'Paste auth code...'}
-                className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
-                onKeyDown={(e) => e.key === 'Enter' && handleSubmitCode()}
-              />
-              <button
-                onClick={handleSubmitCode}
-                disabled={submitting || !codeInput.trim()}
-                className="rounded-lg bg-[var(--accent)] px-4 py-2 text-sm font-medium text-white hover:opacity-90 transition disabled:opacity-50"
-              >
-                {submitting ? 'Saving...' : 'Save Credential'}
-              </button>
-            </div>
+            {authInfo?.message && (
+              <p className="text-xs text-[var(--muted)] mb-3 whitespace-pre-line">{authInfo.message}</p>
+            )}
+
+            {authInfo && (
+              <div className="flex flex-col gap-2">
+                <input
+                  type="text"
+                  value={labelInput}
+                  onChange={(e) => setLabelInput(e.target.value)}
+                  placeholder="Label (optional, e.g. 'Work Claude')"
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
+                />
+                <input
+                  type="password"
+                  value={codeInput}
+                  onChange={(e) => setCodeInput(e.target.value)}
+                  placeholder={addType === 'api_key' ? 'Paste API key...' : 'Paste auth token or code...'}
+                  className="rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-sm text-white placeholder:text-[var(--muted)] focus:border-[var(--accent)] focus:outline-none"
+                  onKeyDown={(e) => e.key === 'Enter' && handleSubmitCode()}
+                />
+                <button
+                  onClick={handleSubmitCode}
+                  disabled={submitting || !codeInput.trim()}
+                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition disabled:opacity-50"
+                >
+                  {submitting ? 'Connecting...' : addType === 'api_key' ? 'Save API Key' : 'Connect Subscription'}
+                </button>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -782,6 +800,7 @@ export default function SettingsPanel({
   onClose,
   initialTab = 'providers',
   billing,
+  isAdmin,
 }: SettingsPanelProps) {
   const [tab, setTab] = useState<SettingsTab>(initialTab);
   const [providers, setProviders] = useState<ProviderAuthInfo[]>([]);
@@ -946,11 +965,11 @@ export default function SettingsPanel({
           ) : tab === 'notifications' ? (
             <NotificationsTab />
           ) : tab === 'credentials' ? (
-            <CredentialsTab />
+            <CredentialsTab isAdmin={isAdmin} />
           ) : tab === 'account' ? (
             <AccountTab providers={providers} />
           ) : (
-            <CredentialsTab />
+            <CredentialsTab isAdmin={isAdmin} />
           )}
         </div>
       </div>
