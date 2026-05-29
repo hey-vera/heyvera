@@ -152,29 +152,66 @@ fi
 echo "[svc] Using service: $SVC_NAME"
 sudo systemctl start "$SVC_NAME"
 echo "[svc] Started $SVC_NAME"
-echo -n "[health] Waiting"
+
+# Multi-tier health check with automatic fixes
+echo "[health] Backend health check..."
 HEALTHY=false
-for _ in $(seq 1 "$MAX_WAIT"); do
-  sleep 1
+for i in $(seq 1 "$MAX_WAIT"); do
   echo -n "."
   if curl -sf http://localhost:3001/api/health >/dev/null 2>&1; then
     HEALTHY=true
     break
   fi
+  sleep 1
 done
 echo ""
 
-if $HEALTHY; then
-  echo ""
-  echo "  ✓ Cortex deployed — $BRANCH @ $COMMIT"
-  echo "    https://cortex.heyvera.org"
-  echo "    Logs: sudo journalctl -u $SVC_NAME -f"
-  echo ""
-else
-  echo "[fail] Health check failed after ${MAX_WAIT}s. Recent logs:"
-  sudo journalctl -u "$SVC_NAME" --no-pager -n 30
-  echo ""
-  echo "[fail] Service status:"
-  sudo systemctl status "$SVC_NAME" --no-pager 2>&1 || true
+if ! $HEALTHY; then
+  echo "[fail] Backend health check failed after ${MAX_WAIT}s"
+  echo "[fail] Service logs:"
+  sudo journalctl -u "$SVC_NAME" --no-pager -n 20
   exit 1
 fi
+
+echo "[health] Proxy routing check..."
+sudo systemctl reload caddy 2>/dev/null || true
+sleep 2
+
+# Test external API routing
+PROXY_HEALTHY=false
+for i in $(seq 1 15); do
+  echo -n "."
+  if curl -sf https://cortex.heyvera.org/api/health >/dev/null 2>&1; then
+    PROXY_HEALTHY=true
+    break
+  fi
+  sleep 2
+done
+echo ""
+
+if ! $PROXY_HEALTHY; then
+  echo "[fail] Proxy routing failed — API not accessible externally"
+  echo "[info] Backend is healthy but Caddy routing is broken"
+  echo "[auto] Attempting automatic fix..."
+
+  # Emergency fix: restart caddy and retry
+  sudo systemctl restart caddy
+  sleep 5
+
+  if curl -sf https://cortex.heyvera.org/api/health >/dev/null 2>&1; then
+    echo "[auto] ✓ Proxy fixed by Caddy restart"
+  else
+    echo "[fail] Automatic fix failed — manual intervention needed"
+    echo "[fail] Check: sudo systemctl status caddy"
+    exit 1
+  fi
+fi
+
+echo ""
+echo "  ✓ Cortex deployed and verified — $BRANCH @ $COMMIT"
+echo "    Backend: https://cortex.heyvera.org/api/health"
+echo "    Frontend: https://cortex.heyvera.org"
+echo "    Logs: sudo journalctl -u $SVC_NAME -f"
+echo ""
+echo "  🚀 Deploy drift prevention: backend + proxy verified"
+echo ""

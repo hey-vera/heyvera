@@ -397,6 +397,22 @@ function CortexShell() {
 
   const billing = useBilling(billingEnabled);
 
+  // Deploy drift prevention: auto-retry billing if frontend detects drift
+  useEffect(() => {
+    if (billingEnabled && billing.error && !billing.loading) {
+      const isDriftError = billing.error.includes('Billing is unavailable') ||
+                          billing.error.includes('fetch') ||
+                          billing.error.includes('NetworkError');
+      if (isDriftError) {
+        console.log('Detected potential deploy drift, retrying billing in 5s...');
+        const retryTimer = setTimeout(() => {
+          billing.refresh();
+        }, 5000);
+        return () => clearTimeout(retryTimer);
+      }
+    }
+  }, [billing.error, billing.loading, billingEnabled, billing.refresh]);
+
   useEffect(() => {
     if (!isSignedIn) {
       setIsAdmin(false);

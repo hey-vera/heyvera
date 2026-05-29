@@ -19,15 +19,27 @@ export function useBilling(enabled: boolean): UseBillingResult {
       return;
     }
     setLoading(true);
-    try {
-      const next = await getBillingStatus();
-      setStatus(next);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Billing is unavailable');
-    } finally {
-      setLoading(false);
+
+    // Resilient billing check with retries to prevent deploy drift
+    let lastError: Error | string | null = null;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const next = await getBillingStatus();
+        setStatus(next);
+        setError(null);
+        return;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : 'Billing is unavailable';
+        if (attempt < 3) {
+          // Exponential backoff: 1s, 2s, then give up
+          await new Promise(resolve => setTimeout(resolve, attempt * 1000));
+        }
+      }
     }
+
+    // Only set error after all retries failed
+    setError(lastError);
+    setLoading(false);
   }, [enabled]);
 
   useEffect(() => {
