@@ -172,15 +172,52 @@ pub async fn auth_start(
         }
     }
 
-    // Fallback: static URLs when Docker is not available
+    // Fallback: BYOS subscription auth flows when Docker is not available
+    if cred_type == "subscription" {
+        // Generate unique auth session for BYOS flows
+        let session_code = format!("cortex-{}", Uuid::new_v4().to_string()[..8].to_uppercase());
+
+        // Store pending auth session in memory (TODO: persist in database)
+        let pending_session = crate::state::PendingAuthSession {
+            user_id: user.user_id.clone(),
+            provider: provider_normalized.to_string(),
+            session_code: session_code.clone(),
+            created_at: chrono::Utc::now().timestamp(),
+        };
+
+        // For now, store in app state (in production this should be database-backed)
+        if let Some(sessions) = &state.pending_auth_sessions {
+            sessions.write().await.insert(session_code.clone(), pending_session);
+        }
+
+        let (auth_url, message) = match provider_normalized {
+            "claude" => (
+                "https://claude.ai/login",
+                &format!("1. Click the link to open Claude\n2. Sign into your Claude subscription\n3. Copy this code: {}\n4. Paste the code in Claude's console, then paste your auth token below.", session_code),
+            ),
+            _ => (
+                "https://chatgpt.com",
+                &format!("1. Copy this code: {}\n2. Click the link to open ChatGPT\n3. Sign into your ChatGPT subscription\n4. Look for 'Connect External App' and paste the code\n5. Copy the resulting auth token and paste it below.", session_code),
+            ),
+        };
+
+        return Ok(Json(AuthStartResponse {
+            provider: provider_normalized.into(),
+            auth_url: Some(auth_url.into()),
+            device_code: Some(session_code),
+            message: message.to_string(),
+        }));
+    }
+
+    // Fallback for API keys
     let (auth_url, message) = match provider_normalized {
         "claude" => (
             "https://console.anthropic.com/settings/keys",
-            "Open the link and copy your session token or API key. Paste it in the next step.",
+            "Create an API key at Anthropic Console and paste it below.",
         ),
         _ => (
-            "https://platform.openai.com/account/api-keys",
-            "Open the link to authorize. Copy the code shown and paste it in the next step.",
+            "https://platform.openai.com/api-keys",
+            "Create an API key at OpenAI and paste it below.",
         ),
     };
     Ok(Json(AuthStartResponse {
