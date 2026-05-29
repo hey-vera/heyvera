@@ -674,7 +674,7 @@ function CredentialsTab({ isAdmin }: { isAdmin?: boolean }) {
                 <button
                   onClick={handleSubmitCode}
                   disabled={submitting || !codeInput.trim()}
-                  className="rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-500 transition disabled:opacity-50"
+                  className="btn-primary rounded-lg px-4 py-2 text-sm disabled:opacity-50"
                 >
                   {submitting ? 'Connecting...' : addType === 'api_key' ? 'Save API Key' : 'Connect Subscription'}
                 </button>

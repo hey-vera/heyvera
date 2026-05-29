@@ -1,0 +1,14 @@
+// Build configuration for the Cortex iOS app.
+//
+// Set your Clerk publishable key here (the same value the web app uses as
+// VITE_CLERK_PUBLISHABLE_KEY). It is surfaced to the app through Info.plist's
+// CLERK_PUBLISHABLE_KEY entry, which expands $(CLERK_PUBLISHABLE_KEY).
+//
+// Do NOT commit a production key if this file is tracked — prefer an untracked
+// Cortex.local.xcconfig that #includes this one, or inject via CI.
+
+CLERK_PUBLISHABLE_KEY = pk_test_REPLACE_ME
+
+// Optional: point the app at a local backend during development by setting the
+// CORTEX_API_BASE environment variable in the Xcode scheme (Run > Arguments).
+// Defaults to https://cortex.heyvera.org when unset.

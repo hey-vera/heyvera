@@ -360,7 +360,256 @@ fn is_production_env() -> bool {
         .any(|value| value.eq_ignore_ascii_case("production"))
 }
 
-/// Build the full axum Router with all routes, given an initialized AppState.
+/// Build router with only Cortex routes (cortex.heyvera.org).
+pub fn build_cortex_router(state: Arc<AppState>) -> Router {
+    let cortex_static_dir = std::env::var("CORTEX_STATIC_DIR")
+        .unwrap_or_else(|_| "cortex/dist".to_string());
+
+    async fn spa_fallback_cortex(_req: axum::http::Request<axum::body::Body>) -> Result<axum::response::Response, std::convert::Infallible> {
+        let static_dir = std::env::var("CORTEX_STATIC_DIR")
+            .unwrap_or_else(|_| "cortex/dist".to_string());
+        let index_path = format!("{}/index.html", static_dir);
+        let response = match std::fs::read_to_string(&index_path) {
+            Ok(content) => axum::response::Html(content).into_response(),
+            Err(_) => (
+                axum::http::StatusCode::NOT_FOUND,
+                axum::response::Html("<!DOCTYPE html><html><body><h1>Cortex Frontend Not Available</h1></body></html>")
+            ).into_response(),
+        };
+        Ok(response)
+    }
+
+    let static_service = ServeDir::new(&cortex_static_dir)
+        .not_found_service(tower::service_fn(spa_fallback_cortex));
+
+    let rate_limited = Router::new()
+        .route("/api/route", post(routes::route_task))
+        .route("/api/execute", post(sse::execute_task))
+        .route("/api/chat", post(chat::chat))
+        .route("/api/runs", get(routes::list_runs).post(routes::create_run))
+        .route("/api/runs/estimate", post(routes::estimate_run))
+        .route("/api/runs/{id}", get(routes::get_run))
+        .route("/api/runs/{id}/events", get(routes::get_run_events))
+        .route("/api/runs/{run_id}/steps/{step_id}/verifier-report/{report_id}", get(routes::get_verifier_report))
+        .route("/api/runs/{id}/pr", post(routes::create_pr))
+        .route("/api/runs/{id}/stream", get(run_stream::stream_run))
+        .route("/api/chat/suggestions", get(chat::chat_suggestions))
+        .route("/api/chat/options", post(chat::chat_options))
+        .route("/api/conversations", post(conversations::create_conversation))
+        .route("/api/conversations/{id}/messages", post(conversations::add_message))
+        .route("/api/context/runs/{run_id}/artifacts", get(context_api::list_artifacts_for_run))
+        .route("/api/context/runs/{run_id}/context", get(context_api::preview_context_for_run))
+        .route("/api/context/stats", get(context_api::get_context_stats))
+        .route("/api/context/health", get(context_api::get_context_health))
+        .route("/api/context/test", post(context_api::test_context_assembly))
+        .route("/api/keys", get(api_keys::list_api_keys))
+        .route("/api/keys/{provider}", put(api_keys::save_api_key).delete(api_keys::delete_api_key))
+        .route("/api/github/repos", get(github_repos::list_repos))
+        .route("/api/github/imports", get(github_repos::list_imports))
+        .route("/api/github/import", post(github_repos::import_repo))
+        .route("/api/github/status/{import_id}", get(github_repos::import_status))
+        .route("/api/github/sync/{import_id}", post(github_repos::sync_repo))
+        .route("/api/projects", get(replit::list_projects).post(replit::create_project))
+        .route("/api/projects/import", post(replit::import_project))
+        .route("/api/projects/{id}", get(replit::get_project).delete(replit::delete_project))
+        .route("/api/projects/{id}/chat", post(replit::proxy_chat_to_workspace))
+        .layer(middleware::from_fn_with_state(state.clone(), ratelimit::rate_limit_middleware));
+
+    let admin_routes = Router::new()
+        .route("/api/admin/workers", get(admin::get_workers))
+        .route("/api/admin/stats", get(admin::system_stats))
+        .route("/api/admin/decisions", get(admin::list_decisions))
+        .route("/api/admin/runs", get(admin::list_all_runs))
+        .route("/api/admin/runs/{id}", get(admin::get_run_detail))
+        .route("/api/admin/pressure", get(admin::pressure_dashboard))
+        .route("/api/admin/usage", get(usage_api::admin_usage))
+        .route("/api/admin/usage/users", get(usage_api::admin_usage_users))
+        .route("/api/admin/codes", get(admin::list_promo_codes).post(admin::create_promo_code))
+        .route("/api/admin/codes/{id}", patch(admin::update_promo_code).delete(admin::delete_promo_code))
+        .route("/api/admin/redemptions", get(admin::list_redemptions))
+        .route("/api/admin/accounts/{clerk_user_id}/suspend", post(admin::suspend_account))
+        .route("/api/admin/accounts/{clerk_user_id}/unsuspend", post(admin::unsuspend_account))
+        .route("/api/admin/audit-log", get(admin::get_audit_log))
+        .route("/api/admin/reconcile-counters", post(admin::reconcile_counters))
+        .route("/api/admin/containers", get(admin::list_containers))
+        .route("/api/admin/containers/stats", get(admin::container_stats))
+        .layer(middleware::from_fn_with_state(state.clone(), admin::require_admin_middleware));
+
+    Router::new()
+        .route("/v1/health", get(v1_health))
+        .route("/v1/ready", get(v1_ready))
+        .route("/metrics", get(metrics_handler))
+        .route("/api/health", get(routes::health))
+        .route("/api/deploy-info", get(routes::deploy_info))
+        .route("/api/deploy-metadata", get(deploy_metadata))
+        .route("/api/deploy-status", get(deploy_status::deploy_status))
+        .route("/api/deployment/status", get(deploy_status::deploy_status))
+        .route("/api/deployment/events", get(deploy_status::deployment_events))
+        .route("/api/deployment/adapters", get(routes::get_deployment_adapters))
+        .route("/api/providers", get(routes::get_providers))
+        .route("/api/ledger", get(routes::get_ledger))
+        .route("/api/auth/status", get(auth::auth_status))
+        .route("/api/auth/start", post(auth::auth_start))
+        .route("/api/auth/submit", post(auth::auth_submit))
+        .route("/api/auth/refresh", post(auth::auth_refresh))
+        .route("/api/auth/credential/delete", post(auth::credential_delete))
+        .route("/api/auth/credential/default", post(auth::credential_set_default))
+        .route("/api/credentials/assign", post(credentials::assign_credential))
+        .route("/api/credentials/assignments", get(credentials::list_assignments))
+        .route("/api/credentials/assignments/{id}", delete(credentials::remove_assignment))
+        .route("/api/conversations", get(conversations::list_conversations))
+        .route("/api/conversations/{id}", get(conversations::get_conversation))
+        .route("/api/conversations/{id}", patch(conversations::update_conversation))
+        .route("/api/conversations/{id}", delete(conversations::delete_conversation))
+        .route("/api/user/profile", get(user::get_profile))
+        .route("/api/user/routing", get(user::get_routing_profile))
+        .route("/api/user/routing", post(user::update_profile))
+        .route("/api/user/github/status", get(user::github_status))
+        .route("/api/user/repos/select", post(user::select_repos))
+        .route("/api/integrations/status", get(integrations::integration_status))
+        .route("/api/integrations/slack/oauth/start", post(integrations::slack_oauth_start))
+        .route("/api/integrations/slack/oauth/callback", get(integrations::slack_oauth_callback))
+        .route("/api/integrations/slack/channels", get(integrations::slack_channels))
+        .route("/api/integrations/slack/import-channels", post(integrations::import_slack_channels))
+        .route("/api/integrations/slack/events", post(integrations::slack_events))
+        .route("/api/integrations/slack/command", post(integrations::slack_command))
+        .route("/api/integrations/replit/workspaces", get(integrations::replit_workspaces))
+        .route("/api/integrations/replit/import", post(integrations::import_replit_workspace))
+        .route("/api/groups/{group_id}/tasks", get(integrations::get_group_tasks))
+        .route("/api/groups/{group_id}/tasks", post(integrations::create_group_task))
+        .route("/api/groups/{group_id}/tasks", put(integrations::update_group_tasks))
+        .route("/api/groups/{group_id}/tasks/actions", post(integrations::apply_group_task_actions))
+        .route("/api/groups/{group_id}/tasks/{task_id}", patch(integrations::patch_group_task))
+        .route("/api/groups/{group_id}/tasks/{task_id}/chats", post(integrations::attach_group_task_chat))
+        .route("/api/groups/{group_id}/tasks/{task_id}/projection", get(integrations::get_group_task_projection))
+        .route("/api/operations/summary", get(integrations::get_personal_operations_summary))
+        .route("/api/authority/scopes", get(integrations::list_authority_scopes))
+        .route("/api/authority/scopes", post(integrations::create_authority_scope))
+        .route("/api/authority/scopes/{scope_id}", patch(integrations::update_authority_scope))
+        .route("/api/authority/delegations", get(integrations::list_authority_delegations))
+        .route("/api/authority/delegations", post(integrations::delegate_authority))
+        .route("/api/authority/delegations/{delegation_id}", delete(integrations::revoke_authority_delegation))
+        .route("/api/groups/{group_id}/operations/summary", get(integrations::get_group_operations_summary))
+        .route("/api/groups/{group_id}/operations/graph", get(integrations::get_group_operations_graph))
+        .route("/api/groups/{group_id}/approvals", get(integrations::list_group_approval_requests))
+        .route("/api/groups/{group_id}/approvals", post(integrations::create_group_approval_request))
+        .route("/api/groups/{group_id}/approvals/{request_id}", patch(integrations::resolve_group_approval_request))
+        .route("/api/billing/status", get(billing::get_billing_status))
+        .route("/api/billing/checkout", post(billing::create_checkout))
+        .route("/api/billing/portal", post(billing::create_portal))
+        .route("/api/billing/referral/validate", post(billing::validate_referral))
+        .route("/api/billing/history", get(billing::get_billing_history))
+        .route("/api/stripe/webhook", post(billing::stripe_webhook))
+        .route("/api/clerk/webhooks", post(clerk_webhooks::clerk_webhook))
+        .route("/api/usage", get(usage_api::get_usage))
+        .route("/api/usage/daily", get(usage_api::get_daily_usage))
+        .route("/api/ws", get(ws::ws_handler))
+        .route("/api/mc", get(mission_control::mc_handler))
+        .route("/api/mc/snapshot", get(mission_control::mc_snapshot))
+        .merge(admin_routes)
+        .merge(rate_limited)
+        .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+        .layer(middleware::from_fn_with_state(state.clone(), soma::soma_headers_middleware))
+        .layer(cors_layer())
+        .layer(middleware::from_fn(request_id_middleware))
+        .with_state(state)
+        .fallback_service(static_service)
+}
+
+/// Build router with only HeyVera Social routes (heyvera.org).
+pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
+    let heyvera_static_dir = std::env::var("HEYVERA_STATIC_DIR")
+        .unwrap_or_else(|_| "heyvera/dist".to_string());
+
+    async fn spa_fallback_heyvera(_req: axum::http::Request<axum::body::Body>) -> Result<axum::response::Response, std::convert::Infallible> {
+        let static_dir = std::env::var("HEYVERA_STATIC_DIR")
+            .unwrap_or_else(|_| "heyvera/dist".to_string());
+        let index_path = format!("{}/index.html", static_dir);
+        let response = match std::fs::read_to_string(&index_path) {
+            Ok(content) => axum::response::Html(content).into_response(),
+            Err(_) => (
+                axum::http::StatusCode::NOT_FOUND,
+                axum::response::Html("<!DOCTYPE html><html><body><h1>HeyVera Frontend Not Available</h1></body></html>")
+            ).into_response(),
+        };
+        Ok(response)
+    }
+
+    let static_service = ServeDir::new(&heyvera_static_dir)
+        .not_found_service(tower::service_fn(spa_fallback_heyvera));
+
+    let admin_routes = Router::new()
+        .route("/api/admin/stats", get(admin::system_stats))
+        .route("/api/admin/codes", get(admin::list_promo_codes).post(admin::create_promo_code))
+        .route("/api/admin/codes/{id}", patch(admin::update_promo_code).delete(admin::delete_promo_code))
+        .route("/api/admin/redemptions", get(admin::list_redemptions))
+        .route("/api/admin/accounts/{clerk_user_id}/suspend", post(admin::suspend_account))
+        .route("/api/admin/accounts/{clerk_user_id}/unsuspend", post(admin::unsuspend_account))
+        .route("/api/admin/cleanup-orphaned-media", post(admin::cleanup_orphaned_media))
+        .route("/api/admin/reports", get(moderation::list_reports))
+        .route("/api/admin/audit-log", get(admin::get_audit_log))
+        .layer(middleware::from_fn_with_state(state.clone(), admin::require_admin_middleware));
+
+    Router::new()
+        .route("/v1/health", get(v1_health))
+        .route("/v1/ready", get(v1_ready))
+        .route("/metrics", get(metrics_handler))
+        .route("/api/health", get(routes::health))
+        // Social endpoints
+        .route("/v1/social/trending", get(social::get_trending))
+        .route("/v1/social/search", get(social::search))
+        .route("/v1/social/profiles/featured", get(social::get_featured_profiles))
+        .route("/v1/social/feed/home", get(social::get_home_feed))
+        .route("/v1/social/profiles", get(social::get_profiles).post(social::create_profile))
+        .route("/v1/social/profiles/{handle}/stats", get(social::get_user_profile_stats))
+        .route("/v1/social/communities", get(social::get_communities))
+        .route("/v1/social/profile/me", get(social::get_my_profile))
+        .route("/v1/social/posts", post(social::create_post))
+        .route("/v1/social/media/upload-url", post(media::request_upload_url))
+        .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
+        .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
+        .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
+        .route("/v1/social/posts/{id}/bookmark", post(social::bookmark_post).delete(social::unbookmark_post))
+        .route("/v1/social/follows/{handle}", post(social::follow_by_handle).delete(social::unfollow_by_handle))
+        .route("/v1/social/users/{handle}", get(social::get_user_profile))
+        .route("/v1/social/users/{handle}/posts", get(social::get_user_posts))
+        .route("/v1/social/posts/{id}", get(social::get_single_post).delete(social::delete_post))
+        .route("/v1/social/feed/following", get(social::get_following_feed))
+        .route("/v1/social/me/profile", get(social::get_me_profile).post(social::create_me_profile).patch(social::update_me_profile))
+        .route("/v1/social/notifications", get(notifications::get_notifications))
+        .route("/v1/social/notifications/read", post(notifications::mark_notifications_read))
+        .route("/v1/social/communities/{id}/feed", get(social::get_community_feed))
+        .route("/v1/social/communities/{id}/join", post(social::join_community))
+        .route("/v1/social/communities/{id}/leave", delete(social::leave_community))
+        .route("/v1/social/communities/{id}/members", get(social::list_community_members))
+        .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
+        .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))
+        .route("/v1/social/users/{id}/block", post(moderation::block_user).delete(moderation::unblock_user))
+        .route("/v1/social/users/{id}/mute", post(moderation::mute_user).delete(moderation::unmute_user))
+        .route("/v1/social/report", post(moderation::create_report))
+        .route("/v1/pulse/drafts", get(pulse::list_drafts).post(pulse::create_draft))
+        .route("/v1/pulse/drafts/{id}", get(pulse::get_draft))
+        .route("/v1/pulse/drafts/{id}/approve", post(pulse::approve_draft))
+        .route("/v1/pulse/drafts/{id}/reject", post(pulse::reject_draft))
+        .route("/v1/pulse/drafts/{id}/publish", post(pulse::publish_draft))
+        .route("/v1/pulse/drafts/{id}/audit", get(pulse::get_draft_audit))
+        // Shared auth/billing
+        .route("/api/auth/status", get(auth::auth_status))
+        .route("/api/billing/status", get(billing::get_billing_status))
+        .route("/api/billing/checkout", post(billing::create_checkout))
+        .route("/api/billing/portal", post(billing::create_portal))
+        .route("/api/stripe/webhook", post(billing::stripe_webhook))
+        .route("/api/clerk/webhooks", post(clerk_webhooks::clerk_webhook))
+        .merge(admin_routes)
+        .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+        .layer(cors_layer())
+        .layer(middleware::from_fn(request_id_middleware))
+        .with_state(state)
+        .fallback_service(static_service)
+}
+
+/// Build the full axum Router with all routes (legacy — both products combined).
+/// Use build_cortex_router() or build_heyvera_router() for separate deployments.
 pub fn build_router(state: Arc<AppState>) -> Router {
     // Static file serving for Cortex frontend
     let cortex_static_dir = std::env::var("CORTEX_STATIC_DIR")

@@ -8,6 +8,9 @@ members = [
     "crates/soma-crypto",
     "crates/soma-core",
     "crates/tui",
+    "crates/shared",
+    "crates/cortex-server",
+    "crates/heyvera-server",
 ]
 resolver = "2"
 

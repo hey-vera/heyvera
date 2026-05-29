@@ -1,64 +1,56 @@
-# ClawNet
+# HeyVera Monorepo
 
-ClawNet is the sovereign orchestration platform in this system.
+Two products, one Rust backend.
 
-It turns natural-language requests into paid, verified execution flows. In practice, ClawNet is the product/runtime layer that sits between the Soma protocol and downstream products like Pulse.
+## Structure
 
-## Repo Role
+```
+cortex/            cortex.heyvera.org (AI coding platform)
+  plan/VISION.md   product vision (single source of truth)
+  src/             React frontend
 
-- Owns the ClawNet API, billing, orchestration runtime, dashboard, site, deploy workflow, and operational truth.
-- Integrates Soma in production, but does not own the canonical Soma protocol or spec docs.
-- Acts as the system center of gravity for the private `claw-net` product stack.
+heyvera/           heyvera.org (social platform)
+  src/             React frontend
 
-## System Position
+crates/            Rust backend (shared, serves both products)
+  api/             HTTP API server (port 3001)
+  core/            domain types and orchestration primitives
+  engine/          routing and scoring engine
+  worker/          CLI session spawner
+  tui/             terminal client
 
-- `Soma` defines identity, verification, delegation, and related protocol primitives.
-- `claw-net` applies those primitives in a production orchestration platform.
-- `pulse` consumes ClawNet as a product built on top of it.
-
-The canonical cross-repo boundary map for this stack lives in [docs/reference/repo-system.md](docs/reference/repo-system.md).
+deploy/            deployment scripts and service files
+scripts/           build, setup, deploy scripts
+docs/              architecture specs and proposals
+archive/           old code and docs (reference only, do not build from)
+```
 
 ## Quick Start
 
 ```bash
-npm install
-npm run dev
+# Backend
+cargo build --release
+CORTEX_ADMIN_EMAILS="you@email.com" ./target/release/cortex-server
+
+# Cortex frontend
+cd cortex && npm install && npm run dev
+
+# HeyVera frontend
+cd heyvera && npm install && npm run dev
 ```
 
-Useful commands:
+## Deploy
 
-- `npm run dev`
-- `npm run build`
-- `npm start`
-- `npm run test:unit`
-- `npm run mcp`
+```bash
+# VPS backend
+scripts/deploy-cortex.sh
 
-## Docs
+# Frontends auto-deploy via Cloudflare Pages on push
+```
 
-- Repo overview: [docs/overview.md](docs/overview.md)
-- Architecture: [docs/architecture/context.md](docs/architecture/context.md)
-- Runtime details: [docs/architecture/runtime.md](docs/architecture/runtime.md)
-- Billing reference: [docs/reference/billing.md](docs/reference/billing.md)
-- Repo surfaces: [docs/reference/repo-surfaces.md](docs/reference/repo-surfaces.md)
-- Soma integration: [docs/reference/soma-integration.md](docs/reference/soma-integration.md)
-- Local development: [docs/how-to/local-dev.md](docs/how-to/local-dev.md)
-- Release workflow: [docs/operations/release.md](docs/operations/release.md)
-- Runbook: [docs/operations/runbook.md](docs/operations/runbook.md)
-- Proposals: [docs/proposals/README.md](docs/proposals/README.md)
-- Archive: [docs/archive/README.md](docs/archive/README.md)
+## Key Docs
 
-## Boundaries
-
-What belongs here:
-
-- Orchestration behavior
-- ClawNet API contracts
-- Credits, billing, and product economics
-- Production deployment and recovery docs
-- ClawNet-specific application of Soma
-
-What does not belong here:
-
-- Canonical Soma protocol specs
-- Pulse product docs
-- Generic ecosystem strategy presented as current product truth
+- Product vision: [cortex/plan/VISION.md](cortex/plan/VISION.md)
+- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Operations Room: [docs/reference/cortex-operations-room.md](docs/reference/cortex-operations-room.md)
+- CLI auth setup: [docs/operations/cli-auth-setup.md](docs/operations/cli-auth-setup.md)
