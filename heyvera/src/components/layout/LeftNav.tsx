@@ -1,6 +1,7 @@
 
 import {
   Bell,
+  BookOpen,
   Bookmark,
   CircleEllipsis,
   Home,
@@ -24,6 +25,7 @@ interface LeftNavProps {
 const navItems: ReadonlyArray<{ label: string; icon: LucideIcon; route: string }> = [
   { label: "Home", icon: Home, route: "/home" },
   { label: "Explore", icon: Search, route: "/explore" },
+  { label: "Longform", icon: BookOpen, route: "/longform" },
   { label: "Notifications", icon: Bell, route: "/notifications" },
   { label: "Messages", icon: Mail, route: "/messages" },
   { label: "Bookmarks", icon: Bookmark, route: "/bookmarks" },

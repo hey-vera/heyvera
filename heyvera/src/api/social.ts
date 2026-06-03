@@ -271,11 +271,13 @@ export async function fetchCommunities(limit = 20): Promise<{
   return apiFetch(`/communities?limit=${limit}`);
 }
 
-export async function fetchLongform(limit = 20, cursor = 0): Promise<{
+export async function fetchLongform(limit = 20, cursor: string | number | null = 0): Promise<{
   longform: LongformEntry[];
   pageInfo: PageInfo;
 }> {
-  const raw = await apiFetch<{ longform?: LongformEntry[]; posts?: LongformEntry[]; cursor: string | null }>(`/longform?limit=${limit}&cursor=${cursor}`);
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", String(cursor));
+  const raw = await apiFetch<{ longform?: LongformEntry[]; posts?: LongformEntry[]; cursor: string | null }>(`/longform?${params.toString()}`);
   return { longform: raw.longform ?? raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 

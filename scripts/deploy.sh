@@ -186,6 +186,25 @@ else
   echo "[dashboard] No dashboard/package.json found - skipping dashboard build"
 fi
 
+HEYVERA_WWW="${HEYVERA_WWW:-/home/${DEPLOY_USER}/www/heyvera}"
+echo "[heyvera] Building and deploying HeyVera SPA..."
+if [ -f "$REPO_DIR/heyvera/package.json" ]; then
+  cd "$REPO_DIR/heyvera"
+  npm ci
+  npm run build
+  cd "$REPO_DIR"
+  mkdir -p "$HEYVERA_WWW"
+  if command -v rsync >/dev/null 2>&1; then
+    rsync -a --delete "$REPO_DIR/heyvera/dist/" "$HEYVERA_WWW/"
+  else
+    echo "[heyvera] WARNING: rsync not found, falling back to cp -r without stale-file cleanup"
+    cp -r "$REPO_DIR/heyvera/dist/." "$HEYVERA_WWW/"
+  fi
+  echo "[heyvera] Synced heyvera/dist/ to $HEYVERA_WWW"
+else
+  echo "[heyvera] No heyvera/package.json found - skipping HeyVera build"
+fi
+
 CORTEX_WWW="${CORTEX_WWW:-/var/www/cortex}"
 echo "[cortex] Building Cortex backend and frontend..."
 if [ -f "$REPO_DIR/Cargo.toml" ] && [ -f "$REPO_DIR/cortex/package.json" ]; then

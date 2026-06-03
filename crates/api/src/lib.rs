@@ -563,6 +563,7 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/profiles", get(social::get_profiles).post(social::create_profile))
         .route("/v1/social/profiles/{handle}/stats", get(social::get_user_profile_stats))
         .route("/v1/social/communities", get(social::get_communities))
+        .route("/v1/social/longform", get(social::get_longform).post(social::create_longform))
         .route("/v1/social/profile/me", get(social::get_my_profile))
         .route("/v1/social/posts", post(social::create_post))
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
@@ -744,6 +745,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/profiles", get(social::get_profiles).post(social::create_profile))
         .route("/v1/social/profiles/{handle}/stats", get(social::get_user_profile_stats))
         .route("/v1/social/communities", get(social::get_communities))
+        .route("/v1/social/longform", get(social::get_longform).post(social::create_longform))
         .route("/v1/social/profile/me", get(social::get_my_profile))
         .route("/v1/social/posts", post(social::create_post))
         // Task #47: Media uploads

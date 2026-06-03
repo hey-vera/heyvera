@@ -102,6 +102,58 @@ jobs:
             web/playwright-report
           if-no-files-found: ignore
 
+  heyvera:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: heyvera
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect HeyVera changes
+        id: heyvera_changes
+        working-directory: .
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --prune origin "${{ github.base_ref }}"
+            changed_files="$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)"
+          else
+            changed_files="$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" || true)"
+          fi
+
+          printf '%s\n' "$changed_files"
+
+          if printf '%s\n' "$changed_files" | grep -q '^heyvera/'; then
+            echo "run_heyvera=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_heyvera=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip HeyVera checks
+        if: steps.heyvera_changes.outputs.run_heyvera != 'true'
+        run: echo "No heyvera/ changes detected; skipping HeyVera build."
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        if: steps.heyvera_changes.outputs.run_heyvera == 'true'
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: heyvera/package-lock.json
+
+      - name: Install HeyVera dependencies
+        if: steps.heyvera_changes.outputs.run_heyvera == 'true'
+        run: npm ci
+
+      - name: Type check HeyVera
+        if: steps.heyvera_changes.outputs.run_heyvera == 'true'
+        run: npm run typecheck
+
+      - name: Build HeyVera
+        if: steps.heyvera_changes.outputs.run_heyvera == 'true'
+        run: npm run build
+
   rust:
     runs-on: ubuntu-latest
     env:

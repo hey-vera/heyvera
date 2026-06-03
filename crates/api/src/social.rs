@@ -67,6 +67,18 @@ fn next_cursor_from_posts(posts: &[serde_json::Value], limit: i64) -> Option<Str
     }
 }
 
+fn next_cursor_from_longform(entries: &[serde_json::Value], limit: i64) -> Option<String> {
+    if entries.len() as i64 == limit {
+        entries.last().and_then(|entry| {
+            let created_at = entry["createdAt"].as_str()?;
+            let id = entry["id"].as_str()?;
+            Some(encode_cursor(created_at, id))
+        })
+    } else {
+        None
+    }
+}
+
 #[derive(Debug, Deserialize)]
 pub struct CreateProfileRequest {
     pub handle: String,
@@ -89,6 +101,20 @@ pub struct CreatePostRequest {
     pub quote_post_id: Option<String>,
     #[serde(rename = "mediaIds", default)]
     pub media_ids: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateLongformRequest {
+    pub title: String,
+    pub summary: Option<String>,
+    pub body: String,
+    #[serde(rename = "formatType")]
+    pub format_type: Option<String>,
+    pub visibility: Option<String>,
+    #[serde(rename = "authorMode")]
+    pub author_mode: Option<String>,
+    #[serde(rename = "linkedAgentId")]
+    pub linked_agent_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -255,6 +281,33 @@ pub async fn get_communities(
     ok(serde_json::json!({ "communities": communities }))
 }
 
+pub async fn get_longform(
+    Query(params): Query<FeedQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let limit = params.limit.unwrap_or(20).clamp(1, 100);
+    let (cursor_created_at, cursor_id) = params
+        .cursor
+        .as_deref()
+        .and_then(decode_cursor)
+        .map(|(c, i)| (Some(c), Some(i)))
+        .unwrap_or((None, None));
+
+    let longform = db(&state).social_list_longform_keyset(
+        limit,
+        cursor_created_at.as_deref(),
+        cursor_id.as_deref(),
+    );
+    let next_cursor = next_cursor_from_longform(&longform, limit);
+    let has_more = longform.len() as i64 == limit;
+
+    ok(serde_json::json!({
+        "longform": longform,
+        "cursor": next_cursor,
+        "has_more": has_more,
+    }))
+}
+
 // ─── Authenticated endpoints ─────────────────────────────────────────────────
 
 pub async fn get_my_profile(
@@ -354,6 +407,54 @@ pub async fn create_post(
         result["media"] = serde_json::json!(media_list);
     }
     ok(result)
+}
+
+pub async fn create_longform(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateLongformRequest>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(profile_id) => profile_id,
+        Err(response) => return response,
+    };
+
+    let title = req.title.trim();
+    let summary = req.summary.unwrap_or_default();
+    let summary = summary.trim();
+    let body = req.body.trim();
+    let format_type = req.format_type.as_deref().unwrap_or("essay");
+    let visibility = req.visibility.as_deref().unwrap_or("public");
+    let author_mode = req.author_mode.as_deref().unwrap_or("person");
+
+    if title.is_empty() {
+        return bad_request("Title is required");
+    }
+    if title.len() > 200 {
+        return bad_request("Title exceeds 200 characters");
+    }
+    if summary.len() > 500 {
+        return bad_request("Summary exceeds 500 characters");
+    }
+    if body.is_empty() {
+        return bad_request("Body is required");
+    }
+    if body.len() > 50_000 {
+        return bad_request("Body exceeds 50000 characters");
+    }
+
+    let longform = db(&state).social_create_longform(
+        &profile_id,
+        title,
+        summary,
+        body,
+        format_type,
+        visibility,
+        author_mode,
+        req.linked_agent_id.as_deref(),
+    );
+
+    ok(serde_json::json!({ "ok": true, "longform": longform }))
 }
 
 // ─── Task #30: Social action endpoints ──────────────────────────────────────

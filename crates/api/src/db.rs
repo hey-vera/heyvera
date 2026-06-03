@@ -10163,6 +10163,138 @@ impl Database {
         }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
+    pub fn social_list_longform_keyset(
+        &self,
+        limit: i64,
+        cursor_created_at: Option<&str>,
+        cursor_id: Option<&str>,
+    ) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
+            let agent_name: Option<String> = row.get(14)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "title": row.get::<_, String>(3)?,
+                "summary": row.get::<_, String>(4)?,
+                "body": row.get::<_, String>(5)?,
+                "formatType": row.get::<_, String>(6)?,
+                "visibility": row.get::<_, String>(7)?,
+                "proofState": row.get::<_, String>(8)?,
+                "authorMode": row.get::<_, String>(9)?,
+                "createdAt": row.get::<_, String>(10)?,
+                "updatedAt": row.get::<_, String>(11)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(12)?,
+                    "displayName": row.get::<_, String>(13)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(15)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        };
+
+        if cursor_created_at.is_some() && cursor_id.is_some() {
+            let mut stmt = conn.prepare(
+                "SELECT lf.id, lf.profile_id, lf.linked_agent_id, lf.title, lf.summary, lf.body,
+                        lf.format_type, lf.visibility, lf.proof_state, lf.author_mode,
+                        lf.created_at, lf.updated_at, p.handle, p.display_name,
+                        la.agent_name, la.agent_slug
+                 FROM social_longform lf
+                 JOIN social_profiles p ON p.id = lf.profile_id
+                 LEFT JOIN social_linked_agents la ON la.id = lf.linked_agent_id
+                 WHERE lf.visibility = 'public'
+                   AND (lf.created_at < ?1 OR (lf.created_at = ?1 AND lf.id < ?2))
+                 ORDER BY lf.created_at DESC, lf.id DESC LIMIT ?3"
+            ).unwrap();
+            stmt.query_map(params![cursor_created_at.unwrap(), cursor_id.unwrap(), limit], map_row)
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect()
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT lf.id, lf.profile_id, lf.linked_agent_id, lf.title, lf.summary, lf.body,
+                        lf.format_type, lf.visibility, lf.proof_state, lf.author_mode,
+                        lf.created_at, lf.updated_at, p.handle, p.display_name,
+                        la.agent_name, la.agent_slug
+                 FROM social_longform lf
+                 JOIN social_profiles p ON p.id = lf.profile_id
+                 LEFT JOIN social_linked_agents la ON la.id = lf.linked_agent_id
+                 WHERE lf.visibility = 'public'
+                 ORDER BY lf.created_at DESC, lf.id DESC LIMIT ?1"
+            ).unwrap();
+            stmt.query_map([limit], map_row)
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect()
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn social_create_longform(
+        &self,
+        profile_id: &str,
+        title: &str,
+        summary: &str,
+        body: &str,
+        format_type: &str,
+        visibility: &str,
+        author_mode: &str,
+        linked_agent_id: Option<&str>,
+    ) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO social_longform
+                (id, profile_id, linked_agent_id, title, summary, body, format_type, visibility, author_mode)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![id, profile_id, linked_agent_id, title, summary, body, format_type, visibility, author_mode],
+        ).expect("insert longform");
+
+        let mut stmt = conn.prepare(
+            "SELECT lf.id, lf.profile_id, lf.linked_agent_id, lf.title, lf.summary, lf.body,
+                    lf.format_type, lf.visibility, lf.proof_state, lf.author_mode,
+                    lf.created_at, lf.updated_at, p.handle, p.display_name,
+                    la.agent_name, la.agent_slug
+             FROM social_longform lf
+             JOIN social_profiles p ON p.id = lf.profile_id
+             LEFT JOIN social_linked_agents la ON la.id = lf.linked_agent_id
+             WHERE lf.id = ?1"
+        ).unwrap();
+
+        stmt.query_row([id], |row| {
+            let agent_name: Option<String> = row.get(14)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "title": row.get::<_, String>(3)?,
+                "summary": row.get::<_, String>(4)?,
+                "body": row.get::<_, String>(5)?,
+                "formatType": row.get::<_, String>(6)?,
+                "visibility": row.get::<_, String>(7)?,
+                "proofState": row.get::<_, String>(8)?,
+                "authorMode": row.get::<_, String>(9)?,
+                "createdAt": row.get::<_, String>(10)?,
+                "updatedAt": row.get::<_, String>(11)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(12)?,
+                    "displayName": row.get::<_, String>(13)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(15)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        }).unwrap()
+    }
+
     pub fn social_get_profile_stats(&self, profile_id: &str) -> serde_json::Value {
         let conn = self.conn.lock().unwrap();
         let count = |sql: &str| -> i64 {
