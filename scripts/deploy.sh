@@ -149,10 +149,16 @@ cat > "$DEPLOY_META_FILE" <<EOF
 EOF
 echo "[meta] Wrote deploy metadata to ${DEPLOY_META_FILE}"
 
-echo "[clawnet] Building Node/Hono API..."
-npm ci
-rm -rf dist
-npm run build
+CLAWNET_NODE_PRESENT=0
+if [ -f "$REPO_DIR/package.json" ] && [ -f "$REPO_DIR/package-lock.json" ]; then
+  CLAWNET_NODE_PRESENT=1
+  echo "[clawnet] Building Node/Hono API..."
+  npm ci
+  rm -rf dist
+  npm run build
+else
+  echo "[clawnet] No root package.json/package-lock.json detected; skipping legacy Node/Hono build"
+fi
 
 echo "[site] Syncing site/ to $WWW_DIR"
 if [ -d "$REPO_DIR/site" ]; then
@@ -286,31 +292,35 @@ else
   echo "[caddy] No Caddyfile found - skipping"
 fi
 
-echo "[clawnet] Checking Node/Hono API service..."
-if [ -f "/etc/systemd/system/${CLAWNET_SERVICE}.service" ] && [ "$SUDO_AVAILABLE" = "1" ]; then
-  sudo systemctl restart "$CLAWNET_SERVICE"
-  echo "[clawnet] Restarted $CLAWNET_SERVICE"
-elif [ "${CLAWNET_INSTALL_SERVICE:-0}" = "1" ] && [ "$SUDO_AVAILABLE" = "1" ]; then
-  if [ -f "/etc/systemd/system/${CLAWNET_SERVICE}.service" ]; then
+if [ "$CLAWNET_NODE_PRESENT" = "1" ]; then
+  echo "[clawnet] Checking Node/Hono API service..."
+  if [ -f "/etc/systemd/system/${CLAWNET_SERVICE}.service" ] && [ "$SUDO_AVAILABLE" = "1" ]; then
     sudo systemctl restart "$CLAWNET_SERVICE"
+    echo "[clawnet] Restarted $CLAWNET_SERVICE"
+  elif [ "${CLAWNET_INSTALL_SERVICE:-0}" = "1" ] && [ "$SUDO_AVAILABLE" = "1" ]; then
+    if [ -f "/etc/systemd/system/${CLAWNET_SERVICE}.service" ]; then
+      sudo systemctl restart "$CLAWNET_SERVICE"
+    else
+      sudo env \
+        CLAWNET_USER="$DEPLOY_USER" \
+        DEPLOY_USER="$DEPLOY_USER" \
+        CLAWNET_SERVICE="$CLAWNET_SERVICE" \
+        CLAWNET_PORT="$PORT" \
+        CLAWNET_ENV="$CLAWNET_ENV_FILE" \
+        bash "$REPO_DIR/scripts/clawnet-install-service.sh"
+    fi
+    echo "[clawnet] Restarted $CLAWNET_SERVICE"
+  elif curl -sf "http://localhost:${PORT}/v1/health" >/dev/null 2>&1; then
+    echo "[clawnet] Existing service is healthy on port ${PORT}; installer skipped"
+  elif [ "${CLAWNET_SERVICE_REQUIRED:-1}" = "1" ]; then
+    echo "[clawnet] ERROR: ClawNet service is not healthy and installer is disabled or sudo is unavailable"
+    echo "          Set CLAWNET_INSTALL_SERVICE=1 after granting the deploy user service-install sudo permissions."
+    exit 1
   else
-    sudo env \
-      CLAWNET_USER="$DEPLOY_USER" \
-      DEPLOY_USER="$DEPLOY_USER" \
-      CLAWNET_SERVICE="$CLAWNET_SERVICE" \
-      CLAWNET_PORT="$PORT" \
-      CLAWNET_ENV="$CLAWNET_ENV_FILE" \
-      bash "$REPO_DIR/scripts/clawnet-install-service.sh"
+    echo "[clawnet] WARNING: skipped ClawNet service install/restart"
   fi
-  echo "[clawnet] Restarted $CLAWNET_SERVICE"
-elif curl -sf "http://localhost:${PORT}/v1/health" >/dev/null 2>&1; then
-  echo "[clawnet] Existing service is healthy on port ${PORT}; installer skipped"
-elif [ "${CLAWNET_SERVICE_REQUIRED:-1}" = "1" ]; then
-  echo "[clawnet] ERROR: ClawNet service is not healthy and installer is disabled or sudo is unavailable"
-  echo "          Set CLAWNET_INSTALL_SERVICE=1 after granting the deploy user service-install sudo permissions."
-  exit 1
 else
-  echo "[clawnet] WARNING: skipped ClawNet service install/restart"
+  echo "[clawnet] Legacy Node/Hono service not required for this repo layout"
 fi
 
 # Docker compose is for legacy Node.js orchestrator. Skip if cortex systemd service is active.
@@ -321,22 +331,26 @@ else
   docker compose up --build -d --remove-orphans
 fi
 
-echo -n "[health] Waiting for ClawNet startup"
-CLAWNET_HEALTHY=false
-for i in $(seq 1 "$MAX_WAIT"); do
-  sleep 1
-  echo -n "."
-  if curl -sf "http://localhost:${PORT}/v1/health" >/dev/null 2>&1; then
-    CLAWNET_HEALTHY=true
-    break
-  fi
-done
-echo ""
+if [ "$CLAWNET_NODE_PRESENT" = "1" ]; then
+  echo -n "[health] Waiting for ClawNet startup"
+  CLAWNET_HEALTHY=false
+  for i in $(seq 1 "$MAX_WAIT"); do
+    sleep 1
+    echo -n "."
+    if curl -sf "http://localhost:${PORT}/v1/health" >/dev/null 2>&1; then
+      CLAWNET_HEALTHY=true
+      break
+    fi
+  done
+  echo ""
 
-if ! $CLAWNET_HEALTHY; then
-  echo "[fail] ClawNet health check failed after ${MAX_WAIT}s. Recent logs:"
-  journalctl -u "$CLAWNET_SERVICE" --no-pager -n 40 2>/dev/null || true
-  exit 1
+  if ! $CLAWNET_HEALTHY; then
+    echo "[fail] ClawNet health check failed after ${MAX_WAIT}s. Recent logs:"
+    journalctl -u "$CLAWNET_SERVICE" --no-pager -n 40 2>/dev/null || true
+    exit 1
+  fi
+else
+  echo "[health] Skipping ClawNet health check; legacy Node/Hono app is absent"
 fi
 
 if systemctl is-active cortex >/dev/null 2>&1; then
@@ -361,7 +375,7 @@ else
   echo "[health] Cortex service is not active; skipping Cortex health check"
 fi
 
-echo "[done] ClawNet deployed — healthy on port ${PORT}"
+echo "[done] ClawNet deployed"
 echo "       Cortex checked on port ${CORTEX_HEALTH_PORT} when active"
 echo "       Commit: ${DEPLOY_COMMIT_SHORT} (${TARGET_BRANCH})"
 echo "       Logs: sudo journalctl -u ${CLAWNET_SERVICE} -f"

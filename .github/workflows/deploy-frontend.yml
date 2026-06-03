@@ -30,6 +30,8 @@ jobs:
           cache-dependency-path: heyvera/package-lock.json
 
       - name: Build frontend
+        env:
+          VITE_API_URL: ${{ vars.VITE_API_URL || vars.PUBLIC_API_URL || 'https://api.heyvera.org' }}
         run: |
           cd heyvera
           npm ci
