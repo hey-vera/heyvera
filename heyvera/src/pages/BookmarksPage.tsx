@@ -171,7 +171,7 @@ export function BookmarksPage() {
       style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
     >
       <div
-        className="sticky top-[var(--top-bar-height)] z-10 border-b px-4 py-3 backdrop-blur-md lg:top-0"
+        className="sticky top-[var(--top-bar-height)] z-10 border-b px-4 py-3 backdrop-blur-md"
         style={{
           backgroundColor: 'color-mix(in srgb, var(--bg-primary) 80%, transparent)',
           borderColor: 'var(--border-primary)',

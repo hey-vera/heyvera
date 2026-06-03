@@ -121,7 +121,7 @@ export function CommunitiesPage() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
       <div
-        className="sticky top-[var(--top-bar-height)] z-10 border-b backdrop-blur-md lg:top-0"
+        className="sticky top-[var(--top-bar-height)] z-10 border-b backdrop-blur-md"
         style={{
           backgroundColor: 'color-mix(in srgb, var(--bg-primary) 80%, transparent)',
           borderColor: 'var(--border-primary)',
