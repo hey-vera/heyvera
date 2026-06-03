@@ -19,28 +19,43 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
+      - name: Detect root Node app
+        id: root_node
+        run: |
+          if [ -f package.json ] && [ -f package-lock.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip root Node checks
+        if: steps.root_node.outputs.present != 'true'
+        run: echo "No root package.json/package-lock.json detected; skipping legacy root Node checks."
+
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        if: steps.root_node.outputs.present == 'true'
         with:
           node-version: '22'
           cache: 'npm'
 
       - name: Install dependencies
+        if: steps.root_node.outputs.present == 'true'
         run: npm ci
 
       - name: Type check
+        if: steps.root_node.outputs.present == 'true'
         run: npm run typecheck
 
       - name: Build
+        if: steps.root_node.outputs.present == 'true'
         run: npm run build
 
       - name: Unit tests
+        if: steps.root_node.outputs.present == 'true'
         run: npm run test:unit
 
   web:
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
@@ -78,18 +93,22 @@ jobs:
 
       - name: Install web dependencies
         if: steps.web_changes.outputs.run_web == 'true'
+        working-directory: web
         run: npm ci
 
       - name: Install Playwright browser
         if: steps.web_changes.outputs.run_web == 'true'
+        working-directory: web
         run: npx playwright install --with-deps chromium
 
       - name: Build web
         if: steps.web_changes.outputs.run_web == 'true'
+        working-directory: web
         run: npm run build
 
       - name: Responsive regression tests
         if: steps.web_changes.outputs.run_web == 'true'
+        working-directory: web
         run: npm run test:responsive
 
       - name: Upload responsive screenshots
@@ -101,6 +120,58 @@ jobs:
             web/test-results
             web/playwright-report
           if-no-files-found: ignore
+
+  heyvera:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: heyvera
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          fetch-depth: 0
+
+      - name: Detect HeyVera changes
+        id: heyvera_changes
+        working-directory: .
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            git fetch --no-tags --prune origin "${{ github.base_ref }}"
+            changed_files="$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)"
+          else
+            changed_files="$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" || true)"
+          fi
+
+          printf '%s\n' "$changed_files"
+
+          if printf '%s\n' "$changed_files" | grep -q '^heyvera/'; then
+            echo "run_heyvera=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run_heyvera=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip HeyVera checks
+        if: steps.heyvera_changes.outputs.run_heyvera != 'true'
+        run: echo "No heyvera/ changes detected; skipping HeyVera build."
+
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        if: steps.heyvera_changes.outputs.run_heyvera == 'true'
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: heyvera/package-lock.json
+
+      - name: Install HeyVera dependencies
+        if: steps.heyvera_changes.outputs.run_heyvera == 'true'
+        run: npm ci
+
+      - name: Type check HeyVera
+        if: steps.heyvera_changes.outputs.run_heyvera == 'true'
+        run: npm run typecheck
+
+      - name: Build HeyVera
+        if: steps.heyvera_changes.outputs.run_heyvera == 'true'
+        run: npm run build
 
   rust:
     runs-on: ubuntu-latest
@@ -133,16 +204,33 @@ jobs:
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
+      - name: Detect root Node app
+        id: root_node
+        run: |
+          if [ -f package.json ] && [ -f package-lock.json ]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip runtime floor
+        if: steps.root_node.outputs.present != 'true'
+        run: echo "No root package.json/package-lock.json detected; skipping legacy runtime-floor check."
+
       - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        if: steps.root_node.outputs.present == 'true'
         with:
           node-version: '22.12.0'
           cache: 'npm'
 
       - name: Install dependencies
+        if: steps.root_node.outputs.present == 'true'
         run: npm ci
 
       - name: Build
+        if: steps.root_node.outputs.present == 'true'
         run: npm run build
 
       - name: Load built artifact under declared runtime floor
+        if: steps.root_node.outputs.present == 'true'
         run: node -e "require('./dist/core/api-key-rotation'); console.log('runtime-floor ok')"
