@@ -186,7 +186,7 @@ export function MessagesPage() {
       >
         <div className="flex w-full flex-col">
           <div
-            className="sticky top-[var(--top-bar-height)] z-10 border-b sticky-header-bg px-4 py-3 backdrop-blur-md lg:top-0"
+            className="sticky top-[var(--top-bar-height)] z-10 border-b sticky-header-bg px-4 py-3 backdrop-blur-md"
             style={{ borderColor: 'var(--border-primary)' }}
           >
             <h1 className="text-[20px] font-bold">Messages</h1>
@@ -211,7 +211,7 @@ export function MessagesPage() {
       >
         {/* Header */}
         <div
-          className="sticky top-[var(--top-bar-height)] z-10 border-b sticky-header-bg px-4 py-3 backdrop-blur-md lg:top-0"
+          className="sticky top-[var(--top-bar-height)] z-10 border-b sticky-header-bg px-4 py-3 backdrop-blur-md"
           style={{ borderColor: 'var(--border-primary)' }}
         >
           <h1 className="text-[20px] font-bold">Messages</h1>
@@ -360,7 +360,7 @@ export function MessagesPage() {
           <>
             {/* Thread header */}
             <div
-              className="sticky top-[var(--top-bar-height)] z-10 flex items-center gap-3 border-b sticky-header-bg px-4 py-3 backdrop-blur-md lg:top-0"
+              className="sticky top-[var(--top-bar-height)] z-10 flex items-center gap-3 border-b sticky-header-bg px-4 py-3 backdrop-blur-md"
               style={{ borderColor: 'var(--border-primary)' }}
             >
               {/* Back button (mobile only) */}

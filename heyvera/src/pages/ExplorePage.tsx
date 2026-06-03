@@ -105,7 +105,7 @@ export function ExplorePage() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-      <div className="sticky top-[var(--top-bar-height)] z-10 px-4 py-3 backdrop-blur-md lg:top-0" style={{ backgroundColor: 'color-mix(in srgb, var(--bg-primary) 80%, transparent)' }}>
+      <div className="sticky top-[var(--top-bar-height)] z-10 px-4 py-3 backdrop-blur-md" style={{ backgroundColor: 'color-mix(in srgb, var(--bg-primary) 80%, transparent)' }}>
         <div className="relative">
           <Search className="absolute left-4 top-1/2 h-[18px] w-[18px] -translate-y-1/2" style={{ color: 'var(--text-secondary)' }} aria-hidden="true" />
           <input

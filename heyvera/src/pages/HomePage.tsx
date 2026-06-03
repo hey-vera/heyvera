@@ -222,7 +222,7 @@ export function HomePage() {
       onTouchEnd={handleTouchEnd}
       style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
     >
-      <div className="sticky top-[var(--top-bar-height)] z-10 flex border-b sticky-header-bg backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
+      <div className="sticky top-[var(--top-bar-height)] z-10 flex border-b sticky-header-bg backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
         {TABS.map((tab) => (
           <button
             key={tab}
@@ -292,7 +292,7 @@ export function HomePage() {
         <button
           type="button"
           onClick={showPendingPosts}
-          className="sticky top-[calc(var(--top-bar-height)+53px)] z-[9] w-full border-b py-3 text-[15px] font-bold transition-colors hover-overlay lg:top-0"
+          className="sticky top-[calc(var(--top-bar-height)+53px)] z-[9] w-full border-b py-3 text-[15px] font-bold transition-colors hover-overlay"
           style={{
             backgroundColor: 'var(--bg-primary)',
             borderColor: 'var(--border-primary)',

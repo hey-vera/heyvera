@@ -4,7 +4,6 @@ import { SignInButton } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { createPost, fetchMyProfile } from "../../api/social";
 import { useAuth } from "../../hooks/useAuth";
-import { LeftNav } from "./LeftNav";
 import { RightRail } from "./RightRail";
 import { BottomBar } from "./BottomBar";
 import { TopBar } from "./TopBar";
@@ -20,6 +19,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
   const navigate = useNavigate();
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const isMessagesRoute = activeRoute === "/messages";
+  const isWideRoute = isMessagesRoute || activeRoute === "/videos" || activeRoute === "/live" || activeRoute === "/longform";
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [composeText, setComposeText] = React.useState("");
   const [composeToken, setComposeToken] = React.useState<string | null>(null);
@@ -101,35 +101,33 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "var(--bg-primary)" }}>
-      <LeftNav
+      <TopBar
         activeRoute={activeRoute}
         onNavigate={handleNavigate}
         onCompose={() => void openCompose()}
+        onProfileClick={() => handleNavigate("/profile")}
       />
-
-      <TopBar title="HeyVera" onProfileClick={() => handleNavigate("/profile")} />
 
       <div
         className={
-          isMessagesRoute
-            ? "mx-auto grid w-full grid-cols-[1fr] sm:grid-cols-[88px_minmax(0,1fr)] md:grid-cols-[88px_minmax(0,1fr)] lg:max-w-[978px] lg:grid-cols-[88px_minmax(0,890px)] xl:max-w-[1225px] xl:grid-cols-[275px_minmax(0,950px)]"
-            : "mx-auto grid w-full grid-cols-[1fr] sm:grid-cols-[88px_minmax(0,1fr)] md:grid-cols-[88px_minmax(0,1fr)] lg:max-w-[978px] lg:grid-cols-[88px_600px_290px] xl:max-w-[1225px] xl:grid-cols-[275px_600px_350px]"
+          isWideRoute
+            ? "mx-auto grid w-full max-w-[1225px] grid-cols-[1fr]"
+            : "mx-auto grid w-full max-w-[1000px] grid-cols-[1fr] lg:grid-cols-[minmax(0,640px)_320px]"
         }
       >
-        <div className="hidden sm:block" aria-hidden="true" />
         <main
           className="w-full min-w-0"
           style={{
-            borderLeft: "1px solid var(--border-primary)",
-            borderRight: "1px solid var(--border-primary)",
+            borderLeft: isWideRoute ? "none" : "1px solid var(--border-primary)",
+            borderRight: isWideRoute ? "none" : "1px solid var(--border-primary)",
             minHeight: "100vh",
           }}
         >
           {children}
         </main>
 
-        {!isMessagesRoute && (
-          <div className="hidden min-w-0 lg:block lg:w-[290px] xl:w-[350px]">
+        {!isWideRoute && (
+          <div className="hidden min-w-0 lg:block lg:w-[320px]">
             <RightRail />
           </div>
         )}

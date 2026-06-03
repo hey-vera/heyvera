@@ -1,11 +1,11 @@
 
 import {
-  Bell,
   Feather,
   Home,
   Mail,
+  PlaySquare,
+  Radio,
   Search,
-  Sparkles,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 
@@ -18,8 +18,8 @@ interface BottomBarProps {
 const tabs: ReadonlyArray<{ icon: LucideIcon; label: string; route: string }> = [
   { icon: Home, label: "Home", route: "/home" },
   { icon: Search, label: "Explore", route: "/explore" },
-  { icon: Sparkles, label: "AI", route: "/ai" },
-  { icon: Bell, label: "Notifications", route: "/notifications" },
+  { icon: PlaySquare, label: "Videos", route: "/videos" },
+  { icon: Radio, label: "Live", route: "/live" },
   { icon: Mail, label: "Messages", route: "/messages" },
 ];
 

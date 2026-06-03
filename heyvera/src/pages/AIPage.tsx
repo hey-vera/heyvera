@@ -35,7 +35,7 @@ export function AIPage() {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
-      <div className="sticky top-[var(--top-bar-height)] z-10 border-b sticky-header-bg backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
+      <div className="sticky top-[var(--top-bar-height)] z-10 border-b sticky-header-bg backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
         <div className="flex items-center gap-2 px-4 py-3">
           <Sparkles className="h-5 w-5" style={{ color: 'var(--accent)' }} />
           <h1 className="text-[20px] font-bold">Pulse</h1>

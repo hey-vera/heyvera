@@ -36,7 +36,8 @@ const NotificationsPage = lazy(() => import('./pages/NotificationsPage').then(m 
 const MessagesPage = lazy(() => import('./pages/MessagesPage').then(m => ({ default: m.MessagesPage })));
 const BookmarksPage = lazy(() => import('./pages/BookmarksPage').then(m => ({ default: m.BookmarksPage })));
 const CommunitiesPage = lazy(() => import('./pages/CommunitiesPage').then(m => ({ default: m.CommunitiesPage })));
-const LongformPage = lazy(() => import('./pages/LongformPage').then(m => ({ default: m.LongformPage })));
+const VideosPage = lazy(() => import('./pages/VideosPage').then(m => ({ default: m.VideosPage })));
+const LivePage = lazy(() => import('./pages/LivePage').then(m => ({ default: m.LivePage })));
 const PremiumPage = lazy(() => import('./pages/PremiumPage').then(m => ({ default: m.PremiumPage })));
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then(m => ({ default: m.ProfilePage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
@@ -77,7 +78,9 @@ export const router = createBrowserRouter([
       { path: 'messages', element: <MessagesPage /> },
       { path: 'bookmarks', element: <BookmarksPage /> },
       { path: 'communities', element: <CommunitiesPage /> },
-      { path: 'longform', element: <LongformPage /> },
+      { path: 'videos', element: <VideosPage /> },
+      { path: 'longform', element: <Navigate to="/videos" replace /> },
+      { path: 'live', element: <LivePage /> },
       { path: 'premium', element: <PremiumPage /> },
       { path: 'profile', element: <ProfilePage /> },
       { path: 'profile/:handle', element: <ProfilePage /> },
