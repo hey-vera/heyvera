@@ -45,7 +45,7 @@
     "eslint-plugin-import": "^2.25.4",
     "mocha": "^11.7.4",
     "nyc": "^15.1.0",
-    "rollup": "2.79.2",
+    "rollup": "2.80.0",
     "rollup-plugin-dts": "^4.1.0",
     "rollup-plugin-typescript2": "^0.31.2",
     "standard-version": "^9.5.0",
