@@ -29,7 +29,7 @@
     "codecov": "codecov"
   },
   "devDependencies": {
-    "@babel/core": "^7.2.2",
+    "@babel/core": "^8.0.1",
     "@babel/plugin-transform-modules-commonjs": "^7.2.0",
     "@babel/preset-env": "^7.2.3",
     "@babel/register": "^7.0.0",
@@ -38,7 +38,7 @@
     "assert": "^1.4.1",
     "codecov": "^3.1.0",
     "eslint": "^5.12.1",
-    "karma": "^3.1.4",
+    "karma": "^6.4.4",
     "karma-chrome-launcher": "^2.2.0",
     "karma-coverage": "^1.1.2",
     "karma-firefox-launcher": "^1.0.0",
@@ -51,7 +51,7 @@
     "nyc": "^13.1.0",
     "opener": "^1.5.1",
     "rimraf": "^2.6.3",
-    "rollup": "^1.1.1",
+    "rollup": "^4.62.2",
     "rollup-plugin-babel": "^4.3.2",
     "rollup-plugin-babel-minify": "^7.0.0",
     "rollup-plugin-commonjs": "^9.2.0",
