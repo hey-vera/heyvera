@@ -159,7 +159,8 @@ function PostTab({
         {composeNotice && (
           <div
             className="mt-3 flex flex-wrap items-center gap-3 text-[13px]"
-            style={{ color: 'var(--text-secondary)' }}
+            role="alert"
+            style={{ color: 'var(--color-danger)' }}
           >
             <span>{composeNotice}</span>
             {composeNotice === 'Sign in to post.' && signInButton}

@@ -1,10 +1,13 @@
 import { useEffect, useState } from 'react';
+import { SignInButton } from '@clerk/clerk-react';
 import { ArrowLeft } from 'lucide-react';
 import {
   bookmarkPost,
   fetchCommunities,
   fetchCommunityFeed,
   feedPostToPost,
+  joinCommunity,
+  leaveCommunity,
   likePost,
   repostPost,
   unbookmarkPost,
@@ -13,6 +16,7 @@ import {
 import type { Community, Post } from '../api/social';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
+import { useAuth } from '../hooks/useAuth';
 
 const TABS = ['Your Communities', 'Discover'] as const;
 type Tab = typeof TABS[number];
@@ -22,11 +26,64 @@ function formatMembers(count: number): string {
   return `${(count / 1000).toFixed(count < 10000 ? 1 : 0).replace(/\.0$/, '')}K members`;
 }
 
+function JoinButton({
+  communityId,
+  joined,
+  busy,
+  authEnabled,
+  isSignedIn,
+  onToggle,
+}: {
+  communityId: string;
+  joined: boolean;
+  busy: boolean;
+  authEnabled: boolean;
+  isSignedIn: boolean;
+  onToggle: (id: string) => void;
+}) {
+  const style = {
+    border: joined ? '1px solid var(--border-primary)' : undefined,
+    backgroundColor: joined ? 'transparent' : 'var(--accent)',
+    color: joined ? 'var(--text-primary)' : 'var(--bg-primary)',
+  } as const;
+
+  if (authEnabled && !isSignedIn) {
+    return (
+      <SignInButton mode="modal">
+        <button
+          type="button"
+          className="shrink-0 rounded-full px-5 py-1.5 text-[14px] font-bold transition-all hover:opacity-90"
+          style={style}
+        >
+          Join
+        </button>
+      </SignInButton>
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      disabled={busy || !authEnabled}
+      title={!authEnabled ? 'Sign-in is not configured' : undefined}
+      onClick={() => onToggle(communityId)}
+      className="shrink-0 rounded-full px-5 py-1.5 text-[14px] font-bold transition-all hover:opacity-90 disabled:opacity-50"
+      style={style}
+    >
+      {busy ? '…' : joined ? 'Joined' : 'Join'}
+    </button>
+  );
+}
+
 export function CommunitiesPage() {
+  const { authEnabled, isSignedIn, getToken } = useAuth();
 
   const [activeTab, setActiveTab] = useState<Tab>('Your Communities');
   const [communities, setCommunities] = useState<Community[]>([]);
+  /** Membership after successful join/leave this session. No /mine list API yet. */
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
+  const [membershipBusyId, setMembershipBusyId] = useState<string | null>(null);
+  const [membershipError, setMembershipError] = useState<string | null>(null);
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null);
   const [feedPosts, setFeedPosts] = useState<Post[]>([]);
   const [feedLoading, setFeedLoading] = useState(false);
@@ -43,11 +100,10 @@ export function CommunitiesPage() {
       setLoading(true);
       setError(null);
       try {
-        const { communities } = await fetchCommunities();
+        const { communities: list } = await fetchCommunities();
         if (!cancelled) {
-          setCommunities(communities);
-          // Real Community type has no is_member field; joined state is managed locally only.
-          setJoinedIds(new Set());
+          setCommunities(list);
+          // No GET /communities/mine — cannot hydrate memberships from the server yet.
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load communities');
@@ -83,7 +139,8 @@ export function CommunitiesPage() {
       setFeedLoading(true);
       setFeedError(null);
       try {
-        const { feed } = await fetchCommunityFeed(community.slug);
+        // Backend feed path uses community id, not slug.
+        const { feed } = await fetchCommunityFeed(community.id);
         if (!cancelled) setFeedPosts(feed.map(feedPostToPost));
       } catch (err) {
         if (!cancelled) {
@@ -109,13 +166,41 @@ export function CommunitiesPage() {
   const selectedCommunity =
     selectedCommunityId ? communities.find((community) => community.id === selectedCommunityId) ?? null : null;
 
-  const toggle = (id: string) => {
-    setJoinedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const toggleMembership = async (id: string) => {
+    if (membershipBusyId) return;
+    setMembershipError(null);
+
+    if (!authEnabled) {
+      setMembershipError('Sign-in is not configured.');
+      return;
+    }
+    if (!isSignedIn) return;
+
+    const token = await getToken();
+    if (!token) {
+      setMembershipError('Unable to get auth token. Try signing in again.');
+      return;
+    }
+
+    const currentlyJoined = joinedIds.has(id);
+    setMembershipBusyId(id);
+    try {
+      if (currentlyJoined) {
+        await leaveCommunity(token, id);
+        setJoinedIds((prev) => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      } else {
+        await joinCommunity(token, id);
+        setJoinedIds((prev) => new Set(prev).add(id));
+      }
+    } catch (err) {
+      setMembershipError(err instanceof Error ? err.message : 'Membership update failed');
+    } finally {
+      setMembershipBusyId(null);
+    }
   };
 
   return (
@@ -129,6 +214,19 @@ export function CommunitiesPage() {
       >
         <div className="px-4 py-3">
           <h1 className="text-[20px] font-bold">Communities</h1>
+        </div>
+        <div
+          className="border-b px-4 py-2 text-[13px]"
+          style={{
+            borderColor: 'var(--border-primary)',
+            backgroundColor: 'var(--bg-elevated)',
+            color: 'var(--text-secondary)',
+          }}
+          role="status"
+        >
+          Communities are early access — browse and feeds are live; join/leave hit the real API.
+          Your Communities only lists memberships from this session (membership list API not ready).
+          Creating communities is coming soon.
         </div>
         <div className="flex">
           {TABS.map((tab) => (
@@ -149,6 +247,16 @@ export function CommunitiesPage() {
           ))}
         </div>
       </div>
+
+      {membershipError && (
+        <div
+          className="border-b px-4 py-2 text-[13px]"
+          style={{ borderColor: 'var(--border-primary)', color: 'var(--danger, #f4212e)' }}
+          role="alert"
+        >
+          {membershipError}
+        </div>
+      )}
 
       {loading && <LoadingState label="Loading communities" />}
       {!loading && error && <ErrorState detail={error} onRetry={() => setReloadKey((key) => key + 1)} />}
@@ -187,18 +295,14 @@ export function CommunitiesPage() {
                 <p className="mt-2 text-[15px] leading-5">{selectedCommunity.description}</p>
               </div>
 
-              <button
-                type="button"
-                onClick={() => toggle(selectedCommunity.id)}
-                className="shrink-0 rounded-full px-5 py-1.5 text-[14px] font-bold transition-all hover:opacity-90"
-                style={{
-                  border: joinedIds.has(selectedCommunity.id) ? '1px solid var(--border-primary)' : undefined,
-                  backgroundColor: joinedIds.has(selectedCommunity.id) ? 'transparent' : 'var(--accent)',
-                  color: joinedIds.has(selectedCommunity.id) ? 'var(--text-primary)' : 'var(--bg-primary)',
-                }}
-              >
-                {joinedIds.has(selectedCommunity.id) ? 'Joined' : 'Join'}
-              </button>
+              <JoinButton
+                communityId={selectedCommunity.id}
+                joined={joinedIds.has(selectedCommunity.id)}
+                busy={membershipBusyId === selectedCommunity.id}
+                authEnabled={authEnabled}
+                isSignedIn={isSignedIn}
+                onToggle={(id) => void toggleMembership(id)}
+              />
             </div>
           </div>
 
@@ -227,7 +331,11 @@ export function CommunitiesPage() {
       {!loading && !error && !selectedCommunity && visibleCommunities.length === 0 && (
         <EmptyState
           title={activeTab === 'Your Communities' ? 'No communities yet' : 'Nothing to discover yet'}
-          detail={activeTab === 'Your Communities' ? 'Join communities from Discover and they will appear here.' : undefined}
+          detail={
+            activeTab === 'Your Communities'
+              ? 'Join communities from Discover. Memberships you join here appear until you refresh (server membership list not ready yet).'
+              : undefined
+          }
         />
       )}
       {!loading && !error && !selectedCommunity && visibleCommunities.length > 0 && (
@@ -262,21 +370,20 @@ export function CommunitiesPage() {
                   )}
                   <p className="mt-2 text-[13px] leading-snug">{community.description}</p>
 
-                  <button
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      toggle(community.id);
-                    }}
-                    className="mt-3 rounded-full px-5 py-1.5 text-[14px] font-bold transition-all hover:opacity-90"
-                    style={{
-                      border: joined ? '1px solid var(--border-primary)' : undefined,
-                      backgroundColor: joined ? 'transparent' : 'var(--accent)',
-                      color: joined ? 'var(--text-primary)' : 'var(--bg-primary)',
-                    }}
+                  <div
+                    className="mt-3"
+                    onClick={(event) => event.stopPropagation()}
+                    onKeyDown={(event) => event.stopPropagation()}
                   >
-                    {joined ? 'Joined' : 'Join'}
-                  </button>
+                    <JoinButton
+                      communityId={community.id}
+                      joined={joined}
+                      busy={membershipBusyId === community.id}
+                      authEnabled={authEnabled}
+                      isSignedIn={isSignedIn}
+                      onToggle={(id) => void toggleMembership(id)}
+                    />
+                  </div>
                 </div>
               </article>
             );

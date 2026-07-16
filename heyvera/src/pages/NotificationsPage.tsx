@@ -70,14 +70,33 @@ export function NotificationsPage() {
         }
 
         const token = authEnabled ? await getToken() : null;
+        if (authEnabled && !token) {
+          // Soft-fail: show empty list with optional error, not a silent blank page.
+          if (!cancelled) {
+            setNotifications([]);
+            setError('Unable to verify your session. Sign in again to load notifications.');
+          }
+          return;
+        }
         if (!token) {
           if (!cancelled) setNotifications([]);
           return;
         }
         const result = await fetchNotifications(token);
-        if (!cancelled) setNotifications(result.notifications);
+        if (!cancelled) {
+          setNotifications(result.notifications);
+          setError(null);
+        }
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load notifications');
+        if (!cancelled) {
+          // Soft-fail to empty so the page still feels usable; surface why.
+          setNotifications([]);
+          const msg = err instanceof Error ? err.message : '';
+          const detail = /failed to fetch|networkerror|network request failed|load failed|fetch failed/i.test(msg)
+            ? 'Unable to reach the server. Check your connection and try again.'
+            : (msg || 'Unable to load notifications');
+          setError(detail);
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -87,7 +106,7 @@ export function NotificationsPage() {
     return () => {
       cancelled = true;
     };
-  }, [authEnabled, isSignedIn, reloadKey]);
+  }, [authEnabled, getToken, isSignedIn, reloadKey]);
 
   const filtered = activeFilter === 'All'
     ? notifications
@@ -129,7 +148,13 @@ export function NotificationsPage() {
 
       {loading && <LoadingState label="Loading notifications" />}
       {!loading && authEnabled && !isSignedIn && <SignedOutNotificationsPrompt />}
-      {!loading && error && <ErrorState detail={error} onRetry={() => setReloadKey((key) => key + 1)} />}
+      {!loading && !(authEnabled && !isSignedIn) && error && (
+        <ErrorState
+          title="Couldn't load notifications"
+          detail={error}
+          onRetry={() => setReloadKey((key) => key + 1)}
+        />
+      )}
       {!loading && !(authEnabled && !isSignedIn) && !error && filtered.length === 0 && (
         <EmptyState
           title="Nothing yet"

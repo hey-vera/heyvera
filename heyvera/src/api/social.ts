@@ -291,12 +291,13 @@ export async function fetchLongform(limit = 20, cursor = 0): Promise<{
   return { longform: raw.longform ?? raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
-export async function fetchCommunityFeed(slug: string, limit = 20, cursor = 0): Promise<{
+export async function fetchCommunityFeed(communityId: string, limit = 20, cursor = 0): Promise<{
   community: Community;
   feed: FeedPost[];
   pageInfo: PageInfo;
 }> {
-  const raw = await apiFetch<{ community?: Community; posts: FeedPost[]; cursor: string | null; has_more: boolean }>(`/communities/${slug}/feed?limit=${limit}&cursor=${cursor}`);
+  // Backend path is /communities/{id}/feed (id, not slug).
+  const raw = await apiFetch<{ community?: Community; posts: FeedPost[]; cursor: string | null; has_more: boolean }>(`/communities/${communityId}/feed?limit=${limit}&cursor=${cursor}`);
   return { community: raw.community as Community, feed: raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
@@ -482,6 +483,7 @@ export async function unfollowProfile(
   return apiAuthFetch(`/follows/${handle}`, { method: "DELETE", token });
 }
 
+/** Backend has no create-community route yet — do not call from live UI. */
 export async function createCommunity(
   token: string,
   data: { slug: string; name: string; description?: string; visibility?: string },
@@ -489,13 +491,23 @@ export async function createCommunity(
   return apiAuthFetch("/communities", { method: "POST", token, body: data });
 }
 
+/** Join by community id (backend Path is {id}, not slug). */
 export async function joinCommunity(
   token: string,
-  slug: string,
-): Promise<{ ok: true; membershipId: string }> {
-  return apiAuthFetch(`/communities/${slug}/join`, { method: "POST", token });
+  communityId: string,
+): Promise<{ ok: true; joined?: boolean; message?: string }> {
+  return apiAuthFetch(`/communities/${communityId}/join`, { method: "POST", token });
 }
 
+/** Leave by community id (DELETE /communities/{id}/leave). */
+export async function leaveCommunity(
+  token: string,
+  communityId: string,
+): Promise<{ ok: true; left?: boolean; message?: string }> {
+  return apiAuthFetch(`/communities/${communityId}/leave`, { method: "DELETE", token });
+}
+
+/** Backend /communities/mine is not mounted yet — callers should treat as unavailable. */
 export async function fetchMyCommunities(token: string, limit = 20): Promise<{
   communities: CommunityMembership[];
 }> {
