@@ -8,6 +8,7 @@ If a session dies or Grok quota runs out, **resume from this file**.
 | **Scope** | `heyvera.org` only (not Cortex, not myshell-tools) |
 | **Last updated** | 2026-07-16 (cleanup: ship is foundation on main) |
 | **Active branch** | `phase-0-heyvera-ship` (GitHub; contains origin/main + Phase 0–2/Pulse) |
+| **Automerge** | `heyvera/docs/AUTOMERGE.md` + `scripts/pr-automerge.sh` |
 | **Deferred CI** | `heyvera/docs/deferred/CI-WORKFLOW-REWRITE.md` |
 | **Product SoT** | `heyvera/CURRENT.md` |
 | **API matrix** | `heyvera/docs/API-CONTRACT.md` |
@@ -55,7 +56,7 @@ If a session dies or Grok quota runs out, **resume from this file**.
 - [x] **Commit Phase 0 + Phase 1 path work** (merged into ship on main)
 - [x] Phase 2 honesty + Pulse tools_v1 on `phase-0-heyvera-ship`
 - [x] Local foundation branch superseded; deferred CI saved under docs/deferred/
-- [ ] Open PR → merge `phase-0-heyvera-ship` to `main` when checks green → merge to `main` when checks green (automerge if branch protection ready); `gh` not logged in on runner
+- [x] Open PR → merge `phase-0-heyvera-ship` to `main` (#338 MERGED, full green) → merge to `main` when checks green (automerge if branch protection ready); `gh` not logged in on runner
 - [ ] Branch protection + required checks (`heyvera` + `rust`) + automerge process documented/enabled on GitHub
 - [ ] Do not leave long-lived stale feature branches
 
