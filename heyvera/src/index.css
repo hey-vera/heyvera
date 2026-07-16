@@ -1394,6 +1394,8 @@ html.dark .button-primary {
 }
 
 /* ─── Theme toggle ─── */
+/* Product default is dark-first (html.dark). Light mode is an optional
+   accessibility preference via ThemeToggle / localStorage vera-theme. */
 
 .theme-toggle {
   display: inline-flex;

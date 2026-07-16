@@ -1,292 +1,144 @@
-# Setup Guide - First Time Dev
+# HeyVera setup (Linux)
 
-This guide is for a first-time vibe coder working on the HeyVera public
-site.
+Local setup for the **heyvera/** frontend and **heyvera-server** API.
 
-Goal: get the page running locally, then use your AI assistant to build
-one packet at a time.
-
-Platform note:
-- the command examples below were originally written for Windows
-- Xotic is working on Linux
-- on Linux, use forward-slash paths like `cd heyvera/web`
-- the product and workflow guidance stays the same across platforms
+The app path is **`heyvera/`** (not `web/`).
 
 ---
 
-## Step 1: Install the basics
+## Prerequisites
 
-You need:
-- Node.js
+- Node.js 20+ (LTS recommended)
+- npm
+- Rust toolchain (`cargo`) for the backend
 - Git
-- Aider
-- Ollama with Qwen coder
-
-### Node.js
-
-```powershell
-winget install OpenJS.NodeJS.LTS
-```
-
-Close and reopen your terminal, then check:
-
-```powershell
-node --version
-```
-
-### Git
-
-```powershell
-git --version
-```
-
-If missing:
-
-```powershell
-winget install Git.Git
-```
-
-### Python + Aider
-
-If Python is not installed:
-
-```powershell
-winget install Python.Python.3.12
-```
-
-Then install Aider:
-
-```powershell
-pip install aider-chat
-```
-
-Check it worked:
-
-```powershell
-aider --version
-```
 
 ---
 
-## Step 2: Clone the repo
+## Frontend
 
-```powershell
-git clone https://github.com/hey-vera/heyvera.git
+```bash
 cd heyvera
-```
-
----
-
-## Step 3: Use the active branch
-
-For the current frontend workflow, use:
-
-```powershell
-git checkout feat/heyvera-web-scaffold-main
-```
-
----
-
-## Step 4: Install the landing page app
-
-The landing page lives in `web/`.
-
-```powershell
-cd web
-npm install
-```
-
----
-
-## Step 5: Start the dev server
-
-```powershell
+npm ci
 npm run dev
 ```
 
-Open the local URL shown in the terminal, usually:
+Dev server defaults to **http://localhost:5001** and proxies `/v1` → `http://localhost:3402`.
 
-```text
-http://localhost:5173
-```
+Useful scripts:
 
-Keep this terminal running.
-
----
-
-## Step 6: Start your AI assistant
-
-Open a second terminal.
-
-Check Ollama:
-
-```powershell
-ollama run qwen2.5-coder:14b
-```
-
-If it opens, exit with:
-
-```text
-/bye
-```
-
-Then start Aider inside `web/`:
-
-```powershell
-cd heyvera/web
-aider --model ollama/qwen2.5-coder:14b
-```
-
-Why this is shorter now:
-- `web/.aider.conf.yml` auto-loads only the short durable files
-- Aider will auto-run `npm run build` after edits
-
-Before giving Aider a packet task, keep the read set small.
-
-Recommended Aider setup for Packet 1:
-
-```text
-/read frontend-plan/PACKET-1-EXEC.md
-/add src/App.tsx src/index.css
-```
-
-Then give a short prompt like:
-
-```text
-Build only Packet 1 from PACKET-1-EXEC.md. Stop after the packet.
+```bash
+npm run typecheck
+npm run test:unit
+npm run build
 ```
 
 ---
 
-## Step 7: Work packet by packet
+## Backend
 
-Do not try to build the whole page in one shot.
+Binary crate: `crates/heyvera-server` (binary name **`heyvera-server`**).
 
-Recommended order:
-1. Packet 1: foundation
-2. Packet 2: core public sections
-3. Packet 3: supporting public sections and mobile polish
-4. Stop for review
+From the **repo root**:
 
-After each packet:
-- check the page in the browser
-- make sure nothing broke
-- run `npm run proof`
-- run `npm run status:update -- "Packet N" yes`
-- explain what changed briefly
-- push the branch
-- stop for review
+```bash
+# Match the Vite proxy target for local FE+API work
+HEYVERA_PORT=3402 cargo run -p heyvera-server-bin
+```
 
-Important:
-- a packet is not complete until the branch is pushed
-- local commits alone are not the handoff point
-- do not hand-edit commit hashes into `frontend-sync/STATUS.md`
-- let `npm run status:update` write the live branch and commit
+Package name is `heyvera-server-bin`; the binary is `heyvera-server`.
+
+Default bind without `HEYVERA_PORT` is **3002** — set `HEYVERA_PORT=3402` so `heyvera` Vite proxy works without `VITE_API_URL`.
 
 ---
 
-## Step 8: Save and push work
+## Environment
 
-Check changes:
+### Frontend (`heyvera/.env` or shell)
 
-```powershell
-git status
-```
+| Variable | Required | Notes |
+|---|---|---|
+| `VITE_CLERK_PUBLISHABLE_KEY` | For auth UI | Without it, app runs public/read-only (no ClerkProvider). |
+| `VITE_API_URL` | Optional | Absolute API origin when not using relative `/v1` + proxy. Leave unset locally (Vite proxies `/v1` → `:3402`). |
 
-Commit:
+Copy from `heyvera/.env.example`.
 
-```powershell
-git add .
-git commit -m "feat: complete packet work"
-```
+### Backend (process env)
 
-Push:
+| Variable | Required | Notes |
+|---|---|---|
+| `CLERK_SECRET_KEY` | For real auth | Without it, server logs auth disabled (dev-friendly). |
+| `HEYVERA_ENV` | Prod | Use `production` (or set `HEYVERA_REQUIRE_AUTH`) so missing Clerk fails closed. Also reads `APP_ENV` / `RUST_ENV`. |
+| `HEYVERA_PORT` | Optional | Default `3002`. Use `3402` with local Vite proxy. |
+| `HEYVERA_LEDGER_PATH` | Optional | Default `.heyvera/ledger.jsonl`. |
+| `HEYVERA_WORKSPACE` | Optional | Workspace dir for the process. |
 
-```powershell
-git push origin feat/heyvera-web-scaffold-main
-```
+### Storage (optional — media upload / public URLs)
+
+| Variable | Notes |
+|---|---|
+| `STORAGE_ENDPOINT` | S3-compatible endpoint |
+| `STORAGE_BUCKET` | Bucket name |
+| `STORAGE_ACCESS_KEY` / `STORAGE_SECRET_KEY` | Credentials |
+| `STORAGE_REGION` | Default `auto` |
+| `STORAGE_PUBLIC_URL` | Public CDN/base URL for media links |
+
+Without storage env, media upload may return mock URLs in dev.
 
 ---
 
-## What To Read Before Coding
+## Typical local loop
 
-Inside `web/`, these files matter most for actual model runs:
-- `PRE-FLIGHT.md`
-- `CONVENTIONS.md`
-- `frontend-plan/XOTIC-WORKFLOW.md`
-- `frontend-plan/AIDER-COMMANDS.md`
-- `frontend-plan/DRIFT-RECOVERY.md`
-- `frontend-plan/PACKET-1-EXEC.md`
-- `frontend-plan/PACKET-2-EXEC.md`
-- `frontend-plan/PACKET-3-EXEC.md`
-- `frontend-sync/README.md`
-- `frontend-sync/GIT-SYNC.md`
+Terminal 1 — API:
 
-Use `frontend-plan/` as the source of truth for product direction.
-Use `SETUP.md` as tooling guidance only.
-Use `frontend-sync/` to record blockers, decisions, and packet status.
+```bash
+HEYVERA_PORT=3402 cargo run -p heyvera-server-bin
+```
+
+Terminal 2 — UI:
+
+```bash
+cd heyvera
+npm ci   # first time
+npm run dev
+```
+
+Open the URL Vite prints (usually `http://localhost:5001`).
+
+---
+
+## Paths (Linux)
+
+| What | Path |
+|---|---|
+| Frontend app | `heyvera/` |
+| Frontend entry | `heyvera/src/main.tsx` → `router.tsx` → pages |
+| API client | `heyvera/src/api/social.ts`, `heyvera/src/api/pulse.ts` |
+| Server binary | `crates/heyvera-server` |
+| Shared API crate | `crates/api` |
+
+Do **not** use legacy `web/` paths from older docs.
+
+---
+
+## Theme
+
+Dark is the product default. Light mode is an optional preference (`localStorage` key `vera-theme`).
 
 ---
 
 ## Troubleshooting
 
-### `npm run dev` starts the wrong thing
+### API calls fail with network / 502 in dev
 
-You are probably not inside the `web/` folder.
+- Ensure backend is listening on **3402** (`HEYVERA_PORT=3402`), or set `VITE_API_URL` to the real origin.
+- Vite only proxies `/v1` in `npm run dev` / preview — not in static production builds.
 
-Check:
+### No sign-in UI
 
-```powershell
-pwd
-```
+- Set `VITE_CLERK_PUBLISHABLE_KEY` for the frontend.
+- Set `CLERK_SECRET_KEY` on the server for JWT verification.
 
-### `aider` starts making weird unrelated changes
+### Wrong directory
 
-Tell it:
-
-```text
-Stop. Re-read the current PACKET-N-EXEC.md file. Build one packet only. Do not add dashboard UI, routes, pages, or extra sections.
-```
-
-### Qwen starts replacing real content with filler or fake values
-
-Tell it:
-
-```text
-Make the smallest working edit only. Preserve existing structure and approved copy. Do not add placeholder text, fake commit hashes, fake branch names, routes, or pages. If you do not know an exact value, stop instead of inventing one.
-```
-
-### Qwen says a packet is done but the files do not show it
-
-Run:
-
-```powershell
-npm run proof
-```
-
-If the printed `src/App.tsx` and `src/` file list do not clearly show
-the packet work, the packet is not done yet.
-
-### Qwen needs internet context
-
-Assume it does not have reliable web access by default.
-
-If needed:
-- give it exact URLs
-- or paste the exact source text
-
-Do not ask it to research the product direction for you.
-
----
-
-## Quick Commands
-
-| Task | Command |
-|---|---|
-| Start page | `cd web && npm run dev` |
-| Start AI helper | `cd web && aider --model ollama/qwen2.5-coder:14b` |
-| Proof a packet | `cd web && npm run proof` |
-| Update status automatically | `cd web && npm run status:update -- "Packet N" yes` |
-| Check branch | `git branch` |
-| Check changes | `git status` |
-| Push work | `git push origin feat/heyvera-web-scaffold-main` |
+Always work under `heyvera/` for the public app — not `web/`.

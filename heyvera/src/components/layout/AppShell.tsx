@@ -1,14 +1,21 @@
 import React from "react";
-import { X } from "lucide-react";
+import { ImagePlus, X } from "lucide-react";
 import { SignInButton } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
-import { createPost, fetchMyProfile } from "../../api/social";
+import { createPost, fetchMyProfile, uploadMediaFile } from "../../api/social";
 import { useAuth } from "../../hooks/useAuth";
 import { RightRail } from "./RightRail";
 import { BottomBar } from "./BottomBar";
 import { TopBar } from "./TopBar";
 
 const COMPOSE_MAX_CHARS = 280;
+const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
+const ALLOWED_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/gif",
+  "image/webp",
+]);
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -27,12 +34,26 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
   const [isCheckingComposeAccess, setIsCheckingComposeAccess] = React.useState(false);
   const [composeGate, setComposeGate] = React.useState<"signed_out" | "profile_required" | null>(null);
   const [composeError, setComposeError] = React.useState<string | null>(null);
+  const [imageFile, setImageFile] = React.useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = React.useState<string | null>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const remainingChars = COMPOSE_MAX_CHARS - composeText.length;
-  const canPost = composeText.trim().length > 0 && !isPosting;
+  const canPost = (composeText.trim().length > 0 || Boolean(imageFile)) && !isPosting;
 
   const handleNavigate = (route: string) => {
     navigate(route);
+  };
+
+  const clearImage = () => {
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+    setImageFile(null);
+    setImagePreviewUrl(null);
+    if (fileInputRef.current) {
+      fileInputRef.current.value = "";
+    }
   };
 
   const resetCompose = () => {
@@ -42,6 +63,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     setComposeError(null);
     setIsPosting(false);
     setIsCheckingComposeAccess(false);
+    clearImage();
   };
 
   const closeCompose = () => {
@@ -84,6 +106,29 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     }
   };
 
+  const onPickImage = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) return;
+
+    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
+      setComposeError("Use a JPEG, PNG, GIF, or WebP image.");
+      clearImage();
+      return;
+    }
+    if (file.size > MAX_IMAGE_BYTES) {
+      setComposeError("Image must be 10 MB or smaller.");
+      clearImage();
+      return;
+    }
+
+    if (imagePreviewUrl) {
+      URL.revokeObjectURL(imagePreviewUrl);
+    }
+    setImageFile(file);
+    setImagePreviewUrl(URL.createObjectURL(file));
+    setComposeError(null);
+  };
+
   const handleSubmitPost = async () => {
     if (!canPost || composeGate) return;
 
@@ -91,10 +136,22 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     setComposeError(null);
 
     try {
-      await createPost(composeToken!, { body: composeText.trim() });
+      const token = composeToken!;
+      const mediaIds: string[] = [];
+
+      if (imageFile) {
+        const uploaded = await uploadMediaFile(token, imageFile);
+        mediaIds.push(uploaded.mediaId);
+      }
+
+      await createPost(token, {
+        body: composeText.trim(),
+        ...(mediaIds.length > 0 ? { mediaIds } : {}),
+      });
       closeCompose();
-    } catch {
-      setComposeError("Post failed. Try again.");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Post failed. Try again.";
+      setComposeError(msg);
       setIsPosting(false);
     }
   };
@@ -167,7 +224,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                 className="rounded-full px-5 py-1.5 text-sm font-bold transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
                 style={{ backgroundColor: "var(--accent)", color: "var(--bg-primary)" }}
                 disabled={!canPost || Boolean(composeGate)}
-                onClick={handleSubmitPost}
+                onClick={() => void handleSubmitPost()}
                 type="button"
               >
                 {isPosting ? "Posting" : "Post"}
@@ -198,6 +255,26 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                   disabled={isPosting || isCheckingComposeAccess}
                 />
 
+                {imagePreviewUrl && (
+                  <div className="relative mt-3 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border-primary)" }}>
+                    <img
+                      src={imagePreviewUrl}
+                      alt="Selected attachment"
+                      className="max-h-[280px] w-full object-cover"
+                    />
+                    <button
+                      type="button"
+                      onClick={clearImage}
+                      disabled={isPosting}
+                      className="absolute right-2 top-2 rounded-full p-1.5"
+                      style={{ backgroundColor: "color-mix(in srgb, var(--bg-primary) 80%, transparent)", color: "var(--text-primary)" }}
+                      aria-label="Remove image"
+                    >
+                      <X className="h-4 w-4" />
+                    </button>
+                  </div>
+                )}
+
                 {composeError && (
                   <p className="mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
                     {composeError}
@@ -205,9 +282,30 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                 )}
 
                 <div
-                  className="mt-3 flex items-center justify-end pt-3"
+                  className="mt-3 flex items-center justify-between pt-3"
                   style={{ borderTop: "1px solid var(--border-primary)" }}
                 >
+                  <div className="flex items-center gap-2">
+                    <input
+                      ref={fileInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/gif,image/webp"
+                      className="hidden"
+                      onChange={onPickImage}
+                      disabled={isPosting || isCheckingComposeAccess}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => fileInputRef.current?.click()}
+                      disabled={isPosting || isCheckingComposeAccess}
+                      className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors hover-overlay disabled:opacity-50"
+                      style={{ color: "var(--accent)" }}
+                      aria-label="Add image"
+                    >
+                      <ImagePlus className="h-4 w-4" aria-hidden="true" />
+                      Image
+                    </button>
+                  </div>
                   <span
                     className="text-sm"
                     style={{ color: remainingChars <= 20 ? "var(--color-danger)" : "var(--text-secondary)" }}

@@ -135,6 +135,35 @@ fn db(state: &AppState) -> &crate::db::Database {
     state.db.as_ref().expect("database not initialized")
 }
 
+/// When author_mode is agent/linked_pair and a linked_agent_id is set, require that
+/// agent to belong to the caller's profile. Returns Ok(()) or a forbidden/bad_request response.
+pub fn ensure_linked_agent_allowed(
+    state: &AppState,
+    profile_id: &str,
+    author_mode: &str,
+    linked_agent_id: Option<&str>,
+) -> Result<(), ApiResponse> {
+    let needs_agent = matches!(author_mode, "agent" | "linked_pair");
+    if !needs_agent {
+        // Person mode may still attach a linked agent id; if present, verify ownership.
+        if let Some(agent_id) = linked_agent_id {
+            if !db(state).social_linked_agent_belongs_to(profile_id, agent_id) {
+                return Err(forbidden("linkedAgentId is not linked to your profile"));
+            }
+        }
+        return Ok(());
+    }
+    let Some(agent_id) = linked_agent_id else {
+        return Err(bad_request(
+            "linkedAgentId is required when authorMode is agent or linked_pair",
+        ));
+    };
+    if !db(state).social_linked_agent_belongs_to(profile_id, agent_id) {
+        return Err(forbidden("linkedAgentId is not linked to your profile"));
+    }
+    Ok(())
+}
+
 /// Try to extract a viewer profile_id from the Authorization header (best-effort, no rejection).
 async fn optional_viewer_profile_id(
     headers: &HeaderMap,
@@ -358,7 +387,8 @@ pub async fn create_post(
     };
 
     let body = req.body.trim().to_string();
-    if body.is_empty() {
+    // Allow image-only posts when mediaIds are present; still require some body otherwise.
+    if body.is_empty() && req.media_ids.is_empty() {
         return bad_request("Post body is required");
     }
     if body.len() > 5000 {
@@ -368,6 +398,14 @@ pub async fn create_post(
     let profile_id = profile["id"].as_str().unwrap_or("");
     let visibility = req.visibility.as_deref().unwrap_or("public");
     let author_mode = req.author_mode.as_deref().unwrap_or("person");
+    if let Err(resp) = ensure_linked_agent_allowed(
+        &state,
+        profile_id,
+        author_mode,
+        req.linked_agent_id.as_deref(),
+    ) {
+        return resp;
+    }
     let post = db(&state).social_create_post(
         profile_id,
         &body,
@@ -402,10 +440,15 @@ pub async fn create_post(
         None
     };
 
-    let mut result = serde_json::json!({ "ok": true, "post": post });
+    let mut post_out = post;
+    let mut result = serde_json::json!({ "ok": true });
     if let Some(media_list) = media {
+        if let Some(obj) = post_out.as_object_mut() {
+            obj.insert("media".into(), serde_json::json!(media_list.clone()));
+        }
         result["media"] = serde_json::json!(media_list);
     }
+    result["post"] = post_out;
     ok(result)
 }
 
@@ -441,6 +484,15 @@ pub async fn create_longform(
     }
     if body.len() > 50_000 {
         return bad_request("Body exceeds 50000 characters");
+    }
+
+    if let Err(resp) = ensure_linked_agent_allowed(
+        &state,
+        &profile_id,
+        author_mode,
+        req.linked_agent_id.as_deref(),
+    ) {
+        return resp;
     }
 
     let longform = db(&state).social_create_longform(
@@ -662,6 +714,98 @@ pub async fn get_profile_linked_agents(
     let profile_id = profile["id"].as_str().unwrap_or("");
     let agents = db(&state).social_get_linked_agents(profile_id);
     ok(serde_json::json!({ "linkedAgents": agents }))
+}
+
+// ─── Linked-agent CRUD (authenticated) ──────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct CreateLinkedAgentRequest {
+    #[serde(alias = "agentName")]
+    pub agent_name: String,
+    #[serde(alias = "agentSlug")]
+    pub agent_slug: String,
+    /// Optional opaque key; defaulted when omitted (display link only — no runtime auth).
+    #[serde(default, alias = "agentKey")]
+    pub agent_key: Option<String>,
+    #[serde(default, alias = "agentType")]
+    pub agent_type: Option<String>,
+    pub visibility: Option<String>,
+    #[serde(default, alias = "proofState")]
+    pub proof_state: Option<String>,
+    #[serde(default, alias = "isPrimary")]
+    pub is_primary: Option<bool>,
+}
+
+/// GET /v1/social/linked-agents — list linked agents for the authenticated profile.
+pub async fn list_my_linked_agents(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let agents = db(&state).social_get_linked_agents(&profile_id);
+    ok(serde_json::json!({ "linkedAgents": agents }))
+}
+
+/// POST /v1/social/linked-agents — link an agent display identity to the caller's profile.
+/// Records name/slug metadata only; does not provision runtime authority.
+pub async fn create_linked_agent(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateLinkedAgentRequest>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+
+    let agent_name = req.agent_name.trim();
+    if agent_name.is_empty() || agent_name.len() > 80 {
+        return bad_request("agentName must be 1-80 characters");
+    }
+
+    let agent_slug = req
+        .agent_slug
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect::<String>();
+    if agent_slug.len() < 2 || agent_slug.len() > 40 {
+        return bad_request("agentSlug must be 2-40 alphanumeric characters (dash/underscore ok)");
+    }
+
+    let agent_key = req
+        .agent_key
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .unwrap_or_else(|| format!("key_{agent_slug}"));
+    if agent_key.len() > 200 {
+        return bad_request("agentKey must be at most 200 characters");
+    }
+
+    let agent_type = req.agent_type.as_deref().unwrap_or("general").trim();
+    let visibility = req.visibility.as_deref().unwrap_or("public");
+    let proof_state = req.proof_state.as_deref().unwrap_or("pending");
+    let is_primary = req.is_primary.unwrap_or(false);
+
+    match db(&state).social_create_linked_agent(
+        &profile_id,
+        agent_name,
+        &agent_slug,
+        &agent_key,
+        agent_type,
+        visibility,
+        proof_state,
+        is_primary,
+    ) {
+        Ok(agent) => ok(serde_json::json!({ "ok": true, "linkedAgent": agent })),
+        Err(msg) => conflict(&msg),
+    }
 }
 
 /// Whether the authenticated viewer follows `{handle}`.

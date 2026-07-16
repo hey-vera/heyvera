@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { SignInButton, useClerk, UserButton } from '@clerk/clerk-react';
 import {
   ArrowLeft,
   Bell,
+  Bot,
   Check,
   ChevronRight,
   CreditCard,
@@ -26,10 +27,10 @@ import type { LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useMyProfile } from '../hooks/useMyProfile';
-import { updateProfile } from '../api/social';
-import type { Profile } from '../api/social';
+import { fetchMyLinkedAgents, linkAgent, updateProfile } from '../api/social';
+import type { LinkedAgent, Profile } from '../api/social';
 
-type Section = 'profile' | 'account' | 'privacy' | 'notifications' | 'billing' | 'display' | 'data';
+type Section = 'profile' | 'agents' | 'account' | 'privacy' | 'notifications' | 'billing' | 'display' | 'data';
 
 interface SectionMeta {
   id: Section;
@@ -71,6 +72,13 @@ const SECTIONS: SectionMeta[] = [
     label: 'Profile',
     description: 'Edit your display name, bio, avatar, and other public info.',
     Icon: Edit3,
+    controls: [],
+  },
+  {
+    id: 'agents',
+    label: 'Linked agents',
+    description: 'Display identities for agents you author as. Not runtime authority.',
+    Icon: Bot,
     controls: [],
   },
   {
@@ -622,6 +630,199 @@ function ProfileEditor({
   );
 }
 
+function LinkedAgentsPanel({
+  getToken,
+  isSignedIn,
+}: {
+  getToken: () => Promise<string | null>;
+  isSignedIn: boolean;
+}) {
+  const [agents, setAgents] = useState<LinkedAgent[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const loadAgents = async () => {
+    if (!isSignedIn) {
+      setAgents([]);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setAgents([]);
+        return;
+      }
+      const res = await fetchMyLinkedAgents(token);
+      setAgents(res.linkedAgents ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load linked agents');
+      setAgents([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadAgents();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load on sign-in change only
+  }, [isSignedIn]);
+
+  const slugify = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40);
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!isSignedIn) return;
+    const agentName = name.trim();
+    const agentSlug = slugify(slug.trim() || agentName);
+    if (!agentName || agentSlug.length < 2) {
+      setNotice('Name and a 2+ character slug are required.');
+      return;
+    }
+
+    setSubmitting(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setNotice('Sign in to link an agent.');
+        return;
+      }
+      await linkAgent(token, {
+        agentName,
+        agentSlug,
+        agentType: 'general',
+        isPrimary: agents.length === 0,
+      });
+      setName('');
+      setSlug('');
+      setNotice('Agent linked. This is a display identity only — no runtime authority yet.');
+      await loadAgents();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to link agent');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!isSignedIn) {
+    return (
+      <div className="px-4 py-8 text-center text-[var(--text-secondary)]">
+        Sign in to view and link agents.
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-4 py-4">
+      <p className="mb-4 text-[13px] leading-5 text-[var(--text-secondary)]">
+        Linked agents are display identities you can select when composing. HeyVera does not
+        provision agent runtime, credentials, or posting authority here.
+      </p>
+
+      {loading ? (
+        <p className="text-[14px] text-[var(--text-secondary)]">Loading linked agents…</p>
+      ) : agents.length === 0 ? (
+        <div
+          className="mb-4 rounded-2xl border px-4 py-5"
+          style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+        >
+          <p className="text-[15px] font-bold">No linked agents yet</p>
+          <p className="mt-1 text-[13px] text-[var(--text-secondary)]">
+            Link a name and slug below when you want an agent identity on posts. Empty is honest —
+            nothing is faked.
+          </p>
+        </div>
+      ) : (
+        <ul className="mb-4 divide-y divide-[var(--border-primary)] rounded-2xl border border-[var(--border-primary)]">
+          {agents.map((agent) => (
+            <li key={agent.id} className="flex items-start gap-3 px-4 py-3">
+              <span
+                className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+                style={{
+                  backgroundColor: 'color-mix(in srgb, var(--accent) 14%, transparent)',
+                  color: 'var(--accent)',
+                }}
+              >
+                <Bot size={18} />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[15px] font-bold">{agent.agentName}</span>
+                <span className="block text-[13px] text-[var(--text-secondary)]">
+                  @{agent.agentSlug}
+                  {agent.isPrimary ? ' · primary' : ''}
+                  {agent.linkState ? ` · ${agent.linkState}` : ''}
+                </span>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3">
+        <h3 className="text-[15px] font-bold">Link an agent</h3>
+        <label className="block">
+          <span className="mb-1 block text-[13px] text-[var(--text-secondary)]">Name</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (!slug || slug === slugify(name)) {
+                setSlug(slugify(e.target.value));
+              }
+            }}
+            maxLength={80}
+            className="w-full rounded-xl border border-[var(--border-primary)] bg-transparent px-3 py-2 text-[15px] outline-none focus:border-[var(--accent)]"
+            placeholder="Vera Assistant"
+            disabled={submitting}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1 block text-[13px] text-[var(--text-secondary)]">Slug</span>
+          <input
+            type="text"
+            value={slug}
+            onChange={(e) => setSlug(slugify(e.target.value))}
+            maxLength={40}
+            className="w-full rounded-xl border border-[var(--border-primary)] bg-transparent px-3 py-2 text-[15px] outline-none focus:border-[var(--accent)]"
+            placeholder="vera-assistant"
+            disabled={submitting}
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={submitting || !name.trim()}
+          className="rounded-full px-5 py-2 text-[14px] font-bold transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+          style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-primary)' }}
+        >
+          {submitting ? 'Linking…' : 'Link agent'}
+        </button>
+      </form>
+
+      {notice && (
+        <p className="mt-3 text-[13px] text-[var(--text-secondary)]">{notice}</p>
+      )}
+      {error && (
+        <p className="mt-3 text-[13px]" style={{ color: 'var(--color-danger)' }}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const navigate = useNavigate();
   const { authEnabled, isSignedIn, getToken } = useAuth();
@@ -744,6 +945,9 @@ export function SettingsPage() {
                   Sign in to edit your profile.
                 </div>
               )
+            ) : null}
+            {currentSection.id === 'agents' ? (
+              <LinkedAgentsPanel getToken={getToken} isSignedIn={isSignedIn} />
             ) : null}
             {currentSection.id === 'account' ? <AccountSummary /> : null}
             {notice ? (

@@ -1,7 +1,6 @@
 import {
   Bot,
   ChevronDown,
-  Coins,
   Compass,
   Feather,
   Home,
@@ -24,21 +23,22 @@ interface TopBarProps {
   onProfileClick?: () => void;
 }
 
+/** Humans + agents first-class nav (not a generic X clone label set). */
 const socialNav: ReadonlyArray<{ label: string; route: string; icon: LucideIcon }> = [
-  { label: "Home", route: "/home", icon: Home },
-  { label: "Explore", route: "/explore", icon: Compass },
-  { label: "Videos", route: "/videos", icon: PlaySquare },
+  { label: "Network", route: "/home", icon: Home },
+  { label: "Discover", route: "/explore", icon: Compass },
+  { label: "Watch", route: "/videos", icon: PlaySquare },
   { label: "Live", route: "/live", icon: Radio },
-  { label: "Communities", route: "/communities", icon: Users },
-  { label: "Messages", route: "/messages", icon: Mail },
-  { label: "AI", route: "/ai", icon: Bot },
+  { label: "Guilds", route: "/communities", icon: Users },
+  { label: "Inbox", route: "/messages", icon: Mail },
+  { label: "Pulse", route: "/ai", icon: Bot },
 ];
 
 const productAreas: ReadonlyArray<{ label: string; state: string; icon: LucideIcon }> = [
-  { label: "Social", state: "Active", icon: Users },
-  { label: "Crypto", state: "Planned", icon: Coins },
-  { label: "Marketplace", state: "Planned", icon: Store },
-  { label: "AI Agents", state: "Available", icon: Bot },
+  { label: "Network", state: "Active", icon: Users },
+  { label: "Pulse agent", state: "Active", icon: Bot },
+  { label: "Watch", state: "Preview", icon: PlaySquare },
+  { label: "Markets", state: "Planned", icon: Store },
 ];
 
 function isRouteActive(activeRoute: string, route: string): boolean {
@@ -75,7 +75,7 @@ export function TopBar({ activeRoute, onNavigate, onCompose, onProfileClick }: T
             >
               HV
             </span>
-            <span className="hidden sm:inline">Social</span>
+            <span className="hidden sm:inline">HeyVera</span>
             <ChevronDown className="h-4 w-4" aria-hidden="true" />
           </button>
 

@@ -137,3 +137,22 @@ export async function pulseChat(
     body: { message },
   });
 }
+
+/** Schedule an approved draft for later publish. */
+export async function scheduleDraft(
+  token: string,
+  draftId: string,
+  publishAt: string,
+): Promise<{ ok: true; schedule: { id: string; publishAt: string; status: string } }> {
+  return pulseAuthFetch('/schedules', {
+    method: 'POST',
+    token,
+    body: { draftId, publishAt },
+  });
+}
+
+export async function listSchedules(
+  token: string,
+): Promise<{ schedules: Array<{ id: string; draftId: string; publishAt: string; status: string }> }> {
+  return pulseAuthFetch('/schedules', { method: 'GET', token });
+}

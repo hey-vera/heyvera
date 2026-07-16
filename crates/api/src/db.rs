@@ -396,6 +396,8 @@ fn apply_migrations(conn: &Connection) {
     // where production DB ran main-branch v26-v27 (authority metadata) and skipped
     // social table creation that the feature branch put at the same version numbers.
     ensure_social_tables(conn);
+    // Best-effort FTS5 index for post search (falls back to LIKE when unavailable).
+    ensure_social_posts_fts(conn);
 
     if current < 28 {
         migrate_v28(conn);
@@ -1594,6 +1596,18 @@ fn ensure_social_tables(conn: &Connection) {
         );
         CREATE INDEX IF NOT EXISTS idx_pulse_audit_log_draft ON pulse_audit_log(draft_id);
 
+        CREATE TABLE IF NOT EXISTS pulse_schedules (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            draft_id TEXT NOT NULL,
+            publish_at TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'scheduled',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_pulse_schedules_due
+            ON pulse_schedules(status, publish_at);
+
         CREATE TABLE IF NOT EXISTS social_notifications (
             id TEXT PRIMARY KEY, recipient_profile_id TEXT NOT NULL, actor_profile_id TEXT NOT NULL,
             notification_type TEXT NOT NULL, post_id TEXT, read INTEGER NOT NULL DEFAULT 0,
@@ -1679,6 +1693,111 @@ fn ensure_social_tables(conn: &Connection) {
     ).expect("social tables creation failed");
 
     tracing::info!("social tables created successfully");
+}
+
+/// Create FTS5 virtual table + triggers for post body search when SQLite has FTS5.
+/// Safe no-op if FTS5 is unavailable or table already exists.
+fn ensure_social_posts_fts(conn: &Connection) {
+    let has_posts: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='social_posts'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+    if !has_posts {
+        return;
+    }
+
+    let has_fts: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE name='social_posts_fts'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+
+    if !has_fts {
+        match conn.execute_batch(
+            "CREATE VIRTUAL TABLE social_posts_fts USING fts5(
+                post_id UNINDEXED,
+                body,
+                tokenize = 'porter unicode61'
+            );",
+        ) {
+            Ok(()) => {
+                tracing::info!("created social_posts_fts FTS5 virtual table");
+            }
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    "FTS5 unavailable — social search will use LIKE fallback"
+                );
+                return;
+            }
+        }
+    }
+
+    // Triggers keep FTS in sync with social_posts (idempotent IF NOT EXISTS via drop/create).
+    let _ = conn.execute_batch(
+        "CREATE TRIGGER IF NOT EXISTS social_posts_fts_ai AFTER INSERT ON social_posts BEGIN
+            INSERT INTO social_posts_fts(post_id, body) VALUES (new.id, new.body);
+         END;
+         CREATE TRIGGER IF NOT EXISTS social_posts_fts_ad AFTER DELETE ON social_posts BEGIN
+            DELETE FROM social_posts_fts WHERE post_id = old.id;
+         END;
+         CREATE TRIGGER IF NOT EXISTS social_posts_fts_au AFTER UPDATE OF body ON social_posts BEGIN
+            DELETE FROM social_posts_fts WHERE post_id = old.id;
+            INSERT INTO social_posts_fts(post_id, body) VALUES (new.id, new.body);
+         END;",
+    );
+
+    // Rebuild if empty (first boot or after table create).
+    let fts_count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM social_posts_fts", [], |r| r.get(0))
+        .unwrap_or(0);
+    if fts_count == 0 {
+        match conn.execute(
+            "INSERT INTO social_posts_fts(post_id, body)
+             SELECT id, body FROM social_posts",
+            [],
+        ) {
+            Ok(n) => {
+                if n > 0 {
+                    tracing::info!(rows = n, "rebuilt social_posts_fts from social_posts");
+                }
+            }
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to rebuild social_posts_fts");
+            }
+        }
+    }
+}
+
+/// Build a safe FTS5 MATCH query from free text. Returns None when nothing searchable remains.
+fn sanitize_fts_query(query: &str) -> Option<String> {
+    let tokens: Vec<String> = query
+        .split_whitespace()
+        .filter_map(|t| {
+            let cleaned: String = t
+                .chars()
+                .filter(|c| c.is_alphanumeric() || *c == '_')
+                .collect();
+            if cleaned.is_empty() {
+                None
+            } else {
+                // Prefix match per token; alphanumeric-only so FTS operators cannot be injected.
+                Some(format!("{cleaned}*"))
+            }
+        })
+        .collect();
+    if tokens.is_empty() {
+        None
+    } else {
+        Some(tokens.join(" "))
+    }
 }
 
 fn migrate_v28(_conn: &Connection) {}
@@ -9947,6 +10066,86 @@ impl Database {
         }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
+    /// True when `agent_id` is a linked agent owned by `profile_id`.
+    pub fn social_linked_agent_belongs_to(&self, profile_id: &str, agent_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM social_linked_agents WHERE id = ?1 AND profile_id = ?2 LIMIT 1",
+            params![agent_id, profile_id],
+            |_| Ok(()),
+        )
+        .is_ok()
+    }
+
+    /// Create a linked agent for a profile. Clears other primaries when `is_primary`.
+    pub fn social_create_linked_agent(
+        &self,
+        profile_id: &str,
+        agent_name: &str,
+        agent_slug: &str,
+        agent_key: &str,
+        agent_type: &str,
+        visibility: &str,
+        proof_state: &str,
+        is_primary: bool,
+    ) -> Result<serde_json::Value, String> {
+        let conn = self.conn.lock().unwrap();
+        // Unique slug per profile
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM social_linked_agents WHERE profile_id = ?1 AND agent_slug = ?2 LIMIT 1",
+                params![profile_id, agent_slug],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if exists {
+            return Err("agentSlug already linked on this profile".to_string());
+        }
+
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        if is_primary {
+            conn.execute(
+                "UPDATE social_linked_agents SET is_primary = 0, updated_at = ?1 WHERE profile_id = ?2",
+                params![now, profile_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        conn.execute(
+            "INSERT INTO social_linked_agents
+             (id, profile_id, agent_name, agent_slug, agent_key, agent_type, link_state, visibility, proof_state, is_primary, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?8, ?9, ?10, ?10)",
+            params![
+                id,
+                profile_id,
+                agent_name,
+                agent_slug,
+                agent_key,
+                agent_type,
+                visibility,
+                proof_state,
+                if is_primary { 1i64 } else { 0i64 },
+                now,
+            ],
+        )
+        .map_err(|e| e.to_string())?;
+
+        Ok(serde_json::json!({
+            "id": id,
+            "profileId": profile_id,
+            "agentName": agent_name,
+            "agentSlug": agent_slug,
+            "agentKey": agent_key,
+            "agentType": agent_type,
+            "linkState": "active",
+            "visibility": visibility,
+            "proofState": proof_state,
+            "isPrimary": is_primary,
+            "createdAt": now,
+            "updatedAt": now,
+        }))
+    }
+
     pub fn social_list_feed_posts(&self, limit: i64, offset: i64, filter: Option<&str>) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         let filter_clause = match filter {
@@ -10045,46 +10244,8 @@ impl Database {
     }
 
     pub fn social_search_posts(&self, query: &str, limit: i64) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
-        let pattern = format!("%{query}%");
-        let mut stmt = conn.prepare(
-            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
-                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
-                    sp.created_at, sp.updated_at,
-                    p.handle, p.display_name,
-                    la.agent_name, la.agent_slug
-             FROM social_posts sp
-             JOIN social_profiles p ON p.id = sp.profile_id
-             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
-             WHERE sp.visibility = 'public' AND sp.body LIKE ?1
-             ORDER BY sp.created_at DESC LIMIT ?2"
-        ).unwrap();
-        stmt.query_map(params![pattern, limit], |row| {
-            let agent_name: Option<String> = row.get(13)?;
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "body": row.get::<_, String>(3)?,
-                "visibility": row.get::<_, String>(4)?,
-                "proofState": row.get::<_, String>(5)?,
-                "authorMode": row.get::<_, String>(6)?,
-                "replyToPostId": row.get::<_, Option<String>>(7)?,
-                "quotePostId": row.get::<_, Option<String>>(8)?,
-                "createdAt": row.get::<_, String>(9)?,
-                "updatedAt": row.get::<_, String>(10)?,
-                "author": {
-                    "profileId": row.get::<_, String>(1)?,
-                    "handle": row.get::<_, String>(11)?,
-                    "displayName": row.get::<_, String>(12)?,
-                },
-                "linkedAgent": if agent_name.is_some() {
-                    serde_json::json!({
-                        "id": row.get::<_, Option<String>>(2)?,
-                        "agentName": agent_name,
-                        "agentSlug": row.get::<_, Option<String>>(14)?,
-                    })
-                } else { serde_json::Value::Null },
-            }))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        // Prefer keyset path with FTS; empty blocked/muted sets.
+        self.social_search_posts_keyset(query, limit, None, None, &[], &[])
     }
 
     pub fn social_search_profiles(&self, query: &str, limit: i64) -> Vec<serde_json::Value> {
@@ -11048,6 +11209,49 @@ impl Database {
                     m.insert("reposted".into(), serde_json::json!(false));
                 }
             }
+
+            // Attach media for this post (same connection — avoid nested Mutex lock).
+            let media_list: Vec<serde_json::Value> = {
+                let mut media_stmt = match conn.prepare(
+                    "SELECT m.id, m.filename, m.content_type, m.size_bytes, m.media_type, m.storage_key, pm.position
+                     FROM social_media_objects m
+                     JOIN social_post_media pm ON pm.media_id = m.id
+                     WHERE pm.post_id = ?1
+                     ORDER BY pm.position ASC",
+                ) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                media_stmt
+                    .query_map(params![post_id], |row| {
+                        let storage_key: String = row.get(5)?;
+                        let public_url = std::env::var("STORAGE_PUBLIC_URL")
+                            .map(|domain| format!("{}/{}", domain.trim_end_matches('/'), storage_key))
+                            .unwrap_or_else(|_| {
+                                match (std::env::var("STORAGE_ENDPOINT"), std::env::var("STORAGE_BUCKET")) {
+                                    (Ok(ep), Ok(bucket)) => {
+                                        format!("{}/{}/{}", ep.trim_end_matches('/'), bucket, storage_key)
+                                    }
+                                    _ => format!("/media/{}", storage_key),
+                                }
+                            });
+                        Ok(serde_json::json!({
+                            "id": row.get::<_, String>(0)?,
+                            "filename": row.get::<_, String>(1)?,
+                            "contentType": row.get::<_, String>(2)?,
+                            "sizeBytes": row.get::<_, i64>(3)?,
+                            "mediaType": row.get::<_, String>(4)?,
+                            "url": public_url,
+                            "position": row.get::<_, i64>(6)?,
+                        }))
+                    })
+                    .ok()
+                    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                    .unwrap_or_default()
+            };
+            if let Some(m) = post.as_object_mut() {
+                m.insert("media".into(), serde_json::json!(media_list));
+            }
         }
     }
 
@@ -11432,7 +11636,7 @@ impl Database {
         rows
     }
 
-    /// Keyset-paginated search posts
+    /// Keyset-paginated search posts (FTS5 when available, LIKE fallback).
     pub fn social_search_posts_keyset(
         &self,
         query: &str,
@@ -11445,6 +11649,7 @@ impl Database {
         let _t = std::time::Instant::now();
         let conn = self.conn.lock().unwrap();
         let pattern = format!("%{query}%");
+        let fts_q = sanitize_fts_query(query);
         let excluded: Vec<String> = blocked_ids.iter().chain(muted_ids.iter()).cloned().collect();
         let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
             let agent_name: Option<String> = row.get(13)?;
@@ -11477,7 +11682,118 @@ impl Database {
             let ph: Vec<String> = (0..excluded.len()).map(|i| format!("?{}", start + i)).collect();
             format!("AND sp.profile_id NOT IN ({})", ph.join(", "))
         };
-        let rows: Vec<serde_json::Value> = if cursor_created_at.is_some() && cursor_id.is_some() {
+
+        // Prefer FTS5 MATCH when virtual table + usable query tokens exist.
+        let fts_rows: Option<Vec<serde_json::Value>> = if let Some(ref match_q) = fts_q {
+            let has_fts: bool = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE name='social_posts_fts'",
+                    [],
+                    |r| r.get::<_, i64>(0),
+                )
+                .unwrap_or(0)
+                > 0;
+            if !has_fts {
+                None
+            } else if cursor_created_at.is_some() && cursor_id.is_some() {
+                let sql = format!(
+                    "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                            sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                            sp.created_at, sp.updated_at, p.handle, p.display_name,
+                            la.agent_name, la.agent_slug
+                     FROM social_posts_fts fts
+                     JOIN social_posts sp ON sp.id = fts.post_id
+                     JOIN social_profiles p ON p.id = sp.profile_id
+                     LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                     WHERE social_posts_fts MATCH ?1
+                       AND sp.visibility = 'public' AND sp.deleted_at IS NULL
+                       AND (sp.created_at < ?2 OR (sp.created_at = ?2 AND sp.id < ?3))
+                       {exclude_clause}
+                     ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?4"
+                );
+                match conn.prepare(&sql) {
+                    Ok(mut stmt) => {
+                        let result = if excluded.is_empty() {
+                            stmt.query_map(
+                                params![match_q, cursor_created_at.unwrap(), cursor_id.unwrap(), limit],
+                                map_row,
+                            )
+                            .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                        } else {
+                            let mut p: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
+                                Box::new(match_q.clone()),
+                                Box::new(cursor_created_at.unwrap().to_string()),
+                                Box::new(cursor_id.unwrap().to_string()),
+                                Box::new(limit),
+                            ];
+                            for id in &excluded {
+                                p.push(Box::new(id.clone()));
+                            }
+                            let pr: Vec<&dyn rusqlite::types::ToSql> =
+                                p.iter().map(|b| b.as_ref()).collect();
+                            stmt.query_map(pr.as_slice(), map_row)
+                                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                        };
+                        result.ok()
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "FTS search prepare failed — falling back to LIKE");
+                        None
+                    }
+                }
+            } else {
+                let sql = format!(
+                    "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                            sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                            sp.created_at, sp.updated_at, p.handle, p.display_name,
+                            la.agent_name, la.agent_slug
+                     FROM social_posts_fts fts
+                     JOIN social_posts sp ON sp.id = fts.post_id
+                     JOIN social_profiles p ON p.id = sp.profile_id
+                     LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                     WHERE social_posts_fts MATCH ?1
+                       AND sp.visibility = 'public' AND sp.deleted_at IS NULL
+                       {exclude_clause}
+                     ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?2"
+                );
+                match conn.prepare(&sql) {
+                    Ok(mut stmt) => {
+                        let result = if excluded.is_empty() {
+                            stmt.query_map(params![match_q, limit], map_row)
+                                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                        } else {
+                            let mut p: Vec<Box<dyn rusqlite::types::ToSql>> =
+                                vec![Box::new(match_q.clone()), Box::new(limit)];
+                            for id in &excluded {
+                                p.push(Box::new(id.clone()));
+                            }
+                            let pr: Vec<&dyn rusqlite::types::ToSql> =
+                                p.iter().map(|b| b.as_ref()).collect();
+                            stmt.query_map(pr.as_slice(), map_row)
+                                .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                        };
+                        result.ok()
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "FTS search prepare failed — falling back to LIKE");
+                        None
+                    }
+                }
+            }
+        } else {
+            None
+        };
+
+        let rows: Vec<serde_json::Value> = if let Some(rows) = fts_rows {
+            tracing::info!(
+                method = "social_search_posts_keyset",
+                engine = "fts5",
+                duration_ms = _t.elapsed().as_millis(),
+                row_count = rows.len(),
+                "db query"
+            );
+            return rows;
+        } else if cursor_created_at.is_some() && cursor_id.is_some() {
             let sql = format!(
                 "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
                         sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
@@ -11527,7 +11843,13 @@ impl Database {
                 stmt.query_map(pr.as_slice(), map_row).unwrap().filter_map(|r| r.ok()).collect()
             }
         };
-        tracing::info!(method = "social_search_posts_keyset", duration_ms = _t.elapsed().as_millis(), row_count = rows.len(), "db query");
+        tracing::info!(
+            method = "social_search_posts_keyset",
+            engine = "like",
+            duration_ms = _t.elapsed().as_millis(),
+            row_count = rows.len(),
+            "db query"
+        );
         rows
     }
 
@@ -12476,6 +12798,138 @@ impl Database {
         .unwrap()
         .filter_map(|r| r.ok())
         .collect()
+    }
+
+    /// Schedule an approved draft for later publish (human-approved content only).
+    pub fn pulse_schedule_draft(
+        &self,
+        profile_id: &str,
+        draft_id: &str,
+        publish_at: &str,
+    ) -> Option<serde_json::Value> {
+        let draft = self.pulse_get_draft(draft_id, profile_id)?;
+        let status = draft["status"].as_str().unwrap_or("");
+        if status != "approved" && status != "pending" {
+            return None;
+        }
+        // Require approve before schedule for public path: auto-approve pending when scheduling
+        // is not done here — caller must approve first.
+        if status != "approved" {
+            return None;
+        }
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        conn.execute(
+            "INSERT INTO pulse_schedules (id, profile_id, draft_id, publish_at, status, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 'scheduled', ?5, ?5)",
+            params![id, profile_id, draft_id, publish_at, now],
+        )
+        .ok()?;
+        Some(serde_json::json!({
+            "id": id,
+            "profileId": profile_id,
+            "draftId": draft_id,
+            "publishAt": publish_at,
+            "status": "scheduled",
+            "createdAt": now,
+        }))
+    }
+
+    pub fn pulse_list_schedules(&self, profile_id: &str) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, profile_id, draft_id, publish_at, status, created_at, updated_at
+                 FROM pulse_schedules WHERE profile_id = ?1 ORDER BY publish_at ASC",
+            )
+            .unwrap();
+        stmt.query_map(params![profile_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "profileId": row.get::<_, String>(1)?,
+                "draftId": row.get::<_, String>(2)?,
+                "publishAt": row.get::<_, String>(3)?,
+                "status": row.get::<_, String>(4)?,
+                "createdAt": row.get::<_, String>(5)?,
+                "updatedAt": row.get::<_, String>(6)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    /// Publish due schedules: returns list of {scheduleId, postId, draftId}.
+    pub fn pulse_process_due_schedules(&self, now_iso: &str) -> Vec<serde_json::Value> {
+        let due: Vec<(String, String, String)> = {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, profile_id, draft_id FROM pulse_schedules
+                     WHERE status = 'scheduled' AND publish_at <= ?1",
+                )
+                .unwrap();
+            stmt.query_map(params![now_iso], |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            })
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
+        };
+
+        let mut results = Vec::new();
+        for (sched_id, profile_id, draft_id) in due {
+            let draft = match self.pulse_get_draft(&draft_id, &profile_id) {
+                Some(d) if d["status"].as_str() == Some("approved") => d,
+                _ => {
+                    let conn = self.conn.lock().unwrap();
+                    let _ = conn.execute(
+                        "UPDATE pulse_schedules SET status = 'failed', updated_at = ?1 WHERE id = ?2",
+                        params![now_iso, sched_id],
+                    );
+                    continue;
+                }
+            };
+            let body = draft["body"].as_str().unwrap_or("");
+            let visibility = draft["visibility"].as_str().unwrap_or("public");
+            let author_mode = draft["authorMode"].as_str().unwrap_or("person");
+            let linked = draft["linkedAgentId"].as_str();
+            let post = self.social_create_post(
+                &profile_id,
+                body,
+                visibility,
+                author_mode,
+                linked,
+                None,
+                None,
+            );
+            let post_id = post["id"].as_str().unwrap_or("").to_string();
+            let _ = self.pulse_update_draft_status(&draft_id, &profile_id, "published");
+            self.pulse_add_audit(
+                &draft_id,
+                &profile_id,
+                "scheduled_publish",
+                Some(&serde_json::json!({ "postId": post_id, "scheduleId": sched_id }).to_string()),
+            );
+            {
+                let conn = self.conn.lock().unwrap();
+                let _ = conn.execute(
+                    "UPDATE pulse_schedules SET status = 'published', updated_at = ?1 WHERE id = ?2",
+                    params![now_iso, sched_id],
+                );
+            }
+            results.push(serde_json::json!({
+                "scheduleId": sched_id,
+                "draftId": draft_id,
+                "postId": post_id,
+            }));
+        }
+        results
     }
 
     // --- API key management ---
@@ -15334,5 +15788,60 @@ mod tests {
                     && item["task_id"] == "task-raw"
                     && item["reason"] == "no_run")
         );
+    }
+
+    /// Golden path: profile → post → feed → like → reply (real SQLite social tables).
+    #[test]
+    fn social_golden_path_profile_post_feed_like_reply() {
+        let db = test_db();
+        let profile = db.social_create_profile("clerk_user_a", "alice", "Alice", "hello");
+        let profile_id = profile["id"].as_str().expect("profile id");
+        assert_eq!(profile["handle"], "alice");
+
+        let post = db.social_create_post(
+            profile_id,
+            "Hello HeyVera network",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+        );
+        let post_id = post["id"].as_str().expect("post id").to_string();
+        assert_eq!(post["body"], "Hello HeyVera network");
+
+        let bob = db.social_create_profile("clerk_user_b", "bob", "Bob", "");
+        let bob_id = bob["id"].as_str().expect("bob id");
+
+        db.social_like(bob_id, &post_id);
+        assert!(db.social_get_follow_status(bob_id, profile_id) == false);
+        db.social_follow(bob_id, profile_id);
+        assert!(db.social_get_follow_status(bob_id, profile_id));
+
+        let reply = db.social_create_post(
+            bob_id,
+            "Nice post",
+            "public",
+            "person",
+            None,
+            Some(&post_id),
+            None,
+        );
+        assert_eq!(reply["replyToPostId"].as_str(), Some(post_id.as_str()));
+
+        let mut feed = db.social_list_feed_posts_keyset(20, None, None, None, &[], &[]);
+        db.social_enrich_feed_posts(&mut feed, Some(bob_id));
+        assert!(
+            feed.iter().any(|p| p["id"] == post_id),
+            "home feed should include the new post"
+        );
+
+        let draft = db.pulse_create_draft(profile_id, "Draft body", "public", "person", None);
+        let draft_id = draft["id"].as_str().expect("draft id");
+        assert_eq!(draft["status"], "pending");
+        let approved = db
+            .pulse_update_draft_status(draft_id, profile_id, "approved")
+            .expect("approve");
+        assert_eq!(approved["status"], "approved");
     }
 }

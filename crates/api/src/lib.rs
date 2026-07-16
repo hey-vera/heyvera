@@ -519,6 +519,8 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/posts", post(social::create_post))
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
+        .route("/v1/social/media/mock-upload/{*storage_key}", put(media::mock_upload))
+        .route("/v1/social/linked-agents", get(social::list_my_linked_agents).post(social::create_linked_agent))
         .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
         .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
         .route("/v1/social/posts/{id}/bookmark", post(social::bookmark_post).delete(social::unbookmark_post))
@@ -541,7 +543,8 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/report", post(moderation::create_report))
         .merge(admin_routes)
         .merge(rate_limited)
-        .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+        // 12 MB: mock media PUT may carry image bytes when R2 is not configured.
+        .layer(DefaultBodyLimit::max(12 * 1024 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), soma::soma_headers_middleware))
         .layer(cors_layer())
         .layer(middleware::from_fn(request_id_middleware))
@@ -601,9 +604,11 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/longform", get(social::get_longform).post(social::create_longform))
         .route("/v1/social/profile/me", get(social::get_my_profile))
         .route("/v1/social/profile", patch(social::update_me_profile))
+        .route("/v1/social/linked-agents", get(social::list_my_linked_agents).post(social::create_linked_agent))
         .route("/v1/social/posts", post(social::create_post))
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
+        .route("/v1/social/media/mock-upload/{*storage_key}", put(media::mock_upload))
         .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
         .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
         .route("/v1/social/posts/{id}/bookmark", post(social::bookmark_post).delete(social::unbookmark_post))
@@ -633,6 +638,8 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/pulse/drafts/{id}/publish", post(pulse::publish_draft))
         .route("/v1/pulse/drafts/{id}/audit", get(pulse::get_draft_audit))
         .route("/v1/pulse/chat", post(pulse::pulse_chat))
+        .route("/v1/pulse/schedules", get(pulse::list_schedules).post(pulse::schedule_draft))
+        .route("/v1/pulse/schedules/process", post(pulse::process_due_schedules))
         // Shared auth/billing (heyvera router)
         .route("/api/auth/status", get(auth::auth_status))
         .route("/api/billing/status", get(billing::get_billing_status))
@@ -646,7 +653,8 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
             state.clone(),
             ratelimit::rate_limit_middleware,
         ))
-        .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
+        // 12 MB: mock media PUT may carry image bytes when R2 is not configured.
+        .layer(DefaultBodyLimit::max(12 * 1024 * 1024))
         .layer(cors_layer())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(state)
@@ -791,10 +799,12 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/communities", get(social::get_communities))
         .route("/v1/social/longform", get(social::get_longform).post(social::create_longform))
         .route("/v1/social/profile/me", get(social::get_my_profile))
+        .route("/v1/social/linked-agents", get(social::list_my_linked_agents).post(social::create_linked_agent))
         .route("/v1/social/posts", post(social::create_post))
         // Task #47: Media uploads
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
+        .route("/v1/social/media/mock-upload/{*storage_key}", put(media::mock_upload))
         // Task #30: Social action endpoints
         .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
         .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
@@ -833,6 +843,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/pulse/drafts/{id}/publish", post(pulse::publish_draft))
         .route("/v1/pulse/drafts/{id}/audit", get(pulse::get_draft_audit))
         .route("/v1/pulse/chat", post(pulse::pulse_chat))
+        .route("/v1/pulse/schedules", get(pulse::list_schedules).post(pulse::schedule_draft))
+        .route("/v1/pulse/schedules/process", post(pulse::process_due_schedules))
         // Protected — lightweight
         .route("/api/providers", get(routes::get_providers))
         .route("/api/ledger", get(routes::get_ledger))
@@ -907,7 +919,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .merge(admin_routes)
         // Merge rate-limited routes
         .merge(rate_limited)
-        .layer(DefaultBodyLimit::max(2 * 1024 * 1024)) // 2MB max request body
+        .layer(DefaultBodyLimit::max(12 * 1024 * 1024)) // mock media PUT without R2
         .layer(middleware::from_fn_with_state(
             state.clone(),
             soma::soma_headers_middleware,

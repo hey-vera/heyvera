@@ -2,6 +2,15 @@ import { useEffect, useState } from "react";
 
 const STORAGE_KEY = "vera-theme";
 
+/** Dark is the product default; light is an optional accessibility preference. */
+function resolveInitialDark(): boolean {
+  const stored = localStorage.getItem(STORAGE_KEY);
+  if (stored === "light") return false;
+  if (stored === "dark") return true;
+  // No preference yet → dark-first product default
+  return true;
+}
+
 function applyTheme(dark: boolean) {
   if (dark) {
     document.documentElement.classList.add("dark");
@@ -11,10 +20,7 @@ function applyTheme(dark: boolean) {
 }
 
 export function ThemeToggle() {
-  const [isDark, setIsDark] = useState(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored === "dark";
-  });
+  const [isDark, setIsDark] = useState(resolveInitialDark);
 
   useEffect(() => {
     applyTheme(isDark);
@@ -27,13 +33,18 @@ export function ThemeToggle() {
     applyTheme(next);
   }
 
+  const label = isDark ? "Switch to light mode" : "Switch to dark mode";
+
   return (
     <button
+      type="button"
       className="theme-toggle"
       onClick={toggle}
-      aria-label={isDark ? "Switch to light mode" : "Switch to dark mode"}
-      title={isDark ? "Switch to light mode" : "Switch to dark mode"}
+      aria-label={label}
+      aria-pressed={isDark}
+      title={label}
     >
+      <span className="sr-only">{label}</span>
       {isDark ? (
         /* Sun icon — shown in dark mode to switch to light */
         <svg
