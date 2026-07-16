@@ -6,8 +6,9 @@ If a session dies or Grok quota runs out, **resume from this file**.
 | Field | Value |
 |-------|--------|
 | **Scope** | `heyvera.org` only (not Cortex, not myshell-tools) |
-| **Last updated** | 2026-07-16 (session: Phase 0–2 + Pulse tools chat) |
-| **Branch with WIP** | `phase-0-heyvera-foundation` — commits: `e19146c`, `2315e41`, `764bf57` + pending Pulse chat |
+| **Last updated** | 2026-07-16 (cleanup: ship is foundation on main) |
+| **Active branch** | `phase-0-heyvera-ship` (GitHub; contains origin/main + Phase 0–2/Pulse) |
+| **Deferred CI** | `heyvera/docs/deferred/CI-WORKFLOW-REWRITE.md` |
 | **Product SoT** | `heyvera/CURRENT.md` |
 | **API matrix** | `heyvera/docs/API-CONTRACT.md` |
 | **Pulse strategy** | `heyvera/docs/PULSE-STRATEGY.md` |
@@ -51,9 +52,10 @@ If a session dies or Grok quota runs out, **resume from this file**.
 - [x] Deploy frontend workflow → `heyvera/`
 - [x] Pulse reference cloned from `hey-vera/Synthr-Files` → `heyvera/reference/synthr-pulse/`
 - [x] Pulse inventory written (`docs/PULSE-REFERENCE-INVENTORY.md`)
-- [x] **Commit Phase 0 + Phase 1 path work** on `phase-0-heyvera-foundation` (`e19146c` via `git -c user.*`)
-- [x] Phase 2 honesty commits (`2315e41`, `764bf57`)
-- [ ] Open PR → merge to `main` when checks green (automerge if branch protection ready); `gh` not logged in on runner
+- [x] **Commit Phase 0 + Phase 1 path work** (merged into ship on main)
+- [x] Phase 2 honesty + Pulse tools_v1 on `phase-0-heyvera-ship`
+- [x] Local foundation branch superseded; deferred CI saved under docs/deferred/
+- [ ] Open PR → merge `phase-0-heyvera-ship` to `main` when checks green → merge to `main` when checks green (automerge if branch protection ready); `gh` not logged in on runner
 - [ ] Branch protection + required checks (`heyvera` + `rust`) + automerge process documented/enabled on GitHub
 - [ ] Do not leave long-lived stale feature branches
 
