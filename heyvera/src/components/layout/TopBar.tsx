@@ -86,7 +86,20 @@ export function TopBar({ activeRoute, onNavigate, onCompose, onProfileClick }: T
               role="menu"
             >
               {productAreas.map(({ label, state, icon: Icon }) => {
-                const active = label === "Social";
+                const route =
+                  label === "Network"
+                    ? "/home"
+                    : label === "Pulse agent"
+                      ? "/ai"
+                      : label === "Watch"
+                        ? "/videos"
+                        : null;
+                const active =
+                  route != null &&
+                  (route === "/home"
+                    ? activeRoute === "/home"
+                    : isRouteActive(activeRoute, route));
+                const navigable = route != null;
                 return (
                   <button
                     key={label}
@@ -94,12 +107,12 @@ export function TopBar({ activeRoute, onNavigate, onCompose, onProfileClick }: T
                     className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover-overlay"
                     onClick={() => {
                       setMenuOpen(false);
-                      if (label === "Social") onNavigate("/home");
-                      if (label === "AI Agents") onNavigate("/ai");
+                      if (route) onNavigate(route);
                     }}
-                    disabled={!active && label !== "AI Agents"}
-                    style={{ opacity: active || label === "AI Agents" ? 1 : 0.56 }}
+                    disabled={!navigable}
+                    style={{ opacity: navigable ? 1 : 0.56 }}
                     role="menuitem"
+                    aria-current={active ? "page" : undefined}
                   >
                     <Icon className="h-5 w-5 shrink-0" style={{ color: "var(--accent)" }} aria-hidden="true" />
                     <span className="min-w-0 flex-1">

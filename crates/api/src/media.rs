@@ -148,24 +148,139 @@ pub async fn request_upload_url(
     }))
 }
 
+/// Directory for mock media bytes when R2/S3 is not configured.
+pub fn mock_media_root() -> std::path::PathBuf {
+    if let Ok(dir) = std::env::var("HEYVERA_MOCK_MEDIA_DIR") {
+        return std::path::PathBuf::from(dir);
+    }
+    std::env::temp_dir().join("heyvera-mock-media")
+}
+
+/// Sanitize storage_key segments so it cannot escape the mock root.
+fn mock_media_path(storage_key: &str) -> Result<std::path::PathBuf, String> {
+    let key = storage_key.trim().trim_start_matches('/');
+    if key.is_empty() {
+        return Err("empty storage key".into());
+    }
+    if key.contains("..") {
+        return Err("invalid storage key".into());
+    }
+    let path = mock_media_root().join(key);
+    // Ensure resolved path stays under root
+    let root = mock_media_root();
+    if !path.starts_with(&root) {
+        return Err("invalid storage key path".into());
+    }
+    Ok(path)
+}
+
+/// Persist mock upload bytes (used by PUT handler and tests).
+pub fn mock_store_put(storage_key: &str, bytes: &[u8]) -> Result<std::path::PathBuf, String> {
+    let path = mock_media_path(storage_key)?;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| format!("mkdir: {e}"))?;
+    }
+    std::fs::write(&path, bytes).map_err(|e| format!("write: {e}"))?;
+    Ok(path)
+}
+
+/// Read mock object bytes if present.
+pub fn mock_store_get(storage_key: &str) -> Result<Vec<u8>, String> {
+    let path = mock_media_path(storage_key)?;
+    std::fs::read(&path).map_err(|e| format!("read: {e}"))
+}
+
+pub fn mock_store_exists(storage_key: &str) -> bool {
+    mock_media_path(storage_key)
+        .map(|p| p.is_file())
+        .unwrap_or(false)
+}
+
 /// PUT /v1/social/media/mock-upload/{*storage_key}
 ///
-/// Accepts a body when real object storage is not configured so the client
-/// upload flow can complete without R2/S3.
+/// Accepts and **persists** a body when real object storage is not configured.
 pub async fn mock_upload(
     Path(storage_key): Path<String>,
     body: axum::body::Bytes,
 ) -> impl IntoResponse {
-    tracing::info!(
-        storage_key = %storage_key,
-        bytes = body.len(),
-        "mock media upload accepted"
-    );
-    Json(serde_json::json!({
-        "ok": true,
-        "storageKey": storage_key,
-        "bytes": body.len(),
-    }))
+    match mock_store_put(&storage_key, &body) {
+        Ok(path) => {
+            tracing::info!(
+                storage_key = %storage_key,
+                bytes = body.len(),
+                path = %path.display(),
+                "mock media upload persisted"
+            );
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "ok": true,
+                    "storageKey": storage_key,
+                    "bytes": body.len(),
+                })),
+            )
+                .into_response()
+        }
+        Err(err) => {
+            tracing::warn!(storage_key = %storage_key, error = %err, "mock media upload failed");
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "error": err,
+                    "code": "MOCK_UPLOAD_FAILED",
+                })),
+            )
+                .into_response()
+        }
+    }
+}
+
+/// GET /v1/social/media/mock-upload/{*storage_key}
+///
+/// Serves bytes written by mock_upload so finalize public URLs actually render.
+pub async fn mock_serve(Path(storage_key): Path<String>) -> impl IntoResponse {
+    match mock_store_get(&storage_key) {
+        Ok(bytes) => {
+            let content_type = guess_content_type(&storage_key);
+            let mut res = axum::response::Response::new(axum::body::Body::from(bytes));
+            *res.status_mut() = StatusCode::OK;
+            res.headers_mut().insert(
+                axum::http::header::CONTENT_TYPE,
+                axum::http::HeaderValue::from_str(&content_type)
+                    .unwrap_or_else(|_| axum::http::HeaderValue::from_static("application/octet-stream")),
+            );
+            res.headers_mut().insert(
+                axum::http::header::CACHE_CONTROL,
+                axum::http::HeaderValue::from_static("public, max-age=3600"),
+            );
+            res
+        }
+        Err(_) => (
+            StatusCode::NOT_FOUND,
+            Json(serde_json::json!({
+                "error": "Mock media object not found",
+                "code": "NOT_FOUND",
+            })),
+        )
+            .into_response(),
+    }
+}
+
+fn guess_content_type(storage_key: &str) -> String {
+    let lower = storage_key.to_lowercase();
+    if lower.ends_with(".png") {
+        "image/png".into()
+    } else if lower.ends_with(".gif") {
+        "image/gif".into()
+    } else if lower.ends_with(".webp") {
+        "image/webp".into()
+    } else if lower.ends_with(".webm") {
+        "video/webm".into()
+    } else if lower.ends_with(".mp4") {
+        "video/mp4".into()
+    } else {
+        "image/jpeg".into()
+    }
 }
 
 /// POST /v1/social/media/{id}/finalize
@@ -221,7 +336,7 @@ pub async fn finalize_upload(
     let storage_key = media["storageKey"].as_str().unwrap_or("");
 
     // When storage is configured, require a real object HEAD before finalize.
-    // Mock/local mode (no STORAGE_*) skips the check.
+    // Mock/local mode requires the mock file to have been PUT already.
     let storage_configured = std::env::var("STORAGE_ENDPOINT").is_ok()
         && std::env::var("STORAGE_BUCKET").is_ok();
 
@@ -266,6 +381,12 @@ pub async fn finalize_upload(
                 );
             }
         }
+    } else if !mock_store_exists(storage_key) {
+        return media_err(
+            StatusCode::NOT_FOUND,
+            "OBJECT_NOT_FOUND",
+            "Mock upload object not found — PUT to mock-upload URL before finalizing",
+        );
     }
 
     // Mark as finalized
@@ -513,6 +634,7 @@ fn uri_encode(s: &str) -> String {
 }
 
 /// Resolve the public URL for a finalized media object.
+/// Mock mode uses the GET mock-upload route so PostCard can render images.
 fn resolve_public_url(storage_key: &str) -> String {
     let endpoint = std::env::var("STORAGE_ENDPOINT").ok();
     let bucket = std::env::var("STORAGE_BUCKET").ok();
@@ -527,7 +649,7 @@ fn resolve_public_url(storage_key: &str) -> String {
                 format!("{}/{}/{}", endpoint.trim_end_matches('/'), bucket, storage_key)
             }
             _ => {
-                format!("/media/{}", storage_key)
+                format!("/v1/social/media/mock-upload/{}", storage_key.trim_start_matches('/'))
             }
         },
     }
@@ -542,4 +664,106 @@ fn sanitize_filename(name: &str) -> String {
     name.chars()
         .filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_' || *c == '.')
         .collect::<String>()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Mutex;
+
+    // Serialize tests that touch env + shared temp dir.
+    static MOCK_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn mock_put_get_roundtrip_preserves_bytes() {
+        let _guard = MOCK_TEST_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("HEYVERA_MOCK_MEDIA_DIR", dir.path());
+        // Ensure no R2 mode for resolve_public_url
+        std::env::remove_var("STORAGE_ENDPOINT");
+        std::env::remove_var("STORAGE_BUCKET");
+        std::env::remove_var("STORAGE_PUBLIC_URL");
+
+        let key = "uploads/test-user/photo.png";
+        let payload = b"\x89PNG\r\n\x1a\nmock-image-bytes";
+        mock_store_put(key, payload).expect("put");
+        assert!(mock_store_exists(key));
+        let got = mock_store_get(key).expect("get");
+        assert_eq!(got, payload);
+
+        let url = resolve_public_url(key);
+        assert_eq!(url, format!("/v1/social/media/mock-upload/{key}"));
+
+        // Finalize path requires object present
+        assert!(mock_store_exists(key));
+        std::env::remove_var("HEYVERA_MOCK_MEDIA_DIR");
+    }
+
+    #[test]
+    fn mock_finalize_refuses_missing_object() {
+        let _guard = MOCK_TEST_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("HEYVERA_MOCK_MEDIA_DIR", dir.path());
+        std::env::remove_var("STORAGE_ENDPOINT");
+        std::env::remove_var("STORAGE_BUCKET");
+
+        let key = "uploads/missing/file.jpg";
+        assert!(!mock_store_exists(key));
+        std::env::remove_var("HEYVERA_MOCK_MEDIA_DIR");
+    }
+
+    #[test]
+    fn mock_path_rejects_traversal() {
+        let _guard = MOCK_TEST_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("HEYVERA_MOCK_MEDIA_DIR", dir.path());
+        assert!(mock_store_put("../etc/passwd", b"x").is_err());
+        std::env::remove_var("HEYVERA_MOCK_MEDIA_DIR");
+    }
+
+    /// Full mock media path: create media row → PUT body → finalize requires file → public URL points at GET route.
+    #[test]
+    fn mock_put_finalize_public_url_roundtrip() {
+        let _guard = MOCK_TEST_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::env::set_var("HEYVERA_MOCK_MEDIA_DIR", dir.path());
+        std::env::remove_var("STORAGE_ENDPOINT");
+        std::env::remove_var("STORAGE_BUCKET");
+        std::env::remove_var("STORAGE_PUBLIC_URL");
+
+        let db = crate::db::Database::open(&dir.path().join("media-test.sqlite"));
+        let profile = db.social_create_profile("clerk_media", "mediauser", "Media User", "");
+        let profile_id = profile["id"].as_str().unwrap();
+        let media = db.social_create_media_object(
+            profile_id,
+            "shot.png",
+            "image/png",
+            12,
+            "image",
+        );
+        let media_id = media["id"].as_str().unwrap();
+        let storage_key = media["storageKey"].as_str().unwrap();
+
+        let payload = b"hello-png-bytes";
+        mock_store_put(storage_key, payload).expect("mock put");
+        assert!(mock_store_exists(storage_key));
+
+        // finalize requires object present (same gate as finalize_upload mock branch)
+        assert!(
+            mock_store_exists(storage_key),
+            "finalize would succeed only after mock PUT"
+        );
+        let finalized = db.social_finalize_media_object(media_id);
+        assert_eq!(finalized["status"], "ready");
+
+        let public = resolve_public_url(storage_key);
+        assert!(
+            public.starts_with("/v1/social/media/mock-upload/"),
+            "public url must be mock GET route, got {public}"
+        );
+        let got = mock_store_get(storage_key).expect("GET path reads same store");
+        assert_eq!(got, payload);
+
+        std::env::remove_var("HEYVERA_MOCK_MEDIA_DIR");
+    }
 }
