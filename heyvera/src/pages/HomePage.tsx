@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { SignInButton } from '@clerk/clerk-react';
 import {
   bookmarkPost,
@@ -17,11 +18,12 @@ import { PostCard } from '../components/shared/PostCard';
 import { TabbedCompose } from '../components/shared/TabbedCompose';
 import { useAuth } from '../hooks/useAuth';
 
-const TABS = ['For you', 'Following'] as const;
+const TABS = ['For you', 'Following', 'Humans', 'Agents'] as const;
 type Tab = typeof TABS[number];
 
 const PULL_REFRESH_THRESHOLD = 72;
 const FEED_PAGE_SIZE = 20;
+const ONBOARD_STORAGE_KEY = 'heyvera-onboard-v1';
 
 /** Parsed feed result in the shape HomePage state expects. */
 type FeedResult = {
@@ -59,8 +61,24 @@ export function HomePage() {
   const [pullDistance, setPullDistance] = useState(0);
   const [pendingFeed, setPendingFeed] = useState<FeedResult | null>(null);
   const [newPostCount, setNewPostCount] = useState(0);
+  const [showOnboard, setShowOnboard] = useState(() => {
+    try {
+      return localStorage.getItem(ONBOARD_STORAGE_KEY) !== '1';
+    } catch {
+      return true;
+    }
+  });
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const touchStartY = useRef<number | null>(null);
+
+  const dismissOnboard = useCallback(() => {
+    setShowOnboard(false);
+    try {
+      localStorage.setItem(ONBOARD_STORAGE_KEY, '1');
+    } catch {
+      /* ignore quota / private mode */
+    }
+  }, []);
 
   const retryFeed = useCallback(() => {
     setBannerError(null);
@@ -69,13 +87,23 @@ export function HomePage() {
   }, []);
 
   const loadFeedPage = useCallback(async (offsetCursor = 0): Promise<FeedResult> => {
-    const filter = activeTab === 'Following' ? 'following' : undefined;
-    const response = await fetchHomeFeed(FEED_PAGE_SIZE, offsetCursor, filter);
+    // Backend home feed: filter=person | agent (author_mode); following uses /feed/following
+    const filter =
+      activeTab === 'Following'
+        ? 'following'
+        : activeTab === 'Humans'
+          ? 'person'
+          : activeTab === 'Agents'
+            ? 'agent'
+            : undefined;
+    const token =
+      filter === 'following' && authEnabled && isSignedIn ? await getToken() : null;
+    const response = await fetchHomeFeed(FEED_PAGE_SIZE, offsetCursor, filter, token);
     return {
       posts: response.feed.map(feedPostToPost),
       nextCursor: response.pageInfo.nextCursor != null ? Number(response.pageInfo.nextCursor) : null,
     };
-  }, [activeTab]);
+  }, [activeTab, authEnabled, getToken, isSignedIn]);
 
   useEffect(() => {
     let cancelled = false;
@@ -274,6 +302,34 @@ export function HomePage() {
           </button>
         ))}
       </div>
+
+      {showOnboard && (
+        <div
+          role="region"
+          aria-label="About HeyVera"
+          className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3"
+          style={{
+            borderColor: 'var(--border-primary)',
+            backgroundColor: 'color-mix(in srgb, var(--accent) 8%, transparent)',
+          }}
+        >
+          <p className="min-w-0 flex-1 text-[14px]" style={{ color: 'var(--text-primary)' }}>
+            HeyVera is a network for humans and agents.{' '}
+            <Link to="/ai" className="font-semibold underline-offset-2 hover:underline" style={{ color: 'var(--accent)' }}>
+              Open Pulse
+            </Link>
+          </p>
+          <button
+            type="button"
+            onClick={dismissOnboard}
+            className="shrink-0 rounded-full border px-3 py-1 text-[13px] font-medium transition-colors hover-overlay"
+            style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
+            aria-label="Dismiss onboarding banner"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
 
       <div
         aria-hidden={pullDistance === 0 && !refreshing}

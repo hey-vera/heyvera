@@ -2,8 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Send, Sparkles } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
 import { useAuth } from '../hooks/useAuth';
-import { listDrafts, approveDraft, rejectDraft, publishDraft, pulseChat } from '../api/pulse';
-import type { PulseDraft } from '../api/pulse';
+import { listDrafts, approveDraft, rejectDraft, publishDraft, pulseChat, getDraftAudit } from '../api/pulse';
+import type { PulseAuditEntry, PulseDraft } from '../api/pulse';
 
 type Tab = 'chat' | 'drafts' | 'settings';
 
@@ -222,6 +222,10 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('pending');
+  const [auditByDraft, setAuditByDraft] = useState<Record<string, PulseAuditEntry[]>>({});
+  const [auditLoadingId, setAuditLoadingId] = useState<string | null>(null);
+  const [auditErrorByDraft, setAuditErrorByDraft] = useState<Record<string, string>>({});
+  const [auditOpenId, setAuditOpenId] = useState<string | null>(null);
 
   const loadDrafts = useCallback(async () => {
     if (!isSignedIn || !authEnabled) return;
@@ -249,6 +253,12 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
       await approveDraft(token, id);
       await publishDraft(token, id);
       setDrafts((prev) => prev.filter((d) => d.id !== id));
+      setAuditByDraft((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      if (auditOpenId === id) setAuditOpenId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');
     } finally {
@@ -263,10 +273,46 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
       if (!token) return;
       await rejectDraft(token, id, 'Dismissed');
       setDrafts((prev) => prev.filter((d) => d.id !== id));
+      setAuditByDraft((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      if (auditOpenId === id) setAuditOpenId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');
     } finally {
       setActionLoading(null);
+    }
+  };
+
+  const handleAudit = async (id: string) => {
+    if (auditOpenId === id) {
+      setAuditOpenId(null);
+      return;
+    }
+    setAuditOpenId(id);
+    setAuditLoadingId(id);
+    setAuditErrorByDraft((prev) => {
+      const next = { ...prev };
+      delete next[id];
+      return next;
+    });
+    try {
+      const token = await getToken();
+      if (!token) {
+        setAuditErrorByDraft((prev) => ({ ...prev, [id]: 'Sign in again to load audit history.' }));
+        return;
+      }
+      const result = await getDraftAudit(token, id);
+      setAuditByDraft((prev) => ({ ...prev, [id]: result.audit }));
+    } catch (err) {
+      setAuditErrorByDraft((prev) => ({
+        ...prev,
+        [id]: err instanceof Error ? err.message : 'Failed to load audit',
+      }));
+    } finally {
+      setAuditLoadingId(null);
     }
   };
 
@@ -329,38 +375,105 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
         </div>
       ) : (
         <div className="space-y-3">
-          {drafts.map((draft) => (
-            <div key={draft.id} className="rounded-xl border p-4" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
-              <p className="text-[15px] leading-relaxed" style={{ color: 'var(--text-primary)' }}>{draft.body}</p>
-              <div className="mt-3 flex items-center justify-between">
-                <span className="text-[12px]" style={{ color: 'var(--text-tertiary)' }}>
-                  {new Date(draft.createdAt).toLocaleDateString()} · {draft.status}
-                </span>
-                {draft.status === 'pending' && (
-                  <div className="flex gap-2">
+          {drafts.map((draft) => {
+            const auditOpen = auditOpenId === draft.id;
+            const auditEntries = auditByDraft[draft.id];
+            const auditErr = auditErrorByDraft[draft.id];
+            const auditLoading = auditLoadingId === draft.id;
+
+            return (
+              <div key={draft.id} className="rounded-xl border p-4" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
+                <p className="text-[15px] leading-relaxed" style={{ color: 'var(--text-primary)' }}>{draft.body}</p>
+                <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[12px]" style={{ color: 'var(--text-tertiary)' }}>
+                    {new Date(draft.createdAt).toLocaleDateString()} · {draft.status}
+                  </span>
+                  <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
-                      onClick={() => void handleApprove(draft.id)}
-                      disabled={actionLoading === draft.id}
-                      className="rounded-full px-3 py-1 text-[13px] font-bold transition-opacity hover:opacity-90 disabled:opacity-50"
-                      style={{ backgroundColor: 'var(--accent)', color: '#000' }}
-                    >
-                      {actionLoading === draft.id ? 'Publishing...' : 'Approve & Post'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => void handleDismiss(draft.id)}
-                      disabled={actionLoading === draft.id}
+                      onClick={() => void handleAudit(draft.id)}
+                      disabled={auditLoading}
                       className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover-overlay disabled:opacity-50"
                       style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
+                      aria-expanded={auditOpen}
+                      aria-controls={`draft-audit-${draft.id}`}
                     >
-                      Dismiss
+                      {auditLoading ? 'Loading…' : auditOpen ? 'Hide audit' : 'Audit'}
                     </button>
+                    {draft.status === 'pending' && (
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => void handleApprove(draft.id)}
+                          disabled={actionLoading === draft.id}
+                          className="rounded-full px-3 py-1 text-[13px] font-bold transition-opacity hover:opacity-90 disabled:opacity-50"
+                          style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+                        >
+                          {actionLoading === draft.id ? 'Publishing...' : 'Approve & Post'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleDismiss(draft.id)}
+                          disabled={actionLoading === draft.id}
+                          className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover-overlay disabled:opacity-50"
+                          style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
+                        >
+                          Dismiss
+                        </button>
+                      </>
+                    )}
+                  </div>
+                </div>
+
+                {auditOpen && (
+                  <div
+                    id={`draft-audit-${draft.id}`}
+                    className="mt-3 border-t pt-3"
+                    style={{ borderColor: 'var(--border-primary)' }}
+                  >
+                    <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+                      Action history
+                    </p>
+                    {auditLoading && !auditEntries ? (
+                      <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>Loading audit…</p>
+                    ) : auditErr ? (
+                      <p className="text-[13px]" style={{ color: 'var(--color-danger)' }}>{auditErr}</p>
+                    ) : !auditEntries || auditEntries.length === 0 ? (
+                      <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>No audit events yet.</p>
+                    ) : (
+                      <ul className="space-y-2">
+                        {auditEntries.map((entry) => (
+                          <li
+                            key={entry.id}
+                            className="rounded-lg border px-3 py-2 text-[13px]"
+                            style={{ borderColor: 'var(--border-secondary)', backgroundColor: 'var(--bg-primary)' }}
+                          >
+                            <div className="flex flex-wrap items-baseline justify-between gap-2">
+                              <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{entry.action}</span>
+                              <time className="text-[12px]" style={{ color: 'var(--text-tertiary)' }} dateTime={entry.createdAt}>
+                                {new Date(entry.createdAt).toLocaleString()}
+                              </time>
+                            </div>
+                            <p className="mt-0.5 text-[12px]" style={{ color: 'var(--text-secondary)' }}>
+                              Actor: {entry.actorProfileId}
+                            </p>
+                            {entry.details && Object.keys(entry.details).length > 0 && (
+                              <pre
+                                className="mt-1 overflow-x-auto whitespace-pre-wrap break-words text-[11px]"
+                                style={{ color: 'var(--text-tertiary)' }}
+                              >
+                                {JSON.stringify(entry.details)}
+                              </pre>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 )}
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

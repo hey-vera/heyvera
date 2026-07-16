@@ -5,8 +5,10 @@ import { RouterProvider } from "react-router-dom";
 import { router } from "./router";
 import "./index.css";
 
-// Apply saved theme before first paint to avoid flash
-if (localStorage.getItem("vera-theme") === "dark") {
+// Theme: dark is product default; light is optional preference (vera-theme=light).
+// Apply before first paint to avoid flash.
+const storedTheme = localStorage.getItem("vera-theme");
+if (storedTheme !== "light") {
   document.documentElement.classList.add("dark");
 }
 

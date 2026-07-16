@@ -44,6 +44,7 @@ export function LeftRail() {
         </div>
 
         <div className="left-rail-bottom">
+          {/* Dark is product primary; light remains optional via ThemeToggle. */}
           <ThemeToggle />
 
           <div className="left-rail-trust">

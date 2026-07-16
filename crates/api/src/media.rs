@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use axum::{
     extract::{Path, State},
+    http::StatusCode,
     response::IntoResponse,
     Json,
 };
@@ -9,6 +10,18 @@ use serde::Deserialize;
 
 use crate::clerk::ClerkUser;
 use crate::state::AppState;
+
+type MediaResponse = (StatusCode, Json<serde_json::Value>);
+
+fn media_ok(v: serde_json::Value) -> MediaResponse {
+    (StatusCode::OK, Json(v))
+}
+fn media_err(status: StatusCode, code: &str, msg: &str) -> MediaResponse {
+    (
+        status,
+        Json(serde_json::json!({ "error": msg, "code": code })),
+    )
+}
 
 /// Allowed MIME types for media uploads.
 const ALLOWED_IMAGE_TYPES: &[&str] = &[
@@ -135,9 +148,31 @@ pub async fn request_upload_url(
     }))
 }
 
+/// PUT /v1/social/media/mock-upload/{*storage_key}
+///
+/// Accepts a body when real object storage is not configured so the client
+/// upload flow can complete without R2/S3.
+pub async fn mock_upload(
+    Path(storage_key): Path<String>,
+    body: axum::body::Bytes,
+) -> impl IntoResponse {
+    tracing::info!(
+        storage_key = %storage_key,
+        bytes = body.len(),
+        "mock media upload accepted"
+    );
+    Json(serde_json::json!({
+        "ok": true,
+        "storageKey": storage_key,
+        "bytes": body.len(),
+    }))
+}
+
 /// POST /v1/social/media/{id}/finalize
 ///
 /// Marks a media upload as complete after the client has uploaded the file.
+/// When STORAGE_ENDPOINT + STORAGE_BUCKET are set, verifies the object exists
+/// via HTTP HEAD (or GET with Range) before finalizing.
 /// Auth required.
 pub async fn finalize_upload(
     user: ClerkUser,
@@ -148,10 +183,7 @@ pub async fn finalize_upload(
     let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
         Some(p) => p,
         None => {
-            return Json(serde_json::json!({
-                "error": "No profile found",
-                "code": "NOT_FOUND"
-            }));
+            return media_err(StatusCode::NOT_FOUND, "NOT_FOUND", "No profile found");
         }
     };
 
@@ -161,49 +193,79 @@ pub async fn finalize_upload(
     let media = match db(&state).social_get_media_object(&media_id) {
         Some(m) => m,
         None => {
-            return Json(serde_json::json!({
-                "error": "Media object not found",
-                "code": "NOT_FOUND"
-            }));
+            return media_err(StatusCode::NOT_FOUND, "NOT_FOUND", "Media object not found");
         }
     };
 
     // Verify ownership
     if media["ownerProfileId"].as_str() != Some(profile_id) {
-        return Json(serde_json::json!({
-            "error": "Not authorized to finalize this media",
-            "code": "FORBIDDEN"
-        }));
+        return media_err(
+            StatusCode::FORBIDDEN,
+            "FORBIDDEN",
+            "Not authorized to finalize this media",
+        );
     }
 
     // Verify status is pending
     if media["status"].as_str() != Some("pending") {
-        return Json(serde_json::json!({
-            "error": format!(
+        return media_err(
+            StatusCode::CONFLICT,
+            "CONFLICT",
+            &format!(
                 "Media object is already in '{}' status",
                 media["status"].as_str().unwrap_or("unknown")
             ),
-            "code": "CONFLICT"
-        }));
+        );
     }
 
     let storage_key = media["storageKey"].as_str().unwrap_or("");
 
-    // Verify the object exists in storage (best-effort)
-    // For local/mock mode, we skip this check
+    // When storage is configured, require a real object HEAD before finalize.
+    // Mock/local mode (no STORAGE_*) skips the check.
     let storage_configured = std::env::var("STORAGE_ENDPOINT").is_ok()
         && std::env::var("STORAGE_BUCKET").is_ok();
 
     if storage_configured {
-        // In production, we would HEAD the object in S3/R2
-        // For now, we trust the client (the presigned URL enforces content-type/size)
         let storage_check_start = std::time::Instant::now();
-        tracing::info!(
-            method = "storage_finalize_check",
-            duration_ms = storage_check_start.elapsed().as_millis() as u64,
-            storage_key = storage_key,
-            "storage object finalize check"
-        );
+        match verify_storage_object_exists(storage_key).await {
+            Ok(true) => {
+                tracing::info!(
+                    method = "storage_finalize_check",
+                    duration_ms = storage_check_start.elapsed().as_millis() as u64,
+                    storage_key = storage_key,
+                    result = "found",
+                    "storage object finalize check"
+                );
+            }
+            Ok(false) => {
+                tracing::warn!(
+                    method = "storage_finalize_check",
+                    duration_ms = storage_check_start.elapsed().as_millis() as u64,
+                    storage_key = storage_key,
+                    result = "missing",
+                    "storage object not found — refusing finalize"
+                );
+                return media_err(
+                    StatusCode::NOT_FOUND,
+                    "OBJECT_NOT_FOUND",
+                    "Upload object not found in storage — complete the upload before finalizing",
+                );
+            }
+            Err(err) => {
+                tracing::error!(
+                    method = "storage_finalize_check",
+                    duration_ms = storage_check_start.elapsed().as_millis() as u64,
+                    storage_key = storage_key,
+                    error = %err,
+                    "storage object finalize check failed"
+                );
+                return media_err(
+                    StatusCode::BAD_REQUEST,
+                    "STORAGE_VERIFY_FAILED",
+                    &format!("Could not verify upload object in storage: {err}"),
+                );
+            }
+        }
     }
 
     // Mark as finalized
@@ -213,11 +275,85 @@ pub async fn finalize_upload(
         finalized["storageKey"].as_str().unwrap_or(""),
     );
 
-    Json(serde_json::json!({
+    media_ok(serde_json::json!({
         "media_id": finalized["id"],
         "url": public_url,
         "type": finalized["mediaType"],
     }))
+}
+
+/// HEAD (or ranged GET) the object URL. Returns Ok(true) if present, Ok(false) if 404.
+async fn verify_storage_object_exists(storage_key: &str) -> Result<bool, String> {
+    let object_url = storage_object_url(storage_key)
+        .ok_or_else(|| "STORAGE_ENDPOINT/STORAGE_BUCKET not fully configured".to_string())?;
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(10))
+        .build()
+        .map_err(|e| format!("http client: {e}"))?;
+
+    // Prefer HEAD; some gateways disallow HEAD — fall back to ranged GET.
+    let head = client.head(&object_url).send().await;
+    match head {
+        Ok(resp) => {
+            let status = resp.status();
+            if status.is_success() {
+                return Ok(true);
+            }
+            if status.as_u16() == 404 || status.as_u16() == 403 {
+                // 403 can mean missing on private buckets without signed GET; try signed-less public URL only.
+                // Still treat clear not-found as missing.
+                if status.as_u16() == 404 {
+                    return Ok(false);
+                }
+            }
+            // Retry with Range GET when HEAD is not allowed (405/501) or ambiguous.
+            if status.as_u16() == 405 || status.as_u16() == 501 || status.as_u16() == 403 {
+                // fall through to GET range
+            } else if status.is_client_error() {
+                return Ok(false);
+            } else {
+                return Err(format!("HEAD {} returned {}", object_url, status));
+            }
+        }
+        Err(e) => {
+            tracing::debug!(error = %e, "HEAD failed, trying ranged GET");
+        }
+    }
+
+    let get = client
+        .get(&object_url)
+        .header("Range", "bytes=0-0")
+        .send()
+        .await
+        .map_err(|e| format!("GET range: {e}"))?;
+    let status = get.status();
+    if status.is_success() || status.as_u16() == 206 {
+        return Ok(true);
+    }
+    if status.as_u16() == 404 {
+        return Ok(false);
+    }
+    Err(format!("GET range {} returned {}", object_url, status))
+}
+
+/// Public/object URL for a storage key (no signature — object must be readable or HEAD-able).
+fn storage_object_url(storage_key: &str) -> Option<String> {
+    if let Ok(domain) = std::env::var("STORAGE_PUBLIC_URL") {
+        return Some(format!(
+            "{}/{}",
+            domain.trim_end_matches('/'),
+            storage_key
+        ));
+    }
+    let endpoint = std::env::var("STORAGE_ENDPOINT").ok()?;
+    let bucket = std::env::var("STORAGE_BUCKET").ok()?;
+    Some(format!(
+        "{}/{}/{}",
+        endpoint.trim_end_matches('/'),
+        bucket,
+        storage_key
+    ))
 }
 
 // ─── Storage URL generation ─────────────────────────────────────────────────

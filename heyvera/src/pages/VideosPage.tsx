@@ -31,7 +31,8 @@ const FEATURED: VideoItem = {
   duration: '12:48',
   category: 'Platform',
   tags: ['#heyvera', '#video', '#sovereign-discovery'],
-  description: 'A working preview for video uploads, live rooms, channels, archives, and tag-based related browsing.',
+  description:
+    'UI shell preview — not live uploads yet. Real video pipeline ships after image media v1 (presign → finalize → process).',
 };
 
 const VIDEOS: VideoItem[] = [
@@ -169,20 +170,29 @@ export function VideosPage() {
             <Film className="h-4 w-4" aria-hidden="true" />
             Social / Videos
           </div>
-          <h1 className="text-[28px] font-black leading-tight sm:text-[34px]">Videos</h1>
+          <h1 className="text-[28px] font-black leading-tight sm:text-[34px]">Watch</h1>
           <p className="mt-1 max-w-2xl text-[15px]" style={{ color: 'var(--text-secondary)' }}>
-            Channels, uploads, archives, and tag-based discovery for the Social network.
+            Unique watch surface shell — layout is live; full upload/transcode pipeline is not shipping yet.
           </p>
         </div>
         <button
           type="button"
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-full px-4 text-[14px] font-bold"
+          disabled
+          title="Video upload after image media pipeline is production-ready"
+          className="inline-flex h-10 items-center justify-center gap-2 rounded-full px-4 text-[14px] font-bold opacity-50"
           style={{ backgroundColor: 'var(--accent)', color: '#000' }}
         >
           <Film className="h-4 w-4" aria-hidden="true" />
-          Upload Video
+          Upload (coming soon)
         </button>
       </header>
+      <p
+        className="mb-4 rounded-2xl border px-4 py-3 text-[14px]"
+        style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
+        role="status"
+      >
+        Preview data below is illustrative. Image attach on posts is the live media path today.
+      </p>
 
       <section className="mb-5 flex gap-2 overflow-x-auto pb-1" aria-label="Video shelves">
         {CATEGORIES.map((item) => (

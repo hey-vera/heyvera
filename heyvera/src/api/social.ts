@@ -62,6 +62,21 @@ export type LinkedAgent = {
   updatedAt: string;
 };
 
+/** Media object as returned on create/feed when attached (backend social_get_post_media). */
+export type FeedPostMedia = {
+  id: string;
+  url: string;
+  mediaType?: string;
+  contentType?: string;
+  filename?: string;
+  sizeBytes?: number;
+  position?: number;
+  altText?: string | null;
+  width?: number;
+  height?: number;
+  thumbnailUrl?: string | null;
+};
+
 export type FeedPost = {
   id: string;
   body: string;
@@ -83,6 +98,7 @@ export type FeedPost = {
     agentName: string;
     agentSlug: string;
   } | null;
+  media?: FeedPostMedia[];
   // Engagement counts (returned by backend when available)
   likeCount?: number;
   repostCount?: number;
@@ -246,13 +262,35 @@ export async function fetchFeaturedProfile(): Promise<{
   return apiFetch(`/profiles/featured`);
 }
 
-export async function fetchHomeFeed(limit = 20, cursor = 0, filter?: string): Promise<{
+export async function fetchHomeFeed(
+  limit = 20,
+  cursor = 0,
+  filter?: string,
+  token?: string | null,
+): Promise<{
   feed: FeedPost[];
   pageInfo: PageInfo;
 }> {
   const params = new URLSearchParams({ limit: String(limit), cursor: String(cursor) });
+  // Following feed is a separate authenticated route (not author_mode filter).
+  if (filter === "following") {
+    if (!token) {
+      return { feed: [], pageInfo: { limit, nextCursor: null } };
+    }
+    const raw = await apiAuthFetch<{
+      posts: FeedPost[];
+      cursor: string | null;
+      has_more: boolean;
+    }>(`/feed/following?${params.toString()}`, { method: "GET", token });
+    return {
+      feed: raw.posts ?? [],
+      pageInfo: { limit, nextCursor: raw.cursor ?? null },
+    };
+  }
   if (filter && filter !== "all") params.set("filter", filter);
-  const raw = await apiFetch<{ posts: FeedPost[]; cursor: string | null; has_more: boolean }>(`/feed/home?${params.toString()}`);
+  const raw = await apiFetch<{ posts: FeedPost[]; cursor: string | null; has_more: boolean }>(
+    `/feed/home?${params.toString()}`,
+  );
   return { feed: raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
@@ -447,9 +485,85 @@ export async function createPost(
     linkedAgentId?: string;
     replyToPostId?: string;
     quotePostId?: string;
+    mediaIds?: string[];
   },
-): Promise<{ ok: true; post: FeedPost }> {
+): Promise<{ ok: true; post: FeedPost; media?: FeedPostMedia[] }> {
   return apiAuthFetch("/posts", { method: "POST", token, body: data });
+}
+
+// ─── Media upload (presign → PUT → finalize) ────────────────────────────────
+
+export type MediaUploadUrlResponse = {
+  upload_url: string;
+  media_id: string;
+  expires_in: number;
+};
+
+export type MediaFinalizeResponse = {
+  media_id: string;
+  url: string;
+  type: string;
+};
+
+/** Request a presigned (or mock) upload URL for a local file. */
+export async function requestMediaUploadUrl(
+  token: string,
+  file: File,
+): Promise<MediaUploadUrlResponse> {
+  return apiAuthFetch("/media/upload-url", {
+    method: "POST",
+    token,
+    body: {
+      filename: file.name || "upload.bin",
+      content_type: file.type || "application/octet-stream",
+      size: file.size,
+    },
+  });
+}
+
+/** PUT file bytes to the upload URL returned by requestMediaUploadUrl. */
+export async function putMediaFile(uploadUrl: string, file: File): Promise<void> {
+  const absolute =
+    uploadUrl.startsWith("http://") || uploadUrl.startsWith("https://")
+      ? uploadUrl
+      : `${import.meta.env.VITE_API_URL ?? ""}${uploadUrl.startsWith("/") ? "" : "/"}${uploadUrl}`;
+
+  const res = await fetch(absolute, {
+    method: "PUT",
+    headers: {
+      "Content-Type": file.type || "application/octet-stream",
+    },
+    body: file,
+  });
+  if (!res.ok) {
+    throw new Error(`Media upload failed (${res.status})`);
+  }
+}
+
+/** Mark an uploaded media object ready for attach. */
+export async function finalizeMedia(
+  token: string,
+  mediaId: string,
+): Promise<MediaFinalizeResponse> {
+  return apiAuthFetch(`/media/${mediaId}/finalize`, { method: "POST", token });
+}
+
+/**
+ * Full client upload pipeline: upload-url → PUT → finalize.
+ * Returns the media id to pass as createPost mediaIds.
+ */
+export async function uploadMediaFile(
+  token: string,
+  file: File,
+): Promise<{ mediaId: string; url: string; type: string }> {
+  const { upload_url, media_id } = await requestMediaUploadUrl(token, file);
+  await putMediaFile(upload_url, file);
+  const finalized = await finalizeMedia(token, media_id);
+  return {
+    mediaId: finalized.media_id || media_id,
+    url: finalized.url,
+    type: finalized.type,
+  };
 }
 
 export async function fetchSinglePost(postId: string): Promise<{
@@ -629,25 +743,64 @@ export async function reportContent(
 
 // ─── Linked agents ─────────────────────────────────────────────────────────
 
+/** List linked agents for the signed-in profile. */
+export async function fetchMyLinkedAgents(
+  token: string,
+): Promise<{ linkedAgents: LinkedAgent[] }> {
+  return apiAuthFetch("/linked-agents", { method: "GET", token });
+}
+
 export async function linkAgent(
   token: string,
   data: {
     agentName: string;
     agentSlug: string;
-    agentKey: string;
-    agentType: string;
+    agentKey?: string;
+    agentType?: string;
     visibility?: string;
     proofState?: string;
     isPrimary?: boolean;
   },
 ): Promise<{ ok: true; linkedAgent: LinkedAgent }> {
-  return apiAuthFetch("/linked-agents", { method: "POST", token, body: data });
+  return apiAuthFetch("/linked-agents", {
+    method: "POST",
+    token,
+    body: {
+      agentName: data.agentName,
+      agentSlug: data.agentSlug,
+      agentKey: data.agentKey,
+      agentType: data.agentType ?? "general",
+      visibility: data.visibility,
+      proofState: data.proofState,
+      isPrimary: data.isPrimary,
+    },
+  });
 }
 
 // ─── Shared adapter: FeedPost → legacy Post ─────────────────────────────────
 
+function mapFeedMediaType(mediaType?: string, contentType?: string): 'image' | 'video' | 'gif' {
+  const raw = (mediaType ?? contentType ?? 'image').toLowerCase();
+  if (raw.includes('gif')) return 'gif';
+  if (raw.includes('video')) return 'video';
+  return 'image';
+}
+
 /** Map a real-API FeedPost into the legacy Post shape that PostCard expects. */
 export function feedPostToPost(fp: FeedPost): Post {
+  // Feed list enrichment does not always include media yet; map when present.
+  const media = fp.media?.length
+    ? fp.media.map((m) => ({
+        id: m.id,
+        type: mapFeedMediaType(m.mediaType, m.contentType),
+        url: m.url,
+        thumbnail_url: m.thumbnailUrl ?? undefined,
+        width: m.width ?? 0,
+        height: m.height ?? 0,
+        alt_text: m.altText ?? undefined,
+      }))
+    : undefined;
+
   return {
     id: fp.id,
     author: {
@@ -658,6 +811,7 @@ export function feedPostToPost(fp: FeedPost): Post {
       verified: false,
     },
     content: fp.body,
+    ...(media ? { media } : {}),
     created_at: fp.createdAt,
     reply_count: fp.replyCount ?? 0,
     repost_count: fp.repostCount ?? 0,
