@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { X } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { createPost, fetchMyProfile } from '../../api/social';
 import type { Post } from '../../api/types';
 import { useAuth } from '../../hooks/useAuth';
@@ -14,7 +13,6 @@ interface ReplyComposeProps {
 const REPLY_MAX_CHARS = 280;
 
 export function ReplyCompose({ replyToPost, onClose, onReplyCreated }: ReplyComposeProps) {
-  const navigate = useNavigate();
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const [replyText, setReplyText] = useState('');
   const [isPosting, setIsPosting] = useState(false);

@@ -93,15 +93,15 @@ pub struct CreatePostRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateProfileRequest {
-    #[serde(rename = "display_name")]
+    #[serde(default, alias = "displayName", alias = "display_name")]
     pub display_name: Option<String>,
     pub bio: Option<String>,
-    #[serde(rename = "avatar_url")]
+    #[serde(default, alias = "avatarUrl", alias = "avatar_url")]
     pub avatar_url: Option<String>,
-    #[serde(rename = "banner_url")]
+    #[serde(default, alias = "bannerUrl", alias = "banner_url")]
     pub banner_url: Option<String>,
     pub location: Option<String>,
-    #[serde(rename = "website")]
+    #[serde(default, alias = "website", alias = "websiteUrl", alias = "website_url")]
     pub website: Option<String>,
 }
 
@@ -487,6 +487,56 @@ pub async fn get_user_profile(
         Some(profile) => ok(profile),
         None => not_found("User not found"),
     }
+}
+
+/// FE-friendly alias: `{ profile, linkedAgents }` for `/profiles/{handle}`.
+pub async fn get_profile_by_handle(
+    Path(handle): Path<String>,
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
+    match db(&state).social_get_profile_by_handle_with_viewer(&handle, viewer_pid.as_deref()) {
+        Some(profile) => {
+            let profile_id = profile["id"].as_str().unwrap_or("");
+            let agents = db(&state).social_get_linked_agents(profile_id);
+            ok(serde_json::json!({ "profile": profile, "linkedAgents": agents }))
+        }
+        None => not_found("User not found"),
+    }
+}
+
+/// Linked agents for a public profile handle.
+pub async fn get_profile_linked_agents(
+    Path(handle): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile = match db(&state).social_find_profile_by_handle(&handle) {
+        Some(p) => p,
+        None => return not_found("User not found"),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+    let agents = db(&state).social_get_linked_agents(profile_id);
+    ok(serde_json::json!({ "linkedAgents": agents }))
+}
+
+/// Whether the authenticated viewer follows `{handle}`.
+pub async fn get_follow_status(
+    user: ClerkUser,
+    Path(handle): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let target = match db(&state).social_find_profile_by_handle(&handle) {
+        Some(p) => p,
+        None => return not_found("User not found"),
+    };
+    let target_id = target["id"].as_str().unwrap_or("");
+    let following = db(&state).social_get_follow_status(&profile_id, target_id);
+    ok(serde_json::json!({ "following": following }))
 }
 
 pub async fn get_user_profile_stats(

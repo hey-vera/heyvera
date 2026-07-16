@@ -11621,6 +11621,18 @@ impl Database {
         .ok();
     }
 
+    /// Return account status for a Clerk user id (`active`, `suspended`, `deleted`), if known.
+    /// Missing row means the user has never been webhooked/upserted — treat as allowed until suspended.
+    pub fn get_account_status(&self, clerk_user_id: &str) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT status FROM accounts WHERE clerk_user_id = ?1",
+            params![clerk_user_id],
+            |r| r.get(0),
+        )
+        .ok()
+    }
+
     /// Suspend an account — sets status to "suspended".
     pub fn admin_suspend_account(&self, clerk_user_id: &str) -> bool {
         let conn = self.conn.lock().unwrap();

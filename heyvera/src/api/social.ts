@@ -217,14 +217,26 @@ async function apiAuthFetch<T>(
 export async function fetchProfile(handle: string): Promise<{
   profile: Profile;
 }> {
-  return apiFetch(`/profiles/${handle}`);
+  // Backend mounts public profiles at /users/{handle} (object may be bare or wrapped).
+  const raw = await apiFetch<Profile & { profile?: Profile }>(`/users/${handle}`);
+  const profile = (raw as { profile?: Profile }).profile ?? (raw as Profile);
+  return { profile };
 }
 
 export async function fetchProfileWithLinkedAgents(handle: string): Promise<{
   profile: Profile;
   linkedAgents: LinkedAgent[];
 }> {
-  return apiFetch(`/profiles/${handle}/linked-agents`);
+  // Prefer /users/{handle}; linked-agents route is optional / may be empty.
+  const { profile } = await fetchProfile(handle);
+  try {
+    const agents = await apiFetch<{ linkedAgents?: LinkedAgent[] }>(
+      `/profiles/${handle}/linked-agents`,
+    );
+    return { profile, linkedAgents: agents.linkedAgents ?? [] };
+  } catch {
+    return { profile, linkedAgents: [] };
+  }
 }
 
 export async function fetchFeaturedProfile(): Promise<{
@@ -358,11 +370,37 @@ export async function fetchMyProfile(token: string): Promise<{
   profile: Profile;
   linkedAgents: LinkedAgent[];
 }> {
-  const res = await apiAuthFetch<{ profile?: Profile; linkedAgents?: LinkedAgent[]; error?: string }>("/profile/me", { method: "GET", token });
-  if (!res.profile || res.error) {
-    throw new Error(res.error ?? "No profile found");
+  // Prefer /me/profile (primary); fall back to /profile/me alias.
+  try {
+    const res = await apiAuthFetch<
+      Profile & { profile?: Profile; linkedAgents?: LinkedAgent[]; error?: string }
+    >("/me/profile", { method: "GET", token });
+    if (res.error) throw new Error(res.error);
+    if (res.profile) {
+      return {
+        profile: res.profile,
+        linkedAgents: res.linkedAgents ?? [],
+      };
+    }
+    // get_me_profile may return the profile object at the top level.
+    const { linkedAgents, ...rest } = res as Profile & {
+      linkedAgents?: LinkedAgent[];
+    };
+    if ((rest as Profile).id || (rest as Profile).handle) {
+      return { profile: rest as Profile, linkedAgents: linkedAgents ?? [] };
+    }
+    throw new Error("No profile found");
+  } catch (first) {
+    const res = await apiAuthFetch<{
+      profile?: Profile;
+      linkedAgents?: LinkedAgent[];
+      error?: string;
+    }>("/profile/me", { method: "GET", token });
+    if (!res.profile || res.error) {
+      throw first instanceof Error ? first : new Error(res.error ?? "No profile found");
+    }
+    return { profile: res.profile, linkedAgents: res.linkedAgents ?? [] };
   }
-  return { profile: res.profile, linkedAgents: res.linkedAgents ?? [] };
 }
 
 // ─── Authenticated write endpoints ─────────────────────────────────────────
@@ -385,7 +423,16 @@ export async function updateProfile(
     websiteUrl?: string;
   },
 ): Promise<{ ok: true; profile: Profile }> {
-  return apiAuthFetch("/profile", { method: "PATCH", token, body: data });
+  // Backend update_me_profile expects snake_case field names on /me/profile.
+  const body = {
+    display_name: data.displayName,
+    bio: data.bio,
+    avatar_url: data.avatarUrl,
+    banner_url: data.bannerUrl,
+    location: data.location,
+    website: data.websiteUrl,
+  };
+  return apiAuthFetch("/me/profile", { method: "PATCH", token, body });
 }
 
 export async function createPost(
@@ -413,7 +460,12 @@ export async function fetchFollowStatus(
   token: string,
   handle: string,
 ): Promise<{ following: boolean }> {
-  return apiAuthFetch(`/follows/${handle}/status`, { method: "GET", token });
+  try {
+    return await apiAuthFetch(`/follows/${handle}/status`, { method: "GET", token });
+  } catch {
+    // Status route may be missing; default to not following (UI can still toggle).
+    return { following: false };
+  }
 }
 
 export async function followProfile(

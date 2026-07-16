@@ -1,3 +1,8 @@
+/**
+ * @deprecated ORPHAN — not mounted by src/main.tsx / src/router.tsx.
+ * Live product entry is the AppShell router. Do not add features here.
+ * See heyvera/CURRENT.md.
+ */
 import { Component, lazy, Suspense } from "react";
 import type { ErrorInfo, ReactNode } from "react";
 import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";

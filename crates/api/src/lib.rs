@@ -561,9 +561,12 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/profiles/featured", get(social::get_featured_profiles))
         .route("/v1/social/feed/home", get(social::get_home_feed))
         .route("/v1/social/profiles", get(social::get_profiles).post(social::create_profile))
+        .route("/v1/social/profiles/{handle}", get(social::get_profile_by_handle))
+        .route("/v1/social/profiles/{handle}/linked-agents", get(social::get_profile_linked_agents))
         .route("/v1/social/profiles/{handle}/stats", get(social::get_user_profile_stats))
         .route("/v1/social/communities", get(social::get_communities))
         .route("/v1/social/profile/me", get(social::get_my_profile))
+        .route("/v1/social/profile", patch(social::update_me_profile))
         .route("/v1/social/posts", post(social::create_post))
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
@@ -571,6 +574,7 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
         .route("/v1/social/posts/{id}/bookmark", post(social::bookmark_post).delete(social::unbookmark_post))
         .route("/v1/social/follows/{handle}", post(social::follow_by_handle).delete(social::unfollow_by_handle))
+        .route("/v1/social/follows/{handle}/status", get(social::get_follow_status))
         .route("/v1/social/users/{handle}", get(social::get_user_profile))
         .route("/v1/social/users/{handle}/posts", get(social::get_user_posts))
         .route("/v1/social/posts/{id}", get(social::get_single_post).delete(social::delete_post))
@@ -601,6 +605,11 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/api/stripe/webhook", post(billing::stripe_webhook))
         .route("/api/clerk/webhooks", post(clerk_webhooks::clerk_webhook))
         .merge(admin_routes)
+        // Rate-limit all HeyVera API routes (IP + account category limits).
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            ratelimit::rate_limit_middleware,
+        ))
         .layer(DefaultBodyLimit::max(2 * 1024 * 1024))
         .layer(cors_layer())
         .layer(middleware::from_fn(request_id_middleware))

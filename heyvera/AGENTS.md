@@ -1,149 +1,56 @@
 # HeyVera Frontend - AGENTS.md
 
-Universal AI project memory for `web/`.
+Universal AI project memory for **heyvera.org** (`heyvera/`).
 
-If you are an AI assistant working in this folder, read these files in
-this order before writing code:
+## Read order (before writing code)
 
-1. `AGENTS.md`
-2. `CONTEXT.md`
-3. `BRIEF.md`
-4. `PLAN.md`
-5. `SETUP.md`
-6. `PRE-FLIGHT.md`
-7. `frontend-plan/README.md`
-8. `frontend-plan/PUBLIC-SITE.md`
-9. `frontend-plan/EXECUTION-PACKETS.md`
-10. `frontend-plan/XOTIC-WORKFLOW.md`
-11. `frontend-sync/README.md`
-12. `CONVENTIONS.md`
+1. `CURRENT.md` ← **product source of truth; always first**
+2. `CHECKLIST.md` ← **execution status; pick next `[>]` / open tasks**
+3. `AGENTS.md` (this file)
+4. `docs/API-CONTRACT.md` when touching API wiring
+5. `docs/PULSE-STRATEGY.md` + `docs/PULSE-REFERENCE-INVENTORY.md` for Pulse
+6. `frontend-sync/STATUS.md` for packet notes
+7. Older plan docs only if CURRENT.md points you there
 
-If a file in `frontend-plan/` is more specific than an older `web/`
-doc, follow `frontend-plan/`.
+Ignore or deprioritize: Cortex, myshell-tools, archived ClawNet, and any doc that still says `web/` is the app path. The app path is **`heyvera/`**.
 
-For actual packet implementation with a local coding model:
-- prefer the matching `frontend-plan/PACKET-N-EXEC.md`
-- keep the machine-facing read set small
-- do not reload the entire planning stack every packet unless Josh says
-  the docs changed
+## Scope
 
-## Project Type
+**In scope:** heyvera.org UI, Clerk login, social surfaces, Pulse UI, and the Rust HeyVera API routes that back them (`/v1/social/*`, `/v1/pulse/*`).
 
-`web/` is the current frontend product surface for HeyVera.
+**Out of scope unless Josh says otherwise:** Cortex (`cortex/`, cortex.heyvera.org), myshell-tools, Soma product work, markets/crypto-first features.
 
-Today:
-- it includes the public-facing front door at `heyvera.org`
-- it includes the signed-in shell baseline
-- `Home`/Network-oriented social surfaces and the shell are active product truth
-- `Identity Lite` is the next real signed-in step
-- `Agent`, `Market`, and `Proof` can remain honest placeholders until their contracts are real
-- it is a static frontend app
-- it should explain the product and establish the visual language
+## Live product entry
 
-Not today:
-- it is not a backend app
-- it is not an admin dashboard
-- it is not a crypto-first shell
-- it should not pretend incomplete Soma-native credentials, markets, or proof contracts are live
-
-Important nuance:
-- the public site and signed-in shell are one HeyVera surface
-- do not design the public site like an isolated brochure that ignores the app
-- do not let older ClawNet lineage become the future-facing frontend identity
+- `src/main.tsx` → `src/router.tsx` → `AppShell` + `src/pages/*`
+- API: `src/api/social.ts`, `src/api/pulse.ts`
+- Do **not** extend orphan `src/App.tsx` / `VeraSocials.tsx` / public marketing sections for new features
 
 ## Stack
 
-- React 19
-- TypeScript
-- Vite
-- Tailwind CSS 4
-- Cloudflare Pages
+- React 19 + TypeScript + Vite + Tailwind CSS 4
+- Clerk (`@clerk/clerk-react`)
+- Cloudflare Pages / static deploy; API via `/v1` proxy or `VITE_API_URL`
 
 ## Mission
 
-Build a public HeyVera surface that makes people feel:
-- this is real
-- this is premium
-- this is not generic AI SaaS
-- this is not a crypto casino
-- this has a clear future shape beyond one marketing page
-- this can grow into identity, work, proof, network, and markets without fragmenting
+Ship a real, modern, **unique** social network for humans and agents — wired end-to-end to the Rust backend — not a brochure, not an X clone forever, not fake AI.
 
-## Product Guardrails
+## Guardrails
 
-Stay aligned with the current vision:
-- HeyVera helps people own AI agents
-- Vera is the shared intelligence fabric
-- Soma is the continuity, identity, and authority substrate
-- the long-run product is one living surface with multiple regions
-- the signed-in direction is your agent first, proof nearby, network additive, markets contained
-- crypto is a proving-ground region, not the center of the product
-- offline-first local truth and online-shared legitimacy both matter
+- Incomplete features: hide or label honestly
+- Every social action must hit a real backend route
+- Pulse must use the same mutations as the UI (no parallel fake world)
+- Prefer small green PRs merged to `main`
+- Prefer subagents for large exploration/implementation chunks
 
-Do not invent:
-- fake product claims
-- enterprise platform promises
-- live trust markets as if they already exist
-- dashboard-first public UX
-- random extra sections because they are common on startup sites
+## Scripts
 
-## Design Guardrails
-
-- Dark neutral base
-- One mineral accent
-- Strong typography
-- Calm motion
-- Clean terminal and proof treatment
-- Mobile-first layout
-- Components split clearly
-
-Avoid:
-- purple-heavy UI
-- template AI startup sections
-- stock photos
-- crypto-trader aesthetics
-- fake partner logos
-- overbuilt navigation
-
-## Workflow
-
-Build one packet at a time.
-
-If you are using Aider from inside `web/`:
-- `web/.aider.conf.yml` auto-loads the read-only planning files
-- `CONVENTIONS.md` is the short durable coding contract
-- `npm run build` is the automatic post-edit safety check
-
-Current active packets:
-1. Landing-page foundation
-2. Core public sections
-3. Supporting public sections and mobile polish
-
-After each packet:
-- run `npm run proof`
-- run `npm run status:update -- "Packet N" yes`
-- commit
-- push
-- stop
-
-## Rules For AI Assistants
-
-- Read the planning docs before coding
-- Do not rewrite the whole app when one packet is requested
-- Do not touch anything outside `web/`
-- Do not add backend code or APIs
-- Do not add unnecessary packages
-- Do not make product decisions outside the docs
-- Do not let old ClawNet or Pulse structures become automatic defaults
-- Use `frontend-sync/` to log blockers, decisions, and packet status
-  instead of guessing
-- Do not replace real content with generic placeholder copy
-- Do not write fake branch names, fake commit hashes, or fake status values
-- Prefer the smallest working diff over a broad rewrite
-
-## If You Get Stuck
-
-- Re-read `frontend-plan/PUBLIC-SITE.md`
-- Re-check the current packet scope
-- Make the smallest correction needed
-- Ask the human for the product decision instead of guessing
+```bash
+cd heyvera
+npm ci
+npm run dev
+npm run typecheck
+npm run test:unit
+npm run build
+```

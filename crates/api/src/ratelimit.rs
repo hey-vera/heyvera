@@ -129,18 +129,34 @@ fn classify_request(method: &Method, path: &str) -> RateLimitCategory {
     }
 
     // Social-specific endpoints
-    if path.starts_with("/v1/social/posts") && method == Method::POST {
+    if path.starts_with("/v1/social/posts")
+        && method == Method::POST
+        && !path.contains("/like")
+        && !path.contains("/bookmark")
+        && !path.contains("/repost")
+    {
         return RateLimitCategory::PostCreate;
     }
-    if (path.starts_with("/v1/social/profile") || path.starts_with("/v1/social/profiles"))
-        && matches!(*method, Method::PUT | Method::PATCH)
+    // Pulse draft create counts as post-like write pressure
+    if path == "/v1/pulse/drafts" && method == Method::POST {
+        return RateLimitCategory::PostCreate;
+    }
+    if (path.starts_with("/v1/social/profile")
+        || path.starts_with("/v1/social/profiles")
+        || path.starts_with("/v1/social/me/profile"))
+        && matches!(*method, Method::POST | Method::PUT | Method::PATCH)
     {
         return RateLimitCategory::ProfileEdit;
     }
-    if path.contains("/follow") || path.contains("/unfollow") {
+    if path.starts_with("/v1/social/follows")
+        || path.contains("/follow")
+        || path.contains("/unfollow")
+    {
         return RateLimitCategory::FollowUnfollow;
     }
-    if path.contains("/like") || path.contains("/bookmark") || path.contains("/repost")
+    if path.contains("/like")
+        || path.contains("/bookmark")
+        || path.contains("/repost")
         || path.contains("/react")
     {
         return RateLimitCategory::Reaction;

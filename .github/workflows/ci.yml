@@ -10,12 +10,16 @@ permissions:
   contents: read
 
 concurrency:
-  group: clawnet-ci-${{ github.workflow }}-${{ github.ref }}
+  group: heyvera-ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  api:
+  heyvera:
+    name: heyvera frontend
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: heyvera
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
@@ -23,6 +27,7 @@ jobs:
         with:
           node-version: '22'
           cache: 'npm'
+          cache-dependency-path: heyvera/package-lock.json
 
       - name: Install dependencies
         run: npm ci
@@ -30,79 +35,14 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
-      - name: Build
-        run: npm run build
-
       - name: Unit tests
         run: npm run test:unit
 
-  web:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: web
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-        with:
-          fetch-depth: 0
-
-      - name: Detect web changes
-        id: web_changes
-        working-directory: .
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags --prune origin "${{ github.base_ref }}"
-            changed_files="$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)"
-          else
-            changed_files="$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" || true)"
-          fi
-
-          printf '%s\n' "$changed_files"
-
-          if printf '%s\n' "$changed_files" | grep -q '^web/'; then
-            echo "run_web=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_web=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Skip web checks
-        if: steps.web_changes.outputs.run_web != 'true'
-        run: echo "No web/ changes detected; skipping web build and responsive tests."
-
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
-        if: steps.web_changes.outputs.run_web == 'true'
-        with:
-          node-version: '22'
-          cache: 'npm'
-          cache-dependency-path: web/package-lock.json
-
-      - name: Install web dependencies
-        if: steps.web_changes.outputs.run_web == 'true'
-        run: npm ci
-
-      - name: Install Playwright browser
-        if: steps.web_changes.outputs.run_web == 'true'
-        run: npx playwright install --with-deps chromium
-
-      - name: Build web
-        if: steps.web_changes.outputs.run_web == 'true'
+      - name: Build
         run: npm run build
 
-      - name: Responsive regression tests
-        if: steps.web_changes.outputs.run_web == 'true'
-        run: npm run test:responsive
-
-      - name: Upload responsive screenshots
-        if: always() && steps.web_changes.outputs.run_web == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-responsive-regression
-          path: |
-            web/test-results
-            web/playwright-report
-          if-no-files-found: ignore
-
   rust:
+    name: rust backend
     runs-on: ubuntu-latest
     env:
       CARGO_TERM_COLOR: always
@@ -119,30 +59,5 @@ jobs:
       - name: Check Rust workspace
         run: cargo check --workspace --locked
 
-      - name: Test Rust workspace
+      - name: Test Rust workspace (lib)
         run: cargo test --workspace --lib --locked
-
-  runtime-floor:
-    # Proves the built CJS artifact can load soma-heart (ESM-only) via
-    # `require(esm)` under the declared minimum Node runtime. Pinned
-    # exactly to 22.12.0 — that is the first Node version where
-    # `require(esm)` is unflagged by default on the 22.x line, and it
-    # is the floor declared in package.json `engines`. See
-    # internal/backlog/moduleresolution-nodenext-migration.md.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
-        with:
-          node-version: '22.12.0'
-          cache: 'npm'
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build
-        run: npm run build
-
-      - name: Load built artifact under declared runtime floor
-        run: node -e "require('./dist/core/api-key-rotation'); console.log('runtime-floor ok')"
