@@ -19,6 +19,7 @@ Legend: **OK** mounted + used · **MISSING** FE calls / needs route · **PARTIAL
 | Followers / following lists | `GET .../followers`, `.../following` | MISSING | |
 | PATCH profile (short path) | `PATCH /v1/social/profile` | OK | Alias of `/me/profile` |
 | Follow status | `GET /v1/social/follows/{handle}/status` | OK | |
+| Bookmarks list | `GET /v1/social/bookmarks` | OK | Auth; keyset cursor |
 
 ## Feed & posts
 
@@ -69,7 +70,7 @@ Legend: **OK** mounted + used · **MISSING** FE calls / needs route · **PARTIAL
 | FE usage | Method + path | Backend | Notes |
 |----------|---------------|---------|-------|
 | Drafts CRUD-ish | `/v1/pulse/drafts*` | OK | approve/reject/publish/audit |
-| Chat / tools agent | `/v1/pulse/chat` | MISSING | Product Phase 5 |
+| Chat / tools agent | `POST /v1/pulse/chat` | PARTIAL | `tools_v1` deterministic create/list drafts; not full LLM |
 
 ## Phase 0 / Phase 1 priorities
 
