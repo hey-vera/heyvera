@@ -441,6 +441,49 @@ pub async fn unbookmark_post(
     ok(serde_json::json!({ "ok": true }))
 }
 
+/// List posts bookmarked by the authenticated viewer.
+pub async fn get_bookmarks(
+    user: ClerkUser,
+    Query(params): Query<FeedQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
+    let limit = params.limit.unwrap_or(20).min(100);
+
+    let (cursor_created_at, cursor_id) = params
+        .cursor
+        .as_deref()
+        .and_then(decode_cursor)
+        .map(|(c, i)| (Some(c), Some(i)))
+        .unwrap_or((None, None));
+
+    let mut posts = db(&state).social_list_bookmarked_posts(
+        &profile_id,
+        limit,
+        cursor_created_at.as_deref(),
+        cursor_id.as_deref(),
+    );
+    db(&state).social_enrich_feed_posts(&mut posts, Some(&profile_id));
+
+    // Cursor is keyed on bookmark time (bookmarkedAt), not post createdAt.
+    let next_cursor = if posts.len() as i64 == limit {
+        posts.last().and_then(|p| {
+            let bookmarked_at = p["bookmarkedAt"].as_str()?;
+            let id = p["id"].as_str()?;
+            Some(encode_cursor(bookmarked_at, id))
+        })
+    } else {
+        None
+    };
+    let has_more = posts.len() as i64 == limit;
+
+    ok(serde_json::json!({
+        "posts": posts,
+        "cursor": next_cursor,
+        "has_more": has_more,
+    }))
+}
+
 pub async fn follow_by_handle(
     user: ClerkUser,
     Path(handle): Path<String>,

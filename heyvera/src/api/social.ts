@@ -547,6 +547,21 @@ export async function unbookmarkPost(
   return apiAuthFetch(`/posts/${postId}/bookmark`, { method: "DELETE", token });
 }
 
+/** Authenticated list of posts bookmarked by the viewer. */
+export async function fetchBookmarks(
+  token: string,
+  limit = 20,
+  cursor?: string | null,
+): Promise<{
+  posts: FeedPost[];
+  cursor: string | null;
+  has_more: boolean;
+}> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  return apiAuthFetch(`/bookmarks?${params.toString()}`, { method: "GET", token });
+}
+
 export async function repostPost(
   token: string,
   postId: string,

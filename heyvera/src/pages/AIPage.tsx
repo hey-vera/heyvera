@@ -20,25 +20,46 @@ type ChatMessage = {
   timestamp: number;
 };
 
-const VERA_GREETINGS = [
-  "Hey! I'm Vera, your social media assistant. I can help you draft posts, manage your content, and keep your presence active. What would you like to do?",
-  "Hi there! Ready to help with your social media. You can ask me to draft a post, review your drafts, or plan your content strategy.",
-];
-
-function getGreeting(): string {
-  return VERA_GREETINGS[Math.floor(Math.random() * VERA_GREETINGS.length)]!;
-}
+const VERA_GREETING =
+  "Hey — I'm Vera's draft assistant (beta). I can turn natural language into post drafts and save them for you. I'm not a full marketing AI yet — no auto-replies, analytics, or scheduled posting. Use the Drafts tab to approve, dismiss, or publish.";
 
 export function AIPage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('chat');
+  const defaultedTab = useRef(false);
+
+  // Prefer Drafts when signed in (once); chat remains default for signed-out / no-auth.
+  useEffect(() => {
+    if (defaultedTab.current) return;
+    if (!authEnabled) {
+      defaultedTab.current = true;
+      return;
+    }
+    if (isSignedIn) {
+      setActiveTab('drafts');
+      defaultedTab.current = true;
+    }
+  }, [authEnabled, isSignedIn]);
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
       <div className="sticky top-[var(--top-bar-height)] z-10 border-b sticky-header-bg backdrop-blur-md lg:top-0" style={{ borderColor: 'var(--border-primary)' }}>
         <div className="flex items-center gap-2 px-4 py-3">
           <Sparkles className="h-5 w-5" style={{ color: 'var(--accent)' }} />
-          <h1 className="text-[20px] font-bold">Pulse</h1>
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-[20px] font-bold">Pulse</h1>
+              <span
+                className="rounded-full border px-2 py-0.5 text-[11px] font-medium"
+                style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
+              >
+                Beta — drafts
+              </span>
+            </div>
+            <p className="text-[13px] leading-tight" style={{ color: 'var(--text-secondary)' }}>
+              Draft assistant — create, review, and publish posts
+            </p>
+          </div>
         </div>
         <div className="flex" style={{ borderTop: '1px solid var(--border-primary)' }}>
           {TABS.map((tab) => (
@@ -78,7 +99,7 @@ export function AIPage() {
 
 function ChatTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean; isSignedIn: boolean; getToken: () => Promise<string | null> }) {
   const [messages, setMessages] = useState<ChatMessage[]>([
-    { id: 'greeting', role: 'vera', content: getGreeting(), timestamp: Date.now() },
+    { id: 'greeting', role: 'vera', content: VERA_GREETING, timestamp: Date.now() },
   ]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -103,7 +124,7 @@ function ChatTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean; 
 
       if (lowerText.includes('draft') || lowerText.includes('post') || lowerText.includes('write')) {
         if (!authEnabled || !isSignedIn) {
-          veraReply = "I'd love to draft that for you, but you'll need to sign in first so I can save it to your account.";
+          veraReply = "I can save drafts for you once you sign in. After that, open the Drafts tab to approve or publish.";
         } else {
           const token = await getToken();
           if (!token) {
@@ -114,18 +135,34 @@ function ChatTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean; 
               .trim();
             if (postContent.length > 5) {
               await createDraft(token, { body: postContent });
-              veraReply = `Got it! I've created a draft: "${postContent.slice(0, 80)}${postContent.length > 80 ? '...' : ''}". Check the Drafts tab to review and publish it.`;
+              veraReply = `Draft saved: "${postContent.slice(0, 80)}${postContent.length > 80 ? '...' : ''}". Open the Drafts tab to approve, dismiss, or publish. I don't auto-post.`;
             } else {
-              veraReply = "Sure, I can draft a post for you. What would you like it to say?";
+              veraReply = "Sure — tell me what the draft should say (a full sentence works best).";
             }
           }
         }
       } else if (lowerText.includes('help') || lowerText.includes('what can')) {
-        veraReply = "Here's what I can help with:\n\n• **Draft posts** — \"Write a post about our product launch\"\n• **Review drafts** — Check the Drafts tab to approve or dismiss\n• **Content ideas** — \"Give me post ideas for this week\"\n\nMore features like auto-replies, scheduled posting, and audience insights are coming soon!";
+        veraReply =
+          "What works today:\n\n" +
+          "• **Create drafts** — e.g. \"Draft a post about our product launch\"\n" +
+          "• **Review & publish** — Drafts tab → approve/dismiss/publish\n\n" +
+          "Not available yet: auto-replies, audience analytics, scheduled posting, or full marketing AI. Those are planned, not live.";
       } else if (lowerText.includes('hello') || lowerText.includes('hi') || lowerText.includes('hey')) {
-        veraReply = "Hey! What can I help you with today? I can draft posts, review content, or brainstorm ideas for your social presence.";
+        veraReply =
+          "Hi. I'm a draft assistant — not a full social media AI. Try \"draft a post about…\", then manage it in the Drafts tab.";
+      } else if (
+        lowerText.includes('schedule') ||
+        lowerText.includes('auto-reply') ||
+        lowerText.includes('auto reply') ||
+        lowerText.includes('analytics') ||
+        lowerText.includes('insight') ||
+        lowerText.includes('autopilot')
+      ) {
+        veraReply =
+          "That's not available yet. Right now I only create drafts you review in the Drafts tab. Scheduling, auto-replies, and analytics are coming later.";
       } else {
-        veraReply = "I hear you! Right now I can help you draft posts — try saying \"draft a post about [topic]\". More automation features are coming soon, including auto-replies, scheduling, and audience analytics.";
+        veraReply =
+          "I'm a simple draft helper, not a full AI chatbot. Try \"draft a post about [topic]\" — I'll save it, and you approve/publish from the Drafts tab. Auto-replies, scheduling, and analytics aren't live yet.";
       }
 
       const veraMsg: ChatMessage = { id: `v-${Date.now()}`, role: 'vera', content: veraReply, timestamp: Date.now() };
@@ -183,7 +220,7 @@ function ChatTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean; 
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleSend(); } }}
-            placeholder="Message Vera..."
+            placeholder="Try: draft a post about…"
             className="flex-1 rounded-full border bg-transparent px-4 py-2.5 text-[15px] outline-none transition-colors focus:border-[var(--accent)]"
             style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
             disabled={sending}
@@ -263,7 +300,9 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
       <div className="flex flex-col items-center py-16 text-center px-4">
         <Sparkles className="mb-4 h-10 w-10" style={{ color: 'var(--text-secondary)' }} />
         <p className="text-[17px] font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Sign in to view drafts</p>
-        <p className="text-[15px] mb-4" style={{ color: 'var(--text-secondary)' }}>Your AI-generated drafts will appear here for review.</p>
+        <p className="text-[15px] mb-4" style={{ color: 'var(--text-secondary)' }}>
+          Drafts you create with Vera appear here for approve, dismiss, or publish.
+        </p>
         {authEnabled && <SignInButton mode="modal"><button type="button" className="rounded-full px-6 py-2.5 text-[15px] font-bold" style={{ backgroundColor: 'var(--accent)', color: '#000' }}>Sign in</button></SignInButton>}
       </div>
     );
@@ -310,7 +349,7 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
         <div className="flex flex-col items-center py-12 text-center">
           <p className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>No {filter !== 'all' ? filter : ''} drafts</p>
           <p className="mt-1 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-            Chat with Vera to create drafts, or they'll appear here when your AI agent generates content.
+            Use Hey Vera to create a draft, then approve or publish it here.
           </p>
         </div>
       ) : (
@@ -358,23 +397,39 @@ function SettingsTab() {
     <div className="px-4 py-8">
       <div className="mx-auto max-w-md space-y-6">
         <div>
-          <h2 className="text-[17px] font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Pulse Automation</h2>
+          <h2 className="text-[17px] font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Pulse</h2>
           <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>
-            Configure how Vera manages your social media presence.
+            What works today and what is still planned.
           </p>
         </div>
 
         <div className="space-y-4">
-          <SettingRow label="Auto-reply to mentions" description="Vera responds to people who mention you" comingSoon />
-          <SettingRow label="Scheduled posting" description="Queue posts to publish at optimal times" comingSoon />
-          <SettingRow label="Audience insights" description="Track engagement and follower growth" comingSoon />
-          <SettingRow label="Content suggestions" description="Get personalized post ideas daily" comingSoon />
+          <SettingRow
+            label="Draft create → review → publish"
+            description="Create drafts from chat or API, then approve, dismiss, or publish in Drafts"
+          />
+          <SettingRow
+            label="Scheduled posting"
+            description="Queue posts for later publish times"
+            comingSoon
+          />
+          <SettingRow
+            label="Autopilot / auto-replies"
+            description="Automated replies and hands-off posting"
+            comingSoon
+          />
+          <SettingRow
+            label="Audience insights"
+            description="Engagement and growth analytics"
+            comingSoon
+          />
         </div>
 
         <div className="rounded-xl border p-4" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
-          <p className="text-[14px] font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Free tier</p>
+          <p className="text-[14px] font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Available now</p>
           <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-            You get generous automation for free — draft posts, basic scheduling, and content review. Upgrade for higher volume auto-replies, advanced analytics, and priority AI processing.
+            Draft assistant only: create drafts from natural language and manage them in the Drafts tab
+            (approve, dismiss, publish). Scheduling, autopilot, and analytics are coming soon — not live.
           </p>
         </div>
       </div>
@@ -385,16 +440,18 @@ function SettingsTab() {
 function SettingRow({ label, description, comingSoon }: { label: string; description: string; comingSoon?: boolean }) {
   return (
     <div className="flex items-center justify-between rounded-xl border p-4" style={{ borderColor: 'var(--border-primary)' }}>
-      <div>
+      <div className="pr-3">
         <p className="text-[14px] font-medium" style={{ color: 'var(--text-primary)' }}>{label}</p>
         <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>{description}</p>
       </div>
       {comingSoon ? (
-        <span className="rounded-full border px-2.5 py-0.5 text-[11px] font-medium" style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-tertiary)' }}>
-          Soon
+        <span className="flex-shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-medium" style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-tertiary)' }}>
+          Coming soon
         </span>
       ) : (
-        <div className="h-5 w-9 rounded-full" style={{ backgroundColor: 'var(--border-secondary)' }} />
+        <span className="flex-shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-medium" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>
+          Live
+        </span>
       )}
     </div>
   );

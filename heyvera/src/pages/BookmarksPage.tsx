@@ -1,57 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import { Bookmark, Search } from 'lucide-react';
-import { bookmarkPost, feedPostToPost, fetchHomeFeed, likePost, repostPost, unbookmarkPost, unlikePost } from '../api/social';
+import {
+  bookmarkPost,
+  feedPostToPost,
+  fetchBookmarks,
+  likePost,
+  repostPost,
+  unbookmarkPost,
+  unlikePost,
+} from '../api/social';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
-
-type BookmarkFolderId = 'all' | 'read-later' | 'agents' | 'protocol' | 'media';
-
-interface BookmarkFolder {
-  id: BookmarkFolderId;
-  label: string;
-}
-
-const BOOKMARK_FOLDERS: BookmarkFolder[] = [
-  { id: 'all', label: 'All' },
-  { id: 'read-later', label: 'Read later' },
-  { id: 'agents', label: 'Agents' },
-  { id: 'protocol', label: 'Protocol' },
-  { id: 'media', label: 'Media' },
-];
-
-function getPostFolder(post: Post): Exclude<BookmarkFolderId, 'all'> {
-  const searchableText = [
-    post.content,
-    post.author.display_name,
-    post.author.handle,
-    post.media?.map((item) => [item.type, item.alt_text].filter(Boolean).join(' ')).join(' '),
-  ]
-    .filter(Boolean)
-    .join(' ')
-    .toLowerCase();
-
-  if (post.media?.length || /\b(image|video|gif|photo|screenshot|clip|demo)\b/.test(searchableText)) {
-    return 'media';
-  }
-
-  if (/\b(soma|protocol|rfc|delegation|proof|token|genesis|credential|identity)\b/.test(searchableText)) {
-    return 'protocol';
-  }
-
-  if (/\b(agent|agents|cortex|vera|assistant|automation|pipeline|runtime)\b/.test(searchableText)) {
-    return 'agents';
-  }
-
-  return 'read-later';
-}
-
-function filterPostsByFolder(posts: Post[], folderId: BookmarkFolderId): Post[] {
-  if (folderId === 'all') return posts;
-  return posts.filter((post) => getPostFolder(post) === folderId);
-}
 
 function filterPostsByQuery(posts: Post[], query: string): Post[] {
   const normalizedQuery = query.trim().toLowerCase();
@@ -69,10 +31,9 @@ function filterPostsByQuery(posts: Post[], query: string): Post[] {
 }
 
 export function BookmarksPage() {
-  const { authEnabled, isSignedIn } = useAuth();
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
   const [query, setQuery] = useState('');
-  const [activeFolder, setActiveFolder] = useState<BookmarkFolderId>('all');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -90,9 +51,15 @@ export function BookmarksPage() {
           return;
         }
 
-        const response = await fetchHomeFeed(50);
+        const token = authEnabled ? await getToken() : null;
+        if (!token) {
+          if (!cancelled) setPosts([]);
+          return;
+        }
+
+        const response = await fetchBookmarks(token, 50);
         if (!cancelled) {
-          setPosts(response.feed.map(feedPostToPost).filter((post) => post.bookmarked));
+          setPosts(response.posts.map(feedPostToPost));
         }
       } catch (err) {
         if (!cancelled) {
@@ -108,22 +75,9 @@ export function BookmarksPage() {
     return () => {
       cancelled = true;
     };
-  }, [authEnabled, isSignedIn, reloadKey]);
+  }, [authEnabled, isSignedIn, getToken, reloadKey]);
 
-  const folderCounts = useMemo(
-    () =>
-      BOOKMARK_FOLDERS.reduce<Record<BookmarkFolderId, number>>(
-        (counts, folder) => ({
-          ...counts,
-          [folder.id]: filterPostsByFolder(posts, folder.id).length,
-        }),
-        { all: 0, 'read-later': 0, agents: 0, protocol: 0, media: 0 },
-      ),
-    [posts],
-  );
-  const folderedPosts = useMemo(() => filterPostsByFolder(posts, activeFolder), [activeFolder, posts]);
-  const filteredPosts = useMemo(() => filterPostsByQuery(folderedPosts, query), [folderedPosts, query]);
-  const activeFolderLabel = BOOKMARK_FOLDERS.find((folder) => folder.id === activeFolder)?.label ?? 'Bookmarks';
+  const filteredPosts = useMemo(() => filterPostsByQuery(posts, query), [posts, query]);
   const trimmedQuery = query.trim();
 
   const handleLike = (id: string, liked: boolean, token: string) => {
@@ -211,41 +165,6 @@ export function BookmarksPage() {
         </label>
       </div>
 
-      <div
-        className="border-b px-4"
-        style={{ borderColor: 'var(--border-primary)' }}
-        aria-label="Bookmark folders"
-      >
-        <div className="flex gap-2 overflow-x-auto py-3">
-          {BOOKMARK_FOLDERS.map((folder) => {
-            const selected = activeFolder === folder.id;
-
-            return (
-              <button
-                key={folder.id}
-                type="button"
-                onClick={() => setActiveFolder(folder.id)}
-                className="flex h-9 shrink-0 items-center gap-2 rounded-full border px-4 text-[15px] font-bold transition-colors"
-                style={{
-                  backgroundColor: selected ? 'var(--accent)' : 'var(--bg-elevated)',
-                  borderColor: selected ? 'var(--accent)' : 'var(--border-primary)',
-                  color: selected ? 'var(--bg-primary)' : 'var(--text-primary)',
-                }}
-                aria-pressed={selected}
-              >
-                <span>{folder.label}</span>
-                <span
-                  className="text-[13px] font-bold"
-                  style={{ color: selected ? 'var(--bg-primary)' : 'var(--text-secondary)' }}
-                >
-                  {folderCounts[folder.id]}
-                </span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
       {loading && <LoadingState label="Loading bookmarks" />}
 
       {!loading && authEnabled && !isSignedIn && <SignedOutBookmarksPrompt />}
@@ -266,11 +185,11 @@ export function BookmarksPage() {
 
       {!loading && !(authEnabled && !isSignedIn) && !error && posts.length > 0 && filteredPosts.length === 0 && (
         <EmptyState
-          title={trimmedQuery ? 'No matching bookmarks' : `No ${activeFolderLabel.toLowerCase()} bookmarks`}
+          title="No matching bookmarks"
           detail={
             trimmedQuery
-              ? `No saved posts in ${activeFolderLabel} match "${trimmedQuery}".`
-              : `Saved posts assigned to ${activeFolderLabel} will appear here.`
+              ? `No saved posts match "${trimmedQuery}".`
+              : 'No bookmarks match your search.'
           }
         />
       )}

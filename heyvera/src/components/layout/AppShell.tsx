@@ -1,5 +1,5 @@
 import React from "react";
-import { BarChart3, Gift, Image, Smile, X } from "lucide-react";
+import { X } from "lucide-react";
 import { SignInButton } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { createPost, fetchMyProfile } from "../../api/social";
@@ -207,28 +207,9 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                 )}
 
                 <div
-                  className="mt-3 flex items-center justify-between pt-3"
+                  className="mt-3 flex items-center justify-end pt-3"
                   style={{ borderTop: "1px solid var(--border-primary)" }}
                 >
-                  <div className="flex items-center gap-1">
-                    {[
-                      { label: "Add media", icon: Image },
-                      { label: "Add GIF", icon: Gift },
-                      { label: "Create poll", icon: BarChart3 },
-                      { label: "Add emoji", icon: Smile },
-                    ].map(({ label, icon: Icon }) => (
-                      <button
-                        key={label}
-                        type="button"
-                        className="rounded-full p-2 transition-colors hover-overlay disabled:cursor-not-allowed disabled:opacity-50"
-                        style={{ color: "var(--accent)" }}
-                        aria-label={label}
-                        disabled={isPosting || isCheckingComposeAccess}
-                      >
-                        <Icon className="h-5 w-5" aria-hidden="true" />
-                      </button>
-                    ))}
-                  </div>
                   <span
                     className="text-sm"
                     style={{ color: remainingChars <= 20 ? "var(--color-danger)" : "var(--text-secondary)" }}

@@ -573,6 +573,7 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
         .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
         .route("/v1/social/posts/{id}/bookmark", post(social::bookmark_post).delete(social::unbookmark_post))
+        .route("/v1/social/bookmarks", get(social::get_bookmarks))
         .route("/v1/social/follows/{handle}", post(social::follow_by_handle).delete(social::unfollow_by_handle))
         .route("/v1/social/follows/{handle}/status", get(social::get_follow_status))
         .route("/v1/social/users/{handle}", get(social::get_user_profile))
@@ -762,6 +763,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
         .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
         .route("/v1/social/posts/{id}/bookmark", post(social::bookmark_post).delete(social::unbookmark_post))
+        .route("/v1/social/bookmarks", get(social::get_bookmarks))
         .route("/v1/social/follows/{handle}", post(social::follow_by_handle).delete(social::unfollow_by_handle))
         // Task #31: User profile endpoints
         .route("/v1/social/users/{handle}", get(social::get_user_profile))

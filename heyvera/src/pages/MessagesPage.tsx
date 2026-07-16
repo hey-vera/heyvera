@@ -191,6 +191,17 @@ export function MessagesPage() {
           >
             <h1 className="text-[20px] font-bold">Messages</h1>
           </div>
+          <div
+            className="border-b px-4 py-2 text-[13px]"
+            style={{
+              borderColor: 'var(--border-primary)',
+              backgroundColor: 'var(--bg-elevated)',
+              color: 'var(--text-secondary)',
+            }}
+            role="status"
+          >
+            Messages are early access — conversations load from the real API; polish and extras are still in progress.
+          </div>
           <SignedOutMessagesPrompt />
         </div>
       </div>
@@ -215,6 +226,18 @@ export function MessagesPage() {
           style={{ borderColor: 'var(--border-primary)' }}
         >
           <h1 className="text-[20px] font-bold">Messages</h1>
+        </div>
+
+        <div
+          className="border-b px-4 py-2 text-[13px]"
+          style={{
+            borderColor: 'var(--border-primary)',
+            backgroundColor: 'var(--bg-elevated)',
+            color: 'var(--text-secondary)',
+          }}
+          role="status"
+        >
+          Messages are early access — conversations load from the real API; polish and extras are still in progress.
         </div>
 
         {/* Search */}

@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 
-const FEATURES = [
-  'Unlimited projects',
-  'AI orchestration',
-  'Priority support',
-  'Verified badge',
-  'Extended uploads',
+/** Planned Premium benefits — not all are live yet. Labels stay honest. */
+const FEATURES: { label: string; status: 'planned' | 'partial' }[] = [
+  { label: 'Unlimited projects', status: 'planned' },
+  { label: 'AI orchestration', status: 'partial' },
+  { label: 'Priority support', status: 'planned' },
+  { label: 'Verified badge', status: 'planned' },
+  { label: 'Extended uploads', status: 'planned' },
 ];
 
 interface TierCardProps {
@@ -17,9 +18,19 @@ interface TierCardProps {
   badgeHighlight?: boolean;
   onSubscribe?: () => void;
   disabled?: boolean;
+  ctaLabel?: string;
 }
 
-function TierCard({ label, price, period, badge, badgeHighlight, onSubscribe, disabled }: TierCardProps) {
+function TierCard({
+  label,
+  price,
+  period,
+  badge,
+  badgeHighlight,
+  onSubscribe,
+  disabled,
+  ctaLabel = 'Subscribe',
+}: TierCardProps) {
   return (
     <div className="flex flex-1 flex-col rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-elevated)] p-6">
       <div className="mb-4">
@@ -41,21 +52,27 @@ function TierCard({ label, price, period, badge, badgeHighlight, onSubscribe, di
 
       <ul className="flex-1 space-y-3 mb-6">
         {FEATURES.map((feature) => (
-          <li key={feature} className="flex items-center gap-3 text-[15px] text-[var(--text-primary)]">
+          <li key={feature.label} className="flex items-start gap-3 text-[15px] text-[var(--text-primary)]">
             <svg
               width="18"
               height="18"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="var(--accent)"
+              stroke="var(--text-secondary)"
               strokeWidth="2.5"
               strokeLinecap="round"
               strokeLinejoin="round"
-              className="flex-shrink-0"
+              className="flex-shrink-0 mt-0.5"
+              aria-hidden="true"
             >
               <polyline points="20 6 9 17 4 12" />
             </svg>
-            {feature}
+            <span>
+              {feature.label}
+              <span className="ml-2 text-[12px] font-medium text-[var(--text-secondary)]">
+                {feature.status === 'partial' ? 'Early access' : 'Coming soon'}
+              </span>
+            </span>
           </li>
         ))}
       </ul>
@@ -64,9 +81,10 @@ function TierCard({ label, price, period, badge, badgeHighlight, onSubscribe, di
         type="button"
         disabled={disabled}
         onClick={onSubscribe}
+        title={disabled ? 'Self-serve checkout is coming soon' : undefined}
         className="w-full rounded-full bg-[var(--accent)] py-3 text-[15px] font-bold text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
       >
-        Subscribe
+        {ctaLabel}
       </button>
     </div>
   );
@@ -217,10 +235,16 @@ export function PremiumPage() {
 
       <div className="max-w-2xl mx-auto px-4 py-8">
         {/* Description */}
-        <p className="mb-8 text-[15px] leading-relaxed text-[var(--text-secondary)]">
-          Unlock the full HeyVera experience. Get a verified badge, AI orchestration, unlimited
-          projects, and priority support — all included with your subscription. Cancel any time.
+        <p className="mb-4 text-[15px] leading-relaxed text-[var(--text-secondary)]">
+          HeyVera Premium is in early access. Pricing below is the planned plan; self-serve
+          checkout is not open yet. Existing members can still manage billing through the portal.
         </p>
+
+        <div className="mb-8 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-elevated)] px-4 py-3 text-[14px] text-[var(--text-secondary)]">
+          <strong className="text-[var(--text-primary)]">Early access.</strong>{' '}
+          Premium benefits listed on this page are planned or partial — not all are live today.
+          We will not invent a checkout flow here; subscribe when self-serve billing ships.
+        </div>
 
         {/* Loading state */}
         {loadingStatus ? (
@@ -236,7 +260,7 @@ export function PremiumPage() {
           </div>
         ) : null}
 
-        {/* Active subscriber view */}
+        {/* Active subscriber view — real portal when backend returns a URL */}
         {!loadingStatus && isPremium ? (
           <PremiumMemberView
             status={billingStatus!}
@@ -245,7 +269,7 @@ export function PremiumPage() {
           />
         ) : null}
 
-        {/* Upgrade UI — shown when not subscribed (or not signed in) */}
+        {/* Upgrade UI — checkout not wired; CTA disabled honestly */}
         {!loadingStatus && !isPremium ? (
           <>
             <div className="flex flex-col gap-4 sm:flex-row">
@@ -253,19 +277,24 @@ export function PremiumPage() {
                 label="Monthly"
                 price="$6.99"
                 period="mo"
-                badge="7-day free trial"
+                badge="Planned pricing"
+                disabled
+                ctaLabel="Coming soon"
               />
               <TierCard
                 label="Annual"
                 price="$69"
                 period="yr"
-                badge="Save 17%"
+                badge="Save 17% (planned)"
                 badgeHighlight
+                disabled
+                ctaLabel="Coming soon"
               />
             </div>
 
             <p className="mt-6 text-center text-[13px] text-[var(--text-secondary)]">
-              No credits, no limits. One flat price. By subscribing you agree to our Terms of Service.
+              Self-serve subscribe is coming soon. If you already have Premium, sign in to
+              check status and manage your subscription above when active.
             </p>
           </>
         ) : null}
