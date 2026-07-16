@@ -217,14 +217,26 @@ async function apiAuthFetch<T>(
 export async function fetchProfile(handle: string): Promise<{
   profile: Profile;
 }> {
-  return apiFetch(`/profiles/${handle}`);
+  // Backend mounts public profiles at /users/{handle} (object may be bare or wrapped).
+  const raw = await apiFetch<Profile & { profile?: Profile }>(`/users/${handle}`);
+  const profile = (raw as { profile?: Profile }).profile ?? (raw as Profile);
+  return { profile };
 }
 
 export async function fetchProfileWithLinkedAgents(handle: string): Promise<{
   profile: Profile;
   linkedAgents: LinkedAgent[];
 }> {
-  return apiFetch(`/profiles/${handle}/linked-agents`);
+  // Prefer /users/{handle}; linked-agents route is optional / may be empty.
+  const { profile } = await fetchProfile(handle);
+  try {
+    const agents = await apiFetch<{ linkedAgents?: LinkedAgent[] }>(
+      `/profiles/${handle}/linked-agents`,
+    );
+    return { profile, linkedAgents: agents.linkedAgents ?? [] };
+  } catch {
+    return { profile, linkedAgents: [] };
+  }
 }
 
 export async function fetchFeaturedProfile(): Promise<{
@@ -281,12 +293,13 @@ export async function fetchLongform(limit = 20, cursor: string | number | null =
   return { longform: raw.longform ?? raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
-export async function fetchCommunityFeed(slug: string, limit = 20, cursor = 0): Promise<{
+export async function fetchCommunityFeed(communityId: string, limit = 20, cursor = 0): Promise<{
   community: Community;
   feed: FeedPost[];
   pageInfo: PageInfo;
 }> {
-  const raw = await apiFetch<{ community?: Community; posts: FeedPost[]; cursor: string | null; has_more: boolean }>(`/communities/${slug}/feed?limit=${limit}&cursor=${cursor}`);
+  // Backend path is /communities/{id}/feed (id, not slug).
+  const raw = await apiFetch<{ community?: Community; posts: FeedPost[]; cursor: string | null; has_more: boolean }>(`/communities/${communityId}/feed?limit=${limit}&cursor=${cursor}`);
   return { community: raw.community as Community, feed: raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
@@ -360,11 +373,37 @@ export async function fetchMyProfile(token: string): Promise<{
   profile: Profile;
   linkedAgents: LinkedAgent[];
 }> {
-  const res = await apiAuthFetch<{ profile?: Profile; linkedAgents?: LinkedAgent[]; error?: string }>("/profile/me", { method: "GET", token });
-  if (!res.profile || res.error) {
-    throw new Error(res.error ?? "No profile found");
+  // Prefer /me/profile (primary); fall back to /profile/me alias.
+  try {
+    const res = await apiAuthFetch<
+      Profile & { profile?: Profile; linkedAgents?: LinkedAgent[]; error?: string }
+    >("/me/profile", { method: "GET", token });
+    if (res.error) throw new Error(res.error);
+    if (res.profile) {
+      return {
+        profile: res.profile,
+        linkedAgents: res.linkedAgents ?? [],
+      };
+    }
+    // get_me_profile may return the profile object at the top level.
+    const { linkedAgents, ...rest } = res as Profile & {
+      linkedAgents?: LinkedAgent[];
+    };
+    if ((rest as Profile).id || (rest as Profile).handle) {
+      return { profile: rest as Profile, linkedAgents: linkedAgents ?? [] };
+    }
+    throw new Error("No profile found");
+  } catch (first) {
+    const res = await apiAuthFetch<{
+      profile?: Profile;
+      linkedAgents?: LinkedAgent[];
+      error?: string;
+    }>("/profile/me", { method: "GET", token });
+    if (!res.profile || res.error) {
+      throw first instanceof Error ? first : new Error(res.error ?? "No profile found");
+    }
+    return { profile: res.profile, linkedAgents: res.linkedAgents ?? [] };
   }
-  return { profile: res.profile, linkedAgents: res.linkedAgents ?? [] };
 }
 
 // ─── Authenticated write endpoints ─────────────────────────────────────────
@@ -387,7 +426,16 @@ export async function updateProfile(
     websiteUrl?: string;
   },
 ): Promise<{ ok: true; profile: Profile }> {
-  return apiAuthFetch("/profile", { method: "PATCH", token, body: data });
+  // Backend update_me_profile expects snake_case field names on /me/profile.
+  const body = {
+    display_name: data.displayName,
+    bio: data.bio,
+    avatar_url: data.avatarUrl,
+    banner_url: data.bannerUrl,
+    location: data.location,
+    website: data.websiteUrl,
+  };
+  return apiAuthFetch("/me/profile", { method: "PATCH", token, body });
 }
 
 export async function createPost(
@@ -415,7 +463,12 @@ export async function fetchFollowStatus(
   token: string,
   handle: string,
 ): Promise<{ following: boolean }> {
-  return apiAuthFetch(`/follows/${handle}/status`, { method: "GET", token });
+  try {
+    return await apiAuthFetch(`/follows/${handle}/status`, { method: "GET", token });
+  } catch {
+    // Status route may be missing; default to not following (UI can still toggle).
+    return { following: false };
+  }
 }
 
 export async function followProfile(
@@ -432,6 +485,7 @@ export async function unfollowProfile(
   return apiAuthFetch(`/follows/${handle}`, { method: "DELETE", token });
 }
 
+/** Backend has no create-community route yet — do not call from live UI. */
 export async function createCommunity(
   token: string,
   data: { slug: string; name: string; description?: string; visibility?: string },
@@ -439,13 +493,23 @@ export async function createCommunity(
   return apiAuthFetch("/communities", { method: "POST", token, body: data });
 }
 
+/** Join by community id (backend Path is {id}, not slug). */
 export async function joinCommunity(
   token: string,
-  slug: string,
-): Promise<{ ok: true; membershipId: string }> {
-  return apiAuthFetch(`/communities/${slug}/join`, { method: "POST", token });
+  communityId: string,
+): Promise<{ ok: true; joined?: boolean; message?: string }> {
+  return apiAuthFetch(`/communities/${communityId}/join`, { method: "POST", token });
 }
 
+/** Leave by community id (DELETE /communities/{id}/leave). */
+export async function leaveCommunity(
+  token: string,
+  communityId: string,
+): Promise<{ ok: true; left?: boolean; message?: string }> {
+  return apiAuthFetch(`/communities/${communityId}/leave`, { method: "DELETE", token });
+}
+
+/** Backend /communities/mine is not mounted yet — callers should treat as unavailable. */
 export async function fetchMyCommunities(token: string, limit = 20): Promise<{
   communities: CommunityMembership[];
 }> {
@@ -495,6 +559,21 @@ export async function unbookmarkPost(
   postId: string,
 ): Promise<{ ok: true }> {
   return apiAuthFetch(`/posts/${postId}/bookmark`, { method: "DELETE", token });
+}
+
+/** Authenticated list of posts bookmarked by the viewer. */
+export async function fetchBookmarks(
+  token: string,
+  limit = 20,
+  cursor?: string | null,
+): Promise<{
+  posts: FeedPost[];
+  cursor: string | null;
+  has_more: boolean;
+}> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  return apiAuthFetch(`/bookmarks?${params.toString()}`, { method: "GET", token });
 }
 
 export async function repostPost(

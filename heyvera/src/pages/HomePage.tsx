@@ -29,6 +29,16 @@ type FeedResult = {
   nextCursor: number | null;
 };
 
+/** Map raw fetch/API failures to a clear user-facing message. */
+function formatRequestError(err: unknown, fallback: string): string {
+  if (!(err instanceof Error) || !err.message) return fallback;
+  const msg = err.message;
+  if (/failed to fetch|networkerror|network request failed|load failed|fetch failed/i.test(msg)) {
+    return 'Unable to reach the server. Check your connection and try again.';
+  }
+  return msg;
+}
+
 export function HomePage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('For you');
@@ -37,7 +47,10 @@ export function HomePage() {
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
+  /** Full-page feed failure (initial load / hard reload). */
   const [error, setError] = useState<string | null>(null);
+  /** Soft failure while posts remain visible (load-more / refresh). */
+  const [bannerError, setBannerError] = useState<string | null>(null);
   const [content, setContent] = useState('');
   const [posting, setPosting] = useState(false);
   const [composeNotice, setComposeNotice] = useState<string | null>(null);
@@ -48,6 +61,12 @@ export function HomePage() {
   const [newPostCount, setNewPostCount] = useState(0);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const touchStartY = useRef<number | null>(null);
+
+  const retryFeed = useCallback(() => {
+    setBannerError(null);
+    setError(null);
+    setReloadKey((key) => key + 1);
+  }, []);
 
   const loadFeedPage = useCallback(async (offsetCursor = 0): Promise<FeedResult> => {
     const filter = activeTab === 'Following' ? 'following' : undefined;
@@ -64,6 +83,7 @@ export function HomePage() {
     async function loadFeed() {
       setLoading(true);
       setError(null);
+      setBannerError(null);
       setPendingFeed(null);
       setNewPostCount(0);
       try {
@@ -74,7 +94,13 @@ export function HomePage() {
           setHasMore(response.nextCursor !== null);
         }
       } catch (err) {
-        if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load feed');
+        if (!cancelled) {
+          // Hard failure: clear feed so empty state is not confused with API down.
+          setPosts([]);
+          setCursor(null);
+          setHasMore(false);
+          setError(formatRequestError(err, 'Unable to load feed'));
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -87,7 +113,9 @@ export function HomePage() {
   }, [loadFeedPage, reloadKey]);
 
   const loadMorePosts = useCallback(async () => {
-    if (loading || loadingMore || !hasMore || cursor === null) return;
+    if (loading || loadingMore || !hasMore || cursor === null || error) return;
+    // After a soft failure, stop IntersectionObserver spam until the user retries via banner.
+    if (bannerError) return;
 
     setLoadingMore(true);
     try {
@@ -99,12 +127,14 @@ export function HomePage() {
       });
       setCursor(response.nextCursor);
       setHasMore(response.nextCursor !== null);
+      setBannerError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to load more posts');
+      // Keep existing posts; surface a dismissible/retry banner instead of empty theater.
+      setBannerError(formatRequestError(err, 'Unable to load more posts'));
     } finally {
       setLoadingMore(false);
     }
-  }, [cursor, hasMore, loadFeedPage, loading, loadingMore]);
+  }, [bannerError, cursor, error, hasMore, loadFeedPage, loading, loadingMore]);
 
   useEffect(() => {
     const target = loadMoreRef.current;
@@ -122,10 +152,10 @@ export function HomePage() {
   }, [loadMorePosts]);
 
   const checkForNewPosts = useCallback(async () => {
-    if (refreshing) return;
+    if (refreshing || error) return;
 
     setRefreshing(true);
-    setError(null);
+    setBannerError(null);
     try {
       const response = await loadFeedPage();
       const visibleIds = new Set(posts.map((post) => post.id));
@@ -135,11 +165,11 @@ export function HomePage() {
       setPendingFeed(response);
       setNewPostCount(simulatedCount);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unable to refresh feed');
+      setBannerError(formatRequestError(err, 'Unable to refresh feed'));
     } finally {
       setRefreshing(false);
     }
-  }, [loadFeedPage, posts, refreshing]);
+  }, [error, loadFeedPage, posts, refreshing]);
 
   const showPendingPosts = () => {
     if (!pendingFeed) return;
@@ -149,6 +179,7 @@ export function HomePage() {
     setHasMore(pendingFeed.nextCursor !== null);
     setPendingFeed(null);
     setNewPostCount(0);
+    setBannerError(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
@@ -207,8 +238,11 @@ export function HomePage() {
       const result = await createPost(token, { body: trimmed });
       setPosts((current) => [feedPostToPost(result.post), ...current]);
       setContent('');
+      setComposeNotice(null);
+      // A successful write means the API is up; clear any soft feed banner.
+      setBannerError(null);
     } catch (err) {
-      setComposeNotice(err instanceof Error ? err.message : 'Post failed. Try again.');
+      setComposeNotice(formatRequestError(err, 'Post failed. Try again.'));
     } finally {
       setPosting(false);
     }
@@ -303,10 +337,52 @@ export function HomePage() {
         </button>
       )}
 
+      {!loading && bannerError && !error && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3"
+          style={{
+            borderColor: 'var(--border-primary)',
+            backgroundColor: 'color-mix(in srgb, var(--color-danger) 8%, transparent)',
+          }}
+        >
+          <p className="min-w-0 flex-1 text-[13px]" style={{ color: 'var(--color-danger)' }}>
+            {bannerError}
+          </p>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={retryFeed}
+              className="rounded-full px-3 py-1 text-[13px] font-bold transition-opacity hover:opacity-90"
+              style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-primary)' }}
+            >
+              Retry
+            </button>
+            <button
+              type="button"
+              onClick={() => setBannerError(null)}
+              className="rounded-full border px-3 py-1 text-[13px] font-medium transition-colors hover-overlay"
+              style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {loading && <LoadingState label="Loading feed" />}
-      {!loading && error && <ErrorState detail={error} onRetry={() => setReloadKey((key) => key + 1)} />}
+      {!loading && error && (
+        <ErrorState
+          title="Couldn't load feed"
+          detail={error}
+          onRetry={retryFeed}
+        />
+      )}
       {!loading && !error && posts.length === 0 && (
-        <EmptyState title="No posts yet" detail="When there is activity in this feed, it will appear here." />
+        <EmptyState
+          title="No posts yet"
+          detail="When there is activity in this feed, it will appear here."
+        />
       )}
       {!loading && !error && posts.map((post) => (
         <PostCard
@@ -320,7 +396,7 @@ export function HomePage() {
       {!loading && !error && (
         <div ref={loadMoreRef} className="min-h-12">
           {loadingMore && <LoadingState label="Loading more posts" />}
-          {!loadingMore && hasMore && cursor === null && (
+          {!loadingMore && hasMore && cursor === null && !bannerError && (
             <div className="px-4 py-6 text-center text-[13px]" style={{ color: 'var(--text-secondary)' }}>
               More posts will load when the feed returns a cursor.
             </div>

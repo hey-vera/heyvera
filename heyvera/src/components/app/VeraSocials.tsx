@@ -1,3 +1,8 @@
+/**
+ * @deprecated ORPHAN — only used by deprecated src/App.tsx (not live entry).
+ * Do not add features here. Live social UI is src/pages/* + layout/*.
+ * See heyvera/CURRENT.md.
+ */
 import { useState, useCallback, useEffect } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import type { ShellState } from "../../hooks/useShellState";

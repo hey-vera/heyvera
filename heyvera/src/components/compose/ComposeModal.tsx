@@ -479,7 +479,7 @@ export function ComposeModal({
                 setError(null);
               }}
               disabled={submitting}
-              title="Fully automated agent posting"
+              title="Coming soon — fully automated agent posting"
             >
               Bot Post
             </button>
@@ -487,33 +487,15 @@ export function ComposeModal({
         )}
 
         <div className="compose-modal-body">
-          {/* Bot Post Tab - Fully Automated */}
+          {/* Bot Post Tab — not shipped yet */}
           {composeMode === "bot-post" && (
             <div className="compose-modal-bot-post">
               <div className="compose-modal-bot-info">
-                <p>🤖 Let your agent create and post content automatically!</p>
-                <p>Your agent will generate posts based on your topics and style preferences.</p>
-
-                <div className="compose-modal-bot-controls">
-                  <div className="compose-modal-form-group">
-                    <label htmlFor="bot-topic">What should your agent post about?</label>
-                    <input
-                      id="bot-topic"
-                      type="text"
-                      placeholder="e.g., 'Share insights about AI development'"
-                      className="compose-modal-input"
-                      disabled={submitting}
-                    />
-                  </div>
-
-                  <button
-                    type="button"
-                    className="compose-modal-submit"
-                    disabled={submitting}
-                  >
-                    {submitting ? "Generating..." : "Generate & Post"}
-                  </button>
-                </div>
+                <p>Bot Post is coming soon.</p>
+                <p>
+                  Fully automated agent posting is not available yet. Use the Post tab for
+                  text posts, or Agent Assist to review agent drafts.
+                </p>
               </div>
             </div>
           )}
@@ -717,20 +699,6 @@ export function ComposeModal({
                   Followers only
                 </button>
               </div>
-            </div>
-          )}
-
-          {(composeMode === "post" || (composeMode === "agent-assist" && !showDraftManager)) && (
-            <div className="compose-modal-row compose-modal-row-attachments">
-              <span className="compose-modal-label">Media</span>
-              <button
-                type="button"
-                className="compose-modal-media-button"
-                disabled
-                title="Coming soon"
-              >
-                Attach media
-              </button>
             </div>
           )}
 
