@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Send, Sparkles } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
 import { useAuth } from '../hooks/useAuth';
-import { listDrafts, approveDraft, rejectDraft, publishDraft, createDraft } from '../api/pulse';
+import { listDrafts, approveDraft, rejectDraft, publishDraft, pulseChat } from '../api/pulse';
 import type { PulseDraft } from '../api/pulse';
 
 type Tab = 'chat' | 'drafts' | 'settings';
@@ -119,56 +119,31 @@ function ChatTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean; 
     setSending(true);
 
     try {
-      const lowerText = text.toLowerCase();
       let veraReply: string;
 
-      if (lowerText.includes('draft') || lowerText.includes('post') || lowerText.includes('write')) {
-        if (!authEnabled || !isSignedIn) {
-          veraReply = "I can save drafts for you once you sign in. After that, open the Drafts tab to approve or publish.";
-        } else {
-          const token = await getToken();
-          if (!token) {
-            veraReply = "I couldn't verify your session. Try signing in again.";
-          } else {
-            const postContent = text
-              .replace(/^(draft|write|post|create|make)\s+(a\s+)?(post|draft)?\s*(about|saying|that says)?\s*/i, '')
-              .trim();
-            if (postContent.length > 5) {
-              await createDraft(token, { body: postContent });
-              veraReply = `Draft saved: "${postContent.slice(0, 80)}${postContent.length > 80 ? '...' : ''}". Open the Drafts tab to approve, dismiss, or publish. I don't auto-post.`;
-            } else {
-              veraReply = "Sure — tell me what the draft should say (a full sentence works best).";
-            }
-          }
-        }
-      } else if (lowerText.includes('help') || lowerText.includes('what can')) {
+      if (!authEnabled || !isSignedIn) {
         veraReply =
-          "What works today:\n\n" +
-          "• **Create drafts** — e.g. \"Draft a post about our product launch\"\n" +
-          "• **Review & publish** — Drafts tab → approve/dismiss/publish\n\n" +
-          "Not available yet: auto-replies, audience analytics, scheduled posting, or full marketing AI. Those are planned, not live.";
-      } else if (lowerText.includes('hello') || lowerText.includes('hi') || lowerText.includes('hey')) {
-        veraReply =
-          "Hi. I'm a draft assistant — not a full social media AI. Try \"draft a post about…\", then manage it in the Drafts tab.";
-      } else if (
-        lowerText.includes('schedule') ||
-        lowerText.includes('auto-reply') ||
-        lowerText.includes('auto reply') ||
-        lowerText.includes('analytics') ||
-        lowerText.includes('insight') ||
-        lowerText.includes('autopilot')
-      ) {
-        veraReply =
-          "That's not available yet. Right now I only create drafts you review in the Drafts tab. Scheduling, auto-replies, and analytics are coming later.";
+          "Sign in to use Pulse tools. I can create and list drafts on the server once you're authenticated — then approve/publish from the Drafts tab.";
       } else {
-        veraReply =
-          "I'm a simple draft helper, not a full AI chatbot. Try \"draft a post about [topic]\" — I'll save it, and you approve/publish from the Drafts tab. Auto-replies, scheduling, and analytics aren't live yet.";
+        const token = await getToken();
+        if (!token) {
+          veraReply = "I couldn't verify your session. Try signing in again.";
+        } else {
+          // Server-side tools (same draft pipeline as the Drafts tab). Not a full LLM yet.
+          const result = await pulseChat(token, text);
+          veraReply = result.reply;
+        }
       }
 
       const veraMsg: ChatMessage = { id: `v-${Date.now()}`, role: 'vera', content: veraReply, timestamp: Date.now() };
       setMessages((prev) => [...prev, veraMsg]);
     } catch {
-      const errMsg: ChatMessage = { id: `e-${Date.now()}`, role: 'vera', content: "Sorry, something went wrong. Try again?", timestamp: Date.now() };
+      const errMsg: ChatMessage = {
+        id: `e-${Date.now()}`,
+        role: 'vera',
+        content: "Couldn't reach Pulse tools. Check your connection and try again.",
+        timestamp: Date.now(),
+      };
       setMessages((prev) => [...prev, errMsg]);
     } finally {
       setSending(false);

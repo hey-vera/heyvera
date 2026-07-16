@@ -6,8 +6,8 @@ If a session dies or Grok quota runs out, **resume from this file**.
 | Field | Value |
 |-------|--------|
 | **Scope** | `heyvera.org` only (not Cortex, not myshell-tools) |
-| **Last updated** | 2026-07-16 |
-| **Branch with WIP** | `phase-0-heyvera-foundation` (may be uncommitted — see §0) |
+| **Last updated** | 2026-07-16 (session: Phase 0–2 + Pulse tools chat) |
+| **Branch with WIP** | `phase-0-heyvera-foundation` — commits: `e19146c`, `2315e41`, `764bf57` + pending Pulse chat |
 | **Product SoT** | `heyvera/CURRENT.md` |
 | **API matrix** | `heyvera/docs/API-CONTRACT.md` |
 | **Pulse strategy** | `heyvera/docs/PULSE-STRATEGY.md` |
@@ -51,10 +51,9 @@ If a session dies or Grok quota runs out, **resume from this file**.
 - [x] Deploy frontend workflow → `heyvera/`
 - [x] Pulse reference cloned from `hey-vera/Synthr-Files` → `heyvera/reference/synthr-pulse/`
 - [x] Pulse inventory written (`docs/PULSE-REFERENCE-INVENTORY.md`)
-- [~] **Commit Phase 0 + Phase 1 path work** on `phase-0-heyvera-foundation`  
-  - **Blocked historically:** git `user.name` / `user.email` not set in runner; do not invent identity  
-  - **Action:** Josh sets identity or commits locally, then PR → main when green
-- [ ] Open PR → merge to `main` when checks green (automerge if branch protection ready)
+- [x] **Commit Phase 0 + Phase 1 path work** on `phase-0-heyvera-foundation` (`e19146c` via `git -c user.*`)
+- [x] Phase 2 honesty commits (`2315e41`, `764bf57`)
+- [ ] Open PR → merge to `main` when checks green (automerge if branch protection ready); `gh` not logged in on runner
 - [ ] Branch protection + required checks (`heyvera` + `rust`) + automerge process documented/enabled on GitHub
 - [ ] Do not leave long-lived stale feature branches
 
@@ -126,7 +125,8 @@ heyvera/reference/**
 
 - [ ] Local or staging: sign-in → create profile → post → see on home → like → reply → open thread
 - [ ] Document env vars for local heyvera + heyvera-server in `SETUP.md` or short runbook
-- [>] **Commit + merge Phase 0+1 path fixes**
+- [x] Path fixes committed; merge to main still open
+- [ ] Local/staging E2E still needs live API + Clerk
 
 **Exit:** a real user can complete the loop without mock data.
 
@@ -138,13 +138,14 @@ heyvera/reference/**
 
 | Surface | Action | Status |
 |---------|--------|--------|
-| Bookmarks list/folders | Real list API **or** hide folders / simplify | [ ] |
-| Messages | E2E DMs **or** alpha badge / hide | [ ] |
-| Communities join | Real membership + create **or** hide create/join chrome | [ ] |
-| Premium | Real billing **or** “coming soon” | [ ] |
-| Compose media/emoji/poll | Wire or remove non-functional buttons | [ ] |
-| Pulse keyword chat | Replace with real chat **or** label “draft tools only” | [ ] |
+| Bookmarks list/folders | Real list API **or** hide folders / simplify | [x] `GET /bookmarks` + no fake folders |
+| Messages | E2E DMs **or** alpha badge / hide | [x] Early-access banner; API kept |
+| Communities join | Real membership + create **or** hide create/join chrome | [x] Join/leave by id; create = coming soon |
+| Premium | Real billing **or** “coming soon” | [x] CTAs/features labeled |
+| Compose media/emoji/poll | Wire or remove non-functional buttons | [x] Theater removed |
+| Pulse keyword chat | Replace with real chat **or** label “draft tools only” | [x] Honest UI + `POST /v1/pulse/chat` tools_v1 |
 | Theme vs dark-only policy | Decide once; align CSS/spec | [ ] |
+| Home/notif errors | Empty vs failure | [x] |
 
 **PARALLEL-OK:** each row can be a separate agent if files don’t overlap (e.g. BookmarksPage vs MessagesPage).
 
@@ -186,15 +187,16 @@ heyvera/reference/**
 
 ### 5A Honesty + draft UX (do early)
 
-- [ ] Remove / relabel keyword-bot chat as intelligence
-- [ ] Draft list / approve / reject / publish UX solid against live API
+- [x] Remove / relabel keyword-bot chat as intelligence
+- [x] Draft list / approve / reject / publish UX (existing; signed-in defaults to Drafts)
 - [ ] Audit log visible in UI
 
 ### 5B Server agent (core)
 
-- [ ] `POST /v1/pulse/chat` (or stream) — real LLM with Clerk user scope
-- [ ] Tool protocol: create_draft, list_drafts, approve, reject, publish, list_my_posts (minimum)
-- [ ] Human approve required for public publish in v1
+- [x] `POST /v1/pulse/chat` — **tools_v1** deterministic router (create_draft, list_drafts, help)
+- [ ] Upgrade chat to real LLM with same tools (optional when keys available)
+- [ ] Tools: approve, reject, publish, list_my_posts from chat
+- [x] Human approve required for public publish in v1 (publish path unchanged)
 - [ ] No agent spoof: linked agent ownership checks when authorMode=agent
 
 ### 5C Schedule & goals (from standalone inventory)
@@ -293,6 +295,7 @@ Pulse = rebuild into HeyVera; reference only at heyvera/reference/synthr-pulse/.
 | 2026-07-16 | Live entry = router.tsx AppShell, not region App.tsx |
 | 2026-07-16 | Ship in chunks; merge to main; no stale branches |
 | 2026-07-16 | Unique IA over long term; don’t cement X-clone forever |
+| 2026-07-16 | Phase 2 honesty shipped: bookmarks API, compose theater removed, Pulse tools_v1 chat |
 
 ---
 

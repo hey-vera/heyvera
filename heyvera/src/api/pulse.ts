@@ -115,3 +115,25 @@ export async function getDraftAudit(
 ): Promise<{ audit: PulseAuditEntry[] }> {
   return pulseAuthFetch(`/drafts/${id}/audit`, { method: 'GET', token });
 }
+
+// ─── Chat (server-side tools v1) ────────────────────────────────────────────
+
+export type PulseChatResponse = {
+  reply: string;
+  mode: string;
+  toolsUsed: string[];
+  draft: PulseDraft | null;
+  draftCount?: number;
+};
+
+/** Call backend Pulse tools (create/list drafts). Not a full LLM yet. */
+export async function pulseChat(
+  token: string,
+  message: string,
+): Promise<PulseChatResponse> {
+  return pulseAuthFetch('/chat', {
+    method: 'POST',
+    token,
+    body: { message },
+  });
+}
