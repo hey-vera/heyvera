@@ -519,7 +519,10 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/posts", post(social::create_post))
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
-        .route("/v1/social/media/mock-upload/{*storage_key}", put(media::mock_upload))
+        .route(
+            "/v1/social/media/mock-upload/{*storage_key}",
+            put(media::mock_upload).get(media::mock_serve),
+        )
         .route("/v1/social/linked-agents", get(social::list_my_linked_agents).post(social::create_linked_agent))
         .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
         .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
@@ -608,7 +611,10 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/posts", post(social::create_post))
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
-        .route("/v1/social/media/mock-upload/{*storage_key}", put(media::mock_upload))
+        .route(
+            "/v1/social/media/mock-upload/{*storage_key}",
+            put(media::mock_upload).get(media::mock_serve),
+        )
         .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
         .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
         .route("/v1/social/posts/{id}/bookmark", post(social::bookmark_post).delete(social::unbookmark_post))
@@ -804,7 +810,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Task #47: Media uploads
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
-        .route("/v1/social/media/mock-upload/{*storage_key}", put(media::mock_upload))
+        .route(
+            "/v1/social/media/mock-upload/{*storage_key}",
+            put(media::mock_upload).get(media::mock_serve),
+        )
         // Task #30: Social action endpoints
         .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
         .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))

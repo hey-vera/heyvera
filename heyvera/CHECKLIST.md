@@ -128,7 +128,7 @@ If a session dies or Grok quota runs out, **resume from this file**.
 - [x] Mock PUT route for local uploads
 - [x] Attach images on compose (AppShell); `createPost` mediaIds; feed enrichment attaches media
 - [x] PostCard renders media images
-- [~] Avatar/banner upload UI — profile can set avatar URL via PATCH; dedicated file picker for avatar [!] not a separate flow yet
+- [!] Avatar/banner file picker deferred — profile can still set `avatarUrl`/`bannerUrl` via PATCH when a URL is known; dedicated upload-to-avatar flow not shipped
 - [x] Short video **player shell** on Videos page is preview; upload disabled until pipeline
 
 **Exit:** posts can carry images safely (mock or R2). **Met for images.** Video processing still future.

@@ -11232,7 +11232,10 @@ impl Database {
                                     (Ok(ep), Ok(bucket)) => {
                                         format!("{}/{}/{}", ep.trim_end_matches('/'), bucket, storage_key)
                                     }
-                                    _ => format!("/media/{}", storage_key),
+                                    _ => format!(
+                                        "/v1/social/media/mock-upload/{}",
+                                        storage_key.trim_start_matches('/')
+                                    ),
                                 }
                             });
                         Ok(serde_json::json!({
