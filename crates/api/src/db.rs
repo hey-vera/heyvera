@@ -10330,6 +10330,86 @@ impl Database {
         conn.execute("DELETE FROM social_bookmarks WHERE profile_id = ?1 AND post_id = ?2", params![profile_id, post_id]).ok();
     }
 
+    /// List posts bookmarked by `profile_id`, newest bookmarks first (keyset on bookmark time + post id).
+    pub fn social_list_bookmarked_posts(
+        &self,
+        profile_id: &str,
+        limit: i64,
+        cursor_created_at: Option<&str>,
+        cursor_id: Option<&str>,
+    ) -> Vec<serde_json::Value> {
+        let _t = std::time::Instant::now();
+        let conn = self.conn.lock().unwrap();
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
+            let agent_name: Option<String> = row.get(13)?;
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "body": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": row.get::<_, String>(9)?,
+                "updatedAt": row.get::<_, String>(10)?,
+                "bookmarkedAt": row.get::<_, String>(15)?,
+                "author": {
+                    "profileId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else { serde_json::Value::Null },
+            }))
+        };
+        let select = "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                             sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                             sp.created_at, sp.updated_at, p.handle, p.display_name,
+                             la.agent_name, la.agent_slug, sb.created_at AS bookmarked_at
+                      FROM social_bookmarks sb
+                      JOIN social_posts sp ON sp.id = sb.post_id
+                      JOIN social_profiles p ON p.id = sp.profile_id
+                      LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                      WHERE sb.profile_id = ?1 AND sp.deleted_at IS NULL";
+        let rows: Vec<serde_json::Value> = if cursor_created_at.is_some() && cursor_id.is_some() {
+            let sql = format!(
+                "{select}
+                   AND (sb.created_at < ?2 OR (sb.created_at = ?2 AND sp.id < ?3))
+                 ORDER BY sb.created_at DESC, sp.id DESC LIMIT ?4"
+            );
+            let mut stmt = conn.prepare(&sql).unwrap();
+            stmt.query_map(
+                params![profile_id, cursor_created_at.unwrap(), cursor_id.unwrap(), limit],
+                map_row,
+            )
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
+        } else {
+            let sql = format!(
+                "{select}
+                 ORDER BY sb.created_at DESC, sp.id DESC LIMIT ?2"
+            );
+            let mut stmt = conn.prepare(&sql).unwrap();
+            stmt.query_map(params![profile_id, limit], map_row)
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect()
+        };
+        tracing::info!(
+            method = "social_list_bookmarked_posts",
+            duration_ms = _t.elapsed().as_millis(),
+            row_count = rows.len(),
+            "db query"
+        );
+        rows
+    }
+
     pub fn social_repost(&self, profile_id: &str, post_id: &str) {
         let conn = self.conn.lock().unwrap();
         conn.execute("INSERT OR IGNORE INTO social_reposts (profile_id, post_id) VALUES (?1, ?2)", params![profile_id, post_id]).ok();
@@ -11751,6 +11831,18 @@ impl Database {
             params![clerk_user_id],
         )
         .ok();
+    }
+
+    /// Return account status for a Clerk user id (`active`, `suspended`, `deleted`), if known.
+    /// Missing row means the user has never been webhooked/upserted — treat as allowed until suspended.
+    pub fn get_account_status(&self, clerk_user_id: &str) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT status FROM accounts WHERE clerk_user_id = ?1",
+            params![clerk_user_id],
+            |r| r.get(0),
+        )
+        .ok()
     }
 
     /// Suspend an account — sets status to "suspended".

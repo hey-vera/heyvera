@@ -24,6 +24,48 @@ fn local_auth_allowed() -> bool {
         .unwrap_or(false)
 }
 
+/// True when we must fail closed without Clerk (misconfigured prod).
+fn is_production_runtime() -> bool {
+    for key in ["HEYVERA_ENV", "APP_ENV", "RUST_ENV", "CORTEX_ENV"] {
+        if let Ok(v) = std::env::var(key) {
+            if v.eq_ignore_ascii_case("production") || v.eq_ignore_ascii_case("prod") {
+                return true;
+            }
+        }
+    }
+    std::env::var("HEYVERA_REQUIRE_AUTH")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false)
+}
+
+/// Block suspended/deleted accounts after JWT verification.
+fn reject_if_account_blocked(
+    app_state: &AppState,
+    user_id: &str,
+) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
+    if user_id == "local" {
+        return Ok(());
+    }
+    let Some(db) = app_state.db.as_ref() else {
+        return Ok(());
+    };
+    match db.get_account_status(user_id).as_deref() {
+        Some("suspended") => Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "account suspended".into(),
+            }),
+        )),
+        Some("deleted") => Err((
+            StatusCode::FORBIDDEN,
+            Json(ErrorResponse {
+                error: "account deleted".into(),
+            }),
+        )),
+        _ => Ok(()),
+    }
+}
+
 /// Configurable TTL for the JWKS cache (default 5 minutes).
 fn jwks_ttl_secs() -> u64 {
     std::env::var("CORTEX_JWKS_TTL_SECS")
@@ -287,6 +329,7 @@ where
             if header.starts_with("Soma ") {
                 match crate::soma::extract_identity(parts, &app_state).await {
                     Ok(identity) => {
+                        reject_if_account_blocked(&app_state, &identity.user_id)?;
                         return Ok(ClerkUser {
                             user_id: identity.user_id,
                         });
@@ -305,7 +348,15 @@ where
         let clerk_secret = match &app_state.clerk_secret_key {
             Some(key) => key.clone(),
             None => {
-                // No Clerk secret configured: local/dev mode.
+                // No Clerk secret: local/dev only. Production must fail closed.
+                if is_production_runtime() && !local_auth_allowed() {
+                    return Err((
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        Json(ErrorResponse {
+                            error: "clerk auth not configured".into(),
+                        }),
+                    ));
+                }
                 return Ok(ClerkUser {
                     user_id: "local".to_string(),
                 });
@@ -338,9 +389,12 @@ where
             })?;
 
         match verify_token(&token, &keys) {
-            Ok(claims) => Ok(ClerkUser {
-                user_id: claims.sub,
-            }),
+            Ok(claims) => {
+                reject_if_account_blocked(&app_state, &claims.sub)?;
+                Ok(ClerkUser {
+                    user_id: claims.sub,
+                })
+            }
             Err(_first_err) => {
                 // Key rotation: retry with fresh JWKS
                 let keys = match get_or_refresh_jwks(&app_state.jwks_cache, &app_state.jwks_stampede, &clerk_secret, true).await {
@@ -353,14 +407,18 @@ where
                     }
                 };
 
-                verify_token(&token, &keys)
-                    .map(|claims| ClerkUser {
-                        user_id: claims.sub,
-                    })
-                    .map_err(|_| (
+                let claims = verify_token(&token, &keys).map_err(|_| {
+                    (
                         StatusCode::UNAUTHORIZED,
-                        Json(ErrorResponse { error: "invalid bearer token".into() }),
-                    ))
+                        Json(ErrorResponse {
+                            error: "invalid bearer token".into(),
+                        }),
+                    )
+                })?;
+                reject_if_account_blocked(&app_state, &claims.sub)?;
+                Ok(ClerkUser {
+                    user_id: claims.sub,
+                })
             }
         }
     }
