@@ -11225,19 +11225,7 @@ impl Database {
                 media_stmt
                     .query_map(params![post_id], |row| {
                         let storage_key: String = row.get(5)?;
-                        let public_url = std::env::var("STORAGE_PUBLIC_URL")
-                            .map(|domain| format!("{}/{}", domain.trim_end_matches('/'), storage_key))
-                            .unwrap_or_else(|_| {
-                                match (std::env::var("STORAGE_ENDPOINT"), std::env::var("STORAGE_BUCKET")) {
-                                    (Ok(ep), Ok(bucket)) => {
-                                        format!("{}/{}/{}", ep.trim_end_matches('/'), bucket, storage_key)
-                                    }
-                                    _ => format!(
-                                        "/v1/social/media/mock-upload/{}",
-                                        storage_key.trim_start_matches('/')
-                                    ),
-                                }
-                            });
+                        let public_url = Self::social_media_public_url(&storage_key);
                         Ok(serde_json::json!({
                             "id": row.get::<_, String>(0)?,
                             "filename": row.get::<_, String>(1)?,
@@ -11971,6 +11959,31 @@ impl Database {
         linked
     }
 
+    /// Resolve public media URL (mock-upload path when R2/S3 is not configured).
+    /// Must match `media::resolve_public_url` mock branch and feed enrichment.
+    pub fn social_media_public_url(storage_key: &str) -> String {
+        if let Ok(domain) = std::env::var("STORAGE_PUBLIC_URL") {
+            return format!("{}/{}", domain.trim_end_matches('/'), storage_key);
+        }
+        match (
+            std::env::var("STORAGE_ENDPOINT"),
+            std::env::var("STORAGE_BUCKET"),
+        ) {
+            (Ok(ep), Ok(bucket)) => {
+                format!(
+                    "{}/{}/{}",
+                    ep.trim_end_matches('/'),
+                    bucket,
+                    storage_key
+                )
+            }
+            _ => format!(
+                "/v1/social/media/mock-upload/{}",
+                storage_key.trim_start_matches('/')
+            ),
+        }
+    }
+
     /// Get media objects attached to a post.
     pub fn social_get_post_media(&self, post_id: &str) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
@@ -11983,15 +11996,7 @@ impl Database {
         ).unwrap();
         stmt.query_map(params![post_id], |row| {
             let storage_key: String = row.get(5)?;
-            // Resolve public URL inline
-            let public_url = std::env::var("STORAGE_PUBLIC_URL")
-                .map(|domain| format!("{}/{}", domain.trim_end_matches('/'), storage_key))
-                .unwrap_or_else(|_| {
-                    match (std::env::var("STORAGE_ENDPOINT"), std::env::var("STORAGE_BUCKET")) {
-                        (Ok(ep), Ok(bucket)) => format!("{}/{}/{}", ep.trim_end_matches('/'), bucket, storage_key),
-                        _ => format!("/media/{}", storage_key),
-                    }
-                });
+            let public_url = Self::social_media_public_url(&storage_key);
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
                 "filename": row.get::<_, String>(1)?,
@@ -15791,6 +15796,57 @@ mod tests {
                     && item["task_id"] == "task-raw"
                     && item["reason"] == "no_run")
         );
+    }
+
+    /// create_post media attachment URLs must use mock-upload path (not dead /media/).
+    #[test]
+    fn social_get_post_media_url_uses_mock_upload_prefix() {
+        std::env::remove_var("STORAGE_PUBLIC_URL");
+        std::env::remove_var("STORAGE_ENDPOINT");
+        std::env::remove_var("STORAGE_BUCKET");
+
+        let db = test_db();
+        let profile = db.social_create_profile("clerk_media_url", "mediaurl", "Media URL", "");
+        let profile_id = profile["id"].as_str().unwrap();
+        let media = db.social_create_media_object(
+            profile_id,
+            "pic.jpg",
+            "image/jpeg",
+            100,
+            "image",
+        );
+        let media_id = media["id"].as_str().unwrap();
+        let storage_key = media["storageKey"].as_str().unwrap();
+        let _ = db.social_finalize_media_object(media_id);
+
+        let post = db.social_create_post(
+            profile_id,
+            "with image",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+        );
+        let post_id = post["id"].as_str().unwrap();
+        let linked = db.social_link_media_to_post(post_id, &[media_id.to_string()], profile_id);
+        assert!(!linked.is_empty(), "media should link to post");
+
+        let got = db.social_get_post_media(post_id);
+        assert_eq!(got.len(), 1);
+        let url = got[0]["url"].as_str().expect("url field");
+        assert!(
+            url.starts_with("/v1/social/media/mock-upload/"),
+            "expected mock-upload prefix, got {url}"
+        );
+        assert!(
+            url.contains(storage_key.trim_start_matches('/')),
+            "url should include storage key, got {url}"
+        );
+
+        // Same helper used by feed enrichment
+        let helper = Database::social_media_public_url(storage_key);
+        assert_eq!(helper, url);
     }
 
     /// Golden path: profile → post → feed → like → reply (real SQLite social tables).
