@@ -1615,6 +1615,22 @@ fn ensure_social_tables(conn: &Connection) {
         CREATE INDEX IF NOT EXISTS idx_pulse_schedules_due
             ON pulse_schedules(status, publish_at);
 
+        -- Deterministic goal plans (MVP; not Temporal). plan_json + steps_json are JSON text.
+        CREATE TABLE IF NOT EXISTS pulse_goals (
+            id TEXT PRIMARY KEY,
+            profile_id TEXT NOT NULL,
+            goal TEXT NOT NULL,
+            status TEXT NOT NULL DEFAULT 'active',
+            plan_json TEXT NOT NULL DEFAULT '{}',
+            steps_json TEXT NOT NULL DEFAULT '[]',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_pulse_goals_profile
+            ON pulse_goals(profile_id, updated_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_pulse_goals_status
+            ON pulse_goals(profile_id, status);
+
         CREATE TABLE IF NOT EXISTS social_notifications (
             id TEXT PRIMARY KEY, recipient_profile_id TEXT NOT NULL, actor_profile_id TEXT NOT NULL,
             notification_type TEXT NOT NULL, post_id TEXT, read INTEGER NOT NULL DEFAULT 0,
@@ -12994,6 +13010,108 @@ impl Database {
                 "createdAt": row.get::<_, String>(5)?,
                 "updatedAt": row.get::<_, String>(6)?,
             }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    /// Create a persisted Pulse goal plan (deterministic MVP; not Temporal).
+    pub fn pulse_create_goal(
+        &self,
+        profile_id: &str,
+        goal: &str,
+        plan_json: &str,
+        steps_json: &str,
+    ) -> serde_json::Value {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        conn.execute(
+            "INSERT INTO pulse_goals (id, profile_id, goal, status, plan_json, steps_json, created_at, updated_at)
+             VALUES (?1, ?2, ?3, 'active', ?4, ?5, ?6, ?6)",
+            params![id, profile_id, goal, plan_json, steps_json, now],
+        )
+        .expect("pulse_create_goal insert failed");
+        Self::pulse_goal_row_to_json(
+            id,
+            profile_id.to_string(),
+            goal.to_string(),
+            "active".to_string(),
+            plan_json.to_string(),
+            steps_json.to_string(),
+            now.clone(),
+            now,
+        )
+    }
+
+    fn pulse_goal_row_to_json(
+        id: String,
+        profile_id: String,
+        goal: String,
+        status: String,
+        plan_json: String,
+        steps_json: String,
+        created_at: String,
+        updated_at: String,
+    ) -> serde_json::Value {
+        let plan: serde_json::Value =
+            serde_json::from_str(&plan_json).unwrap_or_else(|_| serde_json::json!({}));
+        let steps: serde_json::Value =
+            serde_json::from_str(&steps_json).unwrap_or_else(|_| serde_json::json!([]));
+        serde_json::json!({
+            "id": id,
+            "profileId": profile_id,
+            "goal": goal,
+            "status": status,
+            "plan": plan,
+            "steps": steps,
+            "createdAt": created_at,
+            "updatedAt": updated_at,
+        })
+    }
+
+    pub fn pulse_get_goal(&self, id: &str, profile_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, profile_id, goal, status, plan_json, steps_json, created_at, updated_at
+             FROM pulse_goals WHERE id = ?1 AND profile_id = ?2",
+            params![id, profile_id],
+            |row| {
+                Ok(Self::pulse_goal_row_to_json(
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                ))
+            },
+        )
+        .ok()
+    }
+
+    pub fn pulse_list_goals(&self, profile_id: &str) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, profile_id, goal, status, plan_json, steps_json, created_at, updated_at
+                 FROM pulse_goals WHERE profile_id = ?1 ORDER BY updated_at DESC",
+            )
+            .unwrap();
+        stmt.query_map(params![profile_id], |row| {
+            Ok(Self::pulse_goal_row_to_json(
+                row.get(0)?,
+                row.get(1)?,
+                row.get(2)?,
+                row.get(3)?,
+                row.get(4)?,
+                row.get(5)?,
+                row.get(6)?,
+                row.get(7)?,
+            ))
         })
         .unwrap()
         .filter_map(|r| r.ok())

@@ -1223,6 +1223,195 @@ pub async fn process_due_schedules(
     ok(json!({ "ok": true, "published": published }))
 }
 
+// ─── Goal plan MVP (deterministic; not Temporal) ────────────────────────────
+
+/// A single planned step. Tools map only to existing Pulse/social capabilities.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GoalStep {
+    /// One of: `create_draft`, `approve_required`, `schedule_optional`
+    pub tool: String,
+    pub args: serde_json::Value,
+    pub description: String,
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateGoalRequest {
+    pub goal: String,
+}
+
+/// Extract a draft body topic from a free-form goal string.
+fn extract_goal_topic(goal: &str) -> String {
+    let trimmed = goal.trim();
+    if trimmed.is_empty() {
+        return "Untitled draft".to_string();
+    }
+    let lower = trimmed.to_lowercase();
+    let prefixes = [
+        "post about ",
+        "write about ",
+        "draft about ",
+        "draft a post about ",
+        "write a post about ",
+        "create a post about ",
+        "schedule a post about ",
+        "post: ",
+        "draft: ",
+    ];
+    let mut body = trimmed.to_string();
+    for prefix in prefixes {
+        if lower.starts_with(prefix) {
+            body = trimmed[prefix.len()..].trim().to_string();
+            break;
+        }
+    }
+    // Strip common trailing schedule phrases so the draft body stays topical.
+    let schedule_suffixes = [
+        " next week",
+        " this week",
+        " tomorrow",
+        " later today",
+        " later",
+        " tonight",
+        " on monday",
+        " on tuesday",
+        " on wednesday",
+        " on thursday",
+        " on friday",
+        " on saturday",
+        " on sunday",
+    ];
+    let body_lower = body.to_lowercase();
+    for suffix in schedule_suffixes {
+        if body_lower.ends_with(suffix) {
+            body = body[..body.len() - suffix.len()].trim().to_string();
+            break;
+        }
+    }
+    if body.is_empty() {
+        "Untitled draft".to_string()
+    } else {
+        body
+    }
+}
+
+fn goal_wants_schedule(goal: &str) -> bool {
+    let lower = goal.to_lowercase();
+    const MARKERS: &[&str] = &[
+        "next week",
+        "this week",
+        "tomorrow",
+        "later",
+        "tonight",
+        "schedule",
+        "scheduled",
+        " on monday",
+        " on tuesday",
+        " on wednesday",
+        " on thursday",
+        " on friday",
+        " on saturday",
+        " on sunday",
+        "next month",
+        "in a week",
+        "in two weeks",
+    ];
+    MARKERS.iter().any(|m| lower.contains(m))
+}
+
+/// Pure deterministic plan for a natural-language goal.
+/// Maps only to existing tools: create_draft, approve_required, schedule_optional.
+/// Not a Temporal workflow — a plan template the user can follow via Drafts/Schedule UI.
+pub fn decompose_goal(goal: &str) -> Vec<GoalStep> {
+    let topic = extract_goal_topic(goal);
+    let draft_body = format!("Draft about {topic}");
+    let mut steps = vec![
+        GoalStep {
+            tool: "create_draft".to_string(),
+            args: json!({ "body": draft_body }),
+            description: format!("Create a draft about {topic}"),
+            status: "pending".to_string(),
+        },
+        GoalStep {
+            tool: "approve_required".to_string(),
+            args: json!({}),
+            description: "Human must approve before any public publish".to_string(),
+            status: "pending".to_string(),
+        },
+    ];
+    if goal_wants_schedule(goal) {
+        steps.push(GoalStep {
+            tool: "schedule_optional".to_string(),
+            args: json!({ "hint": "when_ready" }),
+            description: "Schedule the approved draft when a publish time is ready".to_string(),
+            status: "pending".to_string(),
+        });
+    }
+    steps
+}
+
+/// POST /v1/pulse/goals — create a goal and persist a deterministic plan.
+pub async fn create_goal(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateGoalRequest>,
+) -> ApiResponse {
+    let goal = req.goal.trim();
+    if goal.is_empty() {
+        return bad_request("goal is required");
+    }
+    if goal.len() > 2000 {
+        return bad_request("goal too long");
+    }
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(p) => p,
+        None => return not_found("Create a profile first"),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+    let steps = decompose_goal(goal);
+    let plan = json!({
+        "goal": goal,
+        "runtime": "deterministic_mvp",
+        "note": "Plan template only — not a Temporal workflow. Execute steps via Drafts + Schedule UI.",
+        "tools": ["create_draft", "approve_required", "schedule_optional"],
+    });
+    let plan_json = plan.to_string();
+    let steps_json = serde_json::to_string(&steps).unwrap_or_else(|_| "[]".to_string());
+    let row = db(&state).pulse_create_goal(profile_id, goal, &plan_json, &steps_json);
+    ok(json!({ "ok": true, "goal": row }))
+}
+
+/// GET /v1/pulse/goals — list goals for the caller's profile.
+pub async fn list_goals(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+) -> ApiResponse {
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(p) => p,
+        None => return ok(json!({ "goals": [] })),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+    let goals = db(&state).pulse_list_goals(profile_id);
+    ok(json!({ "goals": goals }))
+}
+
+/// GET /v1/pulse/goals/{id}
+pub async fn get_goal(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> ApiResponse {
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(p) => p,
+        None => return not_found("Not found"),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+    match db(&state).pulse_get_goal(&id, profile_id) {
+        Some(goal) => ok(json!({ "goal": goal })),
+        None => not_found("Goal not found"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1446,5 +1635,66 @@ mod tests {
 
         let pending = db.pulse_list_drafts(profile_id, Some("pending"));
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn decompose_goal_post_about_x_next_week() {
+        let steps = decompose_goal("post about X next week");
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps[0].tool, "create_draft");
+        assert_eq!(steps[0].args["body"], "Draft about X");
+        assert_eq!(steps[0].status, "pending");
+        assert_eq!(steps[1].tool, "approve_required");
+        assert!(steps[1].args.as_object().map(|o| o.is_empty()).unwrap_or(false));
+        assert_eq!(steps[2].tool, "schedule_optional");
+        assert_eq!(steps[2].args["hint"], "when_ready");
+    }
+
+    #[test]
+    fn decompose_goal_simple_topic_no_schedule() {
+        let steps = decompose_goal("post about shipping tools");
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].tool, "create_draft");
+        assert_eq!(steps[0].args["body"], "Draft about shipping tools");
+        assert_eq!(steps[1].tool, "approve_required");
+    }
+
+    #[test]
+    fn decompose_goal_empty_falls_back() {
+        let steps = decompose_goal("   ");
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].args["body"], "Draft about Untitled draft");
+    }
+
+    #[test]
+    fn pulse_goal_create_get_list_roundtrip() {
+        let db = test_db();
+        let profile = db.social_create_profile("clerk_goal_test", "goaluser", "Goal User", "");
+        let profile_id = profile["id"].as_str().unwrap();
+        let steps = decompose_goal("post about cats next week");
+        let plan = json!({
+            "goal": "post about cats next week",
+            "runtime": "deterministic_mvp",
+        });
+        let created = db.pulse_create_goal(
+            profile_id,
+            "post about cats next week",
+            &plan.to_string(),
+            &serde_json::to_string(&steps).unwrap(),
+        );
+        assert_eq!(created["status"], "active");
+        assert_eq!(created["goal"], "post about cats next week");
+        assert!(created["steps"].as_array().unwrap().len() >= 2);
+
+        let id = created["id"].as_str().unwrap();
+        let got = db.pulse_get_goal(id, profile_id).unwrap();
+        assert_eq!(got["id"], id);
+
+        let listed = db.pulse_list_goals(profile_id);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0]["id"], id);
+
+        // Ownership isolation
+        assert!(db.pulse_get_goal(id, "other-profile").is_none());
     }
 }

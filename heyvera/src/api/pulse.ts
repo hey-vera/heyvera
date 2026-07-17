@@ -171,3 +171,54 @@ export async function listSchedules(
 ): Promise<{ schedules: PulseSchedule[] }> {
   return pulseAuthFetch('/schedules', { method: 'GET', token });
 }
+
+// ─── Goal plan MVP (deterministic template; not Temporal) ───────────────────
+
+export type PulseGoalStep = {
+  tool: 'create_draft' | 'approve_required' | 'schedule_optional' | string;
+  args: Record<string, unknown>;
+  description: string;
+  status: string;
+};
+
+export type PulseGoal = {
+  id: string;
+  profileId: string;
+  goal: string;
+  status: 'active' | 'completed' | 'cancelled' | string;
+  plan: {
+    goal?: string;
+    runtime?: string;
+    note?: string;
+    tools?: string[];
+    [key: string]: unknown;
+  };
+  steps: PulseGoalStep[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Create a goal; server returns a deterministic plan template (not Temporal). */
+export async function createGoal(
+  token: string,
+  goal: string,
+): Promise<{ ok: true; goal: PulseGoal }> {
+  return pulseAuthFetch('/goals', {
+    method: 'POST',
+    token,
+    body: { goal },
+  });
+}
+
+export async function listGoals(
+  token: string,
+): Promise<{ goals: PulseGoal[] }> {
+  return pulseAuthFetch('/goals', { method: 'GET', token });
+}
+
+export async function getGoal(
+  token: string,
+  id: string,
+): Promise<{ goal: PulseGoal }> {
+  return pulseAuthFetch(`/goals/${id}`, { method: 'GET', token });
+}
