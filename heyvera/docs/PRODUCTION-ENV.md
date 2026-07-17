@@ -40,9 +40,30 @@ Without storage vars, media uses mock upload path (dev only).
 
 | Variable | Purpose |
 |----------|---------|
-| `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | Future tools_v2 LLM chat |
+| `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` | Enables Pulse chat `tools_v2` (LLM tool JSON). Prefer Anthropic if both set. |
 
-tools_v1 works without these.
+Without these keys, `/v1/pulse/chat` stays on **tools_v1** (keyword matching only). No fake AI.
+
+## Pulse schedule processor (cron / self-call)
+
+Approved drafts can be scheduled via `POST /v1/pulse/schedules` (or chat: `schedule draft <id> at <ISO>`).
+
+Due items are **not** auto-published in-process. Call the processor periodically:
+
+```bash
+# Every minute (example). Requires a valid Clerk user JWT for the API.
+curl -sS -X POST "$VITE_API_URL/v1/pulse/schedules/process" \
+  -H "Authorization: Bearer $CLERK_SESSION_JWT"
+```
+
+| Item | Detail |
+|------|--------|
+| Endpoint | `POST /v1/pulse/schedules/process` |
+| Auth | Authenticated Clerk JWT (early product: processes global due queue on single-tenant SQLite) |
+| Effect | Publishes schedules where `publish_at <= now` and draft is still `approved` |
+| Suggested cron | `* * * * *` (every minute) or every 5 minutes for low traffic |
+
+Without this cron (or manual self-call), scheduled drafts remain in `scheduled` status forever.
 
 ## Billing (optional)
 
