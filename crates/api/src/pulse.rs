@@ -8,6 +8,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::agent_auth::SocialWriteAuth;
 use crate::clerk::ClerkUser;
 use crate::state::AppState;
 
@@ -56,30 +57,41 @@ pub async fn list_drafts(
 }
 
 pub async fn create_draft(
-    user: ClerkUser,
+    auth: SocialWriteAuth,
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateDraftRequest>,
 ) -> ApiResponse {
-    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
-        Some(p) => p,
-        None => return not_found("Create a profile first"),
+    // Dual auth: Clerk or Agent bearer. Agent forces profile + author_mode=agent.
+    let (profile_id, author_mode, linked_agent_id): (String, String, Option<String>) = match &auth {
+        SocialWriteAuth::Agent(agent) => (
+            agent.profile_id.clone(),
+            "agent".to_string(),
+            Some(agent.agent_id.clone()),
+        ),
+        SocialWriteAuth::Clerk(user) => {
+            let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+                Some(p) => p,
+                None => return not_found("Create a profile first"),
+            };
+            let profile_id = profile["id"].as_str().unwrap_or("").to_string();
+            let author_mode = req.author_mode.as_deref().unwrap_or("person").to_string();
+            if let Err(resp) = crate::social::ensure_linked_agent_allowed(
+                &state,
+                &profile_id,
+                &author_mode,
+                req.linked_agent_id.as_deref(),
+            ) {
+                return resp;
+            }
+            (profile_id, author_mode, req.linked_agent_id.clone())
+        }
     };
-    let profile_id = profile["id"].as_str().unwrap_or("").to_string();
-    let author_mode = req.author_mode.as_deref().unwrap_or("person");
-    if let Err(resp) = crate::social::ensure_linked_agent_allowed(
-        &state,
-        &profile_id,
-        author_mode,
-        req.linked_agent_id.as_deref(),
-    ) {
-        return resp;
-    }
     let draft = db(&state).pulse_create_draft(
         &profile_id,
         &req.body,
         req.visibility.as_deref().unwrap_or("public"),
-        author_mode,
-        req.linked_agent_id.as_deref(),
+        &author_mode,
+        linked_agent_id.as_deref(),
     );
     ok(json!({ "ok": true, "draft": draft }))
 }
