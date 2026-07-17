@@ -20,7 +20,7 @@ const linkedAgent: LinkedAgent = {
   accountId: "acct-1",
   agentName: "Worker Agent",
   agentSlug: "worker-agent",
-  agentKey: "agent-key",
+  agentKeyPrefix: "hvak_abc123…",
   agentType: "assistant",
   linkState: "verified",
   visibility: "public",

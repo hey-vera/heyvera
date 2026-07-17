@@ -116,25 +116,40 @@ export async function getDraftAudit(
   return pulseAuthFetch(`/drafts/${id}/audit`, { method: 'GET', token });
 }
 
-// ─── Chat (server-side tools v1) ────────────────────────────────────────────
+// ─── Chat (tools_v1 keyword router; tools_v2 when server has LLM keys) ───────
+
+/** tools_v1 = deterministic keywords; tools_v2 = LLM tool JSON (server keys only). */
+export type PulseChatMode = 'tools_v1' | 'tools_v2' | string;
 
 export type PulseChatResponse = {
   reply: string;
-  mode: string;
+  mode: PulseChatMode;
   toolsUsed: string[];
   draft: PulseDraft | null;
   draftCount?: number;
+  postId?: string;
+  schedule?: PulseSchedule;
 };
 
-/** Call backend Pulse tools (create/list drafts). Not a full LLM yet. */
+export type PulseSchedule = {
+  id: string;
+  draftId: string;
+  publishAt: string;
+  status: string;
+  profileId?: string;
+  createdAt?: string;
+};
+
+/** Call backend Pulse tools. Mode is tools_v2 only when server has LLM API keys. */
 export async function pulseChat(
   token: string,
   message: string,
+  history?: Array<{ role: string; content: string }>,
 ): Promise<PulseChatResponse> {
   return pulseAuthFetch('/chat', {
     method: 'POST',
     token,
-    body: { message },
+    body: { message, history: history ?? [] },
   });
 }
 
@@ -143,7 +158,7 @@ export async function scheduleDraft(
   token: string,
   draftId: string,
   publishAt: string,
-): Promise<{ ok: true; schedule: { id: string; publishAt: string; status: string } }> {
+): Promise<{ ok: true; schedule: PulseSchedule }> {
   return pulseAuthFetch('/schedules', {
     method: 'POST',
     token,
@@ -153,6 +168,57 @@ export async function scheduleDraft(
 
 export async function listSchedules(
   token: string,
-): Promise<{ schedules: Array<{ id: string; draftId: string; publishAt: string; status: string }> }> {
+): Promise<{ schedules: PulseSchedule[] }> {
   return pulseAuthFetch('/schedules', { method: 'GET', token });
+}
+
+// ─── Goal plan MVP (deterministic template; not Temporal) ───────────────────
+
+export type PulseGoalStep = {
+  tool: 'create_draft' | 'approve_required' | 'schedule_optional' | string;
+  args: Record<string, unknown>;
+  description: string;
+  status: string;
+};
+
+export type PulseGoal = {
+  id: string;
+  profileId: string;
+  goal: string;
+  status: 'active' | 'completed' | 'cancelled' | string;
+  plan: {
+    goal?: string;
+    runtime?: string;
+    note?: string;
+    tools?: string[];
+    [key: string]: unknown;
+  };
+  steps: PulseGoalStep[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Create a goal; server returns a deterministic plan template (not Temporal). */
+export async function createGoal(
+  token: string,
+  goal: string,
+): Promise<{ ok: true; goal: PulseGoal }> {
+  return pulseAuthFetch('/goals', {
+    method: 'POST',
+    token,
+    body: { goal },
+  });
+}
+
+export async function listGoals(
+  token: string,
+): Promise<{ goals: PulseGoal[] }> {
+  return pulseAuthFetch('/goals', { method: 'GET', token });
+}
+
+export async function getGoal(
+  token: string,
+  id: string,
+): Promise<{ goal: PulseGoal }> {
+  return pulseAuthFetch(`/goals/${id}`, { method: 'GET', token });
 }

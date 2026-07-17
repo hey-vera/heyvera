@@ -15,7 +15,9 @@ Legend: **OK** mounted + used · **MISSING** FE calls / needs route · **PARTIAL
 | List / featured | `GET .../profiles`, `.../featured` | OK | Featured = first rows |
 | User by handle | `GET /v1/social/users/{handle}` | OK | Bare profile object |
 | Profile by handle | `GET /v1/social/profiles/{handle}` | OK | Alias: `{ profile, linkedAgents }` |
-| Linked agents | `GET .../profiles/{handle}/linked-agents` | OK | |
+| Linked agents | `GET .../profiles/{handle}/linked-agents` | OK | Public list returns `agentKeyPrefix` only (never full secret) |
+| My linked agents | `GET/POST /v1/social/linked-agents` | OK | Create returns `agentKey` once (`hvak_…`); list shows prefix |
+| Rotate agent key | `POST /v1/social/linked-agents/{id}/rotate-key` | OK | Clerk only; new secret once; invalidates old hash |
 | Followers / following lists | `GET .../followers`, `.../following` | MISSING | |
 | PATCH profile (short path) | `PATCH /v1/social/profile` | OK | Alias of `/me/profile` |
 | Follow status | `GET /v1/social/follows/{handle}/status` | OK | |
@@ -27,7 +29,7 @@ Legend: **OK** mounted + used · **MISSING** FE calls / needs route · **PARTIAL
 |----------|---------------|---------|-------|
 | Home feed | `GET /v1/social/feed/home` | OK | Keyset cursor |
 | Following feed | `GET /v1/social/feed/following` | PARTIAL | Pagination weaker |
-| Create post | `POST /v1/social/posts` | OK | |
+| Create post | `POST /v1/social/posts` | OK | Dual auth: Clerk JWT **or** `Bearer hvak_…` / `Agent hvak_…`. Agent forces `authorMode=agent` + own `linkedAgentId` |
 | Get / delete post | `GET/DELETE /v1/social/posts/{id}` | OK | |
 | Like / repost / bookmark | POST+DELETE on post actions | OK | **No list bookmarks** |
 | User posts | `GET /v1/social/users/{handle}/posts` | PARTIAL | |
@@ -70,7 +72,16 @@ Legend: **OK** mounted + used · **MISSING** FE calls / needs route · **PARTIAL
 | FE usage | Method + path | Backend | Notes |
 |----------|---------------|---------|-------|
 | Drafts CRUD-ish | `/v1/pulse/drafts*` | OK | approve/reject/publish/audit |
+| Create draft | `POST /v1/pulse/drafts` | OK | Dual auth like create post: Clerk **or** agent bearer (`hvak_`) |
 | Chat / tools agent | `POST /v1/pulse/chat` | PARTIAL | `tools_v1` deterministic create/list drafts; not full LLM |
+
+## Agent bearer auth
+
+Linked agents receive a server-generated `hvak_` API key on create/rotate. The plaintext secret is returned **once**; the DB stores SHA-256 hex in `agent_key_hash` and a display prefix in `agent_key`.
+
+- Header: `Authorization: Bearer hvak_…` or `Authorization: Agent hvak_…`
+- Scoped writes: `POST /v1/social/posts`, `POST /v1/pulse/drafts` only (other social writes stay Clerk-only)
+- Lookup requires `link_state = 'active'`; suspended owner account is rejected when mappable
 
 ## Phase 0 / Phase 1 priorities
 

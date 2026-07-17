@@ -156,6 +156,20 @@ Secrets are expected via host env / Replit secrets / systemd env files (e.g. `/e
 - `scripts/deploy.sh` — multi-product; can sync `heyvera/dist` to `~/www/heyvera`; health often on 3001/3402.
 - Frontend Cloudflare: build `heyvera/` (`npm run build`); Pages root is the heyvera app, not `cortex/`.
 
+## Soft-realtime (notifications / DMs)
+
+**Today (client soft-poll, not push):** the HeyVera SPA refreshes social inbox surfaces with **visibility-aware polling** — intervals run only while `document.visibilityState === 'visible'` and clean up on unmount:
+
+| Surface | File | Interval (while visible) |
+|---------|------|---------------------------|
+| Notifications list | `heyvera/src/pages/NotificationsPage.tsx` | ~15s |
+| Open DM thread | `heyvera/src/pages/MessagesPage.tsx` | ~5–8s (messages) |
+| Conversation list | same | ~20s |
+
+Shared helper: `heyvera/src/utils/visibilityPoll.ts` (+ `useVisibilityPoll`). Background polls update state quietly (no full-page `LoadingState` flash).
+
+**Residual:** full **WebSocket / SSE** realtime for notifs and DMs is **not** implemented. Treat soft-poll as the honest intermediate; server push remains on `CHECKLIST.md` (“Realtime websockets” / “Realtime notifs/DMs”). No dedicated realtime gateway appears in this topology.
+
 ## Practical recommendations (not yet enforced by this doc)
 
 1. **Pick one owner for `/v1/social` and `/v1/pulse` in production** (heyvera-server on 3002 *or* cortex-server on 3001 with full mounts), then align Caddy + Pages proxy.

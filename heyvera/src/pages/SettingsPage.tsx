@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { SignInButton, useClerk, UserButton } from '@clerk/clerk-react';
 import {
   ArrowLeft,
@@ -9,6 +9,7 @@ import {
   CreditCard,
   Database,
   Edit3,
+  ImagePlus,
   Lock,
   Mail,
   MessageCircle,
@@ -21,14 +22,22 @@ import {
   Trash2,
   Type,
   User,
+  X,
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useMyProfile } from '../hooks/useMyProfile';
-import { fetchMyLinkedAgents, linkAgent, updateProfile } from '../api/social';
+import {
+  fetchMyLinkedAgents,
+  linkAgent,
+  rotateLinkedAgentKey,
+  updateProfile,
+  uploadMediaFile,
+} from '../api/social';
 import type { LinkedAgent, Profile } from '../api/social';
+import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from '../utils/imageUpload';
 
 type Section = 'profile' | 'agents' | 'account' | 'privacy' | 'notifications' | 'billing' | 'display' | 'data';
 
@@ -441,8 +450,15 @@ function ProfileEditor({
     website: '',
   });
   const [initialForm, setInitialForm] = useState<ProfileFormFields>(form);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const bannerInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (data?.profile) {
@@ -452,13 +468,62 @@ function ProfileEditor({
     }
   }, [data]);
 
+  useEffect(() => {
+    return () => {
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+      if (bannerPreview) URL.revokeObjectURL(bannerPreview);
+    };
+  }, [avatarPreview, bannerPreview]);
+
+  const busy = saving || uploading;
   const hasChanges =
     form.displayName !== initialForm.displayName ||
     form.bio !== initialForm.bio ||
     form.avatarUrl !== initialForm.avatarUrl ||
     form.bannerUrl !== initialForm.bannerUrl ||
     form.location !== initialForm.location ||
-    form.website !== initialForm.website;
+    form.website !== initialForm.website ||
+    avatarFile !== null ||
+    bannerFile !== null;
+
+  const clearAvatarFile = () => {
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    setAvatarFile(null);
+    setAvatarPreview(null);
+    if (avatarInputRef.current) avatarInputRef.current.value = '';
+  };
+
+  const clearBannerFile = () => {
+    if (bannerPreview) URL.revokeObjectURL(bannerPreview);
+    setBannerFile(null);
+    setBannerPreview(null);
+    if (bannerInputRef.current) bannerInputRef.current.value = '';
+  };
+
+  const onPickImage = (kind: 'avatar' | 'banner', event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) return;
+
+    const validationError = validateImageFile(file);
+    if (validationError) {
+      setFeedback({ type: 'error', message: validationError });
+      if (kind === 'avatar') clearAvatarFile();
+      else clearBannerFile();
+      return;
+    }
+
+    const preview = URL.createObjectURL(file);
+    if (kind === 'avatar') {
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+      setAvatarFile(file);
+      setAvatarPreview(preview);
+    } else {
+      if (bannerPreview) URL.revokeObjectURL(bannerPreview);
+      setBannerFile(file);
+      setBannerPreview(preview);
+    }
+    setFeedback(null);
+  };
 
   const handleSave = async () => {
     setSaving(true);
@@ -470,25 +535,50 @@ function ProfileEditor({
         return;
       }
 
+      let nextAvatarUrl = form.avatarUrl;
+      let nextBannerUrl = form.bannerUrl;
+
+      if (avatarFile || bannerFile) {
+        setUploading(true);
+        if (avatarFile) {
+          const uploaded = await uploadMediaFile(token, avatarFile);
+          nextAvatarUrl = uploaded.url;
+        }
+        if (bannerFile) {
+          const uploaded = await uploadMediaFile(token, bannerFile);
+          nextBannerUrl = uploaded.url;
+        }
+        setUploading(false);
+      }
+
       // Only send changed fields
       const patch: Record<string, string> = {};
       if (form.displayName !== initialForm.displayName) patch.displayName = form.displayName;
       if (form.bio !== initialForm.bio) patch.bio = form.bio;
-      if (form.avatarUrl !== initialForm.avatarUrl) patch.avatarUrl = form.avatarUrl;
-      if (form.bannerUrl !== initialForm.bannerUrl) patch.bannerUrl = form.bannerUrl;
+      if (nextAvatarUrl !== initialForm.avatarUrl) patch.avatarUrl = nextAvatarUrl;
+      if (nextBannerUrl !== initialForm.bannerUrl) patch.bannerUrl = nextBannerUrl;
       if (form.location !== initialForm.location) patch.location = form.location;
       if (form.website !== initialForm.website) patch.websiteUrl = form.website;
 
       if (Object.keys(patch).length === 0) return;
 
       await updateProfile(token, patch);
+      const nextForm: ProfileFormFields = {
+        ...form,
+        avatarUrl: nextAvatarUrl,
+        bannerUrl: nextBannerUrl,
+      };
+      setForm(nextForm);
+      setInitialForm(nextForm);
+      clearAvatarFile();
+      clearBannerFile();
       setFeedback({ type: 'success', message: 'Profile updated successfully.' });
-      setInitialForm(form);
       refetch();
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : 'Failed to update profile.';
       setFeedback({ type: 'error', message });
     } finally {
+      setUploading(false);
       setSaving(false);
     }
   };
@@ -520,6 +610,9 @@ function ProfileEditor({
   const fieldClass =
     'mt-1 w-full rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-elevated)] px-3 py-2 text-[15px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:border-[var(--accent)] focus:outline-none focus:ring-1 focus:ring-[var(--accent)]';
 
+  const avatarDisplay = avatarPreview || form.avatarUrl || null;
+  const bannerDisplay = bannerPreview || form.bannerUrl || null;
+
   return (
     <div className="divide-y divide-[var(--border-primary)]">
       {feedback ? (
@@ -543,6 +636,7 @@ function ProfileEditor({
             onChange={(e) => setForm((f) => ({ ...f, displayName: e.target.value }))}
             className={fieldClass}
             placeholder="Your display name"
+            disabled={busy}
           />
         </label>
       </div>
@@ -556,32 +650,127 @@ function ProfileEditor({
             className={`${fieldClass} min-h-[80px] resize-y`}
             placeholder="Tell people about yourself"
             rows={3}
+            disabled={busy}
           />
         </label>
       </div>
 
       <div className="px-4 py-4">
-        <label className="block text-[13px] font-bold text-[var(--text-secondary)]">
-          Avatar URL
-          <input
-            type="url"
-            value={form.avatarUrl}
-            onChange={(e) => setForm((f) => ({ ...f, avatarUrl: e.target.value }))}
-            className={fieldClass}
-            placeholder="https://example.com/avatar.jpg"
-          />
-        </label>
+        <span className="block text-[13px] font-bold text-[var(--text-secondary)]">Avatar</span>
+        <div className="mt-2 flex items-center gap-4">
+          <div
+            className="relative h-16 w-16 shrink-0 overflow-hidden rounded-full border border-[var(--border-secondary)] bg-[var(--bg-elevated)]"
+          >
+            {avatarDisplay ? (
+              <img src={avatarDisplay} alt="" className="h-full w-full object-cover" />
+            ) : (
+              <div className="flex h-full items-center justify-center text-[12px] text-[var(--text-secondary)]">
+                —
+              </div>
+            )}
+          </div>
+          <div className="min-w-0 flex-1">
+            <input
+              ref={avatarInputRef}
+              type="file"
+              accept={ALLOWED_IMAGE_ACCEPT}
+              className="hidden"
+              onChange={(event) => onPickImage('avatar', event)}
+              disabled={busy}
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => avatarInputRef.current?.click()}
+                disabled={busy}
+                className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-[var(--accent)] transition-colors hover-overlay disabled:opacity-50"
+              >
+                <ImagePlus className="h-4 w-4" aria-hidden="true" />
+                Upload avatar
+              </button>
+              {avatarFile ? (
+                <button
+                  type="button"
+                  onClick={clearAvatarFile}
+                  disabled={busy}
+                  className="text-sm text-[var(--text-secondary)] disabled:opacity-50"
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+            <label className="mt-2 block text-[12px] font-normal text-[var(--text-secondary)]">
+              Or paste URL
+              <input
+                type="url"
+                value={form.avatarUrl}
+                onChange={(e) => {
+                  setForm((f) => ({ ...f, avatarUrl: e.target.value }));
+                  if (avatarFile) clearAvatarFile();
+                }}
+                className={fieldClass}
+                placeholder="https://example.com/avatar.jpg"
+                disabled={busy}
+              />
+            </label>
+          </div>
+        </div>
       </div>
 
       <div className="px-4 py-4">
-        <label className="block text-[13px] font-bold text-[var(--text-secondary)]">
-          Banner URL
+        <span className="block text-[13px] font-bold text-[var(--text-secondary)]">Banner</span>
+        <div
+          className="relative mt-2 h-[100px] overflow-hidden rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-elevated)]"
+        >
+          {bannerDisplay ? (
+            <img src={bannerDisplay} alt="" className="h-full w-full object-cover" />
+          ) : (
+            <div className="flex h-full items-center justify-center text-[13px] text-[var(--text-secondary)]">
+              No banner
+            </div>
+          )}
+          {bannerFile ? (
+            <button
+              type="button"
+              onClick={clearBannerFile}
+              disabled={busy}
+              className="absolute right-2 top-2 rounded-full p-1.5 disabled:opacity-50"
+              style={{ backgroundColor: 'color-mix(in srgb, var(--bg-primary) 80%, transparent)', color: 'var(--text-primary)' }}
+              aria-label="Remove selected banner"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          ) : null}
+        </div>
+        <input
+          ref={bannerInputRef}
+          type="file"
+          accept={ALLOWED_IMAGE_ACCEPT}
+          className="hidden"
+          onChange={(event) => onPickImage('banner', event)}
+          disabled={busy}
+        />
+        <button
+          type="button"
+          onClick={() => bannerInputRef.current?.click()}
+          disabled={busy}
+          className="mt-2 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium text-[var(--accent)] transition-colors hover-overlay disabled:opacity-50"
+        >
+          <ImagePlus className="h-4 w-4" aria-hidden="true" />
+          Upload banner
+        </button>
+        <label className="mt-2 block text-[12px] font-normal text-[var(--text-secondary)]">
+          Or paste URL
           <input
             type="url"
             value={form.bannerUrl}
-            onChange={(e) => setForm((f) => ({ ...f, bannerUrl: e.target.value }))}
+            onChange={(e) => {
+              setForm((f) => ({ ...f, bannerUrl: e.target.value }));
+              if (bannerFile) clearBannerFile();
+            }}
             className={fieldClass}
             placeholder="https://example.com/banner.jpg"
+            disabled={busy}
           />
         </label>
       </div>
@@ -595,6 +784,7 @@ function ProfileEditor({
             onChange={(e) => setForm((f) => ({ ...f, location: e.target.value }))}
             className={fieldClass}
             placeholder="City, Country"
+            disabled={busy}
           />
         </label>
       </div>
@@ -608,6 +798,7 @@ function ProfileEditor({
             onChange={(e) => setForm((f) => ({ ...f, website: e.target.value }))}
             className={fieldClass}
             placeholder="https://yoursite.com"
+            disabled={busy}
           />
         </label>
       </div>
@@ -615,15 +806,15 @@ function ProfileEditor({
       <div className="px-4 py-4">
         <button
           type="button"
-          disabled={!hasChanges || saving}
+          disabled={!hasChanges || busy}
           onClick={() => void handleSave()}
           className={`rounded-full px-5 py-2 text-[15px] font-bold transition-colors ${
-            hasChanges && !saving
+            hasChanges && !busy
               ? 'bg-[var(--accent)] text-white hover:opacity-90'
               : 'cursor-not-allowed bg-[var(--bg-elevated)] text-[var(--text-secondary)]'
           }`}
         >
-          {saving ? 'Saving...' : 'Save changes'}
+          {uploading ? 'Uploading...' : saving ? 'Saving...' : 'Save changes'}
         </button>
       </div>
     </div>
@@ -643,7 +834,11 @@ function LinkedAgentsPanel({
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** One-time plaintext key shown only after create or rotate. */
+  const [oneTimeKey, setOneTimeKey] = useState<{ agentName: string; key: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const loadAgents = async () => {
     if (!isSignedIn) {
@@ -693,13 +888,14 @@ function LinkedAgentsPanel({
     setSubmitting(true);
     setNotice(null);
     setError(null);
+    setOneTimeKey(null);
     try {
       const token = await getToken();
       if (!token) {
         setNotice('Sign in to link an agent.');
         return;
       }
-      await linkAgent(token, {
+      const res = await linkAgent(token, {
         agentName,
         agentSlug,
         agentType: 'general',
@@ -707,12 +903,60 @@ function LinkedAgentsPanel({
       });
       setName('');
       setSlug('');
-      setNotice('Agent linked. This is a display identity only — no runtime authority yet.');
+      const key = res.linkedAgent?.agentKey;
+      if (key) {
+        setOneTimeKey({ agentName, key });
+        setNotice(
+          'Agent linked. Copy the API key now — it is shown only once. Use Authorization: Bearer hvak_… to post as this agent.',
+        );
+      } else {
+        setNotice('Agent linked. Rotate the key below if you need an API secret.');
+      }
       await loadAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to link agent');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleRotate = async (agent: LinkedAgent) => {
+    if (!isSignedIn) return;
+    setRotatingId(agent.id);
+    setError(null);
+    setNotice(null);
+    setOneTimeKey(null);
+    setCopied(false);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setNotice('Sign in to rotate an agent key.');
+        return;
+      }
+      const res = await rotateLinkedAgentKey(token, agent.id);
+      const key = res.linkedAgent?.agentKey;
+      if (key) {
+        setOneTimeKey({ agentName: agent.agentName, key });
+        setNotice(
+          `New key for ${agent.agentName}. Copy it now — it will not be shown again. Old key is invalid.`,
+        );
+      }
+      await loadAgents();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to rotate key');
+    } finally {
+      setRotatingId(null);
+    }
+  };
+
+  const handleCopyKey = async () => {
+    if (!oneTimeKey) return;
+    try {
+      await navigator.clipboard.writeText(oneTimeKey.key);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Could not copy to clipboard');
     }
   };
 
@@ -727,9 +971,38 @@ function LinkedAgentsPanel({
   return (
     <div className="px-4 py-4">
       <p className="mb-4 text-[13px] leading-5 text-[var(--text-secondary)]">
-        Linked agents are display identities you can select when composing. HeyVera does not
-        provision agent runtime, credentials, or posting authority here.
+        Linked agents are identities you can select when composing, and can post via a scoped API
+        key (<code className="text-[12px]">Authorization: Bearer hvak_…</code>). Keys are shown once
+        on create/rotate; list views only show a prefix.
       </p>
+
+      {oneTimeKey && (
+        <div
+          className="mb-4 rounded-2xl border px-4 py-4"
+          style={{
+            borderColor: 'var(--accent)',
+            backgroundColor: 'color-mix(in srgb, var(--accent) 8%, transparent)',
+          }}
+        >
+          <p className="text-[14px] font-bold">
+            One-time API key — {oneTimeKey.agentName}
+          </p>
+          <p className="mt-1 text-[12px] text-[var(--text-secondary)]">
+            Store this securely. HeyVera will not show the full key again.
+          </p>
+          <code className="mt-2 block break-all rounded-lg bg-[var(--bg-primary)] px-3 py-2 text-[12px]">
+            {oneTimeKey.key}
+          </code>
+          <button
+            type="button"
+            onClick={() => void handleCopyKey()}
+            className="mt-3 rounded-full px-4 py-1.5 text-[13px] font-bold"
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-primary)' }}
+          >
+            {copied ? 'Copied' : 'Copy key'}
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <p className="text-[14px] text-[var(--text-secondary)]">Loading linked agents…</p>
@@ -740,8 +1013,8 @@ function LinkedAgentsPanel({
         >
           <p className="text-[15px] font-bold">No linked agents yet</p>
           <p className="mt-1 text-[13px] text-[var(--text-secondary)]">
-            Link a name and slug below when you want an agent identity on posts. Empty is honest —
-            nothing is faked.
+            Link a name and slug below when you want an agent identity on posts. You will receive an
+            API key once to call create-post / create-draft as that agent.
           </p>
         </div>
       ) : (
@@ -764,7 +1037,21 @@ function LinkedAgentsPanel({
                   {agent.isPrimary ? ' · primary' : ''}
                   {agent.linkState ? ` · ${agent.linkState}` : ''}
                 </span>
+                {agent.agentKeyPrefix && (
+                  <span className="mt-0.5 block font-mono text-[12px] text-[var(--text-secondary)]">
+                    key {agent.agentKeyPrefix}
+                  </span>
+                )}
               </span>
+              <button
+                type="button"
+                onClick={() => void handleRotate(agent)}
+                disabled={rotatingId === agent.id}
+                className="shrink-0 rounded-full border px-3 py-1 text-[12px] font-semibold transition-opacity disabled:opacity-50"
+                style={{ borderColor: 'var(--border-primary)' }}
+              >
+                {rotatingId === agent.id ? 'Rotating…' : 'Rotate key'}
+              </button>
             </li>
           ))}
         </ul>

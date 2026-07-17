@@ -811,6 +811,154 @@ async fn stream_codex_cli(
 
 // --- BYOK direct API path (for users who bring their own API keys) ---
 
+/// Non-streaming chat completion (single full response). Used by Pulse tools_v2.
+pub async fn chat_completion(
+    provider: &Provider,
+    api_key: &str,
+    model: Option<&str>,
+    system_prompt: &str,
+    messages: &[ChatMessage],
+) -> Result<String, String> {
+    match provider {
+        Provider::Claude => {
+            complete_anthropic_api(api_key, model, system_prompt, messages).await
+        }
+        Provider::Openai => complete_openai_api(api_key, model, system_prompt, messages).await,
+    }
+}
+
+/// Resolve server-side LLM credentials for Pulse tools_v2 (honest: None if no keys).
+pub fn resolve_server_llm() -> Option<(Provider, String)> {
+    if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
+        let key = key.trim().to_string();
+        if !key.is_empty() {
+            return Some((Provider::Claude, key));
+        }
+    }
+    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
+        let key = key.trim().to_string();
+        if !key.is_empty() {
+            return Some((Provider::Openai, key));
+        }
+    }
+    None
+}
+
+async fn complete_anthropic_api(
+    api_key: &str,
+    model: Option<&str>,
+    system_prompt: &str,
+    messages: &[ChatMessage],
+) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let model = model.unwrap_or("claude-haiku-4-5");
+
+    let api_messages: Vec<serde_json::Value> = messages
+        .iter()
+        .map(|m| serde_json::json!({"role": m.role, "content": m.content}))
+        .collect();
+
+    let body = serde_json::json!({
+        "model": model,
+        "max_tokens": 1024,
+        "system": system_prompt,
+        "messages": api_messages,
+    });
+
+    let resp = client
+        .post("https://api.anthropic.com/v1/messages")
+        .header("x-api-key", api_key)
+        .header("anthropic-version", "2023-06-01")
+        .header("content-type", "application/json")
+        .timeout(Duration::from_secs(45))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("anthropic request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        tracing::error!(provider = "anthropic", %status, "API error: {body}");
+        return Err(format!("Anthropic API error ({status})"));
+    }
+
+    let value: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("anthropic parse failed: {e}"))?;
+
+    let text: String = value
+        .get("content")
+        .and_then(|c| c.as_array())
+        .map(|arr| {
+            arr.iter()
+                .filter_map(|b| b.get("text").and_then(|t| t.as_str()))
+                .collect::<Vec<_>>()
+                .join("")
+        })
+        .unwrap_or_default();
+
+    if text.trim().is_empty() {
+        return Err("anthropic returned empty content".to_string());
+    }
+    Ok(text)
+}
+
+async fn complete_openai_api(
+    api_key: &str,
+    model: Option<&str>,
+    system_prompt: &str,
+    messages: &[ChatMessage],
+) -> Result<String, String> {
+    let client = reqwest::Client::new();
+    let model = model.unwrap_or("gpt-4.1-mini");
+
+    let mut api_messages = vec![serde_json::json!({"role": "system", "content": system_prompt})];
+    for m in messages {
+        api_messages.push(serde_json::json!({"role": m.role, "content": m.content}));
+    }
+
+    let body = serde_json::json!({
+        "model": model,
+        "messages": api_messages,
+        "max_tokens": 1024,
+    });
+
+    let resp = client
+        .post("https://api.openai.com/v1/chat/completions")
+        .header("Authorization", format!("Bearer {api_key}"))
+        .header("content-type", "application/json")
+        .timeout(Duration::from_secs(45))
+        .json(&body)
+        .send()
+        .await
+        .map_err(|e| format!("openai request failed: {e}"))?;
+
+    if !resp.status().is_success() {
+        let status = resp.status();
+        let body = resp.text().await.unwrap_or_default();
+        tracing::error!(provider = "openai", %status, "API error: {body}");
+        return Err(format!("OpenAI API error ({status})"));
+    }
+
+    let value: serde_json::Value = resp
+        .json()
+        .await
+        .map_err(|e| format!("openai parse failed: {e}"))?;
+
+    let text = value
+        .pointer("/choices/0/message/content")
+        .and_then(|t| t.as_str())
+        .unwrap_or("")
+        .to_string();
+
+    if text.trim().is_empty() {
+        return Err("openai returned empty content".to_string());
+    }
+    Ok(text)
+}
+
 /// Stream a chat response using a raw API key (BYOK path).
 /// Use with caution — this burns per-token credits.
 pub async fn stream_chat_api(

@@ -8,6 +8,7 @@ use axum::{
 use serde::Deserialize;
 use serde_json::json;
 
+use crate::agent_auth::SocialWriteAuth;
 use crate::clerk::ClerkUser;
 use crate::state::AppState;
 
@@ -56,30 +57,41 @@ pub async fn list_drafts(
 }
 
 pub async fn create_draft(
-    user: ClerkUser,
+    auth: SocialWriteAuth,
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateDraftRequest>,
 ) -> ApiResponse {
-    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
-        Some(p) => p,
-        None => return not_found("Create a profile first"),
+    // Dual auth: Clerk or Agent bearer. Agent forces profile + author_mode=agent.
+    let (profile_id, author_mode, linked_agent_id): (String, String, Option<String>) = match &auth {
+        SocialWriteAuth::Agent(agent) => (
+            agent.profile_id.clone(),
+            "agent".to_string(),
+            Some(agent.agent_id.clone()),
+        ),
+        SocialWriteAuth::Clerk(user) => {
+            let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+                Some(p) => p,
+                None => return not_found("Create a profile first"),
+            };
+            let profile_id = profile["id"].as_str().unwrap_or("").to_string();
+            let author_mode = req.author_mode.as_deref().unwrap_or("person").to_string();
+            if let Err(resp) = crate::social::ensure_linked_agent_allowed(
+                &state,
+                &profile_id,
+                &author_mode,
+                req.linked_agent_id.as_deref(),
+            ) {
+                return resp;
+            }
+            (profile_id, author_mode, req.linked_agent_id.clone())
+        }
     };
-    let profile_id = profile["id"].as_str().unwrap_or("").to_string();
-    let author_mode = req.author_mode.as_deref().unwrap_or("person");
-    if let Err(resp) = crate::social::ensure_linked_agent_allowed(
-        &state,
-        &profile_id,
-        author_mode,
-        req.linked_agent_id.as_deref(),
-    ) {
-        return resp;
-    }
     let draft = db(&state).pulse_create_draft(
         &profile_id,
         &req.body,
         req.visibility.as_deref().unwrap_or("public"),
-        author_mode,
-        req.linked_agent_id.as_deref(),
+        &author_mode,
+        linked_agent_id.as_deref(),
     );
     ok(json!({ "ok": true, "draft": draft }))
 }
@@ -191,23 +203,36 @@ pub async fn get_draft_audit(
     ok(json!({ "audit": audit }))
 }
 
-// ─── Pulse chat (v1 tool router — same mutations as draft APIs) ─────────────
+// ─── Pulse chat (tools_v1 keyword router + tools_v2 LLM when keys set) ───────
 
 #[derive(Debug, Deserialize)]
 pub struct PulseChatRequest {
     pub message: String,
-    /// Optional prior messages for future LLM context (ignored by deterministic router).
+    /// Optional prior messages for tools_v2 LLM context.
     #[serde(default)]
-    #[allow(dead_code)]
     pub history: Vec<PulseChatHistoryItem>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct PulseChatHistoryItem {
-    #[allow(dead_code)]
     pub role: Option<String>,
-    #[allow(dead_code)]
     pub content: Option<String>,
+}
+
+/// Parsed tool invocation (shared by tools_v1 keywords and tools_v2 JSON).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct PulseToolCall {
+    pub tool: String,
+    pub args: serde_json::Map<String, serde_json::Value>,
+}
+
+/// Outcome of server-side tool execution (never trusts model to mutate alone).
+#[derive(Debug)]
+pub(crate) struct PulseToolOutcome {
+    pub reply: String,
+    pub tools_used: Vec<String>,
+    pub draft: Option<serde_json::Value>,
+    pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Strip common "draft a post about …" prefixes to get the body.
@@ -217,10 +242,10 @@ pub(crate) fn extract_draft_body(message: &str) -> Option<String> {
         return None;
     }
     let lower = trimmed.to_lowercase();
-    // Avoid treating "approve draft …" / "reject draft …" as create-draft.
     if lower.starts_with("approve ")
         || lower.starts_with("reject ")
         || lower.starts_with("publish ")
+        || lower.starts_with("schedule ")
         || lower.starts_with("list ")
     {
         return None;
@@ -251,7 +276,6 @@ pub(crate) fn extract_draft_body(message: &str) -> Option<String> {
             }
         }
     }
-    // "draft ..." with content after keyword
     if lower.starts_with("draft ") || lower.starts_with("write ") {
         let rest = trimmed.split_once(' ').map(|(_, r)| r.trim()).unwrap_or("");
         let rest = rest
@@ -301,18 +325,753 @@ fn is_plausible_id(id: &str) -> bool {
         .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
-const TOOLS_V1_HELP: &str = "I'm Pulse draft tools (v1) — not a full marketing AI yet.\n\n\
+/// Parse "schedule draft <id> at <time>" / "schedule draft <id> for <time>".
+pub(crate) fn extract_schedule_command(message: &str) -> Option<(String, String)> {
+    let trimmed = message.trim();
+    let lower = trimmed.to_lowercase();
+    let prefixes = ["schedule draft ", "schedule "];
+    let mut rest = None;
+    for p in prefixes {
+        if lower.starts_with(p) {
+            rest = Some(trimmed[p.len()..].trim());
+            break;
+        }
+    }
+    let rest = rest?;
+    let rest = rest
+        .strip_prefix("draft ")
+        .or_else(|| rest.strip_prefix("Draft "))
+        .unwrap_or(rest)
+        .trim();
+    let id = rest.split_whitespace().next()?.trim();
+    if !is_plausible_id(id) {
+        return None;
+    }
+    let after_id = rest[id.len()..].trim();
+    let after_id = after_id
+        .strip_prefix("at ")
+        .or_else(|| after_id.strip_prefix("At "))
+        .or_else(|| after_id.strip_prefix("for "))
+        .or_else(|| after_id.strip_prefix("For "))
+        .or_else(|| after_id.strip_prefix("on "))
+        .or_else(|| after_id.strip_prefix("On "))
+        .unwrap_or(after_id)
+        .trim();
+    if after_id.is_empty() {
+        return None;
+    }
+    let publish_at = parse_publish_at(after_id)?;
+    Some((id.to_string(), publish_at))
+}
+
+/// Parse ISO-8601 primarily; simple relative times optional (in N hours/minutes/days).
+pub(crate) fn parse_publish_at(raw: &str) -> Option<String> {
+    let s = raw.trim().trim_matches(|c| c == '"' || c == '\'');
+    if s.is_empty() {
+        return None;
+    }
+    if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(s) {
+        return Some(
+            dt.with_timezone(&chrono::Utc)
+                .format("%Y-%m-%dT%H:%M:%SZ")
+                .to_string(),
+        );
+    }
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M:%S") {
+        return Some(naive.and_utc().format("%Y-%m-%dT%H:%M:%SZ").to_string());
+    }
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
+        return Some(naive.and_utc().format("%Y-%m-%dT%H:%M:%SZ").to_string());
+    }
+    if let Ok(naive) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%dT%H:%M") {
+        return Some(naive.and_utc().format("%Y-%m-%dT%H:%M:%SZ").to_string());
+    }
+    if let Ok(date) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        return Some(
+            date.and_hms_opt(0, 0, 0)?
+                .and_utc()
+                .format("%Y-%m-%dT%H:%M:%SZ")
+                .to_string(),
+        );
+    }
+
+    let lower = s.to_lowercase();
+    if let Some(rest) = lower.strip_prefix("in ") {
+        let mut parts = rest.split_whitespace();
+        let n: i64 = parts.next()?.parse().ok()?;
+        if n <= 0 || n > 365 * 24 {
+            return None;
+        }
+        let unit = parts.next().unwrap_or("");
+        let duration = match unit {
+            "minute" | "minutes" | "min" | "mins" | "m" => chrono::Duration::minutes(n),
+            "hour" | "hours" | "hr" | "hrs" | "h" => chrono::Duration::hours(n),
+            "day" | "days" | "d" => chrono::Duration::days(n),
+            _ => return None,
+        };
+        let when = chrono::Utc::now() + duration;
+        return Some(when.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+    }
+    if lower == "tomorrow" {
+        let when = chrono::Utc::now() + chrono::Duration::days(1);
+        return Some(when.format("%Y-%m-%dT%H:%M:%SZ").to_string());
+    }
+    None
+}
+
+const TOOLS_V1_HELP: &str = "I'm Pulse draft tools (v1) — keyword matching, no LLM.\n\n\
 • \"draft a post about …\" — create a draft\n\
 • \"list drafts\" — show pending drafts\n\
 • \"approve draft <id>\" / \"approve <id>\" — approve a draft\n\
 • \"reject draft <id>\" / \"reject <id>\" — reject a draft\n\
 • \"publish draft <id>\" — publish an approved draft\n\
+• \"schedule draft <id> at <ISO time>\" — schedule an approved draft\n\
 • \"list my posts\" / \"my posts\" — show your recent posts\n\n\
 I use the same server mutations as the Drafts API. I won't post publicly without approval.\n\
-Coming later: real LLM chat, schedule, autopilot.";
+When ANTHROPIC_API_KEY or OPENAI_API_KEY is set, the server may use tools_v2 (LLM tool JSON).";
 
-/// Deterministic chat tools for Pulse v1.
-/// Full LLM tool-calling comes later; this keeps tools server-side and honest.
+const TOOLS_V2_SYSTEM: &str = "You are Pulse, a draft assistant for HeyVera. You do NOT publish posts yourself.\n\
+Reply with ONLY JSON (no markdown fences, no prose outside JSON).\n\n\
+Single tool:\n\
+{\"tool\":\"create_draft\",\"args\":{\"body\":\"...\"}}\n\n\
+Multiple tools (optional):\n\
+{\"tools\":[{\"tool\":\"list_drafts\",\"args\":{}},{\"tool\":\"help\",\"args\":{}}]}\n\n\
+Allowed tools ONLY:\n\
+- create_draft: args.body (string, post text)\n\
+- list_drafts: args.status optional (pending|approved|rejected|published)\n\
+- approve_draft: args.id (draft id)\n\
+- reject_draft: args.id, args.reason optional\n\
+- publish_draft: args.id (draft must already be approved server-side)\n\
+- list_my_posts: no required args\n\
+- schedule_draft: args.id, args.publish_at (ISO-8601 UTC preferred)\n\
+- help: no args\n\n\
+Rules:\n\
+- Never invent draft ids. If the user did not give an id, use list_drafts first or ask via help.\n\
+- publish_draft and schedule_draft require approved drafts; the server enforces this.\n\
+- Prefer concise body text for create_draft.\n";
+
+fn outcome_to_json(mode: &str, o: PulseToolOutcome) -> serde_json::Value {
+    let mut v = json!({
+        "reply": o.reply,
+        "mode": mode,
+        "toolsUsed": o.tools_used,
+        "draft": o.draft,
+    });
+    if let Some(obj) = v.as_object_mut() {
+        for (k, val) in o.extra {
+            obj.insert(k, val);
+        }
+    }
+    v
+}
+
+/// Execute one tool against the database. All mutations go through existing DB helpers.
+pub(crate) fn execute_pulse_tool(
+    database: &crate::db::Database,
+    profile_id: &str,
+    call: &PulseToolCall,
+) -> PulseToolOutcome {
+    let tool = call.tool.as_str();
+    match tool {
+        "help" => PulseToolOutcome {
+            reply: TOOLS_V1_HELP.to_string(),
+            tools_used: vec!["help".into()],
+            draft: None,
+            extra: serde_json::Map::new(),
+        },
+        "create_draft" => {
+            let body = call
+                .args
+                .get("body")
+                .and_then(|b| b.as_str())
+                .unwrap_or("")
+                .trim();
+            if body.len() < 3 {
+                return PulseToolOutcome {
+                    reply: "create_draft needs a body of at least 3 characters.".into(),
+                    tools_used: vec!["create_draft".into()],
+                    draft: None,
+                    extra: serde_json::Map::new(),
+                };
+            }
+            if body.len() > 5000 {
+                return PulseToolOutcome {
+                    reply: "draft body too long (max 5000).".into(),
+                    tools_used: vec!["create_draft".into()],
+                    draft: None,
+                    extra: serde_json::Map::new(),
+                };
+            }
+            let draft = database.pulse_create_draft(profile_id, body, "public", "person", None);
+            let short = if body.len() > 100 {
+                format!("{}…", &body[..100])
+            } else {
+                body.to_string()
+            };
+            PulseToolOutcome {
+                reply: format!(
+                    "Saved a draft: \"{short}\". Approve with \"approve draft {}\" then publish. I won't post publicly without your approval.",
+                    draft["id"].as_str().unwrap_or("")
+                ),
+                tools_used: vec!["create_draft".into()],
+                draft: Some(draft),
+                extra: serde_json::Map::new(),
+            }
+        }
+        "list_drafts" => {
+            let status = call
+                .args
+                .get("status")
+                .and_then(|s| s.as_str())
+                .filter(|s| !s.is_empty());
+            let status = status.or(Some("pending"));
+            let drafts = database.pulse_list_drafts(profile_id, status);
+            let count = drafts.len();
+            let preview: Vec<String> = drafts
+                .iter()
+                .take(5)
+                .filter_map(|d| {
+                    let body = d["body"].as_str().unwrap_or("");
+                    let id = d["id"].as_str().unwrap_or("");
+                    let st = d["status"].as_str().unwrap_or("");
+                    if body.is_empty() {
+                        None
+                    } else {
+                        let short = if body.len() > 60 {
+                            format!("{}…", &body[..60])
+                        } else {
+                            body.to_string()
+                        };
+                        Some(format!("• [{st}] {short} ({id})"))
+                    }
+                })
+                .collect();
+            let reply = if count == 0 {
+                format!(
+                    "You have no {} drafts. Try: \"draft a post about …\"",
+                    status.unwrap_or("matching")
+                )
+            } else {
+                format!(
+                    "You have {count} draft(s). Approve with \"approve draft <id>\", then publish or schedule.\n{}",
+                    preview.join("\n")
+                )
+            };
+            let mut extra = serde_json::Map::new();
+            extra.insert("draftCount".into(), json!(count));
+            PulseToolOutcome {
+                reply,
+                tools_used: vec!["list_drafts".into()],
+                draft: None,
+                extra,
+            }
+        }
+        "approve_draft" => {
+            let id = call
+                .args
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if !is_plausible_id(id) {
+                return PulseToolOutcome {
+                    reply: "approve_draft needs a valid draft id.".into(),
+                    tools_used: vec!["approve_draft".into()],
+                    draft: None,
+                    extra: serde_json::Map::new(),
+                };
+            }
+            match database.pulse_update_draft_status(id, profile_id, "approved") {
+                Some(draft) => {
+                    database.pulse_add_audit(id, profile_id, "approved", None);
+                    PulseToolOutcome {
+                        reply: format!(
+                            "Approved draft {id}. You can publish it with \"publish draft {id}\" or schedule it."
+                        ),
+                        tools_used: vec!["approve_draft".into()],
+                        draft: Some(draft),
+                        extra: serde_json::Map::new(),
+                    }
+                }
+                None => PulseToolOutcome {
+                    reply: format!("I couldn't find draft {id} on your profile."),
+                    tools_used: vec!["approve_draft".into()],
+                    draft: None,
+                    extra: serde_json::Map::new(),
+                },
+            }
+        }
+        "reject_draft" => {
+            let id = call
+                .args
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if !is_plausible_id(id) {
+                return PulseToolOutcome {
+                    reply: "reject_draft needs a valid draft id.".into(),
+                    tools_used: vec!["reject_draft".into()],
+                    draft: None,
+                    extra: serde_json::Map::new(),
+                };
+            }
+            match database.pulse_update_draft_status(id, profile_id, "rejected") {
+                Some(draft) => {
+                    let reason = call.args.get("reason").and_then(|r| r.as_str());
+                    let details = reason.map(|r| json!({ "reason": r }).to_string());
+                    database.pulse_add_audit(id, profile_id, "rejected", details.as_deref());
+                    PulseToolOutcome {
+                        reply: format!("Rejected draft {id}."),
+                        tools_used: vec!["reject_draft".into()],
+                        draft: Some(draft),
+                        extra: serde_json::Map::new(),
+                    }
+                }
+                None => PulseToolOutcome {
+                    reply: format!("I couldn't find draft {id} on your profile."),
+                    tools_used: vec!["reject_draft".into()],
+                    draft: None,
+                    extra: serde_json::Map::new(),
+                },
+            }
+        }
+        "publish_draft" => {
+            let id = call
+                .args
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if !is_plausible_id(id) {
+                return PulseToolOutcome {
+                    reply: "publish_draft needs a valid draft id.".into(),
+                    tools_used: vec!["publish_draft".into()],
+                    draft: None,
+                    extra: serde_json::Map::new(),
+                };
+            }
+            let draft = match database.pulse_get_draft(id, profile_id) {
+                Some(d) => d,
+                None => {
+                    return PulseToolOutcome {
+                        reply: format!("I couldn't find draft {id} on your profile."),
+                        tools_used: vec!["publish_draft".into()],
+                        draft: None,
+                        extra: serde_json::Map::new(),
+                    };
+                }
+            };
+            // ALWAYS enforce approved check server-side (never trust model).
+            if draft["status"].as_str() != Some("approved") {
+                return PulseToolOutcome {
+                    reply: format!(
+                        "Draft {id} must be approved before publishing (status is '{}'). Try \"approve draft {id}\" first.",
+                        draft["status"].as_str().unwrap_or("unknown")
+                    ),
+                    tools_used: vec!["publish_draft".into()],
+                    draft: Some(draft),
+                    extra: serde_json::Map::new(),
+                };
+            }
+            let body = draft["body"].as_str().unwrap_or("");
+            let visibility = draft["visibility"].as_str().unwrap_or("public");
+            let author_mode = draft["authorMode"].as_str().unwrap_or("person");
+            let linked_agent_id = draft["linkedAgentId"].as_str();
+            let post = database.social_create_post(
+                profile_id,
+                body,
+                visibility,
+                author_mode,
+                linked_agent_id,
+                None,
+                None,
+            );
+            let post_id = post["id"].as_str().unwrap_or("").to_string();
+            let updated_draft = database.pulse_update_draft_status(id, profile_id, "published");
+            database.pulse_add_audit(
+                id,
+                profile_id,
+                "published",
+                Some(&json!({ "postId": post_id }).to_string()),
+            );
+            let mut extra = serde_json::Map::new();
+            extra.insert("postId".into(), json!(post_id));
+            extra.insert("post".into(), post);
+            PulseToolOutcome {
+                reply: format!("Published draft {id} as post {post_id}."),
+                tools_used: vec!["publish_draft".into()],
+                draft: updated_draft,
+                extra,
+            }
+        }
+        "list_my_posts" => {
+            let posts = database.social_get_user_posts(profile_id, 10, 0);
+            let count = posts.len();
+            let preview: Vec<String> = posts
+                .iter()
+                .take(5)
+                .filter_map(|p| {
+                    let body = p["body"].as_str().unwrap_or("");
+                    let id = p["id"].as_str().unwrap_or("");
+                    if body.is_empty() {
+                        None
+                    } else {
+                        let short = if body.len() > 60 {
+                            format!("{}…", &body[..60])
+                        } else {
+                            body.to_string()
+                        };
+                        Some(format!("• {short} ({id})"))
+                    }
+                })
+                .collect();
+            let reply = if count == 0 {
+                "You have no public posts yet. Draft something, approve it, then publish.".into()
+            } else {
+                format!(
+                    "Your {count} most recent public post(s):\n{}",
+                    preview.join("\n")
+                )
+            };
+            let mut extra = serde_json::Map::new();
+            extra.insert("postCount".into(), json!(count));
+            extra.insert("posts".into(), json!(posts));
+            PulseToolOutcome {
+                reply,
+                tools_used: vec!["list_my_posts".into()],
+                draft: None,
+                extra,
+            }
+        }
+        "schedule_draft" => {
+            let id = call
+                .args
+                .get("id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            let publish_at_raw = call
+                .args
+                .get("publish_at")
+                .or_else(|| call.args.get("publishAt"))
+                .and_then(|v| v.as_str())
+                .unwrap_or("")
+                .trim();
+            if !is_plausible_id(id) {
+                return PulseToolOutcome {
+                    reply: "schedule_draft needs a valid draft id.".into(),
+                    tools_used: vec!["schedule_draft".into()],
+                    draft: None,
+                    extra: serde_json::Map::new(),
+                };
+            }
+            let publish_at = match parse_publish_at(publish_at_raw) {
+                Some(t) => t,
+                None => {
+                    return PulseToolOutcome {
+                        reply: format!(
+                            "Could not parse publish time \"{publish_at_raw}\". Use ISO-8601 like 2026-07-17T15:00:00Z or \"in 2 hours\"."
+                        ),
+                        tools_used: vec!["schedule_draft".into()],
+                        draft: None,
+                        extra: serde_json::Map::new(),
+                    };
+                }
+            };
+            match database.pulse_schedule_draft(profile_id, id, &publish_at) {
+                Some(sched) => {
+                    database.pulse_add_audit(
+                        id,
+                        profile_id,
+                        "scheduled",
+                        Some(&json!({ "publishAt": publish_at }).to_string()),
+                    );
+                    let mut extra = serde_json::Map::new();
+                    extra.insert("schedule".into(), sched.clone());
+                    PulseToolOutcome {
+                        reply: format!(
+                            "Scheduled draft {id} for {publish_at}. Due schedules are processed by POST /v1/pulse/schedules/process (cron or self-call)."
+                        ),
+                        tools_used: vec!["schedule_draft".into()],
+                        draft: database.pulse_get_draft(id, profile_id),
+                        extra,
+                    }
+                }
+                None => PulseToolOutcome {
+                    reply: format!(
+                        "Could not schedule draft {id}. It must exist, be yours, and be approved first."
+                    ),
+                    tools_used: vec!["schedule_draft".into()],
+                    draft: database.pulse_get_draft(id, profile_id),
+                    extra: serde_json::Map::new(),
+                },
+            }
+        }
+        other => PulseToolOutcome {
+            reply: format!("Unknown tool \"{other}\". Try \"help\"."),
+            tools_used: vec![],
+            draft: None,
+            extra: serde_json::Map::new(),
+        },
+    }
+}
+
+fn merge_outcomes(outcomes: Vec<PulseToolOutcome>) -> PulseToolOutcome {
+    if outcomes.is_empty() {
+        return PulseToolOutcome {
+            reply: "No tools ran.".into(),
+            tools_used: vec![],
+            draft: None,
+            extra: serde_json::Map::new(),
+        };
+    }
+    if outcomes.len() == 1 {
+        return outcomes.into_iter().next().unwrap();
+    }
+    let mut reply_parts = Vec::new();
+    let mut tools_used = Vec::new();
+    let mut draft = None;
+    let mut extra = serde_json::Map::new();
+    for o in outcomes {
+        reply_parts.push(o.reply);
+        tools_used.extend(o.tools_used);
+        if o.draft.is_some() {
+            draft = o.draft;
+        }
+        for (k, v) in o.extra {
+            extra.insert(k, v);
+        }
+    }
+    PulseToolOutcome {
+        reply: reply_parts.join("\n\n"),
+        tools_used,
+        draft,
+        extra,
+    }
+}
+
+/// Keyword / phrase router (tools_v1).
+pub(crate) fn match_tools_v1(message: &str) -> Option<PulseToolCall> {
+    let lower = message.to_lowercase();
+
+    if lower.contains("list my posts")
+        || lower == "my posts"
+        || lower.contains("show my posts")
+        || lower.contains("my recent posts")
+    {
+        return Some(PulseToolCall {
+            tool: "list_my_posts".into(),
+            args: serde_json::Map::new(),
+        });
+    }
+
+    if let Some((id, publish_at)) = extract_schedule_command(message) {
+        let mut args = serde_json::Map::new();
+        args.insert("id".into(), json!(id));
+        args.insert("publish_at".into(), json!(publish_at));
+        return Some(PulseToolCall {
+            tool: "schedule_draft".into(),
+            args,
+        });
+    }
+
+    if let Some(id) = extract_draft_id(message, &["approve draft", "approve"]) {
+        let mut args = serde_json::Map::new();
+        args.insert("id".into(), json!(id));
+        return Some(PulseToolCall {
+            tool: "approve_draft".into(),
+            args,
+        });
+    }
+
+    if let Some(id) = extract_draft_id(message, &["reject draft", "reject"]) {
+        let mut args = serde_json::Map::new();
+        args.insert("id".into(), json!(id));
+        return Some(PulseToolCall {
+            tool: "reject_draft".into(),
+            args,
+        });
+    }
+
+    if let Some(id) = extract_draft_id(message, &["publish draft", "publish"]) {
+        let mut args = serde_json::Map::new();
+        args.insert("id".into(), json!(id));
+        return Some(PulseToolCall {
+            tool: "publish_draft".into(),
+            args,
+        });
+    }
+
+    if lower.contains("list draft")
+        || lower.contains("show draft")
+        || lower.contains("my draft")
+        || lower == "drafts"
+        || lower.contains("pending draft")
+    {
+        return Some(PulseToolCall {
+            tool: "list_drafts".into(),
+            args: serde_json::Map::new(),
+        });
+    }
+
+    if lower.contains("help") || lower.contains("what can") || lower == "?" {
+        return Some(PulseToolCall {
+            tool: "help".into(),
+            args: serde_json::Map::new(),
+        });
+    }
+
+    if let Some(body) = extract_draft_body(message) {
+        let mut args = serde_json::Map::new();
+        args.insert("body".into(), json!(body));
+        return Some(PulseToolCall {
+            tool: "create_draft".into(),
+            args,
+        });
+    }
+
+    None
+}
+
+fn tools_v1_default_outcome() -> PulseToolOutcome {
+    PulseToolOutcome {
+        reply: "I can create, list, approve, reject, publish, and schedule drafts for your HeyVera profile (same mutations as the Drafts API). Try \"help\", \"draft a post about …\", \"list drafts\", \"schedule draft <id> at 2026-07-18T12:00:00Z\", or \"list my posts\". Without LLM API keys this is the server-side tools_v1 path.".into(),
+        tools_used: vec![],
+        draft: None,
+        extra: serde_json::Map::new(),
+    }
+}
+
+/// Run tools_v1 keyword matching against the message.
+pub(crate) fn run_tools_v1(
+    database: &crate::db::Database,
+    profile_id: &str,
+    message: &str,
+) -> PulseToolOutcome {
+    match match_tools_v1(message) {
+        Some(call) => execute_pulse_tool(database, profile_id, &call),
+        None => tools_v1_default_outcome(),
+    }
+}
+
+/// Conservatively extract tool calls from LLM text (JSON object or array).
+pub(crate) fn parse_tool_calls_from_llm(text: &str) -> Result<Vec<PulseToolCall>, String> {
+    let trimmed = text.trim();
+    let stripped = if let Some(s) = trimmed.strip_prefix("```json") {
+        s.trim_end_matches("```").trim()
+    } else if let Some(s) = trimmed.strip_prefix("```") {
+        s.trim_end_matches("```").trim()
+    } else {
+        trimmed
+    };
+
+    let json_slice = extract_json_blob(stripped).ok_or_else(|| "no JSON found".to_string())?;
+    let value: serde_json::Value =
+        serde_json::from_str(json_slice).map_err(|e| format!("JSON parse error: {e}"))?;
+
+    let mut calls = Vec::new();
+
+    if let Some(arr) = value.get("tools").and_then(|t| t.as_array()) {
+        for item in arr {
+            if let Some(c) = value_to_tool_call(item) {
+                calls.push(c);
+            }
+        }
+    } else if let Some(c) = value_to_tool_call(&value) {
+        calls.push(c);
+    } else if let Some(arr) = value.as_array() {
+        for item in arr {
+            if let Some(c) = value_to_tool_call(item) {
+                calls.push(c);
+            }
+        }
+    }
+
+    if calls.is_empty() {
+        return Err("no recognized tool calls in JSON".into());
+    }
+
+    const ALLOWED: &[&str] = &[
+        "create_draft",
+        "list_drafts",
+        "approve_draft",
+        "reject_draft",
+        "publish_draft",
+        "list_my_posts",
+        "schedule_draft",
+        "help",
+    ];
+    for c in &calls {
+        if !ALLOWED.contains(&c.tool.as_str()) {
+            return Err(format!("disallowed tool: {}", c.tool));
+        }
+    }
+    Ok(calls)
+}
+
+fn value_to_tool_call(value: &serde_json::Value) -> Option<PulseToolCall> {
+    let tool = value
+        .get("tool")
+        .or_else(|| value.get("name"))
+        .and_then(|t| t.as_str())?
+        .trim()
+        .to_string();
+    if tool.is_empty() {
+        return None;
+    }
+    let args = value
+        .get("args")
+        .or_else(|| value.get("arguments"))
+        .or_else(|| value.get("parameters"))
+        .and_then(|a| a.as_object())
+        .cloned()
+        .unwrap_or_default();
+    Some(PulseToolCall { tool, args })
+}
+
+fn extract_json_blob(s: &str) -> Option<&str> {
+    let bytes = s.as_bytes();
+    let start_obj = s.find('{');
+    let start_arr = s.find('[');
+    let start = match (start_obj, start_arr) {
+        (Some(o), Some(a)) => o.min(a),
+        (Some(o), None) => o,
+        (None, Some(a)) => a,
+        (None, None) => return None,
+    };
+    let open = bytes[start];
+    let close = if open == b'{' { b'}' } else { b']' };
+    let mut depth = 0i32;
+    let mut in_str = false;
+    let mut escape = false;
+    for (i, &b) in bytes.iter().enumerate().skip(start) {
+        if in_str {
+            if escape {
+                escape = false;
+            } else if b == b'\\' {
+                escape = true;
+            } else if b == b'"' {
+                in_str = false;
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_str = true,
+            b if b == open => depth += 1,
+            b if b == close => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&s[start..=i]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Pulse chat: tools_v2 when LLM keys present (with honest tools_v1 fallback); else tools_v1 only.
 pub async fn pulse_chat(
     user: ClerkUser,
     State(state): State<Arc<AppState>>,
@@ -338,242 +1097,67 @@ pub async fn pulse_chat(
         }
     };
     let profile_id = profile["id"].as_str().unwrap_or("").to_string();
-    let lower = message.to_lowercase();
+    let database = db(&state);
 
-    // list my posts
-    if lower.contains("list my posts")
-        || lower == "my posts"
-        || lower.contains("show my posts")
-        || lower.contains("my recent posts")
-    {
-        let posts = db(&state).social_get_user_posts(&profile_id, 10, 0);
-        let count = posts.len();
-        let preview: Vec<String> = posts
-            .iter()
-            .take(5)
-            .filter_map(|p| {
-                let body = p["body"].as_str().unwrap_or("");
-                let id = p["id"].as_str().unwrap_or("");
-                if body.is_empty() {
-                    None
-                } else {
-                    let short = if body.len() > 60 {
-                        format!("{}…", &body[..60])
-                    } else {
-                        body.to_string()
-                    };
-                    Some(format!("• {short} ({id})"))
-                }
-            })
-            .collect();
-        let reply = if count == 0 {
-            "You have no public posts yet. Draft something, approve it, then publish.".to_string()
+    if let Some((provider, api_key)) = crate::llm_client::resolve_server_llm() {
+        match try_tools_v2(database, &profile_id, message, &req.history, provider, &api_key).await
+        {
+            Ok(outcome) => return ok(outcome_to_json("tools_v2", outcome)),
+            Err(err) => {
+                tracing::warn!(%err, "tools_v2 failed; falling back to tools_v1");
+            }
+        }
+    }
+
+    let outcome = run_tools_v1(database, &profile_id, message);
+    ok(outcome_to_json("tools_v1", outcome))
+}
+
+async fn try_tools_v2(
+    database: &crate::db::Database,
+    profile_id: &str,
+    message: &str,
+    history: &[PulseChatHistoryItem],
+    provider: crate::llm_client::Provider,
+    api_key: &str,
+) -> Result<PulseToolOutcome, String> {
+    let mut messages: Vec<crate::llm_client::ChatMessage> = Vec::new();
+    for h in history.iter().take(12) {
+        let role = h.role.as_deref().unwrap_or("user");
+        let content = h.content.as_deref().unwrap_or("").trim();
+        if content.is_empty() {
+            continue;
+        }
+        let role = if role == "assistant" || role == "vera" {
+            "assistant"
         } else {
-            format!(
-                "Your {count} most recent public post(s):\n{}",
-                preview.join("\n")
-            )
+            "user"
         };
-        return ok(json!({
-            "reply": reply,
-            "mode": "tools_v1",
-            "toolsUsed": ["list_my_posts"],
-            "draft": null,
-            "postCount": count,
-            "posts": posts,
-        }));
+        messages.push(crate::llm_client::ChatMessage {
+            role: role.into(),
+            content: content.into(),
+        });
     }
+    messages.push(crate::llm_client::ChatMessage {
+        role: "user".into(),
+        content: message.into(),
+    });
 
-    // approve draft <id>
-    if let Some(id) = extract_draft_id(message, &["approve draft", "approve"]) {
-        match db(&state).pulse_update_draft_status(&id, &profile_id, "approved") {
-            Some(draft) => {
-                db(&state).pulse_add_audit(&id, &profile_id, "approved", None);
-                return ok(json!({
-                    "reply": format!("Approved draft {id}. You can publish it with \"publish draft {id}\"."),
-                    "mode": "tools_v1",
-                    "toolsUsed": ["approve_draft"],
-                    "draft": draft,
-                }));
-            }
-            None => {
-                return ok(json!({
-                    "reply": format!("I couldn't find draft {id} on your profile."),
-                    "mode": "tools_v1",
-                    "toolsUsed": ["approve_draft"],
-                    "draft": null,
-                }));
-            }
-        }
-    }
+    let text = crate::llm_client::chat_completion(
+        &provider,
+        api_key,
+        None,
+        TOOLS_V2_SYSTEM,
+        &messages,
+    )
+    .await?;
 
-    // reject draft <id>
-    if let Some(id) = extract_draft_id(message, &["reject draft", "reject"]) {
-        match db(&state).pulse_update_draft_status(&id, &profile_id, "rejected") {
-            Some(draft) => {
-                db(&state).pulse_add_audit(&id, &profile_id, "rejected", None);
-                return ok(json!({
-                    "reply": format!("Rejected draft {id}."),
-                    "mode": "tools_v1",
-                    "toolsUsed": ["reject_draft"],
-                    "draft": draft,
-                }));
-            }
-            None => {
-                return ok(json!({
-                    "reply": format!("I couldn't find draft {id} on your profile."),
-                    "mode": "tools_v1",
-                    "toolsUsed": ["reject_draft"],
-                    "draft": null,
-                }));
-            }
-        }
-    }
-
-    // publish draft <id> (must already be approved — same as publish_draft handler)
-    if let Some(id) = extract_draft_id(message, &["publish draft", "publish"]) {
-        let draft = match db(&state).pulse_get_draft(&id, &profile_id) {
-            Some(d) => d,
-            None => {
-                return ok(json!({
-                    "reply": format!("I couldn't find draft {id} on your profile."),
-                    "mode": "tools_v1",
-                    "toolsUsed": ["publish_draft"],
-                    "draft": null,
-                }));
-            }
-        };
-        if draft["status"].as_str() != Some("approved") {
-            return ok(json!({
-                "reply": format!(
-                    "Draft {id} must be approved before publishing (status is '{}'). Try \"approve draft {id}\" first.",
-                    draft["status"].as_str().unwrap_or("unknown")
-                ),
-                "mode": "tools_v1",
-                "toolsUsed": ["publish_draft"],
-                "draft": draft,
-            }));
-        }
-        let body = draft["body"].as_str().unwrap_or("");
-        let visibility = draft["visibility"].as_str().unwrap_or("public");
-        let author_mode = draft["authorMode"].as_str().unwrap_or("person");
-        let linked_agent_id = draft["linkedAgentId"].as_str();
-        let post = db(&state).social_create_post(
-            &profile_id,
-            body,
-            visibility,
-            author_mode,
-            linked_agent_id,
-            None,
-            None,
-        );
-        let post_id = post["id"].as_str().unwrap_or("").to_string();
-        let updated_draft = db(&state).pulse_update_draft_status(&id, &profile_id, "published");
-        db(&state).pulse_add_audit(
-            &id,
-            &profile_id,
-            "published",
-            Some(&json!({ "postId": post_id }).to_string()),
-        );
-        return ok(json!({
-            "reply": format!("Published draft {id} as post {post_id}."),
-            "mode": "tools_v1",
-            "toolsUsed": ["publish_draft"],
-            "draft": updated_draft,
-            "postId": post_id,
-            "post": post,
-        }));
-    }
-
-    // list drafts
-    if lower.contains("list draft")
-        || lower.contains("show draft")
-        || lower.contains("my draft")
-        || lower == "drafts"
-        || lower.contains("pending draft")
-    {
-        let drafts = db(&state).pulse_list_drafts(&profile_id, Some("pending"));
-        let count = drafts.len();
-        let preview: Vec<String> = drafts
-            .iter()
-            .take(5)
-            .filter_map(|d| {
-                let body = d["body"].as_str().unwrap_or("");
-                let id = d["id"].as_str().unwrap_or("");
-                if body.is_empty() {
-                    None
-                } else {
-                    let short = if body.len() > 60 {
-                        format!("{}…", &body[..60])
-                    } else {
-                        body.to_string()
-                    };
-                    Some(format!("• {short} ({id})"))
-                }
-            })
-            .collect();
-        let reply = if count == 0 {
-            "You have no pending drafts. Try: \"draft a post about …\"".to_string()
-        } else {
-            format!(
-                "You have {count} pending draft(s). Approve with \"approve draft <id>\", then publish.\n{}",
-                preview.join("\n")
-            )
-        };
-        return ok(json!({
-            "reply": reply,
-            "mode": "tools_v1",
-            "toolsUsed": ["list_drafts"],
-            "draft": null,
-            "draftCount": count,
-        }));
-    }
-
-    // help
-    if lower.contains("help") || lower.contains("what can") || lower == "?" {
-        return ok(json!({
-            "reply": TOOLS_V1_HELP,
-            "mode": "tools_v1",
-            "toolsUsed": [],
-            "draft": null,
-        }));
-    }
-
-    // create draft
-    if let Some(body) = extract_draft_body(message) {
-        if body.len() > 5000 {
-            return bad_request("draft body too long");
-        }
-        let draft = db(&state).pulse_create_draft(
-            &profile_id,
-            &body,
-            "public",
-            "person",
-            None,
-        );
-        let short = if body.len() > 100 {
-            format!("{}…", &body[..100])
-        } else {
-            body.clone()
-        };
-        return ok(json!({
-            "reply": format!(
-                "Saved a draft: \"{short}\". Approve with \"approve draft {}\" then publish. I won't post publicly without your approval.",
-                draft["id"].as_str().unwrap_or("")
-            ),
-            "mode": "tools_v1",
-            "toolsUsed": ["create_draft"],
-            "draft": draft,
-        }));
-    }
-
-    // default honest reply
-    ok(json!({
-        "reply": "I can create, list, approve, reject, and publish drafts for your HeyVera profile (same mutations as the Drafts API). Try \"help\", \"draft a post about …\", \"list drafts\", or \"list my posts\". Full conversational AI is not live yet — this is the server-side tools_v1 path.",
-        "mode": "tools_v1",
-        "toolsUsed": [],
-        "draft": null,
-    }))
+    let calls = parse_tool_calls_from_llm(&text)?;
+    let outcomes: Vec<PulseToolOutcome> = calls
+        .iter()
+        .map(|c| execute_pulse_tool(database, profile_id, c))
+        .collect();
+    Ok(merge_outcomes(outcomes))
 }
 
 #[derive(Debug, Deserialize)]
@@ -639,6 +1223,195 @@ pub async fn process_due_schedules(
     ok(json!({ "ok": true, "published": published }))
 }
 
+// ─── Goal plan MVP (deterministic; not Temporal) ────────────────────────────
+
+/// A single planned step. Tools map only to existing Pulse/social capabilities.
+#[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct GoalStep {
+    /// One of: `create_draft`, `approve_required`, `schedule_optional`
+    pub tool: String,
+    pub args: serde_json::Value,
+    pub description: String,
+    pub status: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateGoalRequest {
+    pub goal: String,
+}
+
+/// Extract a draft body topic from a free-form goal string.
+fn extract_goal_topic(goal: &str) -> String {
+    let trimmed = goal.trim();
+    if trimmed.is_empty() {
+        return "Untitled draft".to_string();
+    }
+    let lower = trimmed.to_lowercase();
+    let prefixes = [
+        "post about ",
+        "write about ",
+        "draft about ",
+        "draft a post about ",
+        "write a post about ",
+        "create a post about ",
+        "schedule a post about ",
+        "post: ",
+        "draft: ",
+    ];
+    let mut body = trimmed.to_string();
+    for prefix in prefixes {
+        if lower.starts_with(prefix) {
+            body = trimmed[prefix.len()..].trim().to_string();
+            break;
+        }
+    }
+    // Strip common trailing schedule phrases so the draft body stays topical.
+    let schedule_suffixes = [
+        " next week",
+        " this week",
+        " tomorrow",
+        " later today",
+        " later",
+        " tonight",
+        " on monday",
+        " on tuesday",
+        " on wednesday",
+        " on thursday",
+        " on friday",
+        " on saturday",
+        " on sunday",
+    ];
+    let body_lower = body.to_lowercase();
+    for suffix in schedule_suffixes {
+        if body_lower.ends_with(suffix) {
+            body = body[..body.len() - suffix.len()].trim().to_string();
+            break;
+        }
+    }
+    if body.is_empty() {
+        "Untitled draft".to_string()
+    } else {
+        body
+    }
+}
+
+fn goal_wants_schedule(goal: &str) -> bool {
+    let lower = goal.to_lowercase();
+    const MARKERS: &[&str] = &[
+        "next week",
+        "this week",
+        "tomorrow",
+        "later",
+        "tonight",
+        "schedule",
+        "scheduled",
+        " on monday",
+        " on tuesday",
+        " on wednesday",
+        " on thursday",
+        " on friday",
+        " on saturday",
+        " on sunday",
+        "next month",
+        "in a week",
+        "in two weeks",
+    ];
+    MARKERS.iter().any(|m| lower.contains(m))
+}
+
+/// Pure deterministic plan for a natural-language goal.
+/// Maps only to existing tools: create_draft, approve_required, schedule_optional.
+/// Not a Temporal workflow — a plan template the user can follow via Drafts/Schedule UI.
+pub fn decompose_goal(goal: &str) -> Vec<GoalStep> {
+    let topic = extract_goal_topic(goal);
+    let draft_body = format!("Draft about {topic}");
+    let mut steps = vec![
+        GoalStep {
+            tool: "create_draft".to_string(),
+            args: json!({ "body": draft_body }),
+            description: format!("Create a draft about {topic}"),
+            status: "pending".to_string(),
+        },
+        GoalStep {
+            tool: "approve_required".to_string(),
+            args: json!({}),
+            description: "Human must approve before any public publish".to_string(),
+            status: "pending".to_string(),
+        },
+    ];
+    if goal_wants_schedule(goal) {
+        steps.push(GoalStep {
+            tool: "schedule_optional".to_string(),
+            args: json!({ "hint": "when_ready" }),
+            description: "Schedule the approved draft when a publish time is ready".to_string(),
+            status: "pending".to_string(),
+        });
+    }
+    steps
+}
+
+/// POST /v1/pulse/goals — create a goal and persist a deterministic plan.
+pub async fn create_goal(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateGoalRequest>,
+) -> ApiResponse {
+    let goal = req.goal.trim();
+    if goal.is_empty() {
+        return bad_request("goal is required");
+    }
+    if goal.len() > 2000 {
+        return bad_request("goal too long");
+    }
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(p) => p,
+        None => return not_found("Create a profile first"),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+    let steps = decompose_goal(goal);
+    let plan = json!({
+        "goal": goal,
+        "runtime": "deterministic_mvp",
+        "note": "Plan template only — not a Temporal workflow. Execute steps via Drafts + Schedule UI.",
+        "tools": ["create_draft", "approve_required", "schedule_optional"],
+    });
+    let plan_json = plan.to_string();
+    let steps_json = serde_json::to_string(&steps).unwrap_or_else(|_| "[]".to_string());
+    let row = db(&state).pulse_create_goal(profile_id, goal, &plan_json, &steps_json);
+    ok(json!({ "ok": true, "goal": row }))
+}
+
+/// GET /v1/pulse/goals — list goals for the caller's profile.
+pub async fn list_goals(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+) -> ApiResponse {
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(p) => p,
+        None => return ok(json!({ "goals": [] })),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+    let goals = db(&state).pulse_list_goals(profile_id);
+    ok(json!({ "goals": goals }))
+}
+
+/// GET /v1/pulse/goals/{id}
+pub async fn get_goal(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    Path(id): Path<String>,
+) -> ApiResponse {
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(p) => p,
+        None => return not_found("Not found"),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+    match db(&state).pulse_get_goal(&id, profile_id) {
+        Some(goal) => ok(json!({ "goal": goal })),
+        None => not_found("Goal not found"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -660,6 +1433,7 @@ mod tests {
             Some("hello world friends".to_string())
         );
         assert!(extract_draft_body("approve draft abc-123").is_none());
+        assert!(extract_draft_body("schedule draft abc-12345 at 2026-01-01").is_none());
         assert!(extract_draft_body("list my posts").is_none());
         assert!(extract_draft_body("").is_none());
     }
@@ -671,12 +1445,15 @@ mod tests {
             Some("abc-123-def".to_string())
         );
         assert_eq!(
-            extract_draft_id("approve 01234567-89ab-cdef-0123-456789abcdef", &["approve draft", "approve"]),
+            extract_draft_id(
+                "approve 01234567-89ab-cdef-0123-456789abcdef",
+                &["approve draft", "approve"]
+            ),
             Some("01234567-89ab-cdef-0123-456789abcdef".to_string())
         );
         assert_eq!(
             extract_draft_id("reject draft short", &["reject draft", "reject"]),
-            None // "short" too short
+            None
         );
         assert_eq!(
             extract_draft_id("publish draft draft_id_01", &["publish draft", "publish"]),
@@ -685,12 +1462,164 @@ mod tests {
     }
 
     #[test]
+    fn parse_publish_at_iso_and_relative() {
+        assert_eq!(
+            parse_publish_at("2026-07-17T15:30:00Z").as_deref(),
+            Some("2026-07-17T15:30:00Z")
+        );
+        assert_eq!(
+            parse_publish_at("2026-07-17T15:30:00").as_deref(),
+            Some("2026-07-17T15:30:00Z")
+        );
+        assert_eq!(
+            parse_publish_at("2026-07-17").as_deref(),
+            Some("2026-07-17T00:00:00Z")
+        );
+        let rel = parse_publish_at("in 2 hours").expect("relative");
+        assert!(rel.ends_with('Z'));
+        assert!(parse_publish_at("not-a-time").is_none());
+    }
+
+    #[test]
+    fn extract_schedule_command_parses() {
+        let (id, at) =
+            extract_schedule_command("schedule draft abc-1234-xyz at 2026-08-01T12:00:00Z")
+                .expect("schedule");
+        assert_eq!(id, "abc-1234-xyz");
+        assert_eq!(at, "2026-08-01T12:00:00Z");
+
+        assert!(extract_schedule_command("schedule draft short at 2026-08-01").is_none());
+        assert!(extract_schedule_command("list drafts").is_none());
+    }
+
+    #[test]
+    fn parse_tool_calls_from_llm_accepts_single_and_multi() {
+        let single = r#"{"tool":"create_draft","args":{"body":"hello world post"}}"#;
+        let calls = parse_tool_calls_from_llm(single).unwrap();
+        assert_eq!(calls.len(), 1);
+        assert_eq!(calls[0].tool, "create_draft");
+        assert_eq!(calls[0].args["body"], "hello world post");
+
+        let multi = r#"{"tools":[{"tool":"list_drafts","args":{}},{"tool":"help","args":{}}]}"#;
+        let calls = parse_tool_calls_from_llm(multi).unwrap();
+        assert_eq!(calls.len(), 2);
+        assert_eq!(calls[0].tool, "list_drafts");
+        assert_eq!(calls[1].tool, "help");
+
+        let fenced = "Sure.\n```json\n{\"tool\":\"help\",\"args\":{}}\n```\n";
+        assert_eq!(parse_tool_calls_from_llm(fenced).unwrap()[0].tool, "help");
+
+        assert!(parse_tool_calls_from_llm("no json here").is_err());
+        assert!(parse_tool_calls_from_llm(r#"{"tool":"rm_rf","args":{}}"#).is_err());
+    }
+
+    #[test]
+    fn execute_create_and_publish_requires_approved() {
+        let db = test_db();
+        let profile = db.social_create_profile("clerk_pulse_exec", "pulseexec", "Pulse Exec", "");
+        let profile_id = profile["id"].as_str().unwrap();
+
+        let mut args = serde_json::Map::new();
+        args.insert("body".into(), json!("Unit test draft body"));
+        let created = execute_pulse_tool(
+            &db,
+            profile_id,
+            &PulseToolCall {
+                tool: "create_draft".into(),
+                args,
+            },
+        );
+        assert_eq!(created.tools_used, vec!["create_draft"]);
+        let draft_id = created
+            .draft
+            .as_ref()
+            .unwrap()["id"]
+            .as_str()
+            .unwrap()
+            .to_string();
+
+        let mut pub_args = serde_json::Map::new();
+        pub_args.insert("id".into(), json!(draft_id));
+        let blocked = execute_pulse_tool(
+            &db,
+            profile_id,
+            &PulseToolCall {
+                tool: "publish_draft".into(),
+                args: pub_args.clone(),
+            },
+        );
+        assert!(blocked.reply.contains("must be approved"));
+
+        let mut appr = serde_json::Map::new();
+        appr.insert("id".into(), json!(draft_id));
+        let _ = execute_pulse_tool(
+            &db,
+            profile_id,
+            &PulseToolCall {
+                tool: "approve_draft".into(),
+                args: appr,
+            },
+        );
+        let published = execute_pulse_tool(
+            &db,
+            profile_id,
+            &PulseToolCall {
+                tool: "publish_draft".into(),
+                args: pub_args,
+            },
+        );
+        assert!(published.reply.contains("Published"));
+        assert!(published.extra.get("postId").is_some());
+    }
+
+    #[test]
+    fn tools_v1_matchers_and_schedule_executor() {
+        assert_eq!(
+            match_tools_v1("list drafts").map(|c| c.tool),
+            Some("list_drafts".into())
+        );
+        assert_eq!(
+            match_tools_v1("draft a post about shipping soon").map(|c| c.tool),
+            Some("create_draft".into())
+        );
+
+        let db = test_db();
+        let profile = db.social_create_profile("clerk_sched", "scheduser", "Sched User", "");
+        let profile_id = profile["id"].as_str().unwrap();
+        let draft = db.pulse_create_draft(profile_id, "Schedule me", "public", "person", None);
+        let id = draft["id"].as_str().unwrap();
+        db.pulse_update_draft_status(id, profile_id, "approved")
+            .unwrap();
+
+        let msg = format!("schedule draft {id} at 2026-12-01T10:00:00Z");
+        let call = match_tools_v1(&msg).expect("schedule match");
+        assert_eq!(call.tool, "schedule_draft");
+        let out = execute_pulse_tool(&db, profile_id, &call);
+        assert_eq!(out.tools_used, vec!["schedule_draft"]);
+        assert!(out.reply.contains("Scheduled"));
+        assert!(out.extra.get("schedule").is_some());
+    }
+
+    #[test]
+    fn tools_v1_runs_without_llm_keys() {
+        let db = test_db();
+        let profile = db.social_create_profile("clerk_v1only", "v1only", "V1 Only", "");
+        let profile_id = profile["id"].as_str().unwrap();
+        let out = run_tools_v1(&db, profile_id, "help");
+        assert!(
+            out.tools_used.contains(&"help".to_string()) || out.reply.contains("Pulse draft tools")
+        );
+        let _ = crate::llm_client::resolve_server_llm();
+    }
+
+    #[test]
     fn pulse_create_draft_and_list_roundtrip() {
         let db = test_db();
         let profile = db.social_create_profile("clerk_pulse_test", "pulseuser", "Pulse User", "");
         let profile_id = profile["id"].as_str().unwrap();
 
-        let draft = db.pulse_create_draft(profile_id, "Hello from unit test", "public", "person", None);
+        let draft =
+            db.pulse_create_draft(profile_id, "Hello from unit test", "public", "person", None);
         assert_eq!(draft["status"], "pending");
         assert_eq!(draft["body"], "Hello from unit test");
 
@@ -699,10 +1628,73 @@ mod tests {
         assert_eq!(listed[0]["id"], draft["id"]);
 
         let id = draft["id"].as_str().unwrap();
-        let approved = db.pulse_update_draft_status(id, profile_id, "approved").unwrap();
+        let approved = db
+            .pulse_update_draft_status(id, profile_id, "approved")
+            .unwrap();
         assert_eq!(approved["status"], "approved");
 
         let pending = db.pulse_list_drafts(profile_id, Some("pending"));
         assert!(pending.is_empty());
+    }
+
+    #[test]
+    fn decompose_goal_post_about_x_next_week() {
+        let steps = decompose_goal("post about X next week");
+        assert_eq!(steps.len(), 3);
+        assert_eq!(steps[0].tool, "create_draft");
+        assert_eq!(steps[0].args["body"], "Draft about X");
+        assert_eq!(steps[0].status, "pending");
+        assert_eq!(steps[1].tool, "approve_required");
+        assert!(steps[1].args.as_object().map(|o| o.is_empty()).unwrap_or(false));
+        assert_eq!(steps[2].tool, "schedule_optional");
+        assert_eq!(steps[2].args["hint"], "when_ready");
+    }
+
+    #[test]
+    fn decompose_goal_simple_topic_no_schedule() {
+        let steps = decompose_goal("post about shipping tools");
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].tool, "create_draft");
+        assert_eq!(steps[0].args["body"], "Draft about shipping tools");
+        assert_eq!(steps[1].tool, "approve_required");
+    }
+
+    #[test]
+    fn decompose_goal_empty_falls_back() {
+        let steps = decompose_goal("   ");
+        assert_eq!(steps.len(), 2);
+        assert_eq!(steps[0].args["body"], "Draft about Untitled draft");
+    }
+
+    #[test]
+    fn pulse_goal_create_get_list_roundtrip() {
+        let db = test_db();
+        let profile = db.social_create_profile("clerk_goal_test", "goaluser", "Goal User", "");
+        let profile_id = profile["id"].as_str().unwrap();
+        let steps = decompose_goal("post about cats next week");
+        let plan = json!({
+            "goal": "post about cats next week",
+            "runtime": "deterministic_mvp",
+        });
+        let created = db.pulse_create_goal(
+            profile_id,
+            "post about cats next week",
+            &plan.to_string(),
+            &serde_json::to_string(&steps).unwrap(),
+        );
+        assert_eq!(created["status"], "active");
+        assert_eq!(created["goal"], "post about cats next week");
+        assert!(created["steps"].as_array().unwrap().len() >= 2);
+
+        let id = created["id"].as_str().unwrap();
+        let got = db.pulse_get_goal(id, profile_id).unwrap();
+        assert_eq!(got["id"], id);
+
+        let listed = db.pulse_list_goals(profile_id);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0]["id"], id);
+
+        // Ownership isolation
+        assert!(db.pulse_get_goal(id, "other-profile").is_none());
     }
 }

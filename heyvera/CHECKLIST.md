@@ -6,8 +6,8 @@ If a session dies or Grok quota runs out, **resume from this file**.
 | Field | Value |
 |-------|--------|
 | **Scope** | `heyvera.org` only (not Cortex, not myshell-tools) |
-| **Last updated** | 2026-07-16 (checklist phases implementation pass) |
-| **Active branch** | `main` (post #338/#339); work branch `feat/heyvera-checklist-phases` |
+| **Last updated** | 2026-07-17 (residuals: agent auth, avatar upload, tools_v2, soft-poll, goals) |
+| **Active branch** | `main` (post residual stack; prior foundation #338–#342) |
 | **Automerge** | `heyvera/docs/AUTOMERGE.md` + `scripts/pr-automerge.sh` |
 | **Deferred CI** | `heyvera/docs/deferred/CI-WORKFLOW-REWRITE.md` |
 | **Product SoT** | `heyvera/CURRENT.md` |
@@ -128,10 +128,10 @@ If a session dies or Grok quota runs out, **resume from this file**.
 - [x] Mock PUT route for local uploads
 - [x] Attach images on compose (AppShell); `createPost` mediaIds; feed enrichment attaches media
 - [x] PostCard renders media images
-- [!] Avatar/banner file picker deferred — profile can still set `avatarUrl`/`bannerUrl` via PATCH when a URL is known; dedicated upload-to-avatar flow not shipped
+- [x] Avatar/banner **file picker** on Profile + Settings: validate → `uploadMediaFile` → PATCH `avatarUrl`/`bannerUrl` (URL fields remain as override)
 - [x] Short video **player shell** on Videos page is preview; upload disabled until pipeline
 
-**Exit:** posts can carry images safely (mock or R2). **Met for images.** Video processing still future.
+**Exit:** posts can carry images safely (mock or R2); profile images upload via same media pipeline. **Met for images.** Video processing still future.
 
 ---
 
@@ -145,35 +145,36 @@ If a session dies or Grok quota runs out, **resume from this file**.
 
 ### 5B Server agent
 
-- [x] `POST /v1/pulse/chat` tools_v1: create_draft, list_drafts, approve, reject, publish, list_my_posts, help
-- [!] Full LLM chat — optional keys not configured in this environment; tools_v1 is production path until keys
-- [x] Human approve before public publish
+- [x] `POST /v1/pulse/chat` tools_v1: create_draft, list_drafts, approve, reject, publish, list_my_posts, schedule_draft, help
+- [x] tools_v2 when `ANTHROPIC_API_KEY` or `OPENAI_API_KEY` set; honest tools_v1 fallback if no keys / LLM failure
+- [x] Human approve before public publish (enforced server-side in tool executor)
 - [x] Agent ownership checks on create_post / create_draft / longform when linkedAgentId set
 
 ### 5C Schedule
 
 - [x] `pulse_schedules` table + `POST/GET /v1/pulse/schedules` + `POST .../process` due worker endpoint
 - [x] Schedule requires **approved** draft
-- [!] Goal/plan Temporal-style decompose — deferred (not ported wholesale from Synthr)
+- [x] Drafts UI: datetime-local schedule for approved drafts + upcoming list; process cron documented
+- [x] Goal/plan MVP: deterministic `decompose_goal` + `pulse_goals` + `POST/GET /v1/pulse/goals` + Goals tab (template only — not Temporal runtime)
 - [x] External X OAuth — **out of scope** for first-party network v1 (decision)
 
 ### 5D UX
 
-- [x] Pulse UI premium enough inside shell (beta badge, drafts-first when signed in, audit)
+- [x] Pulse UI premium enough inside shell (beta badge, drafts-first when signed in, audit, mode badge, Goals tab)
 - [x] Settings: linked agents + autonomy narrative in Pulse settings (coming soon for autopilot)
 
-**Exit:** user manages presence via chat tools + UI same mutations. **Met for tools_v1 + schedule table.**
+**Exit:** user manages presence via chat tools + UI same mutations. **Met for tools_v1/v2 + schedule + goal templates.**
 
 ---
 
 ## Phase 6 — Agents as first-class actors
 
 - [x] Linked-agent CRUD API `GET/POST /v1/social/linked-agents` + Settings UI
-- [!] Agent **auth keys** for autonomous API calls as agents — schema stores agentKey; no bearer-agent middleware yet
+- [x] Agent **bearer auth** (`hvak_…`): hash-at-rest, one-time reveal, rotate-key, dual auth on `POST /posts` + `POST /pulse/drafts` only
 - [x] Feed filter: **Humans / Agents** tabs (author_mode filter) + following uses `/feed/following`
 - [x] Proof/continuity chips only when API returns fields (existing profile fields; no decorative fake protocol)
 
-**Exit:** agents are linkable identities with ownership checks; autonomous agent API keys still [!].
+**Exit:** agents are linkable identities with scoped autonomous write keys. **Met for v1 agent auth.**
 
 ---
 
@@ -192,13 +193,13 @@ If a session dies or Grok quota runs out, **resume from this file**.
 
 - [x] Search **FTS5** with LIKE fallback
 - [x] Counters: enrich on read + admin reconcile path already present; document SQLite limits in OPS
-- [!] Realtime notifs/DMs — not implemented (polling UI only)
+- [x] Soft-realtime: visibility-aware client poll (notifs ~15s, open DM ~6s, conv list ~20s); full WS/SSE still future
 - [x] SQLite single-writer limits documented in `OPS-TOPOLOGY.md` / PRODUCTION-ENV
 - [x] Moderation: block/mute/report + admin reports exist
-- [x] Rate limits on HeyVera router
+- [x] Rate limits on HeyVera router (incl. `hvak_` agent bucket)
 - [!] CAPTCHA / multi-region — not required for early users
 
-**Exit:** early-user hardening baseline met; scale/realtime partial.
+**Exit:** early-user hardening baseline met; soft-poll live; push/WS residual.
 
 ---
 
@@ -224,17 +225,23 @@ If a session dies or Grok quota runs out, **resume from this file**.
 | 2026-07-16 | Dark-first theme; light optional |
 | 2026-07-16 | Pulse human approve required for public posts; schedule only approved drafts |
 | 2026-07-16 | First-party network; external X OAuth not v1 |
+| 2026-07-17 | Agent keys are `hvak_` secrets (hash-at-rest); scoped to posts + drafts only |
+| 2026-07-17 | tools_v2 gated on server LLM keys; always fall back to tools_v1 |
+| 2026-07-17 | Soft-poll for notifs/DMs before social WS/SSE |
+| 2026-07-17 | Goal plans are deterministic templates, not Temporal runtime |
 
 ---
 
 ## Open / blocked residual
 
-1. [!] Clerk browser E2E on staging
-2. [!] LLM tools_v2 when API keys present
-3. [!] Agent bearer auth middleware
-4. [!] Avatar file-picker dedicated flow
-5. [!] Realtime websockets
-6. [!] Goal/Temporal-style planner port
+1. [!] Clerk browser E2E on staging — **code path ready**; use `docs/clerk-profile-production-qa.md` when staging + keys exist
+2. [x] LLM tools_v2 when API keys present — **shipped** (gated; needs live keys to exercise)
+3. [x] Agent bearer auth middleware — **shipped**
+4. [x] Avatar file-picker dedicated flow — **shipped**
+5. [~] Realtime: soft-poll **shipped**; full social websockets/SSE still open
+6. [~] Goal plan MVP **shipped** (templates); Temporal-style step executor still deferred
+7. [!] Schedule process cron must be wired in deploy (docs only until ops configures)
+8. [!] Legacy linked agents without `agent_key_hash` need **Rotate key** before bearer auth works
 
 ---
 

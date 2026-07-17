@@ -1,4 +1,5 @@
 mod admin;
+pub mod agent_auth;
 pub mod api_error;
 mod api_keys;
 mod auth;
@@ -524,6 +525,7 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
             put(media::mock_upload).get(media::mock_serve),
         )
         .route("/v1/social/linked-agents", get(social::list_my_linked_agents).post(social::create_linked_agent))
+        .route("/v1/social/linked-agents/{id}/rotate-key", post(social::rotate_linked_agent_key))
         .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
         .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
         .route("/v1/social/posts/{id}/bookmark", post(social::bookmark_post).delete(social::unbookmark_post))
@@ -608,6 +610,7 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/profile/me", get(social::get_my_profile))
         .route("/v1/social/profile", patch(social::update_me_profile))
         .route("/v1/social/linked-agents", get(social::list_my_linked_agents).post(social::create_linked_agent))
+        .route("/v1/social/linked-agents/{id}/rotate-key", post(social::rotate_linked_agent_key))
         .route("/v1/social/posts", post(social::create_post))
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
@@ -646,6 +649,8 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/pulse/chat", post(pulse::pulse_chat))
         .route("/v1/pulse/schedules", get(pulse::list_schedules).post(pulse::schedule_draft))
         .route("/v1/pulse/schedules/process", post(pulse::process_due_schedules))
+        .route("/v1/pulse/goals", get(pulse::list_goals).post(pulse::create_goal))
+        .route("/v1/pulse/goals/{id}", get(pulse::get_goal))
         // Shared auth/billing (heyvera router)
         .route("/api/auth/status", get(auth::auth_status))
         .route("/api/billing/status", get(billing::get_billing_status))
@@ -806,6 +811,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/longform", get(social::get_longform).post(social::create_longform))
         .route("/v1/social/profile/me", get(social::get_my_profile))
         .route("/v1/social/linked-agents", get(social::list_my_linked_agents).post(social::create_linked_agent))
+        .route("/v1/social/linked-agents/{id}/rotate-key", post(social::rotate_linked_agent_key))
         .route("/v1/social/posts", post(social::create_post))
         // Task #47: Media uploads
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
@@ -854,6 +860,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/pulse/chat", post(pulse::pulse_chat))
         .route("/v1/pulse/schedules", get(pulse::list_schedules).post(pulse::schedule_draft))
         .route("/v1/pulse/schedules/process", post(pulse::process_due_schedules))
+        .route("/v1/pulse/goals", get(pulse::list_goals).post(pulse::create_goal))
+        .route("/v1/pulse/goals/{id}", get(pulse::get_goal))
         // Protected — lightweight
         .route("/api/providers", get(routes::get_providers))
         .route("/api/ledger", get(routes::get_ledger))
