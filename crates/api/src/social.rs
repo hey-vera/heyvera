@@ -10,6 +10,7 @@ use axum::{
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use serde::Deserialize;
 
+use crate::agent_auth::{generate_agent_api_key, SocialWriteAuth};
 use crate::clerk::ClerkUser;
 use crate::state::AppState;
 
@@ -377,13 +378,34 @@ pub async fn create_profile(
 }
 
 pub async fn create_post(
-    user: ClerkUser,
+    auth: SocialWriteAuth,
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreatePostRequest>,
 ) -> impl IntoResponse {
-    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
-        Some(p) => p,
-        None => return not_found("No profile found — create a profile first"),
+    // Dual auth: Clerk (human) or Agent bearer (hvak_). Agent forces profile + author_mode.
+    let (profile_id, author_mode, linked_agent_id): (String, String, Option<String>) = match &auth {
+        SocialWriteAuth::Agent(agent) => (
+            agent.profile_id.clone(),
+            "agent".to_string(),
+            Some(agent.agent_id.clone()),
+        ),
+        SocialWriteAuth::Clerk(user) => {
+            let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+                Some(p) => p,
+                None => return not_found("No profile found — create a profile first"),
+            };
+            let profile_id = profile["id"].as_str().unwrap_or("").to_string();
+            let author_mode = req.author_mode.as_deref().unwrap_or("person").to_string();
+            if let Err(resp) = ensure_linked_agent_allowed(
+                &state,
+                &profile_id,
+                &author_mode,
+                req.linked_agent_id.as_deref(),
+            ) {
+                return resp;
+            }
+            (profile_id, author_mode, req.linked_agent_id.clone())
+        }
     };
 
     let body = req.body.trim().to_string();
@@ -395,23 +417,13 @@ pub async fn create_post(
         return bad_request("Post body exceeds 5000 characters");
     }
 
-    let profile_id = profile["id"].as_str().unwrap_or("");
     let visibility = req.visibility.as_deref().unwrap_or("public");
-    let author_mode = req.author_mode.as_deref().unwrap_or("person");
-    if let Err(resp) = ensure_linked_agent_allowed(
-        &state,
-        profile_id,
-        author_mode,
-        req.linked_agent_id.as_deref(),
-    ) {
-        return resp;
-    }
     let post = db(&state).social_create_post(
-        profile_id,
+        &profile_id,
         &body,
         visibility,
-        author_mode,
-        req.linked_agent_id.as_deref(),
+        &author_mode,
+        linked_agent_id.as_deref(),
         req.reply_to_post_id.as_deref(),
         req.quote_post_id.as_deref(),
     );
@@ -419,18 +431,18 @@ pub async fn create_post(
     let post_id = post["id"].as_str().unwrap_or("").to_string();
     if let Some(reply_to_id) = &req.reply_to_post_id {
         if let Some(parent_author_id) = db(&state).social_get_post_author_profile_id(reply_to_id) {
-            db(&state).social_create_notification(&parent_author_id, profile_id, "reply", Some(&post_id));
+            db(&state).social_create_notification(&parent_author_id, &profile_id, "reply", Some(&post_id));
         }
     }
     if let Some(quoted_id) = &req.quote_post_id {
         if let Some(quoted_author_id) = db(&state).social_get_post_author_profile_id(quoted_id) {
-            db(&state).social_create_notification(&quoted_author_id, profile_id, "quote", Some(&post_id));
+            db(&state).social_create_notification(&quoted_author_id, &profile_id, "quote", Some(&post_id));
         }
     }
 
     let media = if !req.media_ids.is_empty() {
         let post_id = post["id"].as_str().unwrap_or("");
-        let linked = db(&state).social_link_media_to_post(post_id, &req.media_ids, profile_id);
+        let linked = db(&state).social_link_media_to_post(post_id, &req.media_ids, &profile_id);
         if !linked.is_empty() {
             Some(db(&state).social_get_post_media(post_id))
         } else {
@@ -724,7 +736,8 @@ pub struct CreateLinkedAgentRequest {
     pub agent_name: String,
     #[serde(alias = "agentSlug")]
     pub agent_slug: String,
-    /// Optional opaque key; defaulted when omitted (display link only — no runtime auth).
+    /// Ignored for secret generation (legacy clients may still send a label).
+    /// Server always generates an `hvak_` API key.
     #[serde(default, alias = "agentKey")]
     pub agent_key: Option<String>,
     #[serde(default, alias = "agentType")]
@@ -737,6 +750,7 @@ pub struct CreateLinkedAgentRequest {
 }
 
 /// GET /v1/social/linked-agents — list linked agents for the authenticated profile.
+/// Never returns full API key secrets (prefix only).
 pub async fn list_my_linked_agents(
     user: ClerkUser,
     State(state): State<Arc<AppState>>,
@@ -749,8 +763,8 @@ pub async fn list_my_linked_agents(
     ok(serde_json::json!({ "linkedAgents": agents }))
 }
 
-/// POST /v1/social/linked-agents — link an agent display identity to the caller's profile.
-/// Records name/slug metadata only; does not provision runtime authority.
+/// POST /v1/social/linked-agents — link an agent identity and issue a one-time API key.
+/// Returns `agentKey` (plaintext) once; subsequent list responses only show `agentKeyPrefix`.
 pub async fn create_linked_agent(
     user: ClerkUser,
     State(state): State<Arc<AppState>>,
@@ -777,16 +791,9 @@ pub async fn create_linked_agent(
         return bad_request("agentSlug must be 2-40 alphanumeric characters (dash/underscore ok)");
     }
 
-    let agent_key = req
-        .agent_key
-        .as_deref()
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| s.to_string())
-        .unwrap_or_else(|| format!("key_{agent_slug}"));
-    if agent_key.len() > 200 {
-        return bad_request("agentKey must be at most 200 characters");
-    }
+    // Always generate a CSPRNG hvak_ secret; ignore client-supplied agentKey for auth.
+    let (plaintext_key, key_prefix, key_hash) = generate_agent_api_key();
+    let _ = req.agent_key; // intentionally ignored for secret material
 
     let agent_type = req.agent_type.as_deref().unwrap_or("general").trim();
     let visibility = req.visibility.as_deref().unwrap_or("public");
@@ -797,14 +804,44 @@ pub async fn create_linked_agent(
         &profile_id,
         agent_name,
         &agent_slug,
-        &agent_key,
+        &key_prefix,
+        &key_hash,
         agent_type,
         visibility,
         proof_state,
         is_primary,
     ) {
-        Ok(agent) => ok(serde_json::json!({ "ok": true, "linkedAgent": agent })),
+        Ok(mut agent) => {
+            // One-time plaintext secret — only on create.
+            if let Some(obj) = agent.as_object_mut() {
+                obj.insert("agentKey".into(), serde_json::json!(plaintext_key));
+            }
+            ok(serde_json::json!({ "ok": true, "linkedAgent": agent }))
+        }
         Err(msg) => conflict(&msg),
+    }
+}
+
+/// POST /v1/social/linked-agents/{id}/rotate-key — Clerk only; returns new key once.
+pub async fn rotate_linked_agent_key(
+    user: ClerkUser,
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let (plaintext_key, key_prefix, key_hash) = generate_agent_api_key();
+    match db(&state).social_rotate_linked_agent_key(&profile_id, &id, &key_prefix, &key_hash) {
+        Ok(mut agent) => {
+            if let Some(obj) = agent.as_object_mut() {
+                obj.insert("agentKey".into(), serde_json::json!(plaintext_key));
+            }
+            ok(serde_json::json!({ "ok": true, "linkedAgent": agent }))
+        }
+        Err(msg) if msg.contains("not found") => not_found(&msg),
+        Err(msg) => bad_request(&msg),
     }
 }
 

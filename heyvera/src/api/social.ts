@@ -49,10 +49,13 @@ export type Profile = {
 export type LinkedAgent = {
   id: string;
   profileId: string;
-  accountId: string;
+  accountId?: string;
   agentName: string;
   agentSlug: string;
-  agentKey: string;
+  /** Display prefix only (list/public). Full secret is never returned here. */
+  agentKeyPrefix?: string;
+  /** One-time full secret — present only on create/rotate responses. */
+  agentKey?: string;
   agentType: string;
   linkState: string;
   visibility: string;
@@ -755,6 +758,7 @@ export async function linkAgent(
   data: {
     agentName: string;
     agentSlug: string;
+    /** Ignored by server for secret generation; kept for API compat. */
     agentKey?: string;
     agentType?: string;
     visibility?: string;
@@ -768,12 +772,22 @@ export async function linkAgent(
     body: {
       agentName: data.agentName,
       agentSlug: data.agentSlug,
-      agentKey: data.agentKey,
       agentType: data.agentType ?? "general",
       visibility: data.visibility,
       proofState: data.proofState,
       isPrimary: data.isPrimary,
     },
+  });
+}
+
+/** Rotate the API key for a linked agent. Returns the new plaintext key once. */
+export async function rotateLinkedAgentKey(
+  token: string,
+  agentId: string,
+): Promise<{ ok: true; linkedAgent: LinkedAgent }> {
+  return apiAuthFetch(`/linked-agents/${encodeURIComponent(agentId)}/rotate-key`, {
+    method: "POST",
+    token,
   });
 }
 

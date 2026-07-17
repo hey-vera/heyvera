@@ -444,6 +444,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 42 {
         migrate_v42(conn);
     }
+    if current < 43 {
+        migrate_v43(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -1505,12 +1508,16 @@ fn ensure_social_tables(conn: &Connection) {
         CREATE TABLE IF NOT EXISTS social_linked_agents (
             id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES social_profiles(id),
             agent_name TEXT NOT NULL, agent_slug TEXT NOT NULL, agent_key TEXT NOT NULL,
+            agent_key_hash TEXT,
             agent_type TEXT NOT NULL DEFAULT 'general', link_state TEXT NOT NULL DEFAULT 'active',
             visibility TEXT NOT NULL DEFAULT 'public', proof_state TEXT NOT NULL DEFAULT 'pending',
             is_primary INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_social_linked_agents_profile ON social_linked_agents(profile_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_linked_agents_key_hash
+            ON social_linked_agents(agent_key_hash)
+            WHERE agent_key_hash IS NOT NULL AND agent_key_hash != '';
 
         CREATE TABLE IF NOT EXISTS social_posts (
             id TEXT PRIMARY KEY, profile_id TEXT NOT NULL REFERENCES social_profiles(id),
@@ -2064,6 +2071,41 @@ fn migrate_v42(conn: &Connection) {
         UPDATE schema_version SET version = 42;"
     ).expect("migration v42 failed");
     tracing::info!("applied migration v42: github_imports table for repo import + sync");
+}
+
+fn migrate_v43(conn: &Connection) {
+    // Secure agent API keys: store SHA-256 hash of hvak_ secrets; agent_key holds display prefix only.
+    let has_col: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('social_linked_agents') WHERE name='agent_key_hash'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+    if !has_col {
+        // Column may already exist on some forks; ignore duplicate-column errors.
+        match conn.execute(
+            "ALTER TABLE social_linked_agents ADD COLUMN agent_key_hash TEXT",
+            [],
+        ) {
+            Ok(_) => tracing::info!("migration v43: added social_linked_agents.agent_key_hash"),
+            Err(e) => {
+                let msg = e.to_string();
+                if !msg.contains("duplicate column") {
+                    panic!("migration v43 failed adding agent_key_hash: {e}");
+                }
+            }
+        }
+    }
+    conn.execute_batch(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_social_linked_agents_key_hash
+            ON social_linked_agents(agent_key_hash)
+            WHERE agent_key_hash IS NOT NULL AND agent_key_hash != '';
+         UPDATE schema_version SET version = 43;",
+    )
+    .expect("migration v43 failed creating unique index");
+    tracing::info!("applied migration v43: agent_key_hash for linked-agent bearer auth");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -10049,12 +10091,14 @@ impl Database {
              ORDER BY is_primary DESC, created_at ASC"
         ).unwrap();
         stmt.query_map([profile_id], |row| {
+            // agent_key column stores display prefix only (never the full secret).
+            let key_prefix: String = row.get(4)?;
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
                 "profileId": row.get::<_, String>(1)?,
                 "agentName": row.get::<_, String>(2)?,
                 "agentSlug": row.get::<_, String>(3)?,
-                "agentKey": row.get::<_, String>(4)?,
+                "agentKeyPrefix": key_prefix,
                 "agentType": row.get::<_, String>(5)?,
                 "linkState": row.get::<_, String>(6)?,
                 "visibility": row.get::<_, String>(7)?,
@@ -10070,7 +10114,8 @@ impl Database {
     pub fn social_linked_agent_belongs_to(&self, profile_id: &str, agent_id: &str) -> bool {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
-            "SELECT 1 FROM social_linked_agents WHERE id = ?1 AND profile_id = ?2 LIMIT 1",
+            "SELECT 1 FROM social_linked_agents
+             WHERE id = ?1 AND profile_id = ?2 AND link_state = 'active' LIMIT 1",
             params![agent_id, profile_id],
             |_| Ok(()),
         )
@@ -10078,12 +10123,17 @@ impl Database {
     }
 
     /// Create a linked agent for a profile. Clears other primaries when `is_primary`.
+    ///
+    /// `agent_key_prefix` is stored in `agent_key` for display; `agent_key_hash` is the
+    /// SHA-256 hex of the full secret (returned only via the plaintext `agent_key_once`
+    /// field on create/rotate — never on list).
     pub fn social_create_linked_agent(
         &self,
         profile_id: &str,
         agent_name: &str,
         agent_slug: &str,
-        agent_key: &str,
+        agent_key_prefix: &str,
+        agent_key_hash: &str,
         agent_type: &str,
         visibility: &str,
         proof_state: &str,
@@ -10113,14 +10163,15 @@ impl Database {
         }
         conn.execute(
             "INSERT INTO social_linked_agents
-             (id, profile_id, agent_name, agent_slug, agent_key, agent_type, link_state, visibility, proof_state, is_primary, created_at, updated_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'active', ?7, ?8, ?9, ?10, ?10)",
+             (id, profile_id, agent_name, agent_slug, agent_key, agent_key_hash, agent_type, link_state, visibility, proof_state, is_primary, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 'active', ?8, ?9, ?10, ?11, ?11)",
             params![
                 id,
                 profile_id,
                 agent_name,
                 agent_slug,
-                agent_key,
+                agent_key_prefix,
+                agent_key_hash,
                 agent_type,
                 visibility,
                 proof_state,
@@ -10135,7 +10186,7 @@ impl Database {
             "profileId": profile_id,
             "agentName": agent_name,
             "agentSlug": agent_slug,
-            "agentKey": agent_key,
+            "agentKeyPrefix": agent_key_prefix,
             "agentType": agent_type,
             "linkState": "active",
             "visibility": visibility,
@@ -10144,6 +10195,87 @@ impl Database {
             "createdAt": now,
             "updatedAt": now,
         }))
+    }
+
+    /// Look up an active linked agent by SHA-256 hex of its full API key.
+    pub fn social_find_linked_agent_by_key_hash(&self, key_hash: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, profile_id, agent_slug, agent_name, link_state
+             FROM social_linked_agents
+             WHERE agent_key_hash = ?1 AND link_state = 'active'
+             LIMIT 1",
+            params![key_hash],
+            |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "profileId": row.get::<_, String>(1)?,
+                    "agentSlug": row.get::<_, String>(2)?,
+                    "agentName": row.get::<_, String>(3)?,
+                    "linkState": row.get::<_, String>(4)?,
+                }))
+            },
+        )
+        .ok()
+    }
+
+    /// Rotate key material for a linked agent owned by `profile_id`. Returns updated row metadata
+    /// (without plaintext secret).
+    pub fn social_rotate_linked_agent_key(
+        &self,
+        profile_id: &str,
+        agent_id: &str,
+        agent_key_prefix: &str,
+        agent_key_hash: &str,
+    ) -> Result<serde_json::Value, String> {
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let updated = conn
+            .execute(
+                "UPDATE social_linked_agents
+                 SET agent_key = ?1, agent_key_hash = ?2, updated_at = ?3
+                 WHERE id = ?4 AND profile_id = ?5 AND link_state = 'active'",
+                params![agent_key_prefix, agent_key_hash, now, agent_id, profile_id],
+            )
+            .map_err(|e| e.to_string())?;
+        if updated == 0 {
+            return Err("linked agent not found or not active".to_string());
+        }
+        conn.query_row(
+            "SELECT id, profile_id, agent_name, agent_slug, agent_key, agent_type,
+                    link_state, visibility, proof_state, is_primary, created_at, updated_at
+             FROM social_linked_agents WHERE id = ?1",
+            params![agent_id],
+            |row| {
+                let key_prefix: String = row.get(4)?;
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "profileId": row.get::<_, String>(1)?,
+                    "agentName": row.get::<_, String>(2)?,
+                    "agentSlug": row.get::<_, String>(3)?,
+                    "agentKeyPrefix": key_prefix,
+                    "agentType": row.get::<_, String>(5)?,
+                    "linkState": row.get::<_, String>(6)?,
+                    "visibility": row.get::<_, String>(7)?,
+                    "proofState": row.get::<_, String>(8)?,
+                    "isPrimary": row.get::<_, i64>(9)? == 1,
+                    "createdAt": row.get::<_, String>(10)?,
+                    "updatedAt": row.get::<_, String>(11)?,
+                }))
+            },
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    /// Clerk user id that owns the social profile (for suspended-account checks).
+    pub fn social_profile_clerk_user_id(&self, profile_id: &str) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT clerk_user_id FROM social_profiles WHERE id = ?1",
+            params![profile_id],
+            |r| r.get(0),
+        )
+        .ok()
     }
 
     pub fn social_list_feed_posts(&self, limit: i64, offset: i64, filter: Option<&str>) -> Vec<serde_json::Value> {

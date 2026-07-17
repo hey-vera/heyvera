@@ -29,7 +29,13 @@ import type { LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useMyProfile } from '../hooks/useMyProfile';
-import { fetchMyLinkedAgents, linkAgent, updateProfile, uploadMediaFile } from '../api/social';
+import {
+  fetchMyLinkedAgents,
+  linkAgent,
+  rotateLinkedAgentKey,
+  updateProfile,
+  uploadMediaFile,
+} from '../api/social';
 import type { LinkedAgent, Profile } from '../api/social';
 import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from '../utils/imageUpload';
 
@@ -828,7 +834,11 @@ function LinkedAgentsPanel({
   const [name, setName] = useState('');
   const [slug, setSlug] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [rotatingId, setRotatingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** One-time plaintext key shown only after create or rotate. */
+  const [oneTimeKey, setOneTimeKey] = useState<{ agentName: string; key: string } | null>(null);
+  const [copied, setCopied] = useState(false);
 
   const loadAgents = async () => {
     if (!isSignedIn) {
@@ -878,13 +888,14 @@ function LinkedAgentsPanel({
     setSubmitting(true);
     setNotice(null);
     setError(null);
+    setOneTimeKey(null);
     try {
       const token = await getToken();
       if (!token) {
         setNotice('Sign in to link an agent.');
         return;
       }
-      await linkAgent(token, {
+      const res = await linkAgent(token, {
         agentName,
         agentSlug,
         agentType: 'general',
@@ -892,12 +903,60 @@ function LinkedAgentsPanel({
       });
       setName('');
       setSlug('');
-      setNotice('Agent linked. This is a display identity only — no runtime authority yet.');
+      const key = res.linkedAgent?.agentKey;
+      if (key) {
+        setOneTimeKey({ agentName, key });
+        setNotice(
+          'Agent linked. Copy the API key now — it is shown only once. Use Authorization: Bearer hvak_… to post as this agent.',
+        );
+      } else {
+        setNotice('Agent linked. Rotate the key below if you need an API secret.');
+      }
       await loadAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to link agent');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleRotate = async (agent: LinkedAgent) => {
+    if (!isSignedIn) return;
+    setRotatingId(agent.id);
+    setError(null);
+    setNotice(null);
+    setOneTimeKey(null);
+    setCopied(false);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setNotice('Sign in to rotate an agent key.');
+        return;
+      }
+      const res = await rotateLinkedAgentKey(token, agent.id);
+      const key = res.linkedAgent?.agentKey;
+      if (key) {
+        setOneTimeKey({ agentName: agent.agentName, key });
+        setNotice(
+          `New key for ${agent.agentName}. Copy it now — it will not be shown again. Old key is invalid.`,
+        );
+      }
+      await loadAgents();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to rotate key');
+    } finally {
+      setRotatingId(null);
+    }
+  };
+
+  const handleCopyKey = async () => {
+    if (!oneTimeKey) return;
+    try {
+      await navigator.clipboard.writeText(oneTimeKey.key);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      setError('Could not copy to clipboard');
     }
   };
 
@@ -912,9 +971,38 @@ function LinkedAgentsPanel({
   return (
     <div className="px-4 py-4">
       <p className="mb-4 text-[13px] leading-5 text-[var(--text-secondary)]">
-        Linked agents are display identities you can select when composing. HeyVera does not
-        provision agent runtime, credentials, or posting authority here.
+        Linked agents are identities you can select when composing, and can post via a scoped API
+        key (<code className="text-[12px]">Authorization: Bearer hvak_…</code>). Keys are shown once
+        on create/rotate; list views only show a prefix.
       </p>
+
+      {oneTimeKey && (
+        <div
+          className="mb-4 rounded-2xl border px-4 py-4"
+          style={{
+            borderColor: 'var(--accent)',
+            backgroundColor: 'color-mix(in srgb, var(--accent) 8%, transparent)',
+          }}
+        >
+          <p className="text-[14px] font-bold">
+            One-time API key — {oneTimeKey.agentName}
+          </p>
+          <p className="mt-1 text-[12px] text-[var(--text-secondary)]">
+            Store this securely. HeyVera will not show the full key again.
+          </p>
+          <code className="mt-2 block break-all rounded-lg bg-[var(--bg-primary)] px-3 py-2 text-[12px]">
+            {oneTimeKey.key}
+          </code>
+          <button
+            type="button"
+            onClick={() => void handleCopyKey()}
+            className="mt-3 rounded-full px-4 py-1.5 text-[13px] font-bold"
+            style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-primary)' }}
+          >
+            {copied ? 'Copied' : 'Copy key'}
+          </button>
+        </div>
+      )}
 
       {loading ? (
         <p className="text-[14px] text-[var(--text-secondary)]">Loading linked agents…</p>
@@ -925,8 +1013,8 @@ function LinkedAgentsPanel({
         >
           <p className="text-[15px] font-bold">No linked agents yet</p>
           <p className="mt-1 text-[13px] text-[var(--text-secondary)]">
-            Link a name and slug below when you want an agent identity on posts. Empty is honest —
-            nothing is faked.
+            Link a name and slug below when you want an agent identity on posts. You will receive an
+            API key once to call create-post / create-draft as that agent.
           </p>
         </div>
       ) : (
@@ -949,7 +1037,21 @@ function LinkedAgentsPanel({
                   {agent.isPrimary ? ' · primary' : ''}
                   {agent.linkState ? ` · ${agent.linkState}` : ''}
                 </span>
+                {agent.agentKeyPrefix && (
+                  <span className="mt-0.5 block font-mono text-[12px] text-[var(--text-secondary)]">
+                    key {agent.agentKeyPrefix}
+                  </span>
+                )}
               </span>
+              <button
+                type="button"
+                onClick={() => void handleRotate(agent)}
+                disabled={rotatingId === agent.id}
+                className="shrink-0 rounded-full border px-3 py-1 text-[12px] font-semibold transition-opacity disabled:opacity-50"
+                style={{ borderColor: 'var(--border-primary)' }}
+              >
+                {rotatingId === agent.id ? 'Rotating…' : 'Rotate key'}
+              </button>
             </li>
           ))}
         </ul>

@@ -278,6 +278,14 @@ fn extract_user_key(req: &Request<axum::body::Body>) -> String {
         .and_then(|v| v.to_str().ok());
 
     if let Some(header) = auth {
+        // Agent API key: bucket by key prefix (stable per-agent rate limit)
+        if let Some(token) = header.strip_prefix("Bearer ").or_else(|| header.strip_prefix("Agent ")) {
+            if token.starts_with("hvak_") {
+                let take = token.len().min(20);
+                return format!("agent:{}", &token[..take]);
+            }
+        }
+
         // Bearer JWT: extract `sub` claim without full verification
         if let Some(token) = header.strip_prefix("Bearer ") {
             let parts: Vec<&str> = token.splitn(3, '.').collect();
