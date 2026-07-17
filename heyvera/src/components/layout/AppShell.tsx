@@ -4,18 +4,12 @@ import { SignInButton } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { createPost, fetchMyProfile, uploadMediaFile } from "../../api/social";
 import { useAuth } from "../../hooks/useAuth";
+import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from "../../utils/imageUpload";
 import { RightRail } from "./RightRail";
 import { BottomBar } from "./BottomBar";
 import { TopBar } from "./TopBar";
 
 const COMPOSE_MAX_CHARS = 280;
-const MAX_IMAGE_BYTES = 10 * 1024 * 1024;
-const ALLOWED_IMAGE_TYPES = new Set([
-  "image/jpeg",
-  "image/png",
-  "image/gif",
-  "image/webp",
-]);
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -110,13 +104,9 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     const file = event.target.files?.[0] ?? null;
     if (!file) return;
 
-    if (!ALLOWED_IMAGE_TYPES.has(file.type)) {
-      setComposeError("Use a JPEG, PNG, GIF, or WebP image.");
-      clearImage();
-      return;
-    }
-    if (file.size > MAX_IMAGE_BYTES) {
-      setComposeError("Image must be 10 MB or smaller.");
+    const validationError = validateImageFile(file);
+    if (validationError) {
+      setComposeError(validationError);
       clearImage();
       return;
     }
@@ -289,7 +279,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept="image/jpeg,image/png,image/gif,image/webp"
+                      accept={ALLOWED_IMAGE_ACCEPT}
                       className="hidden"
                       onChange={onPickImage}
                       disabled={isPosting || isCheckingComposeAccess}

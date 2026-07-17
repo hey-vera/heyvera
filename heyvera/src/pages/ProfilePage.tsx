@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { ArrowLeft, CalendarDays, Link as LinkIcon, MapPin } from 'lucide-react';
+import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
+import { ArrowLeft, CalendarDays, ImagePlus, Link as LinkIcon, MapPin, X } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
@@ -18,12 +18,14 @@ import {
   unfollowProfile,
   unlikePost,
   updateProfile,
+  uploadMediaFile,
 } from '../api/social';
 import type { Profile, ProfileStats } from '../api/social';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
+import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from '../utils/imageUpload';
 import { renderRichText } from '../utils/richText';
 
 const TABS = ['Posts', 'Replies', 'Media', 'Likes'] as const;
@@ -461,6 +463,7 @@ export function ProfilePage() {
           profile={profile}
           saving={savingEdit}
           error={editError}
+          getToken={getToken}
           onClose={() => {
             setEditOpen(false);
             setEditError(null);
@@ -618,6 +621,7 @@ type EditProfileModalProps = {
   profile: Profile;
   saving: boolean;
   error: string | null;
+  getToken: () => Promise<string | null>;
   onClose: () => void;
   onSubmit: (input: {
     displayName?: string;
@@ -629,16 +633,116 @@ type EditProfileModalProps = {
   }) => void;
 };
 
-function EditProfileModal({ profile, saving, error, onClose, onSubmit }: EditProfileModalProps) {
+function EditProfileModal({ profile, saving, error, getToken, onClose, onSubmit }: EditProfileModalProps) {
   const [displayName, setDisplayName] = useState(profile.displayName);
   const [bio, setBio] = useState(profile.bio);
   const [location, setLocation] = useState(profile.location ?? '');
   const [website, setWebsite] = useState(profile.websiteUrl ?? '');
   const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl ?? '');
   const [bannerUrl, setBannerUrl] = useState(profile.bannerUrl ?? '');
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [bannerFile, setBannerFile] = useState<File | null>(null);
+  const [avatarPreview, setAvatarPreview] = useState<string | null>(null);
+  const [bannerPreview, setBannerPreview] = useState<string | null>(null);
+  const [localError, setLocalError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
+  const bannerInputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+      if (bannerPreview) URL.revokeObjectURL(bannerPreview);
+    };
+  }, [avatarPreview, bannerPreview]);
 
   const cleanDisplayName = displayName.trim();
-  const canSave = cleanDisplayName.length > 0 && !saving;
+  const busy = saving || uploading;
+  const canSave = cleanDisplayName.length > 0 && !busy;
+
+  const clearAvatarFile = () => {
+    if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+    setAvatarFile(null);
+    setAvatarPreview(null);
+    if (avatarInputRef.current) avatarInputRef.current.value = '';
+  };
+
+  const clearBannerFile = () => {
+    if (bannerPreview) URL.revokeObjectURL(bannerPreview);
+    setBannerFile(null);
+    setBannerPreview(null);
+    if (bannerInputRef.current) bannerInputRef.current.value = '';
+  };
+
+  const onPickImage = (kind: 'avatar' | 'banner', event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) return;
+
+    const validationError = validateImageFile(file);
+    if (validationError) {
+      setLocalError(validationError);
+      if (kind === 'avatar') clearAvatarFile();
+      else clearBannerFile();
+      return;
+    }
+
+    const preview = URL.createObjectURL(file);
+    if (kind === 'avatar') {
+      if (avatarPreview) URL.revokeObjectURL(avatarPreview);
+      setAvatarFile(file);
+      setAvatarPreview(preview);
+    } else {
+      if (bannerPreview) URL.revokeObjectURL(bannerPreview);
+      setBannerFile(file);
+      setBannerPreview(preview);
+    }
+    setLocalError(null);
+  };
+
+  const handleSubmit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!canSave) return;
+
+    setLocalError(null);
+    let nextAvatarUrl = avatarUrl.trim() || undefined;
+    let nextBannerUrl = bannerUrl.trim() || undefined;
+
+    try {
+      if (avatarFile || bannerFile) {
+        setUploading(true);
+        const token = await getToken();
+        if (!token) throw new Error('Sign in again to update your profile.');
+
+        if (avatarFile) {
+          const uploaded = await uploadMediaFile(token, avatarFile);
+          nextAvatarUrl = uploaded.url;
+          setAvatarUrl(uploaded.url);
+        }
+        if (bannerFile) {
+          const uploaded = await uploadMediaFile(token, bannerFile);
+          nextBannerUrl = uploaded.url;
+          setBannerUrl(uploaded.url);
+        }
+      }
+
+      onSubmit({
+        displayName: cleanDisplayName,
+        bio: bio.trim(),
+        location: location.trim() || undefined,
+        websiteUrl: website.trim() || undefined,
+        avatarUrl: nextAvatarUrl,
+        bannerUrl: nextBannerUrl,
+      });
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : 'Unable to upload image');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const avatarDisplay = avatarPreview || avatarUrl.trim() || profile.avatarUrl || null;
+  const bannerDisplay = bannerPreview || bannerUrl.trim() || profile.bannerUrl || null;
+  const formError = localError || error;
 
   return (
     <div
@@ -650,25 +754,15 @@ function EditProfileModal({ profile, saving, error, onClose, onSubmit }: EditPro
         className="w-full max-w-[600px] overflow-hidden rounded-2xl border"
         style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}
         onClick={(event) => event.stopPropagation()}
-        onSubmit={(event) => {
-          event.preventDefault();
-          if (!canSave) return;
-          onSubmit({
-            displayName: cleanDisplayName,
-            bio: bio.trim(),
-            location: location.trim() || undefined,
-            websiteUrl: website.trim() || undefined,
-            avatarUrl: avatarUrl.trim() || undefined,
-            bannerUrl: bannerUrl.trim() || undefined,
-          });
-        }}
+        onSubmit={(event) => void handleSubmit(event)}
       >
         <div className="flex items-center justify-between border-b px-4 py-3" style={{ borderColor: 'var(--border-primary)' }}>
           <div className="flex items-center gap-3">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-full p-2 transition-colors hover-overlay"
+              disabled={busy}
+              className="rounded-full p-2 transition-colors hover-overlay disabled:opacity-50"
               aria-label="Close edit profile"
             >
               <ArrowLeft className="h-5 w-5" aria-hidden="true" />
@@ -681,19 +775,138 @@ function EditProfileModal({ profile, saving, error, onClose, onSubmit }: EditPro
             className="rounded-full px-5 py-1.5 text-[14px] font-bold transition-opacity disabled:cursor-not-allowed disabled:opacity-50 enabled:hover:opacity-90"
             style={{ backgroundColor: 'var(--text-primary)', color: 'var(--bg-primary)' }}
           >
-            {saving ? 'Saving' : 'Save'}
+            {uploading ? 'Uploading' : saving ? 'Saving' : 'Save'}
           </button>
         </div>
 
         <div className="max-h-[calc(100vh-140px)] overflow-y-auto px-4 py-5">
           <div className="grid gap-4">
+            <div>
+              <span className="mb-2 block text-[13px]" style={{ color: 'var(--text-secondary)' }}>Banner</span>
+              <div
+                className="relative h-[120px] overflow-hidden rounded-xl border"
+                style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+              >
+                {bannerDisplay ? (
+                  <img src={bannerDisplay} alt="" className="h-full w-full object-cover" />
+                ) : (
+                  <div className="flex h-full items-center justify-center text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                    No banner
+                  </div>
+                )}
+                {bannerFile ? (
+                  <button
+                    type="button"
+                    onClick={clearBannerFile}
+                    disabled={busy}
+                    className="absolute right-2 top-2 rounded-full p-1.5 disabled:opacity-50"
+                    style={{ backgroundColor: 'color-mix(in srgb, var(--bg-primary) 80%, transparent)', color: 'var(--text-primary)' }}
+                    aria-label="Remove selected banner"
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                ) : null}
+              </div>
+              <input
+                ref={bannerInputRef}
+                type="file"
+                accept={ALLOWED_IMAGE_ACCEPT}
+                className="hidden"
+                onChange={(event) => onPickImage('banner', event)}
+                disabled={busy}
+              />
+              <button
+                type="button"
+                onClick={() => bannerInputRef.current?.click()}
+                disabled={busy}
+                className="mt-2 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors hover-overlay disabled:opacity-50"
+                style={{ color: 'var(--accent)' }}
+              >
+                <ImagePlus className="h-4 w-4" aria-hidden="true" />
+                Upload banner
+              </button>
+              <ProfileEditField
+                label="Banner URL (optional)"
+                value={bannerUrl}
+                onChange={(value) => {
+                  setBannerUrl(value);
+                  if (bannerFile) clearBannerFile();
+                }}
+                maxLength={500}
+                disabled={busy}
+              />
+            </div>
+
+            <div>
+              <span className="mb-2 block text-[13px]" style={{ color: 'var(--text-secondary)' }}>Avatar</span>
+              <div className="flex items-center gap-4">
+                <div
+                  className="relative h-20 w-20 shrink-0 overflow-hidden rounded-full border-2"
+                  style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+                >
+                  {avatarDisplay ? (
+                    <img src={avatarDisplay} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="flex h-full items-center justify-center text-[12px]" style={{ color: 'var(--text-secondary)' }}>
+                      —
+                    </div>
+                  )}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <input
+                    ref={avatarInputRef}
+                    type="file"
+                    accept={ALLOWED_IMAGE_ACCEPT}
+                    className="hidden"
+                    onChange={(event) => onPickImage('avatar', event)}
+                    disabled={busy}
+                  />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => avatarInputRef.current?.click()}
+                      disabled={busy}
+                      className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors hover-overlay disabled:opacity-50"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      <ImagePlus className="h-4 w-4" aria-hidden="true" />
+                      Upload avatar
+                    </button>
+                    {avatarFile ? (
+                      <button
+                        type="button"
+                        onClick={clearAvatarFile}
+                        disabled={busy}
+                        className="text-sm disabled:opacity-50"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
+                        Clear
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+              <div className="mt-2">
+                <ProfileEditField
+                  label="Avatar URL (optional)"
+                  value={avatarUrl}
+                  onChange={(value) => {
+                    setAvatarUrl(value);
+                    if (avatarFile) clearAvatarFile();
+                  }}
+                  maxLength={500}
+                  disabled={busy}
+                />
+              </div>
+            </div>
+
             <ProfileEditField
               label="Display name"
               value={displayName}
               onChange={setDisplayName}
               maxLength={80}
               required
-              disabled={saving}
+              disabled={busy}
             />
             <label className="block">
               <span className="mb-1 block text-[13px]" style={{ color: 'var(--text-secondary)' }}>Bio</span>
@@ -703,16 +916,14 @@ function EditProfileModal({ profile, saving, error, onClose, onSubmit }: EditPro
                 className="min-h-24 w-full resize-none rounded-md border bg-transparent px-3 py-2 text-[15px] leading-relaxed outline-none focus:border-[var(--accent)]"
                 style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
                 maxLength={280}
-                disabled={saving}
+                disabled={busy}
               />
             </label>
-            <ProfileEditField label="Location" value={location} onChange={setLocation} maxLength={80} disabled={saving} />
-            <ProfileEditField label="Website" value={website} onChange={setWebsite} maxLength={120} disabled={saving} />
-            <ProfileEditField label="Avatar URL" value={avatarUrl} onChange={setAvatarUrl} maxLength={500} disabled={saving} />
-            <ProfileEditField label="Banner URL" value={bannerUrl} onChange={setBannerUrl} maxLength={500} disabled={saving} />
+            <ProfileEditField label="Location" value={location} onChange={setLocation} maxLength={80} disabled={busy} />
+            <ProfileEditField label="Website" value={website} onChange={setWebsite} maxLength={120} disabled={busy} />
           </div>
 
-          {error && <p className="mt-3 text-[13px]" style={{ color: 'var(--color-danger)' }}>{error}</p>}
+          {formError && <p className="mt-3 text-[13px]" style={{ color: 'var(--color-danger)' }}>{formError}</p>}
         </div>
       </form>
     </div>
