@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import { AtSign, Heart, MessageCircle, Repeat2, UserPlus } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { fetchNotifications } from '../api/social';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';
+import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
 import { relativeTime } from '../utils/time';
 
 type NotificationType = 'like' | 'follow' | 'repost' | 'reply' | 'mention';
@@ -22,6 +23,9 @@ type ApiNotification = {
 
 const FILTER_TABS = ['All', 'Mentions'] as const;
 type FilterTab = typeof FILTER_TABS[number];
+
+/** Soft-realtime poll interval while page is visible (honest intermediate before WS). */
+const NOTIFICATIONS_POLL_MS = 15_000;
 
 const notificationIcons: Record<NotificationType, { icon: LucideIcon; color: string }> = {
   like: { icon: Heart, color: 'var(--color-like)' },
@@ -48,6 +52,14 @@ function notificationText(notification: ApiNotification): string {
   }
 }
 
+function networkishErrorMessage(err: unknown): string {
+  const msg = err instanceof Error ? err.message : '';
+  if (/failed to fetch|networkerror|network request failed|load failed|fetch failed/i.test(msg)) {
+    return 'Unable to reach the server. Check your connection and try again.';
+  }
+  return msg || 'Unable to load notifications';
+}
+
 export function NotificationsPage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const navigate = useNavigate();
@@ -56,7 +68,24 @@ export function NotificationsPage() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
 
+  /** Quiet background refresh — never toggles full-page LoadingState. */
+  const pollNotifications = useCallback(async () => {
+    if (!isSignedIn) return;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const result = await fetchNotifications(token);
+      setNotifications(result.notifications);
+      setError(null);
+      setLastUpdatedAt(Date.now());
+    } catch {
+      // Keep existing list; background poll failures stay quiet.
+    }
+  }, [getToken, isSignedIn]);
+
+  // Initial load + explicit retry (full LoadingState only here).
   useEffect(() => {
     let cancelled = false;
 
@@ -71,7 +100,6 @@ export function NotificationsPage() {
 
         const token = authEnabled ? await getToken() : null;
         if (authEnabled && !token) {
-          // Soft-fail: show empty list with optional error, not a silent blank page.
           if (!cancelled) {
             setNotifications([]);
             setError('Unable to verify your session. Sign in again to load notifications.');
@@ -86,16 +114,12 @@ export function NotificationsPage() {
         if (!cancelled) {
           setNotifications(result.notifications);
           setError(null);
+          setLastUpdatedAt(Date.now());
         }
       } catch (err) {
         if (!cancelled) {
-          // Soft-fail to empty so the page still feels usable; surface why.
           setNotifications([]);
-          const msg = err instanceof Error ? err.message : '';
-          const detail = /failed to fetch|networkerror|network request failed|load failed|fetch failed/i.test(msg)
-            ? 'Unable to reach the server. Check your connection and try again.'
-            : (msg || 'Unable to load notifications');
-          setError(detail);
+          setError(networkishErrorMessage(err));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -107,6 +131,11 @@ export function NotificationsPage() {
       cancelled = true;
     };
   }, [authEnabled, getToken, isSignedIn, reloadKey]);
+
+  // Soft-realtime: quiet background poll while signed in (paused when tab hidden).
+  useVisibilityPoll(pollNotifications, NOTIFICATIONS_POLL_MS, Boolean(isSignedIn), {
+    runOnVisible: true,
+  });
 
   const filtered = activeFilter === 'All'
     ? notifications
@@ -123,8 +152,23 @@ export function NotificationsPage() {
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
       <div className="sticky top-[var(--top-bar-height)] z-10 border-b sticky-header-bg backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
-        <div className="px-4 py-3">
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
           <h1 className="text-[20px] font-bold">Notifications</h1>
+          {isSignedIn && lastUpdatedAt != null && !loading && (
+            <span
+              className="flex items-center gap-1.5 text-[12px] font-medium"
+              style={{ color: 'var(--text-secondary)' }}
+              role="status"
+              title="Soft-poll refresh while this tab is visible"
+            >
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: 'var(--accent)' }}
+                aria-hidden="true"
+              />
+              Live · refreshing
+            </span>
+          )}
         </div>
         <div className="flex" style={{ borderTop: '1px solid var(--border-primary)' }}>
           {FILTER_TABS.map((tab) => (

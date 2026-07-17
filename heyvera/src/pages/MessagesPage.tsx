@@ -5,12 +5,18 @@ import type { Conversation, Message } from '../api/types';
 import { getConversations, getMessages } from '../api/social';
 import { LoadingState, EmptyState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';
+import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
 
 /* ─── API helper for sending a message ──────────────────────────────────────── */
 
 const API_BASE = import.meta.env.VITE_API_URL
   ? `${import.meta.env.VITE_API_URL}/v1/social`
   : '/v1/social';
+
+/** Soft-realtime: messages while a thread is open (honest intermediate before WS). */
+const MESSAGES_POLL_MS = 6_000;
+/** Soft-realtime: conversation list refresh. */
+const CONVERSATIONS_POLL_MS = 20_000;
 
 async function sendMessage(
   token: string,
@@ -53,6 +59,14 @@ function getOtherParticipant(conversation: Conversation, currentUserId: string |
   return other ?? conversation.participants[0];
 }
 
+function sameMessageIds(a: Message[], b: Message[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i]?.id !== b[i]?.id) return false;
+  }
+  return true;
+}
+
 /* ─── Main Component ────────────────────────────────────────────────────────── */
 
 export function MessagesPage() {
@@ -68,33 +82,50 @@ export function MessagesPage() {
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [composeText, setComposeText] = useState('');
   const [sending, setSending] = useState(false);
+  const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selectedId;
 
   const selectedConversation = conversations.find((c) => c.id === selectedId) ?? null;
 
-  /* Load conversations */
-  const loadConversations = useCallback(async () => {
+  /* Load conversations (quiet = background poll: no LoadingState flash). */
+  const loadConversations = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!isSignedIn) return;
-    setLoadingConversations(true);
-    setConversationsError(null);
+    const quiet = opts?.quiet ?? false;
+    if (!quiet) {
+      setLoadingConversations(true);
+      setConversationsError(null);
+    }
     try {
       const token = await getToken();
       if (!token) return;
       const result = await getConversations(token);
       setConversations(result);
-      setFilteredConversations(result);
+      setLastUpdatedAt(Date.now());
     } catch (err) {
+      if (quiet) return;
       setConversationsError(err instanceof Error ? err.message : 'Failed to load conversations');
       setConversations([]);
       setFilteredConversations([]);
     } finally {
-      setLoadingConversations(false);
+      if (!quiet) setLoadingConversations(false);
     }
   }, [getToken, isSignedIn]);
 
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
+
+  // Soft-realtime: quiet conversation list poll while signed in.
+  useVisibilityPoll(
+    () => {
+      void loadConversations({ quiet: true });
+    },
+    CONVERSATIONS_POLL_MS,
+    Boolean(isSignedIn),
+    { runOnVisible: true },
+  );
 
   /* Filter conversations by search */
   useEffect(() => {
@@ -116,7 +147,33 @@ export function MessagesPage() {
     );
   }, [searchQuery, conversations, userId]);
 
-  /* Load messages for selected conversation */
+  /* Load messages for selected conversation (initial = full load; poll = quiet). */
+  const loadMessagesFor = useCallback(
+    async (conversationId: string, opts?: { quiet?: boolean }) => {
+      const quiet = opts?.quiet ?? false;
+      if (!quiet) {
+        setLoadingMessages(true);
+        setMessagesError(null);
+      }
+      try {
+        const token = await getToken();
+        if (!token) return;
+        const result = await getMessages(conversationId, token);
+        // Avoid re-render/scroll churn when nothing changed.
+        setMessages((prev) => (sameMessageIds(prev, result) ? prev : result));
+        setMessagesError(null);
+        setLastUpdatedAt(Date.now());
+      } catch (err) {
+        if (quiet) return;
+        setMessagesError(err instanceof Error ? err.message : 'Failed to load messages');
+        setMessages([]);
+      } finally {
+        if (!quiet) setLoadingMessages(false);
+      }
+    },
+    [getToken],
+  );
+
   useEffect(() => {
     if (!selectedId || !isSignedIn) {
       setMessages([]);
@@ -131,7 +188,10 @@ export function MessagesPage() {
         const token = await getToken();
         if (!token || cancelled) return;
         const result = await getMessages(selectedId!, token);
-        if (!cancelled) setMessages(result);
+        if (!cancelled) {
+          setMessages(result);
+          setLastUpdatedAt(Date.now());
+        }
       } catch (err) {
         if (!cancelled) {
           setMessagesError(err instanceof Error ? err.message : 'Failed to load messages');
@@ -147,6 +207,17 @@ export function MessagesPage() {
       cancelled = true;
     };
   }, [selectedId, getToken, isSignedIn]);
+
+  // Soft-realtime: quiet message poll while a conversation is open and tab visible.
+  useVisibilityPoll(
+    () => {
+      const id = selectedIdRef.current;
+      if (id) void loadMessagesFor(id, { quiet: true });
+    },
+    MESSAGES_POLL_MS,
+    Boolean(isSignedIn && selectedId),
+    { runOnVisible: true },
+  );
 
   /* Scroll to bottom when messages change */
   useEffect(() => {
@@ -222,10 +293,25 @@ export function MessagesPage() {
       >
         {/* Header */}
         <div
-          className="sticky top-[var(--top-bar-height)] z-10 border-b sticky-header-bg px-4 py-3 backdrop-blur-md"
+          className="sticky top-[var(--top-bar-height)] z-10 flex items-center justify-between gap-3 border-b sticky-header-bg px-4 py-3 backdrop-blur-md"
           style={{ borderColor: 'var(--border-primary)' }}
         >
           <h1 className="text-[20px] font-bold">Messages</h1>
+          {isSignedIn && lastUpdatedAt != null && (
+            <span
+              className="flex items-center gap-1.5 text-[12px] font-medium"
+              style={{ color: 'var(--text-secondary)' }}
+              role="status"
+              title="Soft-poll refresh while this tab is visible"
+            >
+              <span
+                className="inline-block h-1.5 w-1.5 rounded-full"
+                style={{ backgroundColor: 'var(--accent)' }}
+                aria-hidden="true"
+              />
+              Live · refreshing
+            </span>
+          )}
         </div>
 
         <div
@@ -401,28 +487,45 @@ export function MessagesPage() {
                 const other = getOtherParticipant(selectedConversation, userId);
                 if (!other) return null;
                 return (
-                  <div className="flex items-center gap-3">
-                    {other.avatar_url ? (
-                      <img
-                        src={other.avatar_url}
-                        alt={other.display_name}
-                        className="h-8 w-8 rounded-full object-cover"
-                        style={{ backgroundColor: 'var(--border-primary)' }}
-                      />
-                    ) : (
-                      <div
-                        className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold"
-                        style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
-                      >
-                        {other.display_name.charAt(0).toUpperCase()}
+                  <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
+                    <div className="flex min-w-0 items-center gap-3">
+                      {other.avatar_url ? (
+                        <img
+                          src={other.avatar_url}
+                          alt={other.display_name}
+                          className="h-8 w-8 rounded-full object-cover"
+                          style={{ backgroundColor: 'var(--border-primary)' }}
+                        />
+                      ) : (
+                        <div
+                          className="flex h-8 w-8 items-center justify-center rounded-full text-sm font-bold"
+                          style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+                        >
+                          {other.display_name.charAt(0).toUpperCase()}
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="truncate text-[15px] font-bold leading-tight">{other.display_name}</p>
+                        <p className="truncate text-[13px] leading-tight" style={{ color: 'var(--text-secondary)' }}>
+                          @{other.handle}
+                        </p>
                       </div>
-                    )}
-                    <div>
-                      <p className="text-[15px] font-bold leading-tight">{other.display_name}</p>
-                      <p className="text-[13px] leading-tight" style={{ color: 'var(--text-secondary)' }}>
-                        @{other.handle}
-                      </p>
                     </div>
+                    {lastUpdatedAt != null && (
+                      <span
+                        className="hidden shrink-0 items-center gap-1.5 text-[12px] font-medium sm:flex"
+                        style={{ color: 'var(--text-secondary)' }}
+                        role="status"
+                        title="Soft-poll refresh while this tab is visible"
+                      >
+                        <span
+                          className="inline-block h-1.5 w-1.5 rounded-full"
+                          style={{ backgroundColor: 'var(--accent)' }}
+                          aria-hidden="true"
+                        />
+                        Live
+                      </span>
+                    )}
                   </div>
                 );
               })()}
