@@ -2,8 +2,17 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Send, Sparkles } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
 import { useAuth } from '../hooks/useAuth';
-import { listDrafts, approveDraft, rejectDraft, publishDraft, pulseChat, getDraftAudit } from '../api/pulse';
-import type { PulseAuditEntry, PulseDraft } from '../api/pulse';
+import {
+  listDrafts,
+  approveDraft,
+  rejectDraft,
+  publishDraft,
+  pulseChat,
+  getDraftAudit,
+  scheduleDraft,
+  listSchedules,
+} from '../api/pulse';
+import type { PulseAuditEntry, PulseChatMode, PulseDraft, PulseSchedule } from '../api/pulse';
 
 type Tab = 'chat' | 'drafts' | 'settings';
 
@@ -18,10 +27,12 @@ type ChatMessage = {
   role: 'user' | 'vera';
   content: string;
   timestamp: number;
+  mode?: PulseChatMode;
+  toolsUsed?: string[];
 };
 
 const VERA_GREETING =
-  "Hey — I'm Vera's draft assistant (beta). I can turn natural language into post drafts and save them for you. I'm not a full marketing AI yet — no auto-replies, analytics, or scheduled posting. Use the Drafts tab to approve, dismiss, or publish.";
+  "Hey — I'm Vera's draft assistant (beta). I can create drafts, list them, approve/reject/publish, and schedule approved drafts. Without server LLM keys I use keyword tools (tools_v1); with keys, tools_v2. Use the Drafts tab to review, schedule, or publish.";
 
 export function AIPage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
@@ -103,6 +114,7 @@ function ChatTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean; 
   ]);
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
+  const [lastMode, setLastMode] = useState<PulseChatMode | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -120,22 +132,40 @@ function ChatTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean; 
 
     try {
       let veraReply: string;
+      let mode: PulseChatMode | undefined;
+      let toolsUsed: string[] | undefined;
 
       if (!authEnabled || !isSignedIn) {
         veraReply =
-          "Sign in to use Pulse tools. I can create and list drafts on the server once you're authenticated — then approve/publish from the Drafts tab.";
+          "Sign in to use Pulse tools. I can create and list drafts on the server once you're authenticated — then approve/publish/schedule from the Drafts tab.";
       } else {
         const token = await getToken();
         if (!token) {
           veraReply = "I couldn't verify your session. Try signing in again.";
         } else {
-          // Server-side tools (same draft pipeline as the Drafts tab). Not a full LLM yet.
-          const result = await pulseChat(token, text);
+          const history = messages
+            .filter((m) => m.id !== 'greeting')
+            .slice(-10)
+            .map((m) => ({
+              role: m.role === 'vera' ? 'assistant' : 'user',
+              content: m.content,
+            }));
+          const result = await pulseChat(token, text, history);
           veraReply = result.reply;
+          mode = result.mode;
+          toolsUsed = result.toolsUsed;
+          setLastMode(result.mode);
         }
       }
 
-      const veraMsg: ChatMessage = { id: `v-${Date.now()}`, role: 'vera', content: veraReply, timestamp: Date.now() };
+      const veraMsg: ChatMessage = {
+        id: `v-${Date.now()}`,
+        role: 'vera',
+        content: veraReply,
+        timestamp: Date.now(),
+        mode,
+        toolsUsed,
+      };
       setMessages((prev) => [...prev, veraMsg]);
     } catch {
       const errMsg: ChatMessage = {
@@ -152,6 +182,25 @@ function ChatTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean; 
 
   return (
     <div className="flex flex-col" style={{ height: 'calc(100vh - 160px)' }}>
+      {lastMode && (
+        <div className="flex items-center gap-2 border-b px-4 py-2" style={{ borderColor: 'var(--border-primary)' }}>
+          <span className="text-[12px]" style={{ color: 'var(--text-secondary)' }}>Last response mode</span>
+          <span
+            className="rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+            style={{
+              borderColor: lastMode === 'tools_v2' ? 'var(--accent)' : 'var(--border-secondary)',
+              color: lastMode === 'tools_v2' ? 'var(--accent)' : 'var(--text-secondary)',
+            }}
+            title={
+              lastMode === 'tools_v2'
+                ? 'LLM tool routing (server ANTHROPIC_API_KEY or OPENAI_API_KEY)'
+                : 'Keyword tools only (no LLM keys or LLM fallback)'
+            }
+          >
+            {lastMode}
+          </span>
+        </div>
+      )}
       <div className="flex-1 overflow-y-auto px-4 py-4">
         {messages.map((msg) => (
           <div key={msg.id} className={`mb-4 flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
@@ -168,6 +217,21 @@ function ChatTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean; 
               }}
             >
               <p className="whitespace-pre-wrap text-[15px] leading-relaxed">{msg.content}</p>
+              {msg.role === 'vera' && msg.mode && (
+                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                  <span
+                    className="rounded-full border px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide"
+                    style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-tertiary)' }}
+                  >
+                    {msg.mode}
+                  </span>
+                  {msg.toolsUsed && msg.toolsUsed.length > 0 && (
+                    <span className="text-[10px]" style={{ color: 'var(--text-tertiary)' }}>
+                      {msg.toolsUsed.join(', ')}
+                    </span>
+                  )}
+                </div>
+              )}
             </div>
           </div>
         ))}
@@ -195,7 +259,7 @@ function ChatTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean; 
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void handleSend(); } }}
-            placeholder="Try: draft a post about…"
+            placeholder="Try: draft a post about… or schedule draft <id> at …"
             className="flex-1 rounded-full border bg-transparent px-4 py-2.5 text-[15px] outline-none transition-colors focus:border-[var(--accent)]"
             style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
             disabled={sending}
@@ -216,8 +280,16 @@ function ChatTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean; 
   );
 }
 
+/** Convert datetime-local value to ISO UTC for the API. */
+function localInputToIso(localValue: string): string {
+  const d = new Date(localValue);
+  if (Number.isNaN(d.getTime())) return localValue;
+  return d.toISOString().replace(/\.\d{3}Z$/, 'Z');
+}
+
 function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean; isSignedIn: boolean; getToken: () => Promise<string | null> }) {
   const [drafts, setDrafts] = useState<PulseDraft[]>([]);
+  const [schedules, setSchedules] = useState<PulseSchedule[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -226,6 +298,8 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
   const [auditLoadingId, setAuditLoadingId] = useState<string | null>(null);
   const [auditErrorByDraft, setAuditErrorByDraft] = useState<Record<string, string>>({});
   const [auditOpenId, setAuditOpenId] = useState<string | null>(null);
+  const [scheduleAtByDraft, setScheduleAtByDraft] = useState<Record<string, string>>({});
+  const [scheduleMsg, setScheduleMsg] = useState<string | null>(null);
 
   const loadDrafts = useCallback(async () => {
     if (!isSignedIn || !authEnabled) return;
@@ -234,8 +308,12 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
     try {
       const token = await getToken();
       if (!token) return;
-      const result = await listDrafts(token, filter === 'all' ? undefined : filter);
-      setDrafts(result.drafts);
+      const [draftResult, schedResult] = await Promise.all([
+        listDrafts(token, filter === 'all' ? undefined : filter),
+        listSchedules(token),
+      ]);
+      setDrafts(draftResult.drafts);
+      setSchedules(schedResult.schedules.filter((s) => s.status === 'scheduled'));
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load drafts');
     } finally {
@@ -281,6 +359,63 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
       if (auditOpenId === id) setAuditOpenId(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Action failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleApproveOnly = async (id: string) => {
+    setActionLoading(id);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await approveDraft(token, id);
+      await loadDrafts();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Approve failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handleSchedule = async (id: string) => {
+    const local = scheduleAtByDraft[id];
+    if (!local) {
+      setError('Pick a date and time to schedule');
+      return;
+    }
+    setActionLoading(id);
+    setScheduleMsg(null);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const publishAt = localInputToIso(local);
+      const result = await scheduleDraft(token, id, publishAt);
+      setScheduleMsg(`Scheduled for ${new Date(result.schedule.publishAt).toLocaleString()}`);
+      setScheduleAtByDraft((prev) => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+      await loadDrafts();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Schedule failed');
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  const handlePublishApproved = async (id: string) => {
+    setActionLoading(id);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      await publishDraft(token, id);
+      setDrafts((prev) => prev.filter((d) => d.id !== id));
+      await loadDrafts();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Publish failed');
     } finally {
       setActionLoading(null);
     }
@@ -361,6 +496,33 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
       </div>
 
       {error && <p className="mb-3 text-[13px]" style={{ color: 'var(--color-danger)' }}>{error}</p>}
+      {scheduleMsg && <p className="mb-3 text-[13px]" style={{ color: 'var(--accent)' }}>{scheduleMsg}</p>}
+
+      {schedules.length > 0 && (
+        <div
+          className="mb-4 rounded-xl border p-3"
+          style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+        >
+          <p className="mb-2 text-[12px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+            Upcoming schedules
+          </p>
+          <ul className="space-y-1.5">
+            {schedules.map((s) => (
+              <li key={s.id} className="flex flex-wrap items-baseline justify-between gap-2 text-[13px]">
+                <span style={{ color: 'var(--text-primary)' }}>
+                  Draft <span className="font-mono text-[12px]">{s.draftId.slice(0, 8)}…</span>
+                </span>
+                <time style={{ color: 'var(--text-secondary)' }} dateTime={s.publishAt}>
+                  {new Date(s.publishAt).toLocaleString()}
+                </time>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+            Due posts publish when POST /v1/pulse/schedules/process runs (cron). See PRODUCTION-ENV.md.
+          </p>
+        </div>
+      )}
 
       {loading ? (
         <div className="flex justify-center py-8">
@@ -404,6 +566,15 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
                       <>
                         <button
                           type="button"
+                          onClick={() => void handleApproveOnly(draft.id)}
+                          disabled={actionLoading === draft.id}
+                          className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover-overlay disabled:opacity-50"
+                          style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
+                        >
+                          Approve
+                        </button>
+                        <button
+                          type="button"
                           onClick={() => void handleApprove(draft.id)}
                           disabled={actionLoading === draft.id}
                           className="rounded-full px-3 py-1 text-[13px] font-bold transition-opacity hover:opacity-90 disabled:opacity-50"
@@ -422,8 +593,50 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
                         </button>
                       </>
                     )}
+                    {draft.status === 'approved' && (
+                      <button
+                        type="button"
+                        onClick={() => void handlePublishApproved(draft.id)}
+                        disabled={actionLoading === draft.id}
+                        className="rounded-full px-3 py-1 text-[13px] font-bold transition-opacity hover:opacity-90 disabled:opacity-50"
+                        style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+                      >
+                        {actionLoading === draft.id ? 'Publishing…' : 'Publish now'}
+                      </button>
+                    )}
                   </div>
                 </div>
+
+                {draft.status === 'approved' && (
+                  <div
+                    className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3"
+                    style={{ borderColor: 'var(--border-primary)' }}
+                  >
+                    <label className="flex min-w-[12rem] flex-1 flex-col gap-1">
+                      <span className="text-[12px] font-medium" style={{ color: 'var(--text-secondary)' }}>
+                        Schedule publish
+                      </span>
+                      <input
+                        type="datetime-local"
+                        value={scheduleAtByDraft[draft.id] ?? ''}
+                        onChange={(e) =>
+                          setScheduleAtByDraft((prev) => ({ ...prev, [draft.id]: e.target.value }))
+                        }
+                        className="rounded-lg border bg-transparent px-3 py-2 text-[13px] outline-none focus:border-[var(--accent)]"
+                        style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => void handleSchedule(draft.id)}
+                      disabled={actionLoading === draft.id || !scheduleAtByDraft[draft.id]}
+                      className="rounded-full border px-3 py-2 text-[13px] font-bold transition-colors hover-overlay disabled:opacity-50"
+                      style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
+                    >
+                      {actionLoading === draft.id ? 'Scheduling…' : 'Schedule'}
+                    </button>
+                  </div>
+                )}
 
                 {auditOpen && (
                   <div
@@ -498,8 +711,7 @@ function SettingsTab() {
           />
           <SettingRow
             label="Scheduled posting"
-            description="Queue posts for later publish times"
-            comingSoon
+            description="Schedule approved drafts (datetime + process cron)"
           />
           <SettingRow
             label="Autopilot / auto-replies"
