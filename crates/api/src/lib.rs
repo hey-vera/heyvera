@@ -649,6 +649,8 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/pulse/chat", post(pulse::pulse_chat))
         .route("/v1/pulse/schedules", get(pulse::list_schedules).post(pulse::schedule_draft))
         .route("/v1/pulse/schedules/process", post(pulse::process_due_schedules))
+        .route("/v1/pulse/goals", get(pulse::list_goals).post(pulse::create_goal))
+        .route("/v1/pulse/goals/{id}", get(pulse::get_goal))
         // Shared auth/billing (heyvera router)
         .route("/api/auth/status", get(auth::auth_status))
         .route("/api/billing/status", get(billing::get_billing_status))
@@ -858,6 +860,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/pulse/chat", post(pulse::pulse_chat))
         .route("/v1/pulse/schedules", get(pulse::list_schedules).post(pulse::schedule_draft))
         .route("/v1/pulse/schedules/process", post(pulse::process_due_schedules))
+        .route("/v1/pulse/goals", get(pulse::list_goals).post(pulse::create_goal))
+        .route("/v1/pulse/goals/{id}", get(pulse::get_goal))
         // Protected — lightweight
         .route("/api/providers", get(routes::get_providers))
         .route("/api/ledger", get(routes::get_ledger))

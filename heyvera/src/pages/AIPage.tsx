@@ -2,14 +2,24 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Send, Sparkles } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
 import { useAuth } from '../hooks/useAuth';
-import { listDrafts, approveDraft, rejectDraft, publishDraft, pulseChat, getDraftAudit } from '../api/pulse';
-import type { PulseAuditEntry, PulseDraft } from '../api/pulse';
+import {
+  listDrafts,
+  approveDraft,
+  rejectDraft,
+  publishDraft,
+  pulseChat,
+  getDraftAudit,
+  createGoal,
+  listGoals,
+} from '../api/pulse';
+import type { PulseAuditEntry, PulseDraft, PulseGoal } from '../api/pulse';
 
-type Tab = 'chat' | 'drafts' | 'settings';
+type Tab = 'chat' | 'drafts' | 'goals' | 'settings';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'chat', label: 'Hey Vera' },
   { id: 'drafts', label: 'Drafts' },
+  { id: 'goals', label: 'Goals' },
   { id: 'settings', label: 'Settings' },
 ];
 
@@ -89,6 +99,9 @@ export function AIPage() {
       )}
       {activeTab === 'drafts' && (
         <DraftsTab authEnabled={authEnabled} isSignedIn={isSignedIn} getToken={getToken} />
+      )}
+      {activeTab === 'goals' && (
+        <GoalsTab authEnabled={authEnabled} isSignedIn={isSignedIn} getToken={getToken} />
       )}
       {activeTab === 'settings' && (
         <SettingsTab />
@@ -480,6 +493,237 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
   );
 }
 
+function GoalsTab({
+  authEnabled,
+  isSignedIn,
+  getToken,
+}: {
+  authEnabled: boolean;
+  isSignedIn: boolean;
+  getToken: () => Promise<string | null>;
+}) {
+  const [goals, setGoals] = useState<PulseGoal[]>([]);
+  const [input, setInput] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  const loadGoals = useCallback(async () => {
+    if (!authEnabled || !isSignedIn) {
+      setGoals([]);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError('Could not verify session.');
+        setGoals([]);
+        return;
+      }
+      const res = await listGoals(token);
+      setGoals(res.goals ?? []);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load goals');
+      setGoals([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [authEnabled, isSignedIn, getToken]);
+
+  useEffect(() => {
+    void loadGoals();
+  }, [loadGoals]);
+
+  const handleCreate = async () => {
+    const text = input.trim();
+    if (!text || creating) return;
+    if (!authEnabled || !isSignedIn) {
+      setError('Sign in to create a goal plan.');
+      return;
+    }
+    setCreating(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError('Could not verify session.');
+        return;
+      }
+      const res = await createGoal(token, text);
+      setInput('');
+      setExpandedId(res.goal.id);
+      await loadGoals();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to create goal');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  if (!authEnabled || !isSignedIn) {
+    return (
+      <div className="px-4 py-12 text-center">
+        <p className="mb-4 text-[15px]" style={{ color: 'var(--text-secondary)' }}>
+          Sign in to create a goal plan template (deterministic steps — not Temporal autopilot).
+        </p>
+        {authEnabled && (
+          <SignInButton mode="modal">
+            <button
+              type="button"
+              className="rounded-full px-5 py-2 text-[14px] font-bold"
+              style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+            >
+              Sign in
+            </button>
+          </SignInButton>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="px-4 py-6">
+      <div className="mx-auto max-w-lg space-y-5">
+        <div>
+          <h2 className="mb-1 text-[17px] font-bold" style={{ color: 'var(--text-primary)' }}>
+            Goal plans
+          </h2>
+          <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+            Deterministic plan template only — not Temporal execution. Steps map to existing tools
+            (create draft → human approve → optional schedule). Run them yourself via Drafts.
+          </p>
+        </div>
+
+        <div className="flex gap-2">
+          <input
+            type="text"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                void handleCreate();
+              }
+            }}
+            placeholder='e.g. post about shipping tools next week'
+            className="flex-1 rounded-full border bg-transparent px-4 py-2.5 text-[14px] outline-none focus:border-[var(--accent)]"
+            style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
+            disabled={creating}
+          />
+          <button
+            type="button"
+            onClick={() => void handleCreate()}
+            disabled={creating || !input.trim()}
+            className="rounded-full px-4 py-2 text-[13px] font-bold disabled:opacity-50"
+            style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+          >
+            {creating ? '…' : 'Plan'}
+          </button>
+        </div>
+
+        {error && (
+          <p className="text-[13px]" style={{ color: 'var(--color-danger)' }}>
+            {error}
+          </p>
+        )}
+
+        <div className="flex items-center justify-between">
+          <p className="text-[12px] font-semibold uppercase tracking-wide" style={{ color: 'var(--text-secondary)' }}>
+            Your plans
+          </p>
+          <button
+            type="button"
+            onClick={() => void loadGoals()}
+            className="inline-flex items-center gap-1 text-[12px]"
+            style={{ color: 'var(--text-secondary)' }}
+          >
+            <RefreshCw className="h-3.5 w-3.5" />
+            Refresh
+          </button>
+        </div>
+
+        {loading && goals.length === 0 ? (
+          <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+            Loading…
+          </p>
+        ) : goals.length === 0 ? (
+          <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+            No goals yet. Try: “post about X next week”.
+          </p>
+        ) : (
+          <ul className="space-y-3">
+            {goals.map((g) => {
+              const open = expandedId === g.id;
+              return (
+                <li
+                  key={g.id}
+                  className="rounded-xl border p-4"
+                  style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+                >
+                  <button
+                    type="button"
+                    className="w-full text-left"
+                    onClick={() => setExpandedId(open ? null : g.id)}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <p className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>
+                        {g.goal}
+                      </p>
+                      <span
+                        className="flex-shrink-0 rounded-full border px-2 py-0.5 text-[11px]"
+                        style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-tertiary)' }}
+                      >
+                        {g.status}
+                      </span>
+                    </div>
+                    <p className="mt-1 text-[12px]" style={{ color: 'var(--text-tertiary)' }}>
+                      {(g.steps?.length ?? 0)} step{(g.steps?.length ?? 0) === 1 ? '' : 's'} · plan template
+                    </p>
+                  </button>
+                  {open && (
+                    <ol className="mt-3 space-y-2 border-t pt-3" style={{ borderColor: 'var(--border-primary)' }}>
+                      {(g.steps ?? []).map((step, idx) => (
+                        <li
+                          key={`${g.id}-${idx}`}
+                          className="rounded-lg border px-3 py-2 text-[13px]"
+                          style={{ borderColor: 'var(--border-secondary)', backgroundColor: 'var(--bg-primary)' }}
+                        >
+                          <div className="flex flex-wrap items-baseline justify-between gap-2">
+                            <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>
+                              {idx + 1}. {step.tool}
+                            </span>
+                            <span className="text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
+                              {step.status}
+                            </span>
+                          </div>
+                          <p className="mt-0.5" style={{ color: 'var(--text-secondary)' }}>
+                            {step.description}
+                          </p>
+                          {step.args && Object.keys(step.args).length > 0 && (
+                            <pre
+                              className="mt-1 overflow-x-auto whitespace-pre-wrap break-words text-[11px]"
+                              style={{ color: 'var(--text-tertiary)' }}
+                            >
+                              {JSON.stringify(step.args)}
+                            </pre>
+                          )}
+                        </li>
+                      ))}
+                    </ol>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SettingsTab() {
   return (
     <div className="px-4 py-8">
@@ -497,9 +741,12 @@ function SettingsTab() {
             description="Create drafts from chat or API, then approve, dismiss, or publish in Drafts"
           />
           <SettingRow
+            label="Goal plan templates"
+            description="Deterministic steps (create draft → approve → optional schedule). Not Temporal autopilot."
+          />
+          <SettingRow
             label="Scheduled posting"
-            description="Queue posts for later publish times"
-            comingSoon
+            description="API can schedule approved drafts; worker process endpoint exists"
           />
           <SettingRow
             label="Autopilot / auto-replies"
@@ -516,8 +763,8 @@ function SettingsTab() {
         <div className="rounded-xl border p-4" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
           <p className="text-[14px] font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Available now</p>
           <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-            Draft assistant only: create drafts from natural language and manage them in the Drafts tab
-            (approve, dismiss, publish). Scheduling, autopilot, and analytics are coming soon — not live.
+            Draft assistant, goal plan templates (manual execution), and schedule APIs.
+            Full Temporal-style goal runtime and autopilot are not live.
           </p>
         </div>
       </div>

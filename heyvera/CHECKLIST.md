@@ -154,7 +154,7 @@ If a session dies or Grok quota runs out, **resume from this file**.
 
 - [x] `pulse_schedules` table + `POST/GET /v1/pulse/schedules` + `POST .../process` due worker endpoint
 - [x] Schedule requires **approved** draft
-- [!] Goal/plan Temporal-style decompose — deferred (not ported wholesale from Synthr)
+- [~] Goal/plan MVP: deterministic `decompose_goal` + `pulse_goals` table + `POST/GET /v1/pulse/goals` (plan template only — not Temporal)
 - [x] External X OAuth — **out of scope** for first-party network v1 (decision)
 
 ### 5D UX
@@ -234,7 +234,7 @@ If a session dies or Grok quota runs out, **resume from this file**.
 3. [!] Agent bearer auth middleware
 4. [!] Avatar file-picker dedicated flow
 5. [!] Realtime websockets
-6. [!] Goal/Temporal-style planner port
+6. [~] Goal plan MVP shipped (deterministic templates); full Temporal-style execution still deferred
 
 ---
 
