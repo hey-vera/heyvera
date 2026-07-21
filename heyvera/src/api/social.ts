@@ -68,6 +68,50 @@ export type LinkedAgent = {
   updatedAt: string;
 };
 
+/** Page multi-surface actor (Wave 6). Person = social_profile; agent = linked agent; brand = social_pages. */
+export type SocialPageKind = "person" | "agent" | "brand";
+
+export type SocialPage = {
+  id: string;
+  kind: SocialPageKind;
+  handle: string;
+  displayName: string;
+  avatarUrl?: string | null;
+  /** True only for the steward's person profile. */
+  isDefault: boolean;
+  /** Set for agent/brand pages owned by a person profile. */
+  parentProfileId?: string;
+  description?: string;
+};
+
+export type CreateAuthorship = {
+  authorMode: "person" | "agent" | "linked_pair";
+  linkedAgentId?: string;
+  pageId: string;
+};
+
+/** localStorage key for last-selected Page in compose. */
+export const ACTIVE_PAGE_STORAGE_KEY = "heyvera-active-page-id";
+
+/**
+ * Map a selected Page to createPost authorship fields.
+ * Brand posts as steward person in v1 (brand-as-author not complete).
+ */
+export function resolveCreateAuthorship(page: SocialPage): CreateAuthorship {
+  if (page.kind === "agent") {
+    return {
+      authorMode: "agent",
+      linkedAgentId: page.id,
+      pageId: page.id,
+    };
+  }
+  // person + brand → person authorship under steward profile
+  return {
+    authorMode: "person",
+    pageId: page.id,
+  };
+}
+
 /** Media object as returned on create/feed when attached (backend social_get_post_media). */
 export type FeedPostMedia = {
   id: string;
@@ -665,13 +709,63 @@ export async function createPost(
     visibility?: string;
     authorMode?: string;
     linkedAgentId?: string;
+    /** Page id from listMyPages — maps person/agent/brand → authorship. */
+    pageId?: string;
     replyToPostId?: string;
     quotePostId?: string;
     mediaIds?: string[];
     communityId?: string;
   },
-): Promise<{ ok: true; post: FeedPost; media?: FeedPostMedia[] }> {
+): Promise<{ ok: true; post: FeedPost; media?: FeedPostMedia[]; authorMode?: string }> {
   return apiAuthFetch("/posts", { method: "POST", token, body: data });
+}
+
+// ─── Pages (Wave 6 multi-surface) ────────────────────────────────────────────
+
+/** List steward person Page + linked agent Pages + brand Pages. */
+export async function listMyPages(
+  token: string,
+): Promise<{ pages: SocialPage[] }> {
+  return apiAuthFetch("/pages/mine", { method: "GET", token });
+}
+
+/** Create a brand Page owned by the steward profile. */
+export async function createBrandPage(
+  token: string,
+  data: { slug: string; displayName: string; description?: string },
+): Promise<{ ok: true; page: SocialPage }> {
+  return apiAuthFetch("/pages", {
+    method: "POST",
+    token,
+    body: {
+      kind: "brand",
+      slug: data.slug,
+      displayName: data.displayName,
+      description: data.description,
+    },
+  });
+}
+
+/** Follow a Page by id (brand → page follows; agent → owner profile; person → profile follow). */
+export async function followPage(
+  token: string,
+  pageId: string,
+): Promise<{ ok: true; kind?: string }> {
+  return apiAuthFetch(`/pages/${encodeURIComponent(pageId)}/follow`, {
+    method: "POST",
+    token,
+  });
+}
+
+/** Unfollow a Page by id. */
+export async function unfollowPage(
+  token: string,
+  pageId: string,
+): Promise<{ ok: true; kind?: string }> {
+  return apiAuthFetch(`/pages/${encodeURIComponent(pageId)}/follow`, {
+    method: "DELETE",
+    token,
+  });
 }
 
 // ─── Media upload (presign → PUT → finalize) ────────────────────────────────

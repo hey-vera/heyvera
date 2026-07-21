@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   Bell,
   Bot,
+  Building2,
   Check,
   ChevronRight,
   CreditCard,
@@ -30,16 +31,27 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useMyProfile } from '../hooks/useMyProfile';
 import {
+  createBrandPage,
   fetchMyLinkedAgents,
   linkAgent,
+  listMyPages,
   rotateLinkedAgentKey,
   updateProfile,
   uploadMediaFile,
 } from '../api/social';
-import type { LinkedAgent, Profile } from '../api/social';
+import type { LinkedAgent, Profile, SocialPage } from '../api/social';
 import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from '../utils/imageUpload';
 
-type Section = 'profile' | 'agents' | 'account' | 'privacy' | 'notifications' | 'billing' | 'display' | 'data';
+type Section =
+  | 'profile'
+  | 'agents'
+  | 'pages'
+  | 'account'
+  | 'privacy'
+  | 'notifications'
+  | 'billing'
+  | 'display'
+  | 'data';
 
 interface SectionMeta {
   id: Section;
@@ -88,6 +100,13 @@ const SECTIONS: SectionMeta[] = [
     label: 'Linked agents',
     description: 'Display identities for agents you author as. Not runtime authority.',
     Icon: Bot,
+    controls: [],
+  },
+  {
+    id: 'pages',
+    label: 'Brand pages',
+    description: 'Lightweight brand Pages you own. Multi-Page marketplace is not complete.',
+    Icon: Building2,
     controls: [],
   },
   {
@@ -1110,6 +1129,196 @@ function LinkedAgentsPanel({
   );
 }
 
+function BrandPagesPanel({
+  getToken,
+  isSignedIn,
+}: {
+  getToken: () => Promise<string | null>;
+  isSignedIn: boolean;
+}) {
+  const [pages, setPages] = useState<SocialPage[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [name, setName] = useState('');
+  const [slug, setSlug] = useState('');
+  const [description, setDescription] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const loadPages = async () => {
+    if (!isSignedIn) {
+      setPages([]);
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setPages([]);
+        return;
+      }
+      const res = await listMyPages(token);
+      setPages((res.pages ?? []).filter((p) => p.kind === 'brand'));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load pages');
+      setPages([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadPages();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- load on sign-in change only
+  }, [isSignedIn]);
+
+  const handleSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!isSignedIn) return;
+    const displayName = name.trim();
+    const cleanSlug = slug
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40);
+    if (!displayName || cleanSlug.length < 2) {
+      setNotice('Name and a 2+ character slug are required.');
+      return;
+    }
+    setSubmitting(true);
+    setNotice(null);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setNotice('Sign in to create a brand page.');
+        return;
+      }
+      await createBrandPage(token, {
+        slug: cleanSlug,
+        displayName,
+        description: description.trim() || undefined,
+      });
+      setName('');
+      setSlug('');
+      setDescription('');
+      setNotice('Brand page created. Use it from Create → Post as Page.');
+      await loadPages();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to create brand page');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!isSignedIn) {
+    return (
+      <div className="px-4 py-8 text-center text-[var(--text-secondary)]">
+        Sign in to manage brand pages.
+      </div>
+    );
+  }
+
+  const fieldClass =
+    'mt-1 w-full rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-elevated)] px-3 py-2 text-[15px] text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:border-[var(--accent)] focus:outline-none';
+
+  return (
+    <div className="px-4 py-4">
+      <p className="mb-4 text-[13px] leading-5 text-[var(--text-secondary)]">
+        Brand Pages are a multi-surface foundation for stewards. Person Pages stay 1:1 with your
+        profile; agent Pages come from linked agents. This is not a full multi-Page marketplace yet —
+        Agents product switcher remains WIP.
+      </p>
+
+      {loading ? (
+        <p className="text-[13px] text-[var(--text-secondary)]">Loading…</p>
+      ) : pages.length === 0 ? (
+        <p className="mb-4 text-[13px] text-[var(--text-secondary)]">No brand pages yet.</p>
+      ) : (
+        <ul className="mb-4 space-y-2">
+          {pages.map((p) => (
+            <li
+              key={p.id}
+              className="rounded-xl border border-[var(--border-primary)] px-3 py-2"
+            >
+              <span className="font-bold">{p.displayName}</span>
+              <span className="ml-2 text-[13px] text-[var(--text-secondary)]">@{p.handle}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <form onSubmit={(e) => void handleSubmit(e)} className="space-y-3">
+        <label className="block text-[13px] font-bold text-[var(--text-secondary)]">
+          Display name
+          <input
+            className={fieldClass}
+            value={name}
+            onChange={(e) => {
+              setName(e.target.value);
+              if (!slug) {
+                setSlug(
+                  e.target.value
+                    .toLowerCase()
+                    .replace(/[^a-z0-9_-]+/g, '-')
+                    .replace(/^-+|-+$/g, '')
+                    .slice(0, 40),
+                );
+              }
+            }}
+            disabled={submitting}
+            placeholder="Acme Co"
+          />
+        </label>
+        <label className="block text-[13px] font-bold text-[var(--text-secondary)]">
+          Slug
+          <input
+            className={fieldClass}
+            value={slug}
+            onChange={(e) =>
+              setSlug(
+                e.target.value
+                  .toLowerCase()
+                  .replace(/[^a-z0-9_-]+/g, '-')
+                  .slice(0, 40),
+              )
+            }
+            disabled={submitting}
+            placeholder="acme"
+          />
+        </label>
+        <label className="block text-[13px] font-bold text-[var(--text-secondary)]">
+          Description (optional)
+          <textarea
+            className={fieldClass}
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            disabled={submitting}
+            rows={2}
+            placeholder="What this brand Page is for"
+          />
+        </label>
+        <button
+          type="submit"
+          disabled={submitting}
+          className="rounded-full bg-[var(--accent)] px-5 py-2 text-[15px] font-bold text-white disabled:opacity-50"
+        >
+          {submitting ? 'Creating…' : 'Create brand page'}
+        </button>
+      </form>
+
+      {notice && <p className="mt-3 text-[13px] text-[var(--text-secondary)]">{notice}</p>}
+      {error && (
+        <p className="mt-3 text-[13px]" style={{ color: 'var(--color-danger)' }}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const navigate = useNavigate();
   const { authEnabled, isSignedIn, getToken } = useAuth();
@@ -1235,6 +1444,9 @@ export function SettingsPage() {
             ) : null}
             {currentSection.id === 'agents' ? (
               <LinkedAgentsPanel getToken={getToken} isSignedIn={isSignedIn} />
+            ) : null}
+            {currentSection.id === 'pages' ? (
+              <BrandPagesPanel getToken={getToken} isSignedIn={isSignedIn} />
             ) : null}
             {currentSection.id === 'account' ? <AccountSummary /> : null}
             {notice ? (

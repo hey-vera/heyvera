@@ -96,6 +96,10 @@ pub struct CreatePostRequest {
     pub author_mode: Option<String>,
     #[serde(rename = "linkedAgentId")]
     pub linked_agent_id: Option<String>,
+    /// Optional Page id from listMyPages: person → person post; agent → agent authorship;
+    /// brand → person post as steward (v1; brand-as-author later).
+    #[serde(default, rename = "pageId", alias = "page_id")]
+    pub page_id: Option<String>,
     #[serde(rename = "replyToPostId")]
     pub reply_to_post_id: Option<String>,
     #[serde(rename = "quotePostId")]
@@ -105,6 +109,16 @@ pub struct CreatePostRequest {
     /// Optional community to attach the post to (uuid or will be stored as-is if valid).
     #[serde(default, rename = "communityId", alias = "community_id")]
     pub community_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreatePageRequest {
+    /// v1: only `"brand"` is accepted (person/agent are derived).
+    pub kind: String,
+    pub slug: String,
+    #[serde(rename = "displayName")]
+    pub display_name: String,
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -389,6 +403,33 @@ pub async fn create_profile(
     ok(serde_json::json!({ "ok": true, "profile": profile }))
 }
 
+/// Resolve optional `pageId` into (author_mode, linked_agent_id).
+/// - person page (id == profile_id) → person
+/// - agent page (linked agent owned by profile) → agent + linked_agent_id
+/// - brand page owned by profile → person (steward posts; brand-as-author later)
+fn resolve_page_authorship(
+    state: &AppState,
+    profile_id: &str,
+    page_id: &str,
+) -> Result<(String, Option<String>), ApiResponse> {
+    if page_id == profile_id {
+        return Ok(("person".to_string(), None));
+    }
+    if db(state).social_linked_agent_belongs_to(profile_id, page_id) {
+        return Ok(("agent".to_string(), Some(page_id.to_string())));
+    }
+    if let Some(page) = db(state).social_find_page_by_id(page_id) {
+        let kind = page["kind"].as_str().unwrap_or("");
+        let owner = page["ownerProfileId"].as_str().unwrap_or("");
+        if kind == "brand" && owner == profile_id {
+            // Brand posts still use steward person authorship in v1.
+            return Ok(("person".to_string(), None));
+        }
+        return Err(forbidden("pageId is not owned by your profile"));
+    }
+    Err(bad_request("pageId not found"))
+}
+
 pub async fn create_post(
     auth: SocialWriteAuth,
     State(state): State<Arc<AppState>>,
@@ -407,16 +448,33 @@ pub async fn create_post(
                 None => return not_found("No profile found — create a profile first"),
             };
             let profile_id = profile["id"].as_str().unwrap_or("").to_string();
-            let author_mode = req.author_mode.as_deref().unwrap_or("person").to_string();
+
+            // pageId maps Page selector → authorship (overrides bare authorMode when set).
+            let (author_mode, linked_agent_id) = if let Some(ref page_id) = req.page_id {
+                let page_id = page_id.trim();
+                if page_id.is_empty() {
+                    let author_mode = req.author_mode.as_deref().unwrap_or("person").to_string();
+                    (author_mode, req.linked_agent_id.clone())
+                } else {
+                    match resolve_page_authorship(&state, &profile_id, page_id) {
+                        Ok(pair) => pair,
+                        Err(resp) => return resp,
+                    }
+                }
+            } else {
+                let author_mode = req.author_mode.as_deref().unwrap_or("person").to_string();
+                (author_mode, req.linked_agent_id.clone())
+            };
+
             if let Err(resp) = ensure_linked_agent_allowed(
                 &state,
                 &profile_id,
                 &author_mode,
-                req.linked_agent_id.as_deref(),
+                linked_agent_id.as_deref(),
             ) {
                 return resp;
             }
-            (profile_id, author_mode, req.linked_agent_id.clone())
+            (profile_id, author_mode, linked_agent_id)
         }
     };
 
@@ -482,7 +540,11 @@ pub async fn create_post(
     };
 
     let mut post_out = post;
-    let mut result = serde_json::json!({ "ok": true });
+    // Document resolved authorship on the envelope (also present on post.authorMode).
+    let mut result = serde_json::json!({
+        "ok": true,
+        "authorMode": author_mode,
+    });
     if let Some(media_list) = media {
         if let Some(obj) = post_out.as_object_mut() {
             obj.insert("media".into(), serde_json::json!(media_list.clone()));
@@ -1341,4 +1403,200 @@ pub async fn list_community_members(
         "members": members,
         "count": count,
     }))
+}
+
+// ─── Wave 6: Page multi-surface ──────────────────────────────────────────────
+
+/// GET /v1/social/pages/mine — steward's person Page + linked agent Pages + brand Pages.
+pub async fn list_my_pages(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(p) => p,
+        None => return not_found("No profile found — create a profile first"),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("").to_string();
+
+    let mut pages = Vec::new();
+
+    // Person Page (always; 1:1 with social_profile; isDefault).
+    pages.push(serde_json::json!({
+        "id": profile_id,
+        "kind": "person",
+        "handle": profile["handle"],
+        "displayName": profile["displayName"],
+        "avatarUrl": profile["avatarUrl"],
+        "isDefault": true,
+    }));
+
+    // Agent Pages (linked agents as publish actors).
+    for agent in db(&state).social_get_linked_agents(&profile_id) {
+        let agent_id = agent["id"].as_str().unwrap_or("").to_string();
+        let handle = agent["agentSlug"].as_str().unwrap_or("").to_string();
+        let display_name = agent["agentName"].as_str().unwrap_or("").to_string();
+        pages.push(serde_json::json!({
+            "id": agent_id,
+            "kind": "agent",
+            "handle": handle,
+            "displayName": display_name,
+            "avatarUrl": null,
+            "parentProfileId": profile_id,
+            "isDefault": false,
+        }));
+    }
+
+    // Brand Pages (social_pages rows).
+    for brand in db(&state).social_list_brand_pages(&profile_id) {
+        pages.push(serde_json::json!({
+            "id": brand["id"],
+            "kind": "brand",
+            "handle": brand["slug"],
+            "displayName": brand["displayName"],
+            "avatarUrl": brand["avatarUrl"],
+            "parentProfileId": profile_id,
+            "description": brand["description"],
+            "isDefault": false,
+        }));
+    }
+
+    ok(serde_json::json!({ "pages": pages }))
+}
+
+/// POST /v1/social/pages — create a brand Page (kind must be "brand").
+pub async fn create_page(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreatePageRequest>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+
+    let kind = req.kind.trim().to_lowercase();
+    if kind != "brand" {
+        return bad_request("Only kind \"brand\" can be created; person/agent Pages are derived");
+    }
+
+    let slug = req
+        .slug
+        .trim()
+        .to_lowercase()
+        .chars()
+        .filter(|c| c.is_ascii_alphanumeric() || *c == '-' || *c == '_')
+        .collect::<String>();
+    if slug.len() < 2 || slug.len() > 40 {
+        return bad_request("slug must be 2-40 alphanumeric characters (dash/underscore ok)");
+    }
+
+    let display_name = req.display_name.trim();
+    if display_name.is_empty() || display_name.len() > 80 {
+        return bad_request("displayName must be 1-80 characters");
+    }
+
+    let description = req.description.unwrap_or_default();
+    let description = description.trim();
+    if description.len() > 500 {
+        return bad_request("description exceeds 500 characters");
+    }
+
+    match db(&state).social_create_brand_page(&profile_id, &slug, display_name, description) {
+        Ok(brand) => {
+            let page = serde_json::json!({
+                "id": brand["id"],
+                "kind": "brand",
+                "handle": brand["slug"],
+                "displayName": brand["displayName"],
+                "avatarUrl": brand["avatarUrl"],
+                "parentProfileId": profile_id,
+                "description": brand["description"],
+                "isDefault": false,
+            });
+            ok(serde_json::json!({ "ok": true, "page": page }))
+        }
+        Err(msg) if msg.contains("taken") => conflict(&msg),
+        Err(msg) => bad_request(&msg),
+    }
+}
+
+/// POST /v1/social/pages/{id}/follow — follow a brand Page (person/agent still use handle follow).
+pub async fn follow_page(
+    user: ClerkUser,
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+
+    // Brand page → social_page_follows.
+    if let Some(page) = db(&state).social_find_page_by_id(&id) {
+        let owner = page["ownerProfileId"].as_str().unwrap_or("");
+        if owner == profile_id {
+            return bad_request("Cannot follow your own page");
+        }
+        db(&state).social_page_follow(&id, &profile_id);
+        return ok(serde_json::json!({ "ok": true, "kind": "brand" }));
+    }
+
+    // Agent page id → follow the owner person profile (v1 seam).
+    if let Some(agent) = db(&state).social_find_linked_agent_by_id(&id) {
+        let owner = agent["profileId"].as_str().unwrap_or("").to_string();
+        if owner.is_empty() {
+            return not_found("Page not found");
+        }
+        if owner == profile_id {
+            return bad_request("Cannot follow your own page");
+        }
+        db(&state).social_follow(&profile_id, &owner);
+        db(&state).social_create_notification(&owner, &profile_id, "follow", None);
+        return ok(serde_json::json!({ "ok": true, "kind": "agent", "followedProfileId": owner }));
+    }
+
+    // Person page id (= profile id) → standard profile follow.
+    if let Some(target) = db(&state).social_find_profile_by_id(&id) {
+        let target_id = target["id"].as_str().unwrap_or("").to_string();
+        if target_id == profile_id {
+            return bad_request("Cannot follow yourself");
+        }
+        db(&state).social_follow(&profile_id, &target_id);
+        db(&state).social_create_notification(&target_id, &profile_id, "follow", None);
+        return ok(serde_json::json!({ "ok": true, "kind": "person" }));
+    }
+
+    not_found("Page not found")
+}
+
+/// DELETE /v1/social/pages/{id}/follow
+pub async fn unfollow_page(
+    user: ClerkUser,
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+
+    if db(&state).social_find_page_by_id(&id).is_some() {
+        db(&state).social_page_unfollow(&id, &profile_id);
+        return ok(serde_json::json!({ "ok": true, "kind": "brand" }));
+    }
+
+    if let Some(agent) = db(&state).social_find_linked_agent_by_id(&id) {
+        let owner = agent["profileId"].as_str().unwrap_or("");
+        if !owner.is_empty() {
+            db(&state).social_unfollow(&profile_id, owner);
+        }
+        return ok(serde_json::json!({ "ok": true, "kind": "agent" }));
+    }
+
+    if db(&state).social_find_profile_by_id(&id).is_some() {
+        db(&state).social_unfollow(&profile_id, &id);
+        return ok(serde_json::json!({ "ok": true, "kind": "person" }));
+    }
+
+    not_found("Page not found")
 }

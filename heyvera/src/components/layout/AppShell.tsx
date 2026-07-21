@@ -3,11 +3,16 @@ import { ImagePlus, X } from "lucide-react";
 import { SignInButton } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import {
+  ACTIVE_PAGE_STORAGE_KEY,
+  createBrandPage,
   createPost,
   fetchMyCommunities,
   fetchMyProfile,
+  listMyPages,
+  resolveCreateAuthorship,
   uploadMediaFile,
   type CommunityMembership,
+  type SocialPage,
 } from "../../api/social";
 import { useAuth } from "../../hooks/useAuth";
 import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from "../../utils/imageUpload";
@@ -19,6 +24,30 @@ const COMPOSE_MAX_CHARS = 280;
 
 /** Dispatched after a successful shell compose so Home can prepend without refresh. */
 export const HEYVERA_POST_CREATED_EVENT = "heyvera:post-created";
+
+function readStoredPageId(): string | null {
+  try {
+    return typeof window !== "undefined" ? window.localStorage.getItem(ACTIVE_PAGE_STORAGE_KEY) : null;
+  } catch {
+    return null;
+  }
+}
+
+function writeStoredPageId(pageId: string) {
+  try {
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(ACTIVE_PAGE_STORAGE_KEY, pageId);
+    }
+  } catch {
+    // ignore quota / private mode
+  }
+}
+
+function pageLabel(page: SocialPage): string {
+  const kindLabel =
+    page.kind === "person" ? "Person" : page.kind === "agent" ? "Agent" : "Brand";
+  return `${page.displayName} (@${page.handle}) · ${kindLabel}`;
+}
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -42,10 +71,17 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
   const [imagePreviewUrl, setImagePreviewUrl] = React.useState<string | null>(null);
   const [myCommunities, setMyCommunities] = React.useState<CommunityMembership[]>([]);
   const [selectedCommunityId, setSelectedCommunityId] = React.useState<string>("");
+  const [myPages, setMyPages] = React.useState<SocialPage[]>([]);
+  const [selectedPageId, setSelectedPageId] = React.useState<string>("");
+  const [showNewBrand, setShowNewBrand] = React.useState(false);
+  const [brandName, setBrandName] = React.useState("");
+  const [brandSlug, setBrandSlug] = React.useState("");
+  const [creatingBrand, setCreatingBrand] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const remainingChars = COMPOSE_MAX_CHARS - composeText.length;
   const canPost = (composeText.trim().length > 0 || Boolean(imageFile)) && !isPosting;
+  const selectedPage = myPages.find((p) => p.id === selectedPageId) ?? myPages[0] ?? null;
 
   const handleNavigate = (route: string) => {
     navigate(route);
@@ -70,12 +106,29 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     setIsPosting(false);
     setIsCheckingComposeAccess(false);
     setSelectedCommunityId("");
+    setShowNewBrand(false);
+    setBrandName("");
+    setBrandSlug("");
+    setCreatingBrand(false);
     clearImage();
   };
 
   const closeCompose = () => {
     setComposeOpen(false);
     resetCompose();
+  };
+
+  const applyPages = (pages: SocialPage[]) => {
+    setMyPages(pages);
+    const stored = readStoredPageId();
+    const match = pages.find((p) => p.id === stored);
+    const fallback = pages.find((p) => p.isDefault) ?? pages[0];
+    const next = match ?? fallback;
+    if (next) {
+      setSelectedPageId(next.id);
+    } else {
+      setSelectedPageId("");
+    }
   };
 
   const openCompose = async () => {
@@ -106,6 +159,14 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
         setMyCommunities(mine.communities ?? []);
       } catch {
         setMyCommunities([]);
+      }
+      // Page selector — person + agents + brands.
+      try {
+        const pagesRes = await listMyPages(token);
+        applyPages(pagesRes.pages ?? []);
+      } catch {
+        setMyPages([]);
+        setSelectedPageId("");
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
@@ -156,6 +217,53 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     navigate("/ai");
   };
 
+  const handleSelectPage = (pageId: string) => {
+    if (pageId === "__new_brand__") {
+      setShowNewBrand(true);
+      return;
+    }
+    setSelectedPageId(pageId);
+    writeStoredPageId(pageId);
+    setShowNewBrand(false);
+  };
+
+  const handleCreateBrand = async () => {
+    if (!composeToken || creatingBrand) return;
+    const displayName = brandName.trim();
+    const slug = brandSlug
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, 40);
+    if (!displayName || slug.length < 2) {
+      setComposeError("Brand name and a 2+ character slug are required.");
+      return;
+    }
+    setCreatingBrand(true);
+    setComposeError(null);
+    try {
+      const res = await createBrandPage(composeToken, { slug, displayName });
+      const page = res.page;
+      const nextPages = [...myPages.filter((p) => p.id !== page.id), page];
+      // Keep person first, then agents, then brands.
+      nextPages.sort((a, b) => {
+        const order = { person: 0, agent: 1, brand: 2 } as const;
+        return order[a.kind] - order[b.kind];
+      });
+      setMyPages(nextPages);
+      setSelectedPageId(page.id);
+      writeStoredPageId(page.id);
+      setShowNewBrand(false);
+      setBrandName("");
+      setBrandSlug("");
+    } catch (err) {
+      setComposeError(err instanceof Error ? err.message : "Could not create brand page.");
+    } finally {
+      setCreatingBrand(false);
+    }
+  };
+
   const handleSubmitPost = async () => {
     if (!canPost || composeGate) return;
 
@@ -171,11 +279,26 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
         mediaIds.push(uploaded.mediaId);
       }
 
+      const authorship = selectedPage
+        ? resolveCreateAuthorship(selectedPage)
+        : ({ authorMode: "person" } as const);
+
       const result = await createPost(token, {
         body: composeText.trim(),
+        authorMode: authorship.authorMode,
+        ...("linkedAgentId" in authorship && authorship.linkedAgentId
+          ? { linkedAgentId: authorship.linkedAgentId }
+          : {}),
+        ...("pageId" in authorship && authorship.pageId
+          ? { pageId: authorship.pageId }
+          : {}),
         ...(mediaIds.length > 0 ? { mediaIds } : {}),
         ...(selectedCommunityId ? { communityId: selectedCommunityId } : {}),
       });
+
+      if (selectedPage) {
+        writeStoredPageId(selectedPage.id);
+      }
 
       if (typeof window !== "undefined") {
         window.dispatchEvent(
@@ -281,6 +404,119 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
               />
             ) : (
               <div className="px-4 pb-4 pt-3">
+                {myPages.length > 0 && (
+                  <label
+                    className="mb-3 flex flex-col gap-1 text-[13px]"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    <span>Post as Page</span>
+                    <select
+                      value={selectedPageId}
+                      onChange={(e) => handleSelectPage(e.target.value)}
+                      disabled={isPosting || isCheckingComposeAccess || creatingBrand}
+                      className="rounded-lg border px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)]"
+                      style={{
+                        borderColor: "var(--border-primary)",
+                        backgroundColor: "var(--bg-elevated)",
+                        color: "var(--text-primary)",
+                      }}
+                      aria-label="Choose Page to post as"
+                    >
+                      {myPages.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {pageLabel(p)}
+                        </option>
+                      ))}
+                      <option value="__new_brand__">+ New brand page…</option>
+                    </select>
+                    {selectedPage?.kind === "brand" && (
+                      <span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+                        Brand Pages are foundation-only: posts still publish as your person identity
+                        for now.
+                      </span>
+                    )}
+                  </label>
+                )}
+
+                {showNewBrand && (
+                  <div
+                    className="mb-3 rounded-xl border p-3"
+                    style={{ borderColor: "var(--border-primary)", backgroundColor: "var(--bg-elevated)" }}
+                  >
+                    <p className="mb-2 text-[13px] font-bold" style={{ color: "var(--text-primary)" }}>
+                      New brand page
+                    </p>
+                    <input
+                      type="text"
+                      value={brandName}
+                      onChange={(e) => {
+                        setBrandName(e.target.value);
+                        if (!brandSlug || brandSlug === brandName.toLowerCase().replace(/[^a-z0-9_-]+/g, "-").slice(0, 40)) {
+                          setBrandSlug(
+                            e.target.value
+                              .toLowerCase()
+                              .replace(/[^a-z0-9_-]+/g, "-")
+                              .replace(/^-+|-+$/g, "")
+                              .slice(0, 40),
+                          );
+                        }
+                      }}
+                      placeholder="Display name"
+                      disabled={creatingBrand || isPosting}
+                      className="mb-2 w-full rounded-lg border px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)]"
+                      style={{
+                        borderColor: "var(--border-primary)",
+                        backgroundColor: "var(--bg-primary)",
+                        color: "var(--text-primary)",
+                      }}
+                    />
+                    <input
+                      type="text"
+                      value={brandSlug}
+                      onChange={(e) =>
+                        setBrandSlug(
+                          e.target.value
+                            .toLowerCase()
+                            .replace(/[^a-z0-9_-]+/g, "-")
+                            .slice(0, 40),
+                        )
+                      }
+                      placeholder="slug"
+                      disabled={creatingBrand || isPosting}
+                      className="mb-2 w-full rounded-lg border px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)]"
+                      style={{
+                        borderColor: "var(--border-primary)",
+                        backgroundColor: "var(--bg-primary)",
+                        color: "var(--text-primary)",
+                      }}
+                    />
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => void handleCreateBrand()}
+                        disabled={creatingBrand || isPosting}
+                        className="rounded-full px-4 py-1.5 text-[13px] font-bold disabled:opacity-50"
+                        style={{ backgroundColor: "var(--accent)", color: "var(--bg-primary)" }}
+                      >
+                        {creatingBrand ? "Creating…" : "Create"}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setShowNewBrand(false);
+                          const fallback = myPages.find((p) => p.isDefault) ?? myPages[0];
+                          if (fallback) setSelectedPageId(fallback.id);
+                        }}
+                        disabled={creatingBrand}
+                        className="rounded-full px-4 py-1.5 text-[13px] font-medium"
+                        style={{ color: "var(--text-secondary)" }}
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <textarea
                   placeholder={
                     isCheckingComposeAccess ? "Checking profile..." : "Share something with the network"

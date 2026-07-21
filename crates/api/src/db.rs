@@ -450,6 +450,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 44 {
         migrate_v44(conn);
     }
+    if current < 45 {
+        migrate_v45(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -2155,6 +2158,42 @@ fn migrate_v44(conn: &Connection) {
     conn.execute_batch("UPDATE schema_version SET version = 44;")
         .expect("migration v44 failed marking version");
     tracing::info!("applied migration v44: social_posts.view_count");
+}
+
+fn migrate_v45(conn: &Connection) {
+    // Brand Pages only (person = social_profiles; agent = social_linked_agents).
+    // Idempotent CREATE IF NOT EXISTS; safe on re-run / fork DBs.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS social_pages (
+            id TEXT PRIMARY KEY,
+            owner_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            kind TEXT NOT NULL DEFAULT 'brand',
+            slug TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            avatar_url TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_pages_slug ON social_pages(slug);
+        CREATE INDEX IF NOT EXISTS idx_social_pages_owner ON social_pages(owner_profile_id);
+
+        CREATE TABLE IF NOT EXISTS social_page_follows (
+            id TEXT PRIMARY KEY,
+            page_id TEXT NOT NULL REFERENCES social_pages(id),
+            follower_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_page_follows_pair
+            ON social_page_follows(page_id, follower_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_page_follows_follower
+            ON social_page_follows(follower_profile_id);
+        CREATE INDEX IF NOT EXISTS idx_social_page_follows_page
+            ON social_page_follows(page_id);
+
+        UPDATE schema_version SET version = 45;",
+    )
+    .expect("migration v45 failed creating social_pages tables");
+    tracing::info!("applied migration v45: social_pages + social_page_follows (brand Pages)");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -10018,6 +10057,35 @@ impl Database {
         }).ok()
     }
 
+    pub fn social_find_profile_by_id(&self, profile_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
+                        location, website_url, proof_state, continuity_state, created_at, updated_at
+                 FROM social_profiles WHERE id = ?1",
+            )
+            .ok()?;
+        stmt.query_row([profile_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "accountId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(2)?,
+                "displayName": row.get::<_, String>(3)?,
+                "bio": row.get::<_, String>(4)?,
+                "avatarUrl": row.get::<_, Option<String>>(5)?,
+                "bannerUrl": row.get::<_, Option<String>>(6)?,
+                "location": row.get::<_, Option<String>>(7)?,
+                "websiteUrl": row.get::<_, Option<String>>(8)?,
+                "proofState": row.get::<_, String>(9)?,
+                "continuityState": row.get::<_, String>(10)?,
+                "createdAt": row.get::<_, String>(11)?,
+                "updatedAt": row.get::<_, String>(12)?,
+            }))
+        })
+        .ok()
+    }
+
     pub fn social_find_profile_by_handle(&self, handle: &str) -> Option<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -10169,6 +10237,206 @@ impl Database {
             |_| Ok(()),
         )
         .is_ok()
+    }
+
+    // ─── Page multi-surface (Wave 6) ─────────────────────────────────────────
+    // Person Pages = social_profiles (1:1). Agent Pages = social_linked_agents.
+    // Brand Pages = social_pages (kind brand) owned by a person profile.
+
+    /// List brand pages owned by `owner_profile_id`.
+    pub fn social_list_brand_pages(&self, owner_profile_id: &str) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, owner_profile_id, kind, slug, display_name, description, avatar_url, created_at
+                 FROM social_pages
+                 WHERE owner_profile_id = ?1 AND kind = 'brand'
+                 ORDER BY created_at ASC",
+            )
+            .unwrap();
+        stmt.query_map([owner_profile_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "ownerProfileId": row.get::<_, String>(1)?,
+                "kind": row.get::<_, String>(2)?,
+                "slug": row.get::<_, String>(3)?,
+                "displayName": row.get::<_, String>(4)?,
+                "description": row.get::<_, String>(5)?,
+                "avatarUrl": row.get::<_, Option<String>>(6)?,
+                "createdAt": row.get::<_, String>(7)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    /// Find a brand page by id (any owner).
+    pub fn social_find_page_by_id(&self, page_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, owner_profile_id, kind, slug, display_name, description, avatar_url, created_at
+                 FROM social_pages WHERE id = ?1",
+            )
+            .ok()?;
+        stmt.query_row([page_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "ownerProfileId": row.get::<_, String>(1)?,
+                "kind": row.get::<_, String>(2)?,
+                "slug": row.get::<_, String>(3)?,
+                "displayName": row.get::<_, String>(4)?,
+                "description": row.get::<_, String>(5)?,
+                "avatarUrl": row.get::<_, Option<String>>(6)?,
+                "createdAt": row.get::<_, String>(7)?,
+            }))
+        })
+        .ok()
+    }
+
+    /// True when slug is taken by a brand page, a person handle, or a linked agent slug.
+    pub fn social_page_slug_taken(&self, slug: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let as_page: bool = conn
+            .query_row(
+                "SELECT 1 FROM social_pages WHERE slug = ?1 LIMIT 1",
+                params![slug],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if as_page {
+            return true;
+        }
+        let as_handle: bool = conn
+            .query_row(
+                "SELECT 1 FROM social_profiles WHERE handle = ?1 LIMIT 1",
+                params![slug],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if as_handle {
+            return true;
+        }
+        conn.query_row(
+            "SELECT 1 FROM social_linked_agents WHERE agent_slug = ?1 LIMIT 1",
+            params![slug],
+            |_| Ok(true),
+        )
+        .unwrap_or(false)
+    }
+
+    /// Create a brand page owned by `owner_profile_id`.
+    pub fn social_create_brand_page(
+        &self,
+        owner_profile_id: &str,
+        slug: &str,
+        display_name: &str,
+        description: &str,
+    ) -> Result<serde_json::Value, String> {
+        // Single lock: uniqueness check + insert (avoid double-lock with social_page_slug_taken).
+        let conn = self.conn.lock().unwrap();
+        let taken: bool = conn
+            .query_row(
+                "SELECT 1 FROM social_pages WHERE slug = ?1 LIMIT 1",
+                params![slug],
+                |_| Ok(true),
+            )
+            .unwrap_or(false)
+            || conn
+                .query_row(
+                    "SELECT 1 FROM social_profiles WHERE handle = ?1 LIMIT 1",
+                    params![slug],
+                    |_| Ok(true),
+                )
+                .unwrap_or(false)
+            || conn
+                .query_row(
+                    "SELECT 1 FROM social_linked_agents WHERE agent_slug = ?1 LIMIT 1",
+                    params![slug],
+                    |_| Ok(true),
+                )
+                .unwrap_or(false);
+        if taken {
+            return Err("slug is already taken".to_string());
+        }
+        let id = Uuid::new_v4().to_string();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        conn.execute(
+            "INSERT INTO social_pages
+             (id, owner_profile_id, kind, slug, display_name, description, created_at)
+             VALUES (?1, ?2, 'brand', ?3, ?4, ?5, ?6)",
+            params![id, owner_profile_id, slug, display_name, description, now],
+        )
+        .map_err(|e| e.to_string())?;
+        Ok(serde_json::json!({
+            "id": id,
+            "ownerProfileId": owner_profile_id,
+            "kind": "brand",
+            "slug": slug,
+            "displayName": display_name,
+            "description": description,
+            "avatarUrl": null,
+            "createdAt": now,
+        }))
+    }
+
+    pub fn social_page_follow(&self, page_id: &str, follower_profile_id: &str) -> String {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT OR IGNORE INTO social_page_follows (id, page_id, follower_profile_id)
+             VALUES (?1, ?2, ?3)",
+            params![id, page_id, follower_profile_id],
+        )
+        .ok();
+        conn.query_row(
+            "SELECT id FROM social_page_follows WHERE page_id = ?1 AND follower_profile_id = ?2",
+            params![page_id, follower_profile_id],
+            |row| row.get::<_, String>(0),
+        )
+        .unwrap_or(id)
+    }
+
+    pub fn social_page_unfollow(&self, page_id: &str, follower_profile_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM social_page_follows WHERE page_id = ?1 AND follower_profile_id = ?2",
+            params![page_id, follower_profile_id],
+        )
+        .map(|n| n > 0)
+        .unwrap_or(false)
+    }
+
+    pub fn social_page_is_following(&self, page_id: &str, follower_profile_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT 1 FROM social_page_follows WHERE page_id = ?1 AND follower_profile_id = ?2 LIMIT 1",
+            params![page_id, follower_profile_id],
+            |_| Ok(true),
+        )
+        .unwrap_or(false)
+    }
+
+    /// Look up a linked agent by id (any owner); returns id, profile_id, names/slugs.
+    pub fn social_find_linked_agent_by_id(&self, agent_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, profile_id, agent_name, agent_slug, link_state
+                 FROM social_linked_agents WHERE id = ?1",
+            )
+            .ok()?;
+        stmt.query_row([agent_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "profileId": row.get::<_, String>(1)?,
+                "agentName": row.get::<_, String>(2)?,
+                "agentSlug": row.get::<_, String>(3)?,
+                "linkState": row.get::<_, String>(4)?,
+            }))
+        })
+        .ok()
     }
 
     /// Create a linked agent for a profile. Clears other primaries when `is_primary`.
@@ -16736,5 +17004,33 @@ mod tests {
         let c_id = c["id"].as_str().unwrap().to_string();
         let group = db.social_create_conversation(&[a_id.clone(), b_id.clone(), c_id]);
         assert_ne!(group["id"], c1["id"], "3-party conversation is distinct");
+    }
+
+    #[test]
+    fn social_brand_pages_create_list_follow() {
+        let db = test_db();
+        let owner = db.social_create_profile("clerk_brand_owner", "brandowner", "Owner", "");
+        let owner_id = owner["id"].as_str().unwrap();
+        let brand = db
+            .social_create_brand_page(owner_id, "acme", "Acme Co", "brand bio")
+            .expect("create brand");
+        assert_eq!(brand["kind"], "brand");
+        assert_eq!(brand["slug"], "acme");
+
+        let listed = db.social_list_brand_pages(owner_id);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0]["id"], brand["id"]);
+
+        // Slug conflict with handle
+        let err = db.social_create_brand_page(owner_id, "brandowner", "X", "");
+        assert!(err.is_err());
+
+        let follower = db.social_create_profile("clerk_brand_fan", "brandfan", "Fan", "");
+        let fan_id = follower["id"].as_str().unwrap();
+        let page_id = brand["id"].as_str().unwrap();
+        db.social_page_follow(page_id, fan_id);
+        assert!(db.social_page_is_following(page_id, fan_id));
+        assert!(db.social_page_unfollow(page_id, fan_id));
+        assert!(!db.social_page_is_following(page_id, fan_id));
     }
 }
