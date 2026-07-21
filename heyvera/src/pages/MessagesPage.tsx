@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import { ArrowLeft, MessageCircle, Search, Send } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import type { Conversation, Message } from '../api/types';
 import { getConversations, getMessages } from '../api/social';
 import { LoadingState, EmptyState } from '../components/shared/AsyncStates';
@@ -71,10 +72,12 @@ function sameMessageIds(a: Message[], b: Message[]): boolean {
 
 export function MessagesPage() {
   const { authEnabled, isSignedIn, getToken, userId } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const deepLinkConversationId = searchParams.get('c');
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(deepLinkConversationId);
   const [messages, setMessages] = useState<Message[]>([]);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
@@ -116,6 +119,21 @@ export function MessagesPage() {
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
+
+  // Deep link from Profile "Message" → /messages?c=<conversationId>
+  useEffect(() => {
+    if (!deepLinkConversationId) return;
+    setSelectedId(deepLinkConversationId);
+  }, [deepLinkConversationId]);
+
+  const selectConversation = (id: string | null) => {
+    setSelectedId(id);
+    if (id) {
+      setSearchParams({ c: id }, { replace: true });
+    } else {
+      setSearchParams({}, { replace: true });
+    }
+  };
 
   // Soft-realtime: quiet conversation list poll while signed in.
   useVisibilityPoll(
@@ -378,7 +396,7 @@ export function MessagesPage() {
                 <button
                   key={convo.id}
                   type="button"
-                  onClick={() => setSelectedId(convo.id)}
+                  onClick={() => selectConversation(convo.id)}
                   className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover-overlay"
                   style={{
                     backgroundColor: isActive ? 'var(--bg-elevated)' : undefined,
@@ -475,7 +493,7 @@ export function MessagesPage() {
               {/* Back button (mobile only) */}
               <button
                 type="button"
-                onClick={() => setSelectedId(null)}
+                onClick={() => selectConversation(null)}
                 className="rounded-full p-1.5 transition-colors hover-overlay lg:hidden"
                 style={{ color: 'var(--text-primary)' }}
                 aria-label="Back to conversations"

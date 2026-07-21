@@ -23,6 +23,7 @@ import { useNavigate } from 'react-router-dom';
 import { blockUser, fetchMyProfile, muteUser, reportContent } from '../../api/social';
 import type { Post } from '../../api/types';
 import { useAuth } from '../../hooks/useAuth';
+import { LinkedAgentChip } from './LinkedAgentChip';
 import { QuoteCompose } from './QuoteCompose';
 import { ReplyCompose } from './ReplyCompose';
 import { extractFirstUrl, LinkPreviewCard, renderRichText } from '../../utils/richText';
@@ -279,6 +280,11 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply }: PostCa
           </button>
           <span className="shrink-0" style={{ color: 'var(--text-secondary)' }}>·</span>
           <span className="shrink-0" style={{ color: 'var(--text-secondary)' }}>{relativeTime(post.created_at)}</span>
+          {post.linked_agent && (
+            <span className="ml-1 shrink-0">
+              <LinkedAgentChip agentName={post.linked_agent.agent_name} state="Linked" />
+            </span>
+          )}
           <div className="ml-auto relative">
             <DropdownAction
               icon={MoreHorizontal}

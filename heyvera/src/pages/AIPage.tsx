@@ -22,13 +22,13 @@ import type {
   PulseSchedule,
 } from '../api/pulse';
 
-type Tab = 'chat' | 'drafts' | 'goals' | 'settings';
+type Tab = 'drafts' | 'schedule' | 'goals' | 'helper';
 
 const TABS: { id: Tab; label: string }[] = [
-  { id: 'chat', label: 'Hey Vera' },
   { id: 'drafts', label: 'Drafts' },
+  { id: 'schedule', label: 'Schedule' },
   { id: 'goals', label: 'Goals' },
-  { id: 'settings', label: 'Settings' },
+  { id: 'helper', label: 'Draft helper' },
 ];
 
 type ChatMessage = {
@@ -41,25 +41,11 @@ type ChatMessage = {
 };
 
 const VERA_GREETING =
-  "Hey — I'm Vera's draft assistant (beta). I can create drafts, list them, approve/reject/publish, and schedule approved drafts. Without server LLM keys I use keyword tools (tools_v1); with keys, tools_v2. Use the Drafts tab to review, schedule, or publish.";
+  "Draft helper (beta): I create and manage Pulse drafts via tools. Without server LLM keys I use keyword tools (tools_v1); with keys, tools_v2. Not a general chat model — use Drafts / Schedule / Goals for the full workflow.";
 
 export function AIPage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
-  const [activeTab, setActiveTab] = useState<Tab>('chat');
-  const defaultedTab = useRef(false);
-
-  // Prefer Drafts when signed in (once); chat remains default for signed-out / no-auth.
-  useEffect(() => {
-    if (defaultedTab.current) return;
-    if (!authEnabled) {
-      defaultedTab.current = true;
-      return;
-    }
-    if (isSignedIn) {
-      setActiveTab('drafts');
-      defaultedTab.current = true;
-    }
-  }, [authEnabled, isSignedIn]);
+  const [activeTab, setActiveTab] = useState<Tab>('drafts');
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
@@ -73,11 +59,11 @@ export function AIPage() {
                 className="rounded-full border px-2 py-0.5 text-[11px] font-medium"
                 style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
               >
-                Beta — drafts
+                Beta — automation
               </span>
             </div>
             <p className="text-[13px] leading-tight" style={{ color: 'var(--text-secondary)' }}>
-              Draft assistant — create, review, and publish posts
+              Drafts, schedules, and goals for your active Page
             </p>
           </div>
         </div>
@@ -104,17 +90,17 @@ export function AIPage() {
         </div>
       </div>
 
-      {activeTab === 'chat' && (
-        <ChatTab authEnabled={authEnabled} isSignedIn={isSignedIn} getToken={getToken} />
-      )}
       {activeTab === 'drafts' && (
         <DraftsTab authEnabled={authEnabled} isSignedIn={isSignedIn} getToken={getToken} />
+      )}
+      {activeTab === 'schedule' && (
+        <ScheduleTab authEnabled={authEnabled} isSignedIn={isSignedIn} getToken={getToken} />
       )}
       {activeTab === 'goals' && (
         <GoalsTab authEnabled={authEnabled} isSignedIn={isSignedIn} getToken={getToken} />
       )}
-      {activeTab === 'settings' && (
-        <SettingsTab />
+      {activeTab === 'helper' && (
+        <ChatTab authEnabled={authEnabled} isSignedIn={isSignedIn} getToken={getToken} />
       )}
     </div>
   );
@@ -705,6 +691,143 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
   );
 }
 
+/** Dedicated schedule list (also surfaces on Drafts for approved drafts). */
+function ScheduleTab({
+  authEnabled,
+  isSignedIn,
+  getToken,
+}: {
+  authEnabled: boolean;
+  isSignedIn: boolean;
+  getToken: () => Promise<string | null>;
+}) {
+  const [schedules, setSchedules] = useState<PulseSchedule[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    if (!authEnabled || !isSignedIn) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const result = await listSchedules(token);
+      setSchedules(result.schedules ?? []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to load schedules');
+    } finally {
+      setLoading(false);
+    }
+  }, [authEnabled, getToken, isSignedIn]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!authEnabled || !isSignedIn) {
+    return (
+      <div className="flex flex-col items-center px-4 py-16 text-center">
+        <p className="mb-1 text-[17px] font-bold" style={{ color: 'var(--text-primary)' }}>
+          Sign in to view schedules
+        </p>
+        <p className="mb-4 text-[15px]" style={{ color: 'var(--text-secondary)' }}>
+          Approved drafts you schedule appear here until publish time.
+        </p>
+        {authEnabled && (
+          <SignInButton mode="modal">
+            <button
+              type="button"
+              className="rounded-full px-6 py-2.5 text-[15px] font-bold"
+              style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+            >
+              Sign in
+            </button>
+          </SignInButton>
+        )}
+      </div>
+    );
+  }
+
+  const upcoming = schedules.filter((s) => s.status === 'scheduled');
+  const other = schedules.filter((s) => s.status !== 'scheduled');
+
+  return (
+    <div className="px-4 py-4">
+      <div className="mb-4 flex items-center justify-between">
+        <div>
+          <h2 className="text-[17px] font-bold">Scheduled posts</h2>
+          <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+            Due drafts publish when the Pulse schedule worker runs (cron). Schedule from Drafts after approve.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={() => void load()}
+          className="rounded-full p-2 transition-colors hover-overlay"
+          style={{ color: 'var(--text-secondary)' }}
+          aria-label="Refresh schedules"
+        >
+          <RefreshCw className="h-4 w-4" />
+        </button>
+      </div>
+
+      {error && (
+        <p className="mb-3 text-[13px]" style={{ color: 'var(--color-danger)' }}>
+          {error}
+        </p>
+      )}
+
+      {loading ? (
+        <div className="flex justify-center py-8">
+          <div
+            className="h-6 w-6 animate-spin rounded-full border-2 border-transparent"
+            style={{ borderTopColor: 'var(--accent)' }}
+          />
+        </div>
+      ) : upcoming.length === 0 && other.length === 0 ? (
+        <div className="flex flex-col items-center py-12 text-center">
+          <p className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>
+            No scheduled posts
+          </p>
+          <p className="mt-1 max-w-sm text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+            Approve a draft in Drafts, pick a publish time, then it will show here. This is not a calendar UI yet —
+            honest empty state until more schedule tooling ships.
+          </p>
+        </div>
+      ) : (
+        <ul className="space-y-2">
+          {[...upcoming, ...other].map((s) => (
+            <li
+              key={s.id}
+              className="rounded-xl border px-4 py-3"
+              style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+            >
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <span className="font-mono text-[13px]" style={{ color: 'var(--text-primary)' }}>
+                  Draft {s.draftId.slice(0, 8)}…
+                </span>
+                <span
+                  className="rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase"
+                  style={{
+                    backgroundColor: 'var(--border-primary)',
+                    color: 'var(--text-secondary)',
+                  }}
+                >
+                  {s.status}
+                </span>
+              </div>
+              <time className="mt-1 block text-[13px]" style={{ color: 'var(--text-secondary)' }} dateTime={s.publishAt}>
+                {new Date(s.publishAt).toLocaleString()}
+              </time>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function GoalsTab({
   authEnabled,
   isSignedIn,
@@ -936,70 +1059,4 @@ function GoalsTab({
   );
 }
 
-function SettingsTab() {
-  return (
-    <div className="px-4 py-8">
-      <div className="mx-auto max-w-md space-y-6">
-        <div>
-          <h2 className="text-[17px] font-bold mb-1" style={{ color: 'var(--text-primary)' }}>Pulse</h2>
-          <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>
-            What works today and what is still planned.
-          </p>
-        </div>
 
-        <div className="space-y-4">
-          <SettingRow
-            label="Draft create → review → publish"
-            description="Create drafts from chat or API, then approve, dismiss, or publish in Drafts"
-          />
-          <SettingRow
-            label="Goal plan templates"
-            description="Deterministic steps (create draft → approve → optional schedule). Not Temporal autopilot."
-          />
-          <SettingRow
-            label="Scheduled posting"
-            description="Schedule approved drafts (datetime + process cron)"
-          />
-          <SettingRow
-            label="Autopilot / auto-replies"
-            description="Automated replies and hands-off posting"
-            comingSoon
-          />
-          <SettingRow
-            label="Audience insights"
-            description="Engagement and growth analytics"
-            comingSoon
-          />
-        </div>
-
-        <div className="rounded-xl border p-4" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
-          <p className="text-[14px] font-medium mb-1" style={{ color: 'var(--text-primary)' }}>Available now</p>
-          <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-            Draft assistant, goal plan templates (manual execution), and schedule APIs.
-            Full Temporal-style goal runtime and autopilot are not live.
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function SettingRow({ label, description, comingSoon }: { label: string; description: string; comingSoon?: boolean }) {
-  return (
-    <div className="flex items-center justify-between rounded-xl border p-4" style={{ borderColor: 'var(--border-primary)' }}>
-      <div className="pr-3">
-        <p className="text-[14px] font-medium" style={{ color: 'var(--text-primary)' }}>{label}</p>
-        <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>{description}</p>
-      </div>
-      {comingSoon ? (
-        <span className="flex-shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-medium" style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-tertiary)' }}>
-          Coming soon
-        </span>
-      ) : (
-        <span className="flex-shrink-0 rounded-full border px-2.5 py-0.5 text-[11px] font-medium" style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}>
-          Live
-        </span>
-      )}
-    </div>
-  );
-}

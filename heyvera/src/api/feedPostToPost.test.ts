@@ -148,4 +148,32 @@ describe('feedPostToPost', () => {
     const post = feedPostToPost(makeFeedPost({ media: undefined }));
     expect(post.media).toBeUndefined();
   });
+
+  it('hides vanity views: missing viewCount maps to 0 (PostCard hides zeros)', () => {
+    const without = feedPostToPost(makeFeedPost({ viewCount: undefined }));
+    expect(without.view_count).toBe(0);
+
+    const zero = feedPostToPost(makeFeedPost({ viewCount: 0 }));
+    expect(zero.view_count).toBe(0);
+
+    const real = feedPostToPost(makeFeedPost({ viewCount: 42 }));
+    expect(real.view_count).toBe(42);
+  });
+
+  it('maps linkedAgent when present on FeedPost', () => {
+    const post = feedPostToPost(
+      makeFeedPost({
+        linkedAgent: {
+          id: 'agent_1',
+          agentName: 'Vera Bot',
+          agentSlug: 'vera-bot',
+        },
+      }),
+    );
+    expect(post.linked_agent).toEqual({
+      id: 'agent_1',
+      agent_name: 'Vera Bot',
+      agent_slug: 'vera-bot',
+    });
+  });
 });

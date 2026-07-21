@@ -508,3 +508,91 @@ async fn test_create_post_with_community_id() {
     let post = body_json(post_resp).await;
     assert_eq!(post["post"]["communityId"], community_id);
 }
+
+/// Followers / following list endpoints return profile summaries.
+#[tokio::test]
+async fn test_followers_and_following_lists() {
+    let (app, _tmp) = test_app().await;
+
+    post_json(
+        app.clone(),
+        "/v1/social/me/profile",
+        serde_json::json!({ "handle": "list_target", "displayName": "Target" }),
+    )
+    .await;
+
+    // Empty lists for a profile with no follows
+    let followers = get(app.clone(), "/v1/social/profiles/list_target/followers").await;
+    assert_eq!(followers.status(), StatusCode::OK);
+    let fjson = body_json(followers).await;
+    assert!(fjson["followers"].as_array().expect("followers").is_empty());
+
+    let following = get(app.clone(), "/v1/social/profiles/list_target/following").await;
+    assert_eq!(following.status(), StatusCode::OK);
+    let gjson = body_json(following).await;
+    assert!(gjson["following"].as_array().expect("following").is_empty());
+
+    // Follow self is typically blocked or no-op depending on API; create another
+    // follow edge via follow endpoint if it allows (status OK either way).
+    let follow_resp = post_json(
+        app.clone(),
+        "/v1/social/follows/list_target",
+        serde_json::json!({}),
+    )
+    .await;
+    // Self-follow may 400/409 — only assert list shape stays valid.
+    let _ = follow_resp.status();
+
+    let followers2 = get(app.clone(), "/v1/social/users/list_target/followers").await;
+    assert_eq!(followers2.status(), StatusCode::OK);
+    assert!(body_json(followers2).await["followers"].is_array());
+
+    // Missing handle → 404
+    let missing = get(app.clone(), "/v1/social/profiles/no_such_user_xyz/followers").await;
+    assert_eq!(missing.status(), StatusCode::NOT_FOUND);
+}
+
+/// Join community by slug after create works end-to-end.
+#[tokio::test]
+async fn test_join_leave_community_by_slug() {
+    let (app, _tmp) = test_app().await;
+
+    post_json(
+        app.clone(),
+        "/v1/social/me/profile",
+        serde_json::json!({ "handle": "joiner", "displayName": "Joiner" }),
+    )
+    .await;
+
+    let create_resp = post_json(
+        app.clone(),
+        "/v1/social/communities",
+        serde_json::json!({ "name": "Join Guild", "slug": "join-guild" }),
+    )
+    .await;
+    assert_eq!(create_resp.status(), StatusCode::OK);
+
+    // Creator already joined; leave then re-join by slug
+    let leave = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("DELETE")
+                .uri("/v1/social/communities/join-guild/leave")
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(leave.status(), StatusCode::OK);
+
+    let join = post_json(
+        app.clone(),
+        "/v1/social/communities/join-guild/join",
+        serde_json::json!({}),
+    )
+    .await;
+    assert_eq!(join.status(), StatusCode::OK);
+    let j = body_json(join).await;
+    assert_eq!(j["ok"], true);
+}

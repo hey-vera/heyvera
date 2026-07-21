@@ -1,15 +1,18 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
-import { ArrowLeft, CalendarDays, ImagePlus, Link as LinkIcon, MapPin, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, ImagePlus, Link as LinkIcon, MapPin, MessageCircle, X } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
   bookmarkPost,
+  createConversation,
   createProfile,
   feedPostToPost,
   fetchFollowStatus,
   fetchMyProfile,
   fetchProfile,
   fetchProfileFeed,
+  fetchProfileFollowers,
+  fetchProfileFollowing,
   fetchProfileStats,
   followProfile,
   likePost,
@@ -21,7 +24,7 @@ import {
   updateProfile,
   uploadMediaFile,
 } from '../api/social';
-import type { Profile, ProfileStats } from '../api/social';
+import type { Profile, ProfileStats, ProfileSummary } from '../api/social';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
@@ -31,6 +34,7 @@ import { renderRichText } from '../utils/richText';
 
 const TABS = ['Posts', 'Replies', 'Media', 'Likes'] as const;
 type Tab = typeof TABS[number];
+type FollowListMode = 'followers' | 'following' | null;
 
 const EMPTY_TAB_COPY: Record<Tab, { title: string; detail: string }> = {
   Posts: {
@@ -80,6 +84,12 @@ export function ProfilePage() {
   const [isFollowing, setIsFollowing] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
   const [followError, setFollowError] = useState<string | null>(null);
+  const [messageBusy, setMessageBusy] = useState(false);
+  const [messageError, setMessageError] = useState<string | null>(null);
+  const [followListMode, setFollowListMode] = useState<FollowListMode>(null);
+  const [followList, setFollowList] = useState<ProfileSummary[]>([]);
+  const [followListLoading, setFollowListLoading] = useState(false);
+  const [followListError, setFollowListError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
@@ -258,6 +268,56 @@ export function ProfilePage() {
     }
   };
 
+  const openFollowList = async (mode: 'followers' | 'following') => {
+    if (!profile) return;
+    setFollowListMode(mode);
+    setFollowListLoading(true);
+    setFollowListError(null);
+    setFollowList([]);
+    try {
+      if (mode === 'followers') {
+        const res = await fetchProfileFollowers(profile.handle);
+        setFollowList(res.followers);
+      } else {
+        const res = await fetchProfileFollowing(profile.handle);
+        setFollowList(res.following);
+      }
+    } catch (err) {
+      setFollowListError(err instanceof Error ? err.message : `Unable to load ${mode}`);
+    } finally {
+      setFollowListLoading(false);
+    }
+  };
+
+  const startMessage = async () => {
+    if (!profile || messageBusy || ownProfile) return;
+    setMessageError(null);
+
+    if (!authEnabled || !isSignedIn) {
+      setMessageError(authEnabled ? 'Sign in to send messages.' : 'Sign-in is not configured for this environment.');
+      return;
+    }
+
+    setMessageBusy(true);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again to message.');
+
+      try {
+        await fetchMyProfile(token);
+      } catch {
+        throw new Error('Create your profile before messaging.');
+      }
+
+      const conversation = await createConversation(token, [profile.id]);
+      navigate(`/messages?c=${encodeURIComponent(conversation.id)}`);
+    } catch (err) {
+      setMessageError(err instanceof Error ? err.message : 'Unable to start conversation.');
+    } finally {
+      setMessageBusy(false);
+    }
+  };
+
   const handleLike = (id: string, liked: boolean, token: string) => {
     setPosts((currentPosts) =>
       currentPosts.map((post) =>
@@ -367,7 +427,24 @@ export function ProfilePage() {
           )}
         </div>
 
-        <div className="absolute bottom-3 right-4">
+        <div className="absolute bottom-3 right-4 flex items-center gap-2">
+          {!ownProfile && (
+            <button
+              type="button"
+              onClick={() => void startMessage()}
+              disabled={messageBusy}
+              className="flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-[14px] font-bold transition-colors hover:opacity-90 disabled:opacity-50"
+              style={{
+                borderColor: 'var(--border-primary)',
+                backgroundColor: 'transparent',
+                color: 'var(--text-primary)',
+              }}
+              aria-label={`Message @${profile.handle}`}
+            >
+              <MessageCircle className="h-4 w-4" aria-hidden="true" />
+              {messageBusy ? 'Opening…' : 'Message'}
+            </button>
+          )}
           <button
             type="button"
             onClick={ownProfile ? () => setEditOpen(true) : toggleFollow}
@@ -412,11 +489,19 @@ export function ProfilePage() {
         </div>
 
         <div className="mt-3 flex gap-5">
-          <button type="button" className="flex gap-1 text-[15px] transition-colors hover:underline">
+          <button
+            type="button"
+            onClick={() => void openFollowList('following')}
+            className="flex gap-1 text-[15px] transition-colors hover:underline"
+          >
             <span className="font-bold">{formatCount(stats?.followingCount ?? 0)}</span>
             <span style={{ color: 'var(--text-secondary)' }}>Following</span>
           </button>
-          <button type="button" className="flex gap-1 text-[15px] transition-colors hover:underline">
+          <button
+            type="button"
+            onClick={() => void openFollowList('followers')}
+            className="flex gap-1 text-[15px] transition-colors hover:underline"
+          >
             <span className="font-bold">{formatCount(stats?.followerCount ?? 0)}</span>
             <span style={{ color: 'var(--text-secondary)' }}>Followers</span>
           </button>
@@ -426,7 +511,30 @@ export function ProfilePage() {
             {followError}
           </p>
         )}
+        {messageError && (
+          <p className="mt-3 text-[14px]" style={{ color: 'var(--color-danger)' }}>
+            {messageError}
+          </p>
+        )}
       </section>
+
+      {followListMode && (
+        <FollowListPanel
+          mode={followListMode}
+          profiles={followList}
+          loading={followListLoading}
+          error={followListError}
+          onClose={() => {
+            setFollowListMode(null);
+            setFollowList([]);
+            setFollowListError(null);
+          }}
+          onSelectHandle={(h) => {
+            setFollowListMode(null);
+            navigate(`/profile/${h}`);
+          }}
+        />
+      )}
 
       <div className="flex border-b" style={{ borderColor: 'var(--border-primary)' }}>
         {TABS.map((tab) => (
@@ -961,5 +1069,106 @@ function ProfileEditField({
         disabled={disabled}
       />
     </label>
+  );
+}
+
+function FollowListPanel({
+  mode,
+  profiles,
+  loading,
+  error,
+  onClose,
+  onSelectHandle,
+}: {
+  mode: 'followers' | 'following';
+  profiles: ProfileSummary[];
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSelectHandle: (handle: string) => void;
+}) {
+  const title = mode === 'followers' ? 'Followers' : 'Following';
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end justify-center sm:items-center"
+      style={{ backgroundColor: 'rgba(0,0,0,0.55)' }}
+      role="dialog"
+      aria-modal="true"
+      aria-label={title}
+    >
+      <div
+        className="flex max-h-[80vh] w-full max-w-md flex-col overflow-hidden rounded-t-2xl border sm:rounded-2xl"
+        style={{ backgroundColor: 'var(--bg-primary)', borderColor: 'var(--border-primary)' }}
+      >
+        <div
+          className="flex items-center justify-between border-b px-4 py-3"
+          style={{ borderColor: 'var(--border-primary)' }}
+        >
+          <h2 className="text-[18px] font-bold">{title}</h2>
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full p-2 transition-colors hover-overlay"
+            aria-label="Close"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </div>
+        <div className="overflow-y-auto">
+          {loading && <LoadingState label={`Loading ${title.toLowerCase()}`} />}
+          {!loading && error && (
+            <p className="px-4 py-6 text-[14px]" style={{ color: 'var(--color-danger)' }}>
+              {error}
+            </p>
+          )}
+          {!loading && !error && profiles.length === 0 && (
+            <EmptyState
+              title={`No ${title.toLowerCase()} yet`}
+              detail={
+                mode === 'followers'
+                  ? 'People who follow this Page will show up here.'
+                  : 'Pages this profile follows will show up here.'
+              }
+            />
+          )}
+          {!loading &&
+            !error &&
+            profiles.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                onClick={() => onSelectHandle(p.handle)}
+                className="flex w-full items-center gap-3 border-b px-4 py-3 text-left transition-colors hover-overlay"
+                style={{ borderColor: 'var(--border-primary)' }}
+              >
+                {p.avatarUrl ? (
+                  <img
+                    src={p.avatarUrl}
+                    alt=""
+                    className="h-10 w-10 rounded-full object-cover"
+                    style={{ backgroundColor: 'var(--border-primary)' }}
+                  />
+                ) : (
+                  <div
+                    className="flex h-10 w-10 items-center justify-center rounded-full text-[14px] font-bold"
+                    style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+                  >
+                    {(p.displayName || p.handle).charAt(0)}
+                  </div>
+                )}
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-[15px] font-bold" style={{ color: 'var(--text-primary)' }}>
+                    {p.displayName}
+                  </p>
+                  <p className="truncate text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                    @{p.handle}
+                  </p>
+                </div>
+              </button>
+            ))}
+        </div>
+      </div>
+    </div>
   );
 }

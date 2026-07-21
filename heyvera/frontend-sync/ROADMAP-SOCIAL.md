@@ -182,3 +182,33 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-21 | #345 | Wave 0 shell honesty merged |
 | 2026-07-21 | Page model | Page/Actor identity adopted as working model |
 | 2026-07-21 | Wave 0B | Contract unbreak (FE+BE) on `feat/wave0-contract-unbreak` |
+| 2026-07-21 | Waves 1–4 | Core social feel, guilds E2E, Pulse/Premium honesty, media & discovery honesty on `feat/wave0-contract-unbreak` |
+
+### Waves 1–4 implemented (2026-07-21)
+
+**Wave 1 — Core social feel**
+- Profile **Message** → `POST /v1/social/conversations` with `participant_ids` → `/messages?c=`
+- Followers/following lists: BE `GET /profiles|users/{handle}/followers|following` + ProfilePage panel
+- Notifications mark-read (existing) + TopBar unread badge (poll)
+- Optimistic thread replies (existing polish kept); views hidden at 0
+
+**Wave 2 — Guilds**
+- Create / mine / join-leave by slug (BE+FE); shell compose optional guild picker + `communityId`
+- Owner = creator profile (existing BE auto-join)
+
+**Wave 3 — Pulse + Premium**
+- AIPage tabs: **Drafts | Schedule | Goals | Draft helper** (honest tool path label)
+- PostCard linked-agent chip when feed has `linkedAgent`
+- Premium features rewritten to **automation credits**; checkout attempted when Stripe up, else disabled with reason
+
+**Wave 4 — Media & discovery honesty**
+- AppShell createPost passes `mediaIds`; feed/thread attach media URLs
+- Explore filters map to real search type; search errors surface
+- Live/Videos: Preview/Soon only — no LIVE claim
+- **Page-scoped content note:** v1 stores posts/guilds/follows under `profile_id` (= person Page 1:1). No schema migration in this wave; multi-Page is later (PW-17).
+
+### Remaining gaps
+- Realtime WS DMs; nested threads; view_count recording
+- Multi-Page switcher UI; full credits ledger
+- Stripe may be unset in local/dev — Premium CTA correctly fails soft
+- Video/live ingest still shell-only

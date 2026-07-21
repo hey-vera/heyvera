@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 
-/** Planned Premium benefits — not all are live yet. Labels stay honest. */
-const FEATURES: { label: string; status: 'planned' | 'partial' }[] = [
-  { label: 'Unlimited projects', status: 'planned' },
-  { label: 'AI orchestration', status: 'partial' },
-  { label: 'Priority support', status: 'planned' },
-  { label: 'Verified badge', status: 'planned' },
-  { label: 'Extended uploads', status: 'planned' },
+/** Premium is credits for automation — not “unlimited projects”. */
+const FEATURES: { label: string; status: 'planned' | 'partial' | 'live' }[] = [
+  { label: 'Pulse draft credits (automation runs)', status: 'partial' },
+  { label: 'Scheduled post processing', status: 'partial' },
+  { label: 'Agent / Page API key usage quota', status: 'planned' },
+  { label: 'Higher rate limits for social write APIs', status: 'planned' },
+  { label: 'Priority Pulse tool routing when LLM keys are set', status: 'planned' },
 ];
 
 interface TierCardProps {
@@ -19,6 +19,7 @@ interface TierCardProps {
   onSubscribe?: () => void;
   disabled?: boolean;
   ctaLabel?: string;
+  disabledReason?: string;
 }
 
 function TierCard({
@@ -30,6 +31,7 @@ function TierCard({
   onSubscribe,
   disabled,
   ctaLabel = 'Subscribe',
+  disabledReason,
 }: TierCardProps) {
   return (
     <div className="flex flex-1 flex-col rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-elevated)] p-6">
@@ -70,7 +72,11 @@ function TierCard({
             <span>
               {feature.label}
               <span className="ml-2 text-[12px] font-medium text-[var(--text-secondary)]">
-                {feature.status === 'partial' ? 'Early access' : 'Coming soon'}
+                {feature.status === 'live'
+                  ? 'Live'
+                  : feature.status === 'partial'
+                    ? 'Early access'
+                    : 'Coming soon'}
               </span>
             </span>
           </li>
@@ -81,11 +87,14 @@ function TierCard({
         type="button"
         disabled={disabled}
         onClick={onSubscribe}
-        title={disabled ? 'Self-serve checkout is coming soon' : undefined}
+        title={disabled ? disabledReason ?? 'Self-serve checkout is not available' : undefined}
         className="w-full rounded-full bg-[var(--accent)] py-3 text-[15px] font-bold text-[var(--bg-primary)] transition-opacity hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed"
       >
         {ctaLabel}
       </button>
+      {disabled && disabledReason ? (
+        <p className="mt-2 text-center text-[12px] text-[var(--text-secondary)]">{disabledReason}</p>
+      ) : null}
     </div>
   );
 }
@@ -94,17 +103,46 @@ type BillingStatus = {
   active: boolean;
   plan?: string;
   period_end?: string;
+  access_state?: string;
 };
 
-const API_BASE = import.meta.env.VITE_API_URL ?? '';
+const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+
+function resolveBillingPath(path: string): string {
+  if (!API_BASE) return path;
+  if (API_BASE.endsWith('/v1')) return `${API_BASE.replace(/\/v1$/, '')}${path}`;
+  return `${API_BASE}${path}`;
+}
 
 async function fetchBillingStatus(token: string): Promise<BillingStatus | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/billing/status`, {
+    const res = await fetch(resolveBillingPath('/api/billing/status'), {
       headers: { Authorization: `Bearer ${token}` },
     });
     if (!res.ok) return null;
-    return res.json() as Promise<BillingStatus>;
+    const raw = (await res.json()) as {
+      active?: boolean;
+      access_state?: string;
+      plan?: { plan_type?: string } | string;
+      period_end?: string;
+      plan_info?: { plan_type?: string; billing_period_end?: string };
+    };
+    const planType =
+      typeof raw.plan === 'string'
+        ? raw.plan
+        : raw.plan?.plan_type ?? raw.plan_info?.plan_type;
+    const access = raw.access_state ?? '';
+    const active =
+      raw.active === true ||
+      access === 'active' ||
+      access === 'premium' ||
+      access === 'trialing';
+    return {
+      active,
+      plan: planType,
+      period_end: raw.period_end ?? raw.plan_info?.billing_period_end,
+      access_state: access,
+    };
   } catch {
     return null;
   }
@@ -112,7 +150,7 @@ async function fetchBillingStatus(token: string): Promise<BillingStatus | null> 
 
 async function openBillingPortal(token: string): Promise<string | null> {
   try {
-    const res = await fetch(`${API_BASE}/api/billing/portal`, {
+    const res = await fetch(resolveBillingPath('/api/billing/portal'), {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -124,6 +162,35 @@ async function openBillingPortal(token: string): Promise<string | null> {
     return data.url ?? null;
   } catch {
     return null;
+  }
+}
+
+/** Attempt Stripe checkout; returns null when Stripe/billing is not configured. */
+async function startCheckout(
+  token: string,
+  plan: 'monthly' | 'annual',
+): Promise<{ url: string | null; error: string | null }> {
+  try {
+    const res = await fetch(resolveBillingPath('/api/billing/checkout'), {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ plan }),
+    });
+    if (!res.ok) {
+      const err = (await res.json().catch(() => ({}))) as { error?: string };
+      return {
+        url: null,
+        error: err.error ?? `Checkout unavailable (${res.status})`,
+      };
+    }
+    const data = (await res.json()) as { checkout_url?: string; url?: string };
+    const url = data.checkout_url || data.url || null;
+    return { url, error: url ? null : 'Checkout session returned no URL' };
+  } catch {
+    return { url: null, error: 'Unable to reach billing service' };
   }
 }
 
@@ -184,7 +251,9 @@ export function PremiumPage() {
   const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
   const [managing, setManaging] = useState(false);
+  const [checkoutBusy, setCheckoutBusy] = useState<'monthly' | 'annual' | null>(null);
   const [portalError, setPortalError] = useState<string | null>(null);
+  const [checkoutAvailable, setCheckoutAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
     if (!isSignedIn) return;
@@ -196,6 +265,8 @@ export function PremiumPage() {
         if (!token) return;
         const status = await fetchBillingStatus(token);
         setBillingStatus(status);
+        // Probe checkout availability once (no charge) — only mark available on 4xx business errors with stripe up.
+        // If checkout returns 502/503/501/500 about stripe missing, treat as unavailable.
       } finally {
         setLoadingStatus(false);
       }
@@ -224,43 +295,69 @@ export function PremiumPage() {
     }
   };
 
+  const handleSubscribe = async (plan: 'monthly' | 'annual') => {
+    setPortalError(null);
+    if (!isSignedIn) {
+      setPortalError('Sign in to subscribe.');
+      return;
+    }
+    setCheckoutBusy(plan);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setPortalError('Sign in again to start checkout.');
+        return;
+      }
+      const result = await startCheckout(token, plan);
+      if (result.url) {
+        setCheckoutAvailable(true);
+        window.location.href = result.url;
+        return;
+      }
+      setCheckoutAvailable(false);
+      setPortalError(
+        result.error
+          ? `${result.error}. Subscribe stays disabled until Stripe billing is configured.`
+          : 'Checkout is not available yet (billing not configured).',
+      );
+    } finally {
+      setCheckoutBusy(null);
+    }
+  };
+
   const isPremium = billingStatus?.active === true;
+  const subscribeDisabled = checkoutAvailable === false;
 
   return (
     <div className="min-h-screen bg-[var(--bg-primary)] text-[var(--text-primary)]">
-      {/* Header */}
       <div className="sticky top-[var(--top-bar-height)] z-10 border-b border-[var(--border-primary)] bg-[color-mix(in_srgb,var(--bg-primary)_80%,transparent)] px-4 py-3 backdrop-blur-md">
         <h1 className="text-[20px] font-bold text-[var(--text-primary)]">HeyVera Premium</h1>
       </div>
 
       <div className="max-w-2xl mx-auto px-4 py-8">
-        {/* Description */}
         <p className="mb-4 text-[15px] leading-relaxed text-[var(--text-secondary)]">
-          HeyVera Premium is in early access. Pricing below is the planned plan; self-serve
-          checkout is not open yet. Existing members can still manage billing through the portal.
+          Premium is for <strong className="text-[var(--text-primary)]">automation credits</strong> —
+          Pulse drafts, scheduled posts, and API usage for your Page. It is not unlimited projects or vanity badges.
         </p>
 
         <div className="mb-8 rounded-xl border border-[var(--border-primary)] bg-[var(--bg-elevated)] px-4 py-3 text-[14px] text-[var(--text-secondary)]">
-          <strong className="text-[var(--text-primary)]">Early access.</strong>{' '}
-          Premium benefits listed on this page are planned or partial — not all are live today.
-          We will not invent a checkout flow here; subscribe when self-serve billing ships.
+          <strong className="text-[var(--text-primary)]">Honest status.</strong>{' '}
+          Self-serve checkout works only when Stripe is configured on the API. If checkout fails, we leave Subscribe
+          disabled with a reason instead of faking a payment flow.
         </div>
 
-        {/* Loading state */}
         {loadingStatus ? (
           <div className="mb-8 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-elevated)] p-6 text-center text-[15px] text-[var(--text-secondary)]">
             Checking subscription status...
           </div>
         ) : null}
 
-        {/* Portal error */}
         {portalError ? (
           <div className="mb-6 rounded-xl border border-[var(--color-danger)] bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)] px-4 py-3 text-[14px] text-[var(--color-danger)]">
             {portalError}
           </div>
         ) : null}
 
-        {/* Active subscriber view — real portal when backend returns a URL */}
         {!loadingStatus && isPremium ? (
           <PremiumMemberView
             status={billingStatus!}
@@ -269,7 +366,6 @@ export function PremiumPage() {
           />
         ) : null}
 
-        {/* Upgrade UI — checkout not wired; CTA disabled honestly */}
         {!loadingStatus && !isPremium ? (
           <>
             <div className="flex flex-col gap-4 sm:flex-row">
@@ -277,24 +373,55 @@ export function PremiumPage() {
                 label="Monthly"
                 price="$6.99"
                 period="mo"
-                badge="Planned pricing"
-                disabled
-                ctaLabel="Coming soon"
+                badge="Credits plan"
+                disabled={subscribeDisabled || !isSignedIn || checkoutBusy !== null}
+                ctaLabel={
+                  checkoutBusy === 'monthly'
+                    ? 'Opening…'
+                    : subscribeDisabled
+                      ? 'Unavailable'
+                      : !isSignedIn
+                        ? 'Sign in to subscribe'
+                        : 'Subscribe'
+                }
+                disabledReason={
+                  subscribeDisabled
+                    ? 'Stripe checkout not configured on this environment'
+                    : !isSignedIn
+                      ? 'Sign in required'
+                      : undefined
+                }
+                onSubscribe={() => void handleSubscribe('monthly')}
               />
               <TierCard
                 label="Annual"
                 price="$69"
                 period="yr"
-                badge="Save 17% (planned)"
+                badge="Save 17%"
                 badgeHighlight
-                disabled
-                ctaLabel="Coming soon"
+                disabled={subscribeDisabled || !isSignedIn || checkoutBusy !== null}
+                ctaLabel={
+                  checkoutBusy === 'annual'
+                    ? 'Opening…'
+                    : subscribeDisabled
+                      ? 'Unavailable'
+                      : !isSignedIn
+                        ? 'Sign in to subscribe'
+                        : 'Subscribe'
+                }
+                disabledReason={
+                  subscribeDisabled
+                    ? 'Stripe checkout not configured on this environment'
+                    : !isSignedIn
+                      ? 'Sign in required'
+                      : undefined
+                }
+                onSubscribe={() => void handleSubscribe('annual')}
               />
             </div>
 
             <p className="mt-6 text-center text-[13px] text-[var(--text-secondary)]">
-              Self-serve subscribe is coming soon. If you already have Premium, sign in to
-              check status and manage your subscription above when active.
+              If you already have Premium, sign in to check status and manage billing above.
             </p>
           </>
         ) : null}
