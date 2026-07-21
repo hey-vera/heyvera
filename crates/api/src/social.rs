@@ -1017,12 +1017,19 @@ pub async fn get_single_post(
     let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
     match db(&state).social_get_post_by_id(&id, viewer_pid.as_deref()) {
         Some(mut post) => {
+            // Light view increment on open (no dedupe; FE hides zeros).
+            if let Some(new_count) = db(&state).social_record_post_view(&id) {
+                if let Some(obj) = post.as_object_mut() {
+                    obj.insert("viewCount".into(), serde_json::json!(new_count));
+                }
+            }
             // Attach media so thread PostCard can render images without a separate call.
             let media = db(&state).social_get_post_media(&id);
             if let Some(obj) = post.as_object_mut() {
                 obj.insert("media".into(), serde_json::json!(media));
             }
-            let mut replies = db(&state).social_get_post_replies(&id, viewer_pid.as_deref());
+            // Full descendant list (flat) with replyToPostId for nested thread UI.
+            let mut replies = db(&state).social_get_thread_replies(&id, viewer_pid.as_deref());
             db(&state).social_enrich_feed_posts(&mut replies, viewer_pid.as_deref());
             ok(serde_json::json!({
                 "post": post,

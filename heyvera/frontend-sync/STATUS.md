@@ -7,22 +7,23 @@
 - **Product truth:** `heyvera/CURRENT.md` when present
 - **Contract:** `heyvera/docs/API-CONTRACT.md` when present
 - **Live surface:** `router.tsx` + `AppShell` + `pages/*` only
-- **Branch intent:** `feat/wave0-shell-honesty` → then contract unbreak
+- **Branch intent:** `feat/wave5-threads-views-dm` (Wave 5)
 
 ## Wave progress
 
 | Wave | Status |
 |------|--------|
-| 0 Integrity & honesty | Shell #345 done; contract unbreak in flight |
-| 1 Core social feel | Pending |
-| 2 Communities E2E | Pending |
-| 3 Pulse + credits wedge | Pending |
-| 4 Media & discovery | Pending |
-| Post-wave backlog (PW-*) | Deferred until waves done — **not forgotten** |
+| 0 Integrity & honesty | Shell #345 + contract #346 done |
+| 1 Core social feel | Done on waves 1–4 ship |
+| 2 Communities E2E | Done on waves 1–4 ship |
+| 3 Pulse + credits wedge | Done on waves 1–4 ship |
+| 4 Media & discovery | Done on waves 1–4 ship |
+| 5 Threads / views / DM dedupe | **In progress** on `feat/wave5-threads-views-dm` |
+| Post-wave backlog (PW-*) | Remaining: WS DMs, multi-Page, ledger, ingest |
 
 ## Active truth
 
 - Dual shell (`App.tsx` / `VeraSocials`) is orphaned — do not grow it.
-- Post-wave items (Live ingest, x402, nested threads, etc.) live under
-  **Post-wave backlog** in `ROADMAP-SOCIAL.md` for after Waves 0–3/4.
+- Wave 5: nested thread tree FE + full descendant replies BE; light `view_count`
+  on post open; 1:1 conversation reuse on create.
 - Pulse rebuild references may live at `heyvera/reference/synthr-pulse/` when present.
