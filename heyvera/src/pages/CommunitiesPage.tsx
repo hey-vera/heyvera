@@ -5,6 +5,7 @@ import {
   bookmarkPost,
   fetchCommunities,
   fetchCommunityFeed,
+  fetchMyCommunities,
   feedPostToPost,
   joinCommunity,
   leaveCommunity,
@@ -12,9 +13,11 @@ import {
   repostPost,
   unbookmarkPost,
   unlikePost,
+  unrepostPost,
 } from '../api/social';
 import type { Community, Post } from '../api/social';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
+import { CreateCommunityForm } from '../components/shared/CreateCommunityForm';
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
 
@@ -80,8 +83,10 @@ export function CommunitiesPage() {
 
   const [activeTab, setActiveTab] = useState<Tab>('Your Communities');
   const [communities, setCommunities] = useState<Community[]>([]);
-  /** Membership after successful join/leave this session. No /mine list API yet. */
+  /** Server membership ids when /communities/mine is available; updated after join/leave. */
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
+  const [mineLoaded, setMineLoaded] = useState(false);
+  const [mineAvailable, setMineAvailable] = useState(false);
   const [membershipBusyId, setMembershipBusyId] = useState<string | null>(null);
   const [membershipError, setMembershipError] = useState<string | null>(null);
   const [selectedCommunityId, setSelectedCommunityId] = useState<string | null>(null);
@@ -93,6 +98,23 @@ export function CommunitiesPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [feedReloadKey, setFeedReloadKey] = useState(0);
 
+  const reloadMemberships = async (
+    token: string,
+  ): Promise<{ ids: Set<string>; available: boolean }> => {
+    try {
+      const mine = await fetchMyCommunities(token);
+      const ids = new Set((mine.communities ?? []).map((c) => c.id));
+      setJoinedIds(ids);
+      setMineAvailable(true);
+      setMineLoaded(true);
+      return { ids, available: true };
+    } catch {
+      setMineAvailable(false);
+      setMineLoaded(true);
+      return { ids: new Set(), available: false };
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
 
@@ -101,9 +123,22 @@ export function CommunitiesPage() {
       setError(null);
       try {
         const { communities: list } = await fetchCommunities();
-        if (!cancelled) {
-          setCommunities(list);
-          // No GET /communities/mine — cannot hydrate memberships from the server yet.
+        if (cancelled) return;
+        setCommunities(list);
+
+        if (authEnabled && isSignedIn) {
+          const token = await getToken();
+          if (token && !cancelled) {
+            await reloadMemberships(token);
+          } else if (!cancelled) {
+            setMineLoaded(true);
+            setMineAvailable(false);
+            setJoinedIds(new Set());
+          }
+        } else if (!cancelled) {
+          setMineLoaded(true);
+          setMineAvailable(false);
+          setJoinedIds(new Set());
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load communities');
@@ -116,7 +151,7 @@ export function CommunitiesPage() {
     return () => {
       cancelled = true;
     };
-  }, [reloadKey]);
+  }, [reloadKey, authEnabled, isSignedIn, getToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -139,8 +174,9 @@ export function CommunitiesPage() {
       setFeedLoading(true);
       setFeedError(null);
       try {
+        const token = authEnabled && isSignedIn ? await getToken() : null;
         // Backend feed path uses community id, not slug.
-        const { feed } = await fetchCommunityFeed(community.id);
+        const { feed } = await fetchCommunityFeed(community.id, 20, null, token);
         if (!cancelled) setFeedPosts(feed.map(feedPostToPost));
       } catch (err) {
         if (!cancelled) {
@@ -156,7 +192,7 @@ export function CommunitiesPage() {
     return () => {
       cancelled = true;
     };
-  }, [communities, selectedCommunityId, feedReloadKey]);
+  }, [communities, selectedCommunityId, feedReloadKey, authEnabled, isSignedIn, getToken]);
 
   const visibleCommunities =
     activeTab === 'Your Communities'
@@ -182,19 +218,37 @@ export function CommunitiesPage() {
       return;
     }
 
+    const community = communities.find((c) => c.id === id);
+    // Prefer id; fall back to slug if present (BE path segment).
+    const joinKey = community?.id || community?.slug || id;
     const currentlyJoined = joinedIds.has(id);
     setMembershipBusyId(id);
     try {
       if (currentlyJoined) {
-        await leaveCommunity(token, id);
+        await leaveCommunity(token, joinKey);
+      } else {
+        await joinCommunity(token, joinKey);
+      }
+      // Revalidate from server when mine is available — do not trust local Set alone.
+      const refreshed = await reloadMemberships(token);
+      if (!refreshed.available) {
+        // Mine list unavailable: update session set from the successful mutation only.
+        setJoinedIds((prev) => {
+          const next = new Set(prev);
+          if (currentlyJoined) next.delete(id);
+          else next.add(id);
+          return next;
+        });
+      } else if (!refreshed.ids.has(id) && !currentlyJoined) {
+        // Mine returned without the new id right after join — keep optimistic id.
+        setJoinedIds((prev) => new Set(prev).add(id));
+      } else if (refreshed.ids.has(id) === currentlyJoined && currentlyJoined) {
+        // Leave succeeded but mine still lists it — drop optimistically.
         setJoinedIds((prev) => {
           const next = new Set(prev);
           next.delete(id);
           return next;
         });
-      } else {
-        await joinCommunity(token, id);
-        setJoinedIds((prev) => new Set(prev).add(id));
       }
     } catch (err) {
       setMembershipError(err instanceof Error ? err.message : 'Membership update failed');
@@ -212,8 +266,14 @@ export function CommunitiesPage() {
           borderColor: 'var(--border-primary)',
         }}
       >
-        <div className="px-4 py-3">
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
           <h1 className="text-[20px] font-bold">Communities</h1>
+          {authEnabled && isSignedIn && (
+            <CreateCommunityForm
+              getToken={getToken}
+              onCommunityCreated={() => setReloadKey((key) => key + 1)}
+            />
+          )}
         </div>
         <div
           className="border-b px-4 py-2 text-[13px]"
@@ -224,9 +284,10 @@ export function CommunitiesPage() {
           }}
           role="status"
         >
-          Communities are early access — browse and feeds are live; join/leave hit the real API.
-          Your Communities only lists memberships from this session (membership list API not ready).
-          Creating communities is coming soon.
+          Communities are early access — browse, feeds, and join/leave hit the real API.
+          {mineLoaded && !mineAvailable
+            ? ' Membership list API is not available yet; joined state may not persist across reloads.'
+            : ' Your Communities reflects server memberships when available.'}
         </div>
         <div className="flex">
           {TABS.map((tab) => (
@@ -322,7 +383,7 @@ export function CommunitiesPage() {
               key={post.id}
               post={post}
               onLike={(id, liked, token) => void (liked ? likePost(token, id) : unlikePost(token, id))}
-              onRepost={(id, _reposted, token) => void repostPost(token, id)}
+              onRepost={(id, reposted, token) => void (reposted ? repostPost : unrepostPost)(token, id)}
               onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id))}
             />
           ))}
@@ -333,7 +394,9 @@ export function CommunitiesPage() {
           title={activeTab === 'Your Communities' ? 'No communities yet' : 'Nothing to discover yet'}
           detail={
             activeTab === 'Your Communities'
-              ? 'Join communities from Discover. Memberships you join here appear until you refresh (server membership list not ready yet).'
+              ? mineAvailable
+                ? 'Join communities from Discover. Memberships load from the server.'
+                : 'Join communities from Discover. Server membership list is not ready yet, so joins may not show after reload.'
               : undefined
           }
         />

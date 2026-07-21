@@ -74,7 +74,8 @@ pub async fn get_notifications(
 
     let next_cursor = if notifications.len() as i64 == limit {
         notifications.last().and_then(|n| {
-            let created_at = n["created_at"].as_str()?;
+            // Prefer camelCase createdAt (current shape); fall back for safety.
+            let created_at = n["createdAt"].as_str().or_else(|| n["created_at"].as_str())?;
             let id = n["id"].as_str()?;
             Some(encode_cursor(created_at, id))
         })

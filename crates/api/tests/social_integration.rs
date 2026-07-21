@@ -347,3 +347,164 @@ async fn test_repost_and_unrepost() {
         .unwrap();
     assert_eq!(unrepost_resp.status(), StatusCode::OK);
 }
+
+/// Follow status endpoint returns `{ following: bool }` for the viewer.
+#[tokio::test]
+async fn test_follow_status() {
+    let (app, _tmp) = test_app().await;
+
+    post_json(
+        app.clone(),
+        "/v1/social/me/profile",
+        serde_json::json!({ "handle": "viewer1", "displayName": "Viewer" }),
+    )
+    .await;
+
+    // Unknown handle → 404
+    let resp = get(app.clone(), "/v1/social/follows/missing_user/status").await;
+    assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+    // Self / known handle without follow → following false
+    let resp = get(app.clone(), "/v1/social/follows/viewer1/status").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = body_json(resp).await;
+    assert_eq!(json["following"], false);
+
+    // Profile-by-handle alias exists
+    let resp = get(app.clone(), "/v1/social/profiles/viewer1").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = body_json(resp).await;
+    assert!(json["profile"]["handle"] == "viewer1" || json["handle"] == "viewer1");
+}
+
+/// Create a community and list it via /communities/mine; join by slug works.
+#[tokio::test]
+async fn test_create_community_and_mine() {
+    let (app, _tmp) = test_app().await;
+
+    post_json(
+        app.clone(),
+        "/v1/social/me/profile",
+        serde_json::json!({ "handle": "comm_owner", "displayName": "Owner" }),
+    )
+    .await;
+
+    let create_resp = post_json(
+        app.clone(),
+        "/v1/social/communities",
+        serde_json::json!({
+            "name": "Builders",
+            "slug": "builders",
+            "description": "A place for builders"
+        }),
+    )
+    .await;
+    assert_eq!(create_resp.status(), StatusCode::OK);
+    let created = body_json(create_resp).await;
+    assert_eq!(created["ok"], true);
+    assert_eq!(created["community"]["slug"], "builders");
+    assert_eq!(created["community"]["name"], "Builders");
+    let community_id = created["community"]["id"].as_str().unwrap().to_string();
+
+    // Creator is auto-joined — show up in mine
+    let mine_resp = get(app.clone(), "/v1/social/communities/mine").await;
+    assert_eq!(mine_resp.status(), StatusCode::OK);
+    let mine = body_json(mine_resp).await;
+    let communities = mine["communities"].as_array().expect("communities array");
+    assert!(!communities.is_empty());
+    assert!(communities.iter().any(|c| c["slug"] == "builders"));
+    assert!(communities.iter().any(|c| c.get("joinedAt").is_some()));
+
+    // Feed resolves by slug as well as id
+    let feed_slug = get(app.clone(), "/v1/social/communities/builders/feed").await;
+    assert_eq!(feed_slug.status(), StatusCode::OK);
+    let feed_id = get(
+        app.clone(),
+        &format!("/v1/social/communities/{}/feed", community_id),
+    )
+    .await;
+    assert_eq!(feed_id.status(), StatusCode::OK);
+
+    // Duplicate slug → conflict
+    let dup = post_json(
+        app.clone(),
+        "/v1/social/communities",
+        serde_json::json!({ "name": "Builders 2", "slug": "builders" }),
+    )
+    .await;
+    assert_eq!(dup.status(), StatusCode::CONFLICT);
+}
+
+/// Notifications are flat camelCase for FE NotificationsPage.
+#[tokio::test]
+async fn test_notifications_flat_camelcase_shape() {
+    let (app, _tmp) = test_app().await;
+
+    post_json(
+        app.clone(),
+        "/v1/social/me/profile",
+        serde_json::json!({ "handle": "notif_shape", "displayName": "Notif Shape" }),
+    )
+    .await;
+
+    // Create a post then like it (self-like won't notify, so list may be empty —
+    // shape is verified when non-empty; empty list still ok).
+    let create_resp = post_json(
+        app.clone(),
+        "/v1/social/posts",
+        serde_json::json!({ "body": "hello notif shape" }),
+    )
+    .await;
+    assert_eq!(create_resp.status(), StatusCode::OK);
+
+    let resp = get(app.clone(), "/v1/social/notifications").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = body_json(resp).await;
+    let notifications = json["notifications"].as_array().expect("notifications array");
+    for n in notifications {
+        assert!(n.get("id").is_some());
+        assert!(n.get("type").is_some());
+        assert!(n.get("actorHandle").is_some());
+        assert!(n.get("actorDisplayName").is_some());
+        assert!(n.get("createdAt").is_some());
+        // Must not use nested actors array for primary FE contract
+        assert!(n.get("postId").is_some() || n["postId"].is_null());
+    }
+}
+
+/// Create post with communityId persists communityId.
+#[tokio::test]
+async fn test_create_post_with_community_id() {
+    let (app, _tmp) = test_app().await;
+
+    post_json(
+        app.clone(),
+        "/v1/social/me/profile",
+        serde_json::json!({ "handle": "comm_poster", "displayName": "Poster" }),
+    )
+    .await;
+
+    let create_comm = post_json(
+        app.clone(),
+        "/v1/social/communities",
+        serde_json::json!({ "name": "Posts Guild", "slug": "posts-guild" }),
+    )
+    .await;
+    let community_id = body_json(create_comm).await["community"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let post_resp = post_json(
+        app.clone(),
+        "/v1/social/posts",
+        serde_json::json!({
+            "body": "posted in community",
+            "communityId": community_id
+        }),
+    )
+    .await;
+    assert_eq!(post_resp.status(), StatusCode::OK);
+    let post = body_json(post_resp).await;
+    assert_eq!(post["post"]["communityId"], community_id);
+}

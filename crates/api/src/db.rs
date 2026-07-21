@@ -10341,19 +10341,29 @@ impl Database {
         }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
-    pub fn social_create_post(&self, profile_id: &str, body: &str, visibility: &str, author_mode: &str, linked_agent_id: Option<&str>, reply_to: Option<&str>, quote: Option<&str>) -> serde_json::Value {
+    pub fn social_create_post(
+        &self,
+        profile_id: &str,
+        body: &str,
+        visibility: &str,
+        author_mode: &str,
+        linked_agent_id: Option<&str>,
+        reply_to: Option<&str>,
+        quote: Option<&str>,
+        community_id: Option<&str>,
+    ) -> serde_json::Value {
         let _t = std::time::Instant::now();
         let conn = self.conn.lock().unwrap();
         let id = Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO social_posts (id, profile_id, body, visibility, author_mode, linked_agent_id, reply_to_post_id, quote_post_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![id, profile_id, body, visibility, author_mode, linked_agent_id, reply_to, quote],
+            "INSERT INTO social_posts (id, profile_id, body, visibility, author_mode, linked_agent_id, reply_to_post_id, quote_post_id, community_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            params![id, profile_id, body, visibility, author_mode, linked_agent_id, reply_to, quote, community_id],
         ).expect("insert post");
         let mut stmt = conn.prepare(
             "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
                     sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
-                    sp.created_at, sp.updated_at,
+                    sp.created_at, sp.updated_at, sp.community_id,
                     p.handle, p.display_name,
                     la.agent_name, la.agent_slug
              FROM social_posts sp
@@ -10362,7 +10372,7 @@ impl Database {
              WHERE sp.id = ?1"
         ).unwrap();
         let post = stmt.query_row([&id], |row| {
-            let agent_name: Option<String> = row.get(13)?;
+            let agent_name: Option<String> = row.get(14)?;
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
                 "body": row.get::<_, String>(3)?,
@@ -10373,16 +10383,17 @@ impl Database {
                 "quotePostId": row.get::<_, Option<String>>(8)?,
                 "createdAt": row.get::<_, String>(9)?,
                 "updatedAt": row.get::<_, String>(10)?,
+                "communityId": row.get::<_, Option<String>>(11)?,
                 "author": {
                     "profileId": row.get::<_, String>(1)?,
-                    "handle": row.get::<_, String>(11)?,
-                    "displayName": row.get::<_, String>(12)?,
+                    "handle": row.get::<_, String>(12)?,
+                    "displayName": row.get::<_, String>(13)?,
                 },
                 "linkedAgent": if agent_name.is_some() {
                     serde_json::json!({
                         "id": row.get::<_, Option<String>>(2)?,
                         "agentName": agent_name,
-                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                        "agentSlug": row.get::<_, Option<String>>(15)?,
                     })
                 } else { serde_json::Value::Null },
             }))
@@ -10470,6 +10481,131 @@ impl Database {
                 },
             }))
         }).unwrap().filter_map(|r| r.ok()).collect()
+    }
+
+    /// Resolve community by UUID id first, then by slug.
+    pub fn social_resolve_community_id(&self, id_or_slug: &str) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        if let Ok(id) = conn.query_row(
+            "SELECT id FROM social_communities WHERE id = ?1",
+            [id_or_slug],
+            |row| row.get::<_, String>(0),
+        ) {
+            return Some(id);
+        }
+        conn.query_row(
+            "SELECT id FROM social_communities WHERE slug = ?1",
+            [id_or_slug],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
+    }
+
+    /// Fetch a community row by id (canonical uuid).
+    pub fn social_get_community_by_id(&self, community_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT sc.id, sc.slug, sc.name, sc.description, sc.visibility, sc.created_at, sc.updated_at,
+                        sc.creator_profile_id, p.handle, p.display_name
+                 FROM social_communities sc
+                 JOIN social_profiles p ON p.id = sc.creator_profile_id
+                 WHERE sc.id = ?1",
+            )
+            .ok()?;
+        stmt.query_row([community_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "slug": row.get::<_, String>(1)?,
+                "name": row.get::<_, String>(2)?,
+                "description": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "createdAt": row.get::<_, String>(5)?,
+                "updatedAt": row.get::<_, String>(6)?,
+                "creator": {
+                    "profileId": row.get::<_, String>(7)?,
+                    "handle": row.get::<_, String>(8)?,
+                    "displayName": row.get::<_, String>(9)?,
+                },
+            }))
+        })
+        .ok()
+    }
+
+    /// Create a community; creator is auto-joined as a member.
+    /// Returns Err with a short reason on conflict / invalid input (caller maps status).
+    pub fn social_create_community(
+        &self,
+        creator_profile_id: &str,
+        slug: &str,
+        name: &str,
+        description: &str,
+        visibility: &str,
+    ) -> Result<serde_json::Value, String> {
+        let conn = self.conn.lock().unwrap();
+        let id = Uuid::new_v4().to_string();
+        let inserted = conn.execute(
+            "INSERT INTO social_communities (id, creator_profile_id, slug, name, description, visibility)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![id, creator_profile_id, slug, name, description, visibility],
+        );
+        match inserted {
+            Ok(_) => {}
+            Err(e) => {
+                let msg = e.to_string().to_lowercase();
+                if msg.contains("unique") || msg.contains("constraint") {
+                    return Err("slug is already taken".into());
+                }
+                return Err(format!("create community failed: {e}"));
+            }
+        }
+        // Auto-join creator
+        let mem_id = format!("cmem_{}", Uuid::new_v4());
+        let _ = conn.execute(
+            "INSERT OR IGNORE INTO social_community_memberships (id, community_id, profile_id)
+             VALUES (?1, ?2, ?3)",
+            params![mem_id, id, creator_profile_id],
+        );
+        drop(conn);
+        self.social_get_community_by_id(&id)
+            .ok_or_else(|| "community created but not found".into())
+    }
+
+    /// Communities the profile has membership in (includes joinedAt).
+    pub fn social_list_my_communities(&self, profile_id: &str, limit: i64) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT sc.id, sc.slug, sc.name, sc.description, sc.visibility, sc.created_at, sc.updated_at,
+                        sc.creator_profile_id, p.handle, p.display_name, m.joined_at
+                 FROM social_community_memberships m
+                 JOIN social_communities sc ON sc.id = m.community_id
+                 JOIN social_profiles p ON p.id = sc.creator_profile_id
+                 WHERE m.profile_id = ?1
+                 ORDER BY m.joined_at DESC
+                 LIMIT ?2",
+            )
+            .unwrap();
+        stmt.query_map(params![profile_id, limit], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "slug": row.get::<_, String>(1)?,
+                "name": row.get::<_, String>(2)?,
+                "description": row.get::<_, String>(3)?,
+                "visibility": row.get::<_, String>(4)?,
+                "createdAt": row.get::<_, String>(5)?,
+                "updatedAt": row.get::<_, String>(6)?,
+                "creator": {
+                    "profileId": row.get::<_, String>(7)?,
+                    "handle": row.get::<_, String>(8)?,
+                    "displayName": row.get::<_, String>(9)?,
+                },
+                "joinedAt": row.get::<_, String>(10)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn social_list_longform_keyset(
@@ -11049,26 +11185,16 @@ impl Database {
         Some(obj)
     }
 
+    /// User posts with keyset pagination on (created_at, id).
     pub fn social_get_user_posts(
         &self,
         profile_id: &str,
         limit: i64,
-        cursor: i64,
+        cursor_created_at: Option<&str>,
+        cursor_id: Option<&str>,
     ) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
-                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
-                    sp.created_at, sp.updated_at,
-                    p.handle, p.display_name,
-                    la.agent_name, la.agent_slug
-             FROM social_posts sp
-             JOIN social_profiles p ON p.id = sp.profile_id
-             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
-             WHERE sp.profile_id = ?1 AND sp.visibility = 'public' AND sp.deleted_at IS NULL
-             ORDER BY sp.created_at DESC LIMIT ?2 OFFSET ?3"
-        ).unwrap();
-        stmt.query_map(params![profile_id, limit, cursor], |row| {
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
             let agent_name: Option<String> = row.get(13)?;
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
@@ -11093,7 +11219,46 @@ impl Database {
                     })
                 } else { serde_json::Value::Null },
             }))
-        }).unwrap().filter_map(|r| r.ok()).collect()
+        };
+        if cursor_created_at.is_some() && cursor_id.is_some() {
+            let mut stmt = conn.prepare(
+                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                        sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                        sp.created_at, sp.updated_at,
+                        p.handle, p.display_name,
+                        la.agent_name, la.agent_slug
+                 FROM social_posts sp
+                 JOIN social_profiles p ON p.id = sp.profile_id
+                 LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                 WHERE sp.profile_id = ?1 AND sp.visibility = 'public' AND sp.deleted_at IS NULL
+                   AND (sp.created_at < ?2 OR (sp.created_at = ?2 AND sp.id < ?3))
+                 ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?4"
+            ).unwrap();
+            stmt.query_map(
+                params![profile_id, cursor_created_at.unwrap(), cursor_id.unwrap(), limit],
+                map_row,
+            )
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
+        } else {
+            let mut stmt = conn.prepare(
+                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                        sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                        sp.created_at, sp.updated_at,
+                        p.handle, p.display_name,
+                        la.agent_name, la.agent_slug
+                 FROM social_posts sp
+                 JOIN social_profiles p ON p.id = sp.profile_id
+                 LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                 WHERE sp.profile_id = ?1 AND sp.visibility = 'public' AND sp.deleted_at IS NULL
+                 ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?2"
+            ).unwrap();
+            stmt.query_map(params![profile_id, limit], map_row)
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect()
+        }
     }
 
     pub fn social_get_post_by_id(
@@ -11394,39 +11559,26 @@ impl Database {
         }
     }
 
+    /// Following feed with keyset pagination on (created_at, id).
     pub fn social_get_following_feed(
         &self,
         profile_id: &str,
         limit: i64,
-        cursor: i64,
+        cursor_created_at: Option<&str>,
+        cursor_id: Option<&str>,
         blocked_ids: &[String],
         muted_ids: &[String],
     ) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         let excluded: Vec<String> = blocked_ids.iter().chain(muted_ids.iter()).cloned().collect();
+        let use_cursor = cursor_created_at.is_some() && cursor_id.is_some();
         let exclude_clause = if excluded.is_empty() {
             String::new()
         } else {
-            let placeholders: Vec<String> = (1..=excluded.len()).map(|i| format!("?{}", i + 3)).collect();
+            let start = if use_cursor { 5 } else { 3 };
+            let placeholders: Vec<String> = (0..excluded.len()).map(|i| format!("?{}", start + i)).collect();
             format!("AND sp.profile_id NOT IN ({})", placeholders.join(", "))
         };
-        let sql = format!(
-            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
-                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
-                    sp.created_at, sp.updated_at,
-                    p.handle, p.display_name,
-                    la.agent_name, la.agent_slug
-             FROM social_posts sp
-             JOIN social_profiles p ON p.id = sp.profile_id
-             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
-             WHERE sp.visibility = 'public' AND sp.deleted_at IS NULL
-               AND sp.profile_id IN (
-                   SELECT following_profile_id FROM social_follows WHERE follower_profile_id = ?1
-               )
-               {exclude_clause}
-             ORDER BY sp.created_at DESC LIMIT ?2 OFFSET ?3"
-        );
-        let mut stmt = conn.prepare(&sql).unwrap();
         let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
             let agent_name: Option<String> = row.get(13)?;
             Ok(serde_json::json!({
@@ -11453,21 +11605,94 @@ impl Database {
                 } else { serde_json::Value::Null },
             }))
         };
-        if excluded.is_empty() {
-            stmt.query_map(params![profile_id, limit, cursor], map_row)
-                .unwrap().filter_map(|r| r.ok()).collect()
-        } else {
-            let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
-                Box::new(profile_id.to_string()),
-                Box::new(limit),
-                Box::new(cursor),
-            ];
-            for id in &excluded {
-                all_params.push(Box::new(id.clone()));
+
+        if use_cursor {
+            let sql = format!(
+                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                        sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                        sp.created_at, sp.updated_at,
+                        p.handle, p.display_name,
+                        la.agent_name, la.agent_slug
+                 FROM social_posts sp
+                 JOIN social_profiles p ON p.id = sp.profile_id
+                 LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                 WHERE sp.visibility = 'public' AND sp.deleted_at IS NULL
+                   AND sp.profile_id IN (
+                       SELECT following_profile_id FROM social_follows WHERE follower_profile_id = ?1
+                   )
+                   AND (sp.created_at < ?2 OR (sp.created_at = ?2 AND sp.id < ?3))
+                   {exclude_clause}
+                 ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?4"
+            );
+            let mut stmt = conn.prepare(&sql).unwrap();
+            if excluded.is_empty() {
+                stmt.query_map(
+                    params![
+                        profile_id,
+                        cursor_created_at.unwrap(),
+                        cursor_id.unwrap(),
+                        limit
+                    ],
+                    map_row,
+                )
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect()
+            } else {
+                let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
+                    Box::new(profile_id.to_string()),
+                    Box::new(cursor_created_at.unwrap().to_string()),
+                    Box::new(cursor_id.unwrap().to_string()),
+                    Box::new(limit),
+                ];
+                for id in &excluded {
+                    all_params.push(Box::new(id.clone()));
+                }
+                let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+                    all_params.iter().map(|b| b.as_ref()).collect();
+                stmt.query_map(params_ref.as_slice(), map_row)
+                    .unwrap()
+                    .filter_map(|r| r.ok())
+                    .collect()
             }
-            let params_ref: Vec<&dyn rusqlite::types::ToSql> = all_params.iter().map(|b| b.as_ref()).collect();
-            stmt.query_map(params_ref.as_slice(), map_row)
-                .unwrap().filter_map(|r| r.ok()).collect()
+        } else {
+            let sql = format!(
+                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                        sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                        sp.created_at, sp.updated_at,
+                        p.handle, p.display_name,
+                        la.agent_name, la.agent_slug
+                 FROM social_posts sp
+                 JOIN social_profiles p ON p.id = sp.profile_id
+                 LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                 WHERE sp.visibility = 'public' AND sp.deleted_at IS NULL
+                   AND sp.profile_id IN (
+                       SELECT following_profile_id FROM social_follows WHERE follower_profile_id = ?1
+                   )
+                   {exclude_clause}
+                 ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?2"
+            );
+            let mut stmt = conn.prepare(&sql).unwrap();
+            if excluded.is_empty() {
+                stmt.query_map(params![profile_id, limit], map_row)
+                    .unwrap()
+                    .filter_map(|r| r.ok())
+                    .collect()
+            } else {
+                let mut all_params: Vec<Box<dyn rusqlite::types::ToSql>> = vec![
+                    Box::new(profile_id.to_string()),
+                    Box::new(limit),
+                ];
+                for id in &excluded {
+                    all_params.push(Box::new(id.clone()));
+                }
+                let params_ref: Vec<&dyn rusqlite::types::ToSql> =
+                    all_params.iter().map(|b| b.as_ref()).collect();
+                stmt.query_map(params_ref.as_slice(), map_row)
+                    .unwrap()
+                    .filter_map(|r| r.ok())
+                    .collect()
+            }
         }
     }
 
@@ -11525,45 +11750,33 @@ impl Database {
             )
         };
 
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
+            // Flat camelCase shape expected by FE NotificationsPage / fetchNotifications.
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "type": row.get::<_, String>(1)?,
+                "postId": row.get::<_, Option<String>>(2)?,
+                "read": row.get::<_, i64>(3)? != 0,
+                "createdAt": row.get::<_, String>(4)?,
+                "actorHandle": row.get::<_, String>(6)?,
+                "actorDisplayName": row.get::<_, String>(7)?,
+                "actorAvatarUrl": row.get::<_, Option<String>>(8)?,
+            }))
+        };
         let mut stmt = conn.prepare(&sql).unwrap();
         let rows: Vec<serde_json::Value> = if use_cursor {
             stmt.query_map(
                 params![profile_id, cursor_created_at.unwrap(), cursor_id.unwrap(), limit],
-                |row| {
-                    Ok(serde_json::json!({
-                        "id": row.get::<_, String>(0)?,
-                        "type": row.get::<_, String>(1)?,
-                        "post": row.get::<_, Option<String>>(2)?,
-                        "read": row.get::<_, i64>(3)? != 0,
-                        "created_at": row.get::<_, String>(4)?,
-                        "actors": [serde_json::json!({
-                            "id": row.get::<_, String>(5)?,
-                            "handle": row.get::<_, String>(6)?,
-                            "display_name": row.get::<_, String>(7)?,
-                            "avatar_url": row.get::<_, Option<String>>(8)?,
-                        })],
-                    }))
-                },
-            ).unwrap().filter_map(|r| r.ok()).collect()
+                map_row,
+            )
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect()
         } else {
-            stmt.query_map(
-                params![profile_id, limit],
-                |row| {
-                    Ok(serde_json::json!({
-                        "id": row.get::<_, String>(0)?,
-                        "type": row.get::<_, String>(1)?,
-                        "post": row.get::<_, Option<String>>(2)?,
-                        "read": row.get::<_, i64>(3)? != 0,
-                        "created_at": row.get::<_, String>(4)?,
-                        "actors": [serde_json::json!({
-                            "id": row.get::<_, String>(5)?,
-                            "handle": row.get::<_, String>(6)?,
-                            "display_name": row.get::<_, String>(7)?,
-                            "avatar_url": row.get::<_, Option<String>>(8)?,
-                        })],
-                    }))
-                },
-            ).unwrap().filter_map(|r| r.ok()).collect()
+            stmt.query_map(params![profile_id, limit], map_row)
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect()
         };
         tracing::info!(method = "social_get_notifications", duration_ms = _t.elapsed().as_millis(), row_count = rows.len(), "db query");
         rows
@@ -13163,6 +13376,7 @@ impl Database {
                 visibility,
                 author_mode,
                 linked,
+                None,
                 None,
                 None,
             );
@@ -16077,6 +16291,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         let post_id = post["id"].as_str().unwrap();
         let linked = db.social_link_media_to_post(post_id, &[media_id.to_string()], profile_id);
@@ -16115,6 +16330,7 @@ mod tests {
             None,
             None,
             None,
+            None,
         );
         let post_id = post["id"].as_str().expect("post id").to_string();
         assert_eq!(post["body"], "Hello HeyVera network");
@@ -16134,6 +16350,7 @@ mod tests {
             "person",
             None,
             Some(&post_id),
+            None,
             None,
         );
         assert_eq!(reply["replyToPostId"].as_str(), Some(post_id.as_str()));

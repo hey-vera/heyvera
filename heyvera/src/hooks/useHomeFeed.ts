@@ -21,7 +21,7 @@ export function useHomeFeed(limit = 20, filter?: string): {
     setStatus("loading");
     setError(null);
 
-    fetchHomeFeed(limit, 0, filter)
+    fetchHomeFeed(limit, null, filter)
       .then((result) => {
         if (!cancelled) {
           setData(result.feed);

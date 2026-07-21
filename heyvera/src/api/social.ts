@@ -44,6 +44,9 @@ export type Profile = {
   continuityState: string;
   createdAt: string;
   updatedAt: string;
+  /** Present when request is authenticated as a viewer (from profile payload). */
+  isFollowing?: boolean;
+  isFollowedBy?: boolean;
 };
 
 export type LinkedAgent = {
@@ -107,6 +110,7 @@ export type FeedPost = {
   repostCount?: number;
   bookmarkCount?: number;
   replyCount?: number;
+  viewCount?: number;
   // Viewer state
   liked?: boolean;
   bookmarked?: boolean;
@@ -191,15 +195,23 @@ export type ProfileSummary = {
 };
 
 // ─── API base URL ────────────────────────────────────────────────────────────
-//
-const API_BASE = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/v1/social`
-  : "/v1/social";
+// VITE_API_URL may be empty (same-origin), an origin (https://api…), or already `/v1`.
+function resolveSocialApiBase(): string {
+  const raw = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
+  if (!raw) return "/v1/social";
+  if (raw.endsWith("/v1")) return `${raw}/social`;
+  if (raw.endsWith("/v1/social")) return raw;
+  return `${raw}/v1/social`;
+}
+
+const API_BASE = resolveSocialApiBase();
 
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 
-async function apiFetch<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`);
+async function apiFetch<T>(path: string, token?: string | null): Promise<T> {
+  const headers: Record<string, string> = {};
+  if (token) headers.Authorization = `Bearer ${token}`;
+  const res = await fetch(`${API_BASE}${path}`, { headers });
   if (!res.ok) {
     throw new Error(`API error ${res.status}: ${res.statusText}`);
   }
@@ -228,17 +240,60 @@ async function apiAuthFetch<T>(
       `[${res.status}] ${(err as { error?: string }).error ?? res.statusText}`,
     );
   }
-  return res.json() as Promise<T>;
+  // 204 No Content
+  if (res.status === 204) return undefined as T;
+  // Prefer json() when available (tests often mock only json).
+  if (typeof res.json === "function" && typeof res.text !== "function") {
+    return res.json() as Promise<T>;
+  }
+  const text = typeof res.text === "function" ? await res.text() : "";
+  if (!text) {
+    if (typeof res.json === "function") {
+      try {
+        return (await res.json()) as T;
+      } catch {
+        return undefined as T;
+      }
+    }
+    return undefined as T;
+  }
+  return JSON.parse(text) as T;
+}
+
+/** Build feed query params with an opaque string cursor (never coerce to Number). */
+function feedQueryParams(limit: number, cursor?: string | null, extra?: Record<string, string>): string {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set("cursor", cursor);
+  if (extra) {
+    for (const [key, value] of Object.entries(extra)) {
+      if (value) params.set(key, value);
+    }
+  }
+  return params.toString();
 }
 
 // ─── Public endpoints ────────────────────────────────────────────────────────
 
-export async function fetchProfile(handle: string): Promise<{
+export async function fetchProfile(
+  handle: string,
+  token?: string | null,
+): Promise<{
   profile: Profile;
 }> {
   // Backend mounts public profiles at /users/{handle} (object may be bare or wrapped).
-  const raw = await apiFetch<Profile & { profile?: Profile }>(`/users/${handle}`);
+  // Pass token when available so BE can attach isFollowing / isFollowedBy.
+  const raw = await apiFetch<Profile & { profile?: Profile; isFollowing?: boolean; isFollowedBy?: boolean }>(
+    `/users/${handle}`,
+    token,
+  );
   const profile = (raw as { profile?: Profile }).profile ?? (raw as Profile);
+  // Ensure viewer flags bubble up even when wrapped under `.profile`.
+  if (profile && raw.isFollowing !== undefined && profile.isFollowing === undefined) {
+    profile.isFollowing = raw.isFollowing;
+  }
+  if (profile && raw.isFollowedBy !== undefined && profile.isFollowedBy === undefined) {
+    profile.isFollowedBy = raw.isFollowedBy;
+  }
   return { profile };
 }
 
@@ -267,43 +322,62 @@ export async function fetchFeaturedProfile(): Promise<{
 
 export async function fetchHomeFeed(
   limit = 20,
-  cursor = 0,
+  cursor: string | null = null,
   filter?: string,
   token?: string | null,
 ): Promise<{
   feed: FeedPost[];
   pageInfo: PageInfo;
 }> {
-  const params = new URLSearchParams({ limit: String(limit), cursor: String(cursor) });
   // Following feed is a separate authenticated route (not author_mode filter).
   if (filter === "following") {
     if (!token) {
       return { feed: [], pageInfo: { limit, nextCursor: null } };
     }
+    const qs = feedQueryParams(limit, cursor);
     const raw = await apiAuthFetch<{
       posts: FeedPost[];
       cursor: string | null;
       has_more: boolean;
-    }>(`/feed/following?${params.toString()}`, { method: "GET", token });
+    }>(`/feed/following?${qs}`, { method: "GET", token });
     return {
       feed: raw.posts ?? [],
       pageInfo: { limit, nextCursor: raw.cursor ?? null },
     };
   }
-  if (filter && filter !== "all") params.set("filter", filter);
+  const extra =
+    filter && filter !== "all" ? { filter } : undefined;
+  const qs = feedQueryParams(limit, cursor, extra);
+  // Pass Authorization when available so BE can enrich viewer liked/reposted/bookmarked.
   const raw = await apiFetch<{ posts: FeedPost[]; cursor: string | null; has_more: boolean }>(
-    `/feed/home?${params.toString()}`,
+    `/feed/home?${qs}`,
+    token,
   );
   return { feed: raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
-export async function fetchProfileFeed(handle: string, limit = 20, cursor = 0): Promise<{
+export async function fetchProfileFeed(
+  handle: string,
+  limit = 20,
+  cursor: string | null = null,
+  token?: string | null,
+): Promise<{
   profile: Profile;
   feed: FeedPost[];
   pageInfo: PageInfo;
 }> {
-  const raw = await apiFetch<{ profile?: Profile; posts: FeedPost[]; cursor: string | null; has_more: boolean }>(`/users/${handle}/posts?limit=${limit}&cursor=${cursor}`);
-  return { profile: raw.profile as Profile, feed: raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
+  const qs = feedQueryParams(limit, cursor);
+  const raw = await apiFetch<{
+    profile?: Profile;
+    posts: FeedPost[];
+    cursor: string | null;
+    has_more: boolean;
+  }>(`/users/${handle}/posts?${qs}`, token);
+  return {
+    profile: raw.profile as Profile,
+    feed: raw.posts ?? [],
+    pageInfo: { limit, nextCursor: raw.cursor ?? null },
+  };
 }
 
 export async function fetchProfileStats(handle: string): Promise<{
@@ -324,42 +398,78 @@ export async function fetchCommunities(limit = 20): Promise<{
   return apiFetch(`/communities?limit=${limit}`);
 }
 
-export async function fetchLongform(limit = 20, cursor: string | number | null = 0): Promise<{
+export async function fetchLongform(limit = 20, cursor: string | null = null): Promise<{
   longform: LongformEntry[];
   pageInfo: PageInfo;
 }> {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (cursor) params.set("cursor", String(cursor));
-  const raw = await apiFetch<{ longform?: LongformEntry[]; posts?: LongformEntry[]; cursor: string | null }>(`/longform?${params.toString()}`);
+  const qs = feedQueryParams(limit, cursor);
+  const raw = await apiFetch<{ longform?: LongformEntry[]; posts?: LongformEntry[]; cursor: string | null }>(`/longform?${qs}`);
   return { longform: raw.longform ?? raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
-export async function fetchCommunityFeed(communityId: string, limit = 20, cursor = 0): Promise<{
+export async function fetchCommunityFeed(
+  communityId: string,
+  limit = 20,
+  cursor: string | null = null,
+  token?: string | null,
+): Promise<{
   community: Community;
   feed: FeedPost[];
   pageInfo: PageInfo;
 }> {
   // Backend path is /communities/{id}/feed (id, not slug).
-  const raw = await apiFetch<{ community?: Community; posts: FeedPost[]; cursor: string | null; has_more: boolean }>(`/communities/${communityId}/feed?limit=${limit}&cursor=${cursor}`);
-  return { community: raw.community as Community, feed: raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
+  const qs = feedQueryParams(limit, cursor);
+  const raw = await apiFetch<{
+    community?: Community;
+    posts: FeedPost[];
+    cursor: string | null;
+    has_more: boolean;
+  }>(`/communities/${communityId}/feed?${qs}`, token);
+  return {
+    community: raw.community as Community,
+    feed: raw.posts ?? [],
+    pageInfo: { limit, nextCursor: raw.cursor ?? null },
+  };
 }
 
-export async function fetchProfileFollowers(handle: string, limit = 20, cursor = 0): Promise<{
+export async function fetchProfileFollowers(
+  handle: string,
+  limit = 20,
+  cursor: string | null = null,
+): Promise<{
   profile: Profile;
   followers: ProfileSummary[];
   pageInfo: PageInfo;
 }> {
-  const raw = await apiFetch<{ profile?: Profile; followers?: ProfileSummary[]; cursor: string | null }>(`/profiles/${handle}/followers?limit=${limit}&cursor=${cursor}`);
-  return { profile: raw.profile as Profile, followers: raw.followers ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
+  const qs = feedQueryParams(limit, cursor);
+  const raw = await apiFetch<{ profile?: Profile; followers?: ProfileSummary[]; cursor: string | null }>(
+    `/profiles/${handle}/followers?${qs}`,
+  );
+  return {
+    profile: raw.profile as Profile,
+    followers: raw.followers ?? [],
+    pageInfo: { limit, nextCursor: raw.cursor ?? null },
+  };
 }
 
-export async function fetchProfileFollowing(handle: string, limit = 20, cursor = 0): Promise<{
+export async function fetchProfileFollowing(
+  handle: string,
+  limit = 20,
+  cursor: string | null = null,
+): Promise<{
   profile: Profile;
   following: ProfileSummary[];
   pageInfo: PageInfo;
 }> {
-  const raw = await apiFetch<{ profile?: Profile; following?: ProfileSummary[]; cursor: string | null }>(`/profiles/${handle}/following?limit=${limit}&cursor=${cursor}`);
-  return { profile: raw.profile as Profile, following: raw.following ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
+  const qs = feedQueryParams(limit, cursor);
+  const raw = await apiFetch<{ profile?: Profile; following?: ProfileSummary[]; cursor: string | null }>(
+    `/profiles/${handle}/following?${qs}`,
+  );
+  return {
+    profile: raw.profile as Profile,
+    following: raw.following ?? [],
+    pageInfo: { limit, nextCursor: raw.cursor ?? null },
+  };
 }
 
 // ─── Public: search ─────────────────────────────────────────────────────────
@@ -394,18 +504,81 @@ export async function fetchTrending(): Promise<{
 
 // ─── Authenticated: notifications ───────────────────────────────────────────
 
-export async function fetchNotifications(token: string): Promise<{
-  notifications: Array<{
-    id: string;
-    type: "like" | "follow" | "repost";
-    actorHandle: string;
-    actorDisplayName: string;
-    actorAvatarUrl: string | null;
-    postId: string | null;
-    createdAt: string;
+export type SocialNotification = {
+  id: string;
+  type: "like" | "follow" | "repost" | "reply" | "mention" | "quote";
+  actorHandle: string;
+  actorDisplayName: string;
+  actorAvatarUrl: string | null;
+  postId: string | null;
+  createdAt: string;
+  read?: boolean;
+};
+
+/** Raw BE notification shape (snake_case + actors array). */
+type BeNotification = {
+  id: string;
+  type?: string;
+  notification_type?: string;
+  post?: string | null;
+  post_id?: string | null;
+  postId?: string | null;
+  read?: boolean;
+  created_at?: string;
+  createdAt?: string;
+  actors?: Array<{
+    id?: string;
+    handle?: string;
+    display_name?: string;
+    displayName?: string;
+    avatar_url?: string | null;
+    avatarUrl?: string | null;
   }>;
+  actorHandle?: string;
+  actorDisplayName?: string;
+  actorAvatarUrl?: string | null;
+};
+
+function mapNotification(raw: BeNotification): SocialNotification {
+  const actor = raw.actors?.[0];
+  const typeRaw = (raw.type ?? raw.notification_type ?? "like").toLowerCase();
+  const allowed = new Set(["like", "follow", "repost", "reply", "mention", "quote"]);
+  const type = (allowed.has(typeRaw) ? typeRaw : "like") as SocialNotification["type"];
+
+  return {
+    id: raw.id,
+    type,
+    actorHandle: raw.actorHandle ?? actor?.handle ?? "",
+    actorDisplayName:
+      raw.actorDisplayName ?? actor?.display_name ?? actor?.displayName ?? actor?.handle ?? "Someone",
+    actorAvatarUrl:
+      raw.actorAvatarUrl ?? actor?.avatar_url ?? actor?.avatarUrl ?? null,
+    postId: raw.postId ?? raw.post ?? raw.post_id ?? null,
+    createdAt: raw.createdAt ?? raw.created_at ?? new Date().toISOString(),
+    read: raw.read,
+  };
+}
+
+export async function fetchNotifications(token: string): Promise<{
+  notifications: SocialNotification[];
+  cursor: string | null;
+  has_more: boolean;
 }> {
-  return apiAuthFetch("/notifications", { method: "GET", token });
+  const raw = await apiAuthFetch<{
+    notifications?: BeNotification[];
+    cursor?: string | null;
+    has_more?: boolean;
+  }>("/notifications", { method: "GET", token });
+  return {
+    notifications: (raw.notifications ?? []).map(mapNotification),
+    cursor: raw.cursor ?? null,
+    has_more: raw.has_more ?? false,
+  };
+}
+
+/** Mark all notifications as read for the signed-in profile. */
+export async function markNotificationsRead(token: string): Promise<{ ok: true; updated?: number }> {
+  return apiAuthFetch("/notifications/read", { method: "POST", token });
 }
 
 // ─── Authenticated: my profile ─────────────────────────────────────────────
@@ -467,15 +640,14 @@ export async function updateProfile(
     websiteUrl?: string;
   },
 ): Promise<{ ok: true; profile: Profile }> {
-  // Backend update_me_profile expects snake_case field names on /me/profile.
-  const body = {
-    display_name: data.displayName,
-    bio: data.bio,
-    avatar_url: data.avatarUrl,
-    banner_url: data.bannerUrl,
-    location: data.location,
-    website: data.websiteUrl,
-  };
+  // BE UpdateProfileRequest accepts camelCase aliases (displayName, avatarUrl, websiteUrl, …).
+  const body: Record<string, string> = {};
+  if (data.displayName !== undefined) body.displayName = data.displayName;
+  if (data.bio !== undefined) body.bio = data.bio;
+  if (data.avatarUrl !== undefined) body.avatarUrl = data.avatarUrl;
+  if (data.bannerUrl !== undefined) body.bannerUrl = data.bannerUrl;
+  if (data.location !== undefined) body.location = data.location;
+  if (data.websiteUrl !== undefined) body.websiteUrl = data.websiteUrl;
   return apiAuthFetch("/me/profile", { method: "PATCH", token, body });
 }
 
@@ -489,6 +661,7 @@ export async function createPost(
     replyToPostId?: string;
     quotePostId?: string;
     mediaIds?: string[];
+    communityId?: string;
   },
 ): Promise<{ ok: true; post: FeedPost; media?: FeedPostMedia[] }> {
   return apiAuthFetch("/posts", { method: "POST", token, body: data });
@@ -602,7 +775,7 @@ export async function unfollowProfile(
   return apiAuthFetch(`/follows/${handle}`, { method: "DELETE", token });
 }
 
-/** Backend has no create-community route yet — do not call from live UI. */
+/** Create a community (POST /communities). May 404 if BE create is not mounted. */
 export async function createCommunity(
   token: string,
   data: { slug: string; name: string; description?: string; visibility?: string },
@@ -610,23 +783,35 @@ export async function createCommunity(
   return apiAuthFetch("/communities", { method: "POST", token, body: data });
 }
 
-/** Join by community id (backend Path is {id}, not slug). */
+/**
+ * Join a community. Backend path is `/communities/{id}/join`.
+ * Pass community id (preferred). Slug works only if BE resolves it the same way.
+ */
 export async function joinCommunity(
   token: string,
-  communityId: string,
+  communityIdOrSlug: string,
 ): Promise<{ ok: true; joined?: boolean; message?: string }> {
-  return apiAuthFetch(`/communities/${communityId}/join`, { method: "POST", token });
+  return apiAuthFetch(`/communities/${encodeURIComponent(communityIdOrSlug)}/join`, {
+    method: "POST",
+    token,
+  });
 }
 
-/** Leave by community id (DELETE /communities/{id}/leave). */
+/** Leave by community id/slug (DELETE /communities/{id}/leave). */
 export async function leaveCommunity(
   token: string,
-  communityId: string,
+  communityIdOrSlug: string,
 ): Promise<{ ok: true; left?: boolean; message?: string }> {
-  return apiAuthFetch(`/communities/${communityId}/leave`, { method: "DELETE", token });
+  return apiAuthFetch(`/communities/${encodeURIComponent(communityIdOrSlug)}/leave`, {
+    method: "DELETE",
+    token,
+  });
 }
 
-/** Backend /communities/mine is not mounted yet — callers should treat as unavailable. */
+/**
+ * Memberships for the signed-in profile (GET /communities/mine).
+ * Throws if the route is not mounted — callers should handle and not invent folders.
+ */
 export async function fetchMyCommunities(token: string, limit = 20): Promise<{
   communities: CommunityMembership[];
 }> {
@@ -830,7 +1015,8 @@ export function feedPostToPost(fp: FeedPost): Post {
     reply_count: fp.replyCount ?? 0,
     repost_count: fp.repostCount ?? 0,
     like_count: fp.likeCount ?? 0,
-    view_count: 0,
+    // Prefer real view counts when BE sends them; otherwise 0 (PostCard hides vanity zeros).
+    view_count: fp.viewCount ?? 0,
     bookmarked: fp.bookmarked ?? false,
     liked: fp.liked ?? false,
     reposted: fp.reposted ?? false,
@@ -839,9 +1025,7 @@ export function feedPostToPost(fp: FeedPost): Post {
 }
 
 // ─── Legacy-compatible public API (replaces client.ts) ──────────────────────
-// All calls go to the real backend. No mock fallbacks in production.
-
-const LEGACY_API_BASE = import.meta.env.VITE_API_URL || '';
+// Paths are relative to API_BASE (/v1/social), same as modern helpers.
 
 function legacyJsonHeaders(headers?: HeadersInit): Headers {
   const next = new Headers(headers);
@@ -850,7 +1034,7 @@ function legacyJsonHeaders(headers?: HeadersInit): Headers {
 }
 
 async function legacyFetchApi<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${LEGACY_API_BASE}${path}`, init);
+  const res = await fetch(`${API_BASE}${path}`, init);
   if (!res.ok) throw new Error(`API ${res.status}`);
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -859,7 +1043,7 @@ async function legacyFetchApi<T>(path: string, init?: RequestInit): Promise<T> {
 async function legacyFetchAuthedApi<T>(path: string, token: string, init?: RequestInit): Promise<T> {
   const headers = new Headers(init?.headers);
   headers.set('Authorization', `Bearer ${token}`);
-  const res = await fetch(`${LEGACY_API_BASE}${path}`, { ...init, headers });
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   if (!res.ok) throw new Error(`API ${res.status}`);
   if (res.status === 204) return undefined as T;
   return res.json() as Promise<T>;
@@ -868,7 +1052,7 @@ async function legacyFetchAuthedApi<T>(path: string, token: string, init?: Reque
 async function legacyFetchOptionalAuthedApi<T>(path: string, token: string, init?: RequestInit): Promise<T | null> {
   const headers = new Headers(init?.headers);
   headers.set('Authorization', `Bearer ${token}`);
-  const res = await fetch(`${LEGACY_API_BASE}${path}`, { ...init, headers });
+  const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
   if (res.status === 404) return null;
   if (!res.ok) throw new Error(`API ${res.status}`);
   return res.json() as Promise<T>;
@@ -880,14 +1064,12 @@ function compactUpdateUserProfileInput(input: UpdateUserProfileInput): UpdateUse
 
 /** Current signed-in viewer's profile, or null when none exists yet */
 export async function getCurrentUserProfile(token: string): Promise<UserProfile | null> {
-
-  return legacyFetchOptionalAuthedApi<UserProfile>('/v1/social/me/profile', token);
+  return legacyFetchOptionalAuthedApi<UserProfile>('/me/profile', token);
 }
 
 /** Create the signed-in viewer's profile */
 export async function createUserProfile(token: string, input: CreateUserProfileInput): Promise<UserProfile> {
-
-  return legacyFetchAuthedApi<UserProfile>('/v1/social/me/profile', token, {
+  return legacyFetchAuthedApi<UserProfile>('/me/profile', token, {
     method: 'POST',
     headers: legacyJsonHeaders(),
     body: JSON.stringify(input),
@@ -896,9 +1078,8 @@ export async function createUserProfile(token: string, input: CreateUserProfileI
 
 /** Update the signed-in viewer's profile */
 export async function updateCurrentUserProfile(token: string, input: UpdateUserProfileInput): Promise<UserProfile> {
-
   const updates = compactUpdateUserProfileInput(input);
-  return legacyFetchAuthedApi<UserProfile>('/v1/social/me/profile', token, {
+  return legacyFetchAuthedApi<UserProfile>('/me/profile', token, {
     method: 'PATCH',
     headers: legacyJsonHeaders(),
     body: JSON.stringify(updates),
@@ -907,22 +1088,20 @@ export async function updateCurrentUserProfile(token: string, input: UpdateUserP
 
 /** Home / for-you feed */
 export async function getFeed(cursor?: string, token?: string): Promise<FeedResponse> {
-
-  const path = `/v1/social/feed/home${cursor ? `?cursor=${cursor}` : ''}`;
+  const path = `/feed/home${cursor ? `?cursor=${cursor}` : ''}`;
   return token ? legacyFetchAuthedApi<FeedResponse>(path, token) : legacyFetchApi<FeedResponse>(path);
 }
 
 /** Following-only feed */
 export async function getFollowingFeed(cursor?: string, token?: string): Promise<FeedResponse> {
-
-  const path = `/v1/social/feed/following${cursor ? `?cursor=${cursor}` : ''}`;
+  const path = `/feed/following${cursor ? `?cursor=${cursor}` : ''}`;
   return token ? legacyFetchAuthedApi<FeedResponse>(path, token) : legacyFetchApi<FeedResponse>(path);
 }
 
 /** Single post by ID */
 export async function getPost(id: string, token?: string): Promise<Post> {
 
-  return token ? legacyFetchAuthedApi<Post>(`/v1/social/posts/${id}`, token) : legacyFetchApi<Post>(`/v1/social/posts/${id}`);
+  return token ? legacyFetchAuthedApi<Post>(`/posts/${id}`, token) : legacyFetchApi<Post>(`/posts/${id}`);
 }
 
 /** Create a new post (legacy FormData interface) */
@@ -932,21 +1111,21 @@ export async function legacyCreatePost(content: string, media?: File[], token?: 
   const form = new FormData();
   form.append('content', content);
   if (media) media.forEach(f => form.append('media', f));
-  return legacyFetchAuthedApi<Post>('/v1/social/posts', token, { method: 'POST', body: form });
+  return legacyFetchAuthedApi<Post>('/posts', token, { method: 'POST', body: form });
 }
 
 /** Get notifications for the current user */
 export async function getNotifications(token?: string): Promise<Notification[]> {
 
   if (!token) throw new Error('Auth token required');
-  return legacyFetchAuthedApi<Notification[]>('/v1/social/notifications', token);
+  return legacyFetchAuthedApi<Notification[]>('/notifications', token);
 }
 
 /** Get all conversations */
 export async function getConversations(token?: string): Promise<Conversation[]> {
 
   if (!token) throw new Error('Auth token required');
-  const res = await legacyFetchAuthedApi<{ conversations: Conversation[] }>('/v1/social/conversations', token);
+  const res = await legacyFetchAuthedApi<{ conversations: Conversation[] }>('/conversations', token);
   return res.conversations ?? [];
 }
 
@@ -954,33 +1133,33 @@ export async function getConversations(token?: string): Promise<Conversation[]> 
 export async function getMessages(conversationId: string, token?: string): Promise<Message[]> {
 
   if (!token) throw new Error('Auth token required');
-  const res = await legacyFetchAuthedApi<{ messages: Message[] }>(`/v1/social/conversations/${conversationId}/messages`, token);
+  const res = await legacyFetchAuthedApi<{ messages: Message[] }>(`/conversations/${conversationId}/messages`, token);
   return res.messages ?? [];
 }
 
 /** Full-text search across posts, users, and communities */
 export async function searchAll(query: string, token?: string): Promise<SearchResults> {
 
-  const path = `/v1/social/search?q=${encodeURIComponent(query)}`;
+  const path = `/search?q=${encodeURIComponent(query)}`;
   return token ? legacyFetchAuthedApi<SearchResults>(path, token) : legacyFetchApi<SearchResults>(path);
 }
 
 /** Trending topics */
 export async function getTrending(): Promise<TrendingTopic[]> {
 
-  return legacyFetchApi<TrendingTopic[]>('/v1/social/trending');
+  return legacyFetchApi<TrendingTopic[]>('/trending');
 }
 
 /** User profile by handle */
 export async function getUserProfile(handle: string, token?: string): Promise<UserProfile> {
 
-  return token ? legacyFetchAuthedApi<UserProfile>(`/v1/social/users/${handle}`, token) : legacyFetchApi<UserProfile>(`/v1/social/users/${handle}`);
+  return token ? legacyFetchAuthedApi<UserProfile>(`/users/${handle}`, token) : legacyFetchApi<UserProfile>(`/users/${handle}`);
 }
 
 /** Posts for a user profile */
 export async function getProfilePosts(handle: string, cursor?: string, token?: string): Promise<FeedResponse> {
 
-  const path = `/v1/social/users/${handle}/posts${cursor ? `?cursor=${cursor}` : ''}`;
+  const path = `/users/${handle}/posts${cursor ? `?cursor=${cursor}` : ''}`;
   return token ? legacyFetchAuthedApi<FeedResponse>(path, token) : legacyFetchApi<FeedResponse>(path);
 }
 
@@ -988,25 +1167,25 @@ export async function getProfilePosts(handle: string, cursor?: string, token?: s
 export async function followUser(handle: string, token?: string): Promise<void> {
 
   if (!token) throw new Error('Auth token required');
-  return legacyFetchAuthedApi<void>(`/v1/social/follows/${handle}`, token, { method: 'POST' });
+  return legacyFetchAuthedApi<void>(`/follows/${handle}`, token, { method: 'POST' });
 }
 
 /** Unfollow a user */
 export async function unfollowUser(handle: string, token?: string): Promise<void> {
 
   if (!token) throw new Error('Auth token required');
-  return legacyFetchAuthedApi<void>(`/v1/social/follows/${handle}`, token, { method: 'DELETE' });
+  return legacyFetchAuthedApi<void>(`/follows/${handle}`, token, { method: 'DELETE' });
 }
 
 /** All communities (legacy type) */
 export async function getCommunities(): Promise<LegacyCommunity[]> {
 
-  return legacyFetchApi<LegacyCommunity[]>('/v1/social/communities');
+  return legacyFetchApi<LegacyCommunity[]>('/communities');
 }
 
 /** Posts in a community */
 export async function getCommunityFeed(id: string, cursor?: string, token?: string): Promise<FeedResponse> {
 
-  const path = `/v1/social/communities/${id}/feed${cursor ? `?cursor=${cursor}` : ''}`;
+  const path = `/communities/${id}/feed${cursor ? `?cursor=${cursor}` : ''}`;
   return token ? legacyFetchAuthedApi<FeedResponse>(path, token) : legacyFetchApi<FeedResponse>(path);
 }

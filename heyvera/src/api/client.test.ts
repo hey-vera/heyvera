@@ -28,7 +28,7 @@ describe('api social (legacy-compatible functions)', () => {
     const { getFeed } = await import('./social');
     await getFeed();
 
-    expect(fetchMock).toHaveBeenCalledWith('/v1/feed', undefined);
+    expect(fetchMock).toHaveBeenCalledWith('/v1/social/feed/home', undefined);
   });
 
   it('surfaces invalid JSON errors when the API falls back to HTML', async () => {
@@ -44,7 +44,7 @@ describe('api social (legacy-compatible functions)', () => {
     const { getFeed } = await import('./social');
 
     await expect(getFeed()).rejects.toThrow('Unexpected token < in JSON at position 0');
-    expect(fetchMock).toHaveBeenCalledWith('/v1/feed', undefined);
+    expect(fetchMock).toHaveBeenCalledWith('/v1/social/feed/home', undefined);
   });
 
   it('blocks signed-out legacy mutations when real API mode is enabled', async () => {

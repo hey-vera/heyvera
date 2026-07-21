@@ -13,7 +13,7 @@
 
 | Wave | Status |
 |------|--------|
-| 0 Integrity & honesty | In progress (shell honesty PR) |
+| 0 Integrity & honesty | Shell #345 done; contract unbreak in flight |
 | 1 Core social feel | Pending |
 | 2 Communities E2E | Pending |
 | 3 Pulse + credits wedge | Pending |

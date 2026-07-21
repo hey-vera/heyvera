@@ -11,6 +11,7 @@ import {
   repostPost,
   unbookmarkPost,
   unlikePost,
+  unrepostPost,
 } from '../api/social';
 import type { Post } from '../api/types';
 import { LoadingState, EmptyState, ErrorState } from '../components/shared/AsyncStates';
@@ -30,7 +31,7 @@ const ONBOARD_STORAGE_KEY = 'heyvera-onboard-v1';
 /** Parsed feed result in the shape HomePage state expects. */
 type FeedResult = {
   posts: Post[];
-  nextCursor: number | null;
+  nextCursor: string | null;
 };
 
 /** Map raw fetch/API failures to a clear user-facing message. */
@@ -47,7 +48,7 @@ export function HomePage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('For you');
   const [posts, setPosts] = useState<Post[]>([]);
-  const [cursor, setCursor] = useState<number | null>(null);
+  const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -88,7 +89,7 @@ export function HomePage() {
     setReloadKey((key) => key + 1);
   }, []);
 
-  const loadFeedPage = useCallback(async (offsetCursor = 0): Promise<FeedResult> => {
+  const loadFeedPage = useCallback(async (pageCursor: string | null = null): Promise<FeedResult> => {
     // Backend home feed: filter=person | agent (author_mode); following uses /feed/following
     const filter =
       activeTab === 'Following'
@@ -98,12 +99,13 @@ export function HomePage() {
           : activeTab === 'Agents'
             ? 'agent'
             : undefined;
-    const token =
-      filter === 'following' && authEnabled && isSignedIn ? await getToken() : null;
-    const response = await fetchHomeFeed(FEED_PAGE_SIZE, offsetCursor, filter, token);
+    // Pass token whenever signed in so BE can enrich liked/reposted/bookmarked (following requires it).
+    const token = authEnabled && isSignedIn ? await getToken() : null;
+    const response = await fetchHomeFeed(FEED_PAGE_SIZE, pageCursor, filter, token);
     return {
       posts: response.feed.map(feedPostToPost),
-      nextCursor: response.pageInfo.nextCursor != null ? Number(response.pageInfo.nextCursor) : null,
+      // Opaque keyset cursor — never Number().
+      nextCursor: response.pageInfo.nextCursor ?? null,
     };
   }, [activeTab, authEnabled, getToken, isSignedIn]);
 
@@ -470,7 +472,7 @@ export function HomePage() {
           key={post.id}
           post={post}
           onLike={(id, liked, token) => void (liked ? likePost(token, id) : unlikePost(token, id))}
-          onRepost={(id, _reposted, token) => void repostPost(token, id)}
+          onRepost={(id, reposted, token) => void (reposted ? repostPost : unrepostPost)(token, id)}
           onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id))}
         />
       ))}
