@@ -45,11 +45,13 @@ export function LivePage() {
           </div>
           <button
             type="button"
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-full px-4 text-[14px] font-bold"
+            disabled
+            title="Live scheduling ships after stream ingest is real"
+            className="inline-flex h-10 items-center justify-center gap-2 rounded-full px-4 text-[14px] font-bold opacity-50 cursor-not-allowed"
             style={{ backgroundColor: 'var(--accent)', color: '#000' }}
           >
             <Video className="h-4 w-4" aria-hidden="true" />
-            Schedule Stream
+            Schedule Stream (Soon)
           </button>
         </div>
       </header>
@@ -67,8 +69,11 @@ export function LivePage() {
                   Playback will attach here once stream ingest and live sessions are wired to HeyVera profiles.
                 </p>
               </div>
-              <span className="absolute left-3 top-3 rounded-full px-3 py-1 text-[13px] font-black" style={{ backgroundColor: 'var(--color-danger)', color: '#fff' }}>
-                LIVE
+              <span
+                className="absolute left-3 top-3 rounded-full px-3 py-1 text-[13px] font-black"
+                style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+              >
+                Preview
               </span>
             </div>
             <div className="grid gap-4 p-4 md:grid-cols-[1fr_280px]">

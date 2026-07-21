@@ -7,9 +7,12 @@ import { useAuth } from "../../hooks/useAuth";
 import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from "../../utils/imageUpload";
 import { RightRail } from "./RightRail";
 import { BottomBar } from "./BottomBar";
-import { TopBar } from "./TopBar";
+import { TopBar, type CreateAction } from "./TopBar";
 
 const COMPOSE_MAX_CHARS = 280;
+
+/** Dispatched after a successful shell compose so Home can prepend without refresh. */
+export const HEYVERA_POST_CREATED_EVENT = "heyvera:post-created";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -20,7 +23,8 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
   const navigate = useNavigate();
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const isMessagesRoute = activeRoute === "/messages";
-  const isWideRoute = isMessagesRoute || activeRoute === "/videos" || activeRoute === "/live" || activeRoute === "/longform";
+  const isWideRoute =
+    isMessagesRoute || activeRoute === "/videos" || activeRoute === "/live" || activeRoute === "/longform";
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [composeText, setComposeText] = React.useState("");
   const [composeToken, setComposeToken] = React.useState<string | null>(null);
@@ -89,7 +93,11 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
       setComposeOpen(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("404") || msg.toLowerCase().includes("not found") || msg.toLowerCase().includes("no profile")) {
+      if (
+        msg.includes("404") ||
+        msg.toLowerCase().includes("not found") ||
+        msg.toLowerCase().includes("no profile")
+      ) {
         setComposeGate("profile_required");
       } else {
         setComposeError("We could not verify your profile. Try again.");
@@ -119,6 +127,19 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     setComposeError(null);
   };
 
+  const handleCreateAction = (action: CreateAction) => {
+    if (action === "post") {
+      void openCompose();
+      return;
+    }
+    if (action === "video") {
+      navigate("/videos");
+      return;
+    }
+    // Automate → Pulse surface (drafts); full Agents product remains WIP in the switcher.
+    navigate("/ai");
+  };
+
   const handleSubmitPost = async () => {
     if (!canPost || composeGate) return;
 
@@ -134,10 +155,18 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
         mediaIds.push(uploaded.mediaId);
       }
 
-      await createPost(token, {
+      const result = await createPost(token, {
         body: composeText.trim(),
         ...(mediaIds.length > 0 ? { mediaIds } : {}),
       });
+
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent(HEYVERA_POST_CREATED_EVENT, {
+            detail: { post: result.post },
+          }),
+        );
+      }
       closeCompose();
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Post failed. Try again.";
@@ -151,7 +180,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
       <TopBar
         activeRoute={activeRoute}
         onNavigate={handleNavigate}
-        onCompose={() => void openCompose()}
+        onCreateAction={handleCreateAction}
         onProfileClick={() => handleNavigate("/profile")}
       />
 
@@ -191,11 +220,15 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
           className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-12 sm:pt-16"
           style={{ backgroundColor: "color-mix(in srgb, var(--bg-primary) 60%, transparent)" }}
           onClick={closeCompose}
+          role="presentation"
         >
           <div
             className="w-full max-w-[600px] overflow-hidden rounded-2xl"
             style={{ backgroundColor: "var(--bg-primary)", border: "1px solid var(--border-primary)" }}
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Create post"
           >
             <div
               className="flex items-center justify-between px-4 py-3"
@@ -232,7 +265,9 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
             ) : (
               <div className="px-4 pb-4 pt-3">
                 <textarea
-                  placeholder={isCheckingComposeAccess ? "Checking profile..." : "What's happening?"}
+                  placeholder={
+                    isCheckingComposeAccess ? "Checking profile..." : "Share something with the network"
+                  }
                   autoFocus
                   className="w-full resize-none border-none bg-transparent text-xl outline-none placeholder:text-[var(--text-secondary)]"
                   style={{ color: "var(--text-primary)", minHeight: "144px" }}
@@ -246,7 +281,10 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                 />
 
                 {imagePreviewUrl && (
-                  <div className="relative mt-3 overflow-hidden rounded-2xl border" style={{ borderColor: "var(--border-primary)" }}>
+                  <div
+                    className="relative mt-3 overflow-hidden rounded-2xl border"
+                    style={{ borderColor: "var(--border-primary)" }}
+                  >
                     <img
                       src={imagePreviewUrl}
                       alt="Selected attachment"
@@ -257,7 +295,10 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                       onClick={clearImage}
                       disabled={isPosting}
                       className="absolute right-2 top-2 rounded-full p-1.5"
-                      style={{ backgroundColor: "color-mix(in srgb, var(--bg-primary) 80%, transparent)", color: "var(--text-primary)" }}
+                      style={{
+                        backgroundColor: "color-mix(in srgb, var(--bg-primary) 80%, transparent)",
+                        color: "var(--text-primary)",
+                      }}
                       aria-label="Remove image"
                     >
                       <X className="h-4 w-4" />
@@ -297,7 +338,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                     </button>
                   </div>
                   <span
-                    className="text-sm"
+                    className="text-sm tabular-nums"
                     style={{ color: remainingChars <= 20 ? "var(--color-danger)" : "var(--text-secondary)" }}
                     aria-live="polite"
                   >
