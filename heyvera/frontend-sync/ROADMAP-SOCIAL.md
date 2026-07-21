@@ -239,20 +239,24 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 
 ## Next waves (after 0–5 on main)
 
-### Wave 5 — Threads, views, DM integrity *(active)*
-1. Nested reply tree under a root post (depth-aware UI, max visual depth ~4)
-2. Light `viewCount` increment on single-post open; show when &gt; 0
-3. 1:1 DM conversation dedupe (reuse existing thread)
-4. Reply-to-reply compose + “Replying to @handle”
+### Wave 5 — Threads, views, DM integrity — **done (#348)**
+1. Nested reply tree — done
+2. Light viewCount — done
+3. 1:1 DM dedupe — done
+4. Reply-to-reply compose — done
 
-### Wave 6 — Page multi-surface foundation
-1. Schema/API for Page kinds beyond 1:1 person profile
-2. Active Page selector in Create (person default)
-3. Agent Pages linked as publish actors
-4. Follow Page (not only profile alias)
+### Wave 6 — Page multi-surface foundation — **done** (branch `feat/wave6-page-foundation`)
+1. Schema/API for Page kinds beyond 1:1 person profile — **done**
+   - Person = `social_profiles` (unchanged 1:1); agent = `social_linked_agents`; brand = `social_pages` + `social_page_follows` (migration v45)
+   - `GET /v1/social/pages/mine`, `POST /v1/social/pages` (kind brand), `POST|DELETE /v1/social/pages/{id}/follow`
+   - `create_post` accepts optional `pageId` → person/agent authorship; brand still posts as steward person (v1)
+2. Active Page selector in Create (person default) — **done** (`AppShell` + `heyvera-active-page-id`)
+3. Agent Pages linked as publish actors — **done** (list + compose `authorMode=agent`)
+4. Follow Page seam — **done** (brand → `social_page_follows`; agent → owner profile follow; person → profile follow / handle still works)
+5. Honesty: Agents product switcher still WIP; multi-Page is **not** a complete marketplace
 
-### Wave 7 — Soft-realtime + automation depth
-1. Soft-poll / optional WS for DMs (honest when WS missing)
+### Wave 7 — Soft-realtime + automation depth *(next)*
+1. Soft-poll for DMs (honest when WS missing)
 2. Pulse schedule + goals polish under Automate
 3. Credits ledger MVP if Stripe present
 4. Still **not**: live encoder, x402, ML related video

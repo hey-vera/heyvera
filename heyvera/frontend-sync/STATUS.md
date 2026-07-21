@@ -7,7 +7,7 @@
 - **Product truth:** `heyvera/CURRENT.md` when present
 - **Contract:** `heyvera/docs/API-CONTRACT.md` when present
 - **Live surface:** `router.tsx` + `AppShell` + `pages/*` only
-- **Branch intent:** `feat/wave5-threads-views-dm` (Wave 5)
+- **Branch intent:** `feat/wave6-page-foundation` (Wave 6)
 
 ## Wave progress
 
@@ -18,12 +18,15 @@
 | 2 Communities E2E | Done on waves 1–4 ship |
 | 3 Pulse + credits wedge | Done on waves 1–4 ship |
 | 4 Media & discovery | Done on waves 1–4 ship |
-| 5 Threads / views / DM dedupe | **In progress** on `feat/wave5-threads-views-dm` |
-| Post-wave backlog (PW-*) | Remaining: WS DMs, multi-Page, ledger, ingest |
+| 5 Threads / views / DM dedupe | Done (#348) |
+| 6 Page multi-surface foundation | **In progress** on `feat/wave6-page-foundation` |
+| Post-wave backlog (PW-*) | Remaining: WS DMs, ledger, ingest; multi-Page marketplace incomplete |
 
 ## Active truth
 
 - Dual shell (`App.tsx` / `VeraSocials`) is orphaned — do not grow it.
-- Wave 5: nested thread tree FE + full descendant replies BE; light `view_count`
-  on post open; 1:1 conversation reuse on create.
+- Wave 6: Page list (person + agent + brand), compose Page selector, brand create,
+  follow-by-page-id for brand; person posts/follows unchanged. Brand-as-author and
+  full multi-Page switcher product still incomplete.
+- Agents product switcher remains WIP.
 - Pulse rebuild references may live at `heyvera/reference/synthr-pulse/` when present.
