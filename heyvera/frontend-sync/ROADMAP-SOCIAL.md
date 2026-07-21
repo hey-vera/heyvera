@@ -181,3 +181,4 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-21 | Plan grounded | ROADMAP created |
 | 2026-07-21 | #345 | Wave 0 shell honesty merged |
 | 2026-07-21 | Page model | Page/Actor identity adopted as working model |
+| 2026-07-21 | Wave 0B | Contract unbreak (FE+BE) on `feat/wave0-contract-unbreak` |

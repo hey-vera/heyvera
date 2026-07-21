@@ -10,6 +10,7 @@ import {
   searchSocial,
   unbookmarkPost,
   unlikePost,
+  unrepostPost,
 } from '../api/social';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
@@ -187,7 +188,7 @@ export function ExplorePage() {
                   key={post.id}
                   post={post}
                   onLike={(id, liked, token) => void (liked ? likePost(token, id) : unlikePost(token, id))}
-                  onRepost={(id, _reposted, token) => void repostPost(token, id)}
+                  onRepost={(id, reposted, token) => void (reposted ? repostPost : unrepostPost)(token, id)}
                   onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id))}
                 />
               ))}

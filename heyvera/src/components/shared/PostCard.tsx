@@ -375,12 +375,15 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply }: PostCa
             onClick={toggleLike}
             animate={likeAnimating}
           />
-          <ActionButton
-            icon={BarChart3}
-            label="Views"
-            count={post.view_count}
-            color="reply"
-          />
+          {/* Hide views UI when missing/zero — no vanity zeros. */}
+          {post.view_count != null && post.view_count > 0 ? (
+            <ActionButton
+              icon={BarChart3}
+              label="Views"
+              count={post.view_count}
+              color="reply"
+            />
+          ) : null}
           <ActionButton
             icon={Bookmark}
             label="Bookmark"

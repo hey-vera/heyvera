@@ -177,7 +177,7 @@ pub async fn publish_draft(
     let author_mode = draft["authorMode"].as_str().unwrap_or("person");
     let linked_agent_id = draft["linkedAgentId"].as_str();
 
-    let post = db(&state).social_create_post(profile_id, body, visibility, author_mode, linked_agent_id, None, None);
+    let post = db(&state).social_create_post(profile_id, body, visibility, author_mode, linked_agent_id, None, None, None);
     let post_id = post["id"].as_str().unwrap_or("").to_string();
 
     let updated_draft = db(&state).pulse_update_draft_status(&id, profile_id, "published");
@@ -686,6 +686,7 @@ pub(crate) fn execute_pulse_tool(
                 linked_agent_id,
                 None,
                 None,
+                None,
             );
             let post_id = post["id"].as_str().unwrap_or("").to_string();
             let updated_draft = database.pulse_update_draft_status(id, profile_id, "published");
@@ -706,7 +707,7 @@ pub(crate) fn execute_pulse_tool(
             }
         }
         "list_my_posts" => {
-            let posts = database.social_get_user_posts(profile_id, 10, 0);
+            let posts = database.social_get_user_posts(profile_id, 10, None, None);
             let count = posts.len();
             let preview: Vec<String> = posts
                 .iter()

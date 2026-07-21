@@ -3,23 +3,14 @@ import { SignInButton } from '@clerk/clerk-react';
 import { AtSign, Heart, MessageCircle, Repeat2, UserPlus } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { fetchNotifications } from '../api/social';
+import { fetchNotifications, markNotificationsRead, type SocialNotification } from '../api/social';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
 import { relativeTime } from '../utils/time';
 
-type NotificationType = 'like' | 'follow' | 'repost' | 'reply' | 'mention';
-
-type ApiNotification = {
-  id: string;
-  type: NotificationType;
-  actorHandle: string;
-  actorDisplayName: string;
-  actorAvatarUrl: string | null;
-  postId: string | null;
-  createdAt: string;
-};
+type NotificationType = SocialNotification['type'];
+type ApiNotification = SocialNotification;
 
 const FILTER_TABS = ['All', 'Mentions'] as const;
 type FilterTab = typeof FILTER_TABS[number];
@@ -33,6 +24,7 @@ const notificationIcons: Record<NotificationType, { icon: LucideIcon; color: str
   follow: { icon: UserPlus, color: 'var(--accent)' },
   reply: { icon: MessageCircle, color: 'var(--color-reply)' },
   mention: { icon: AtSign, color: 'var(--accent)' },
+  quote: { icon: MessageCircle, color: 'var(--color-reply)' },
 };
 
 function notificationText(notification: ApiNotification): string {
@@ -49,6 +41,8 @@ function notificationText(notification: ApiNotification): string {
       return `${name} replied to your post`;
     case 'mention':
       return `${name} mentioned you`;
+    case 'quote':
+      return `${name} quoted your post`;
   }
 }
 
@@ -116,6 +110,10 @@ export function NotificationsPage() {
           setError(null);
           setLastUpdatedAt(Date.now());
         }
+        // Mark visible notifications read (fire-and-forget; do not block list render).
+        void markNotificationsRead(token).catch(() => {
+          /* ignore mark-read failures */
+        });
       } catch (err) {
         if (!cancelled) {
           setNotifications([]);

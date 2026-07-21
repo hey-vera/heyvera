@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { bookmarkPost, createPost, feedPostToPost, fetchMyProfile, fetchSinglePost, likePost, repostPost, unbookmarkPost, unlikePost } from '../api/social';
+import { bookmarkPost, createPost, feedPostToPost, fetchMyProfile, fetchSinglePost, likePost, repostPost, unbookmarkPost, unlikePost, unrepostPost } from '../api/social';
+import type { FeedPost } from '../api/social';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
@@ -16,6 +17,21 @@ export function PostThreadPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+
+  const softRefreshCounts = () => setReloadKey((key) => key + 1);
+
+  const appendOptimisticReply = (created: FeedPost) => {
+    const mapped = feedPostToPost(created);
+    setReplies((current) => {
+      if (current.some((r) => r.id === mapped.id)) return current;
+      return [...current, mapped];
+    });
+    setPost((current) =>
+      current
+        ? { ...current, reply_count: Math.max(0, (current.reply_count ?? 0) + 1) }
+        : current,
+    );
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -89,7 +105,7 @@ export function PostThreadPage() {
           <ThreadPost
             post={post}
             hasConnector={replies.length > 0}
-            onReplyPosted={() => setReloadKey((key) => key + 1)}
+            onReplyPosted={softRefreshCounts}
           />
           <InlineReplyCompose
             postId={post.id}
@@ -97,7 +113,7 @@ export function PostThreadPage() {
             authEnabled={authEnabled}
             isSignedIn={isSignedIn}
             getToken={getToken}
-            onReplyPosted={() => setReloadKey((key) => key + 1)}
+            onReplyCreated={appendOptimisticReply}
           />
           {replies.length > 0 ? (
             replies.map((reply, index) => (
@@ -173,14 +189,14 @@ function InlineReplyCompose({
   authEnabled,
   isSignedIn,
   getToken,
-  onReplyPosted,
+  onReplyCreated,
 }: {
   postId: string;
   authorHandle: string;
   authEnabled: boolean;
   isSignedIn: boolean;
   getToken: () => Promise<string | null>;
-  onReplyPosted: () => void;
+  onReplyCreated: (created: FeedPost) => void;
 }) {
   const [text, setText] = useState('');
   const [posting, setPosting] = useState(false);
@@ -198,9 +214,10 @@ function InlineReplyCompose({
     setErr(null);
     try {
       await fetchMyProfile(token);
-      await createPost(token, { body: text.trim(), replyToPostId: postId });
+      const result = await createPost(token, { body: text.trim(), replyToPostId: postId });
       setText('');
-      onReplyPosted();
+      // Append immediately — no full thread reload required.
+      onReplyCreated(result.post);
     } catch (e) {
       const msg = e instanceof Error ? e.message.toLowerCase() : '';
       if (msg.includes('404') || msg.includes('not found')) {
@@ -257,8 +274,8 @@ function handleLike(postId: string, liked: boolean, token: string) {
   void (liked ? likePost(token, postId) : unlikePost(token, postId));
 }
 
-function handleRepost(postId: string, _reposted: boolean, token: string) {
-  void repostPost(token, postId);
+function handleRepost(postId: string, reposted: boolean, token: string) {
+  void (reposted ? repostPost : unrepostPost)(token, postId);
 }
 
 function handleBookmark(postId: string, bookmarked: boolean, token: string) {

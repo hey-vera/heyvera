@@ -295,6 +295,7 @@ mod tests {
             agent["id"].as_str(),
             None,
             None,
+            None,
         );
         assert_eq!(post["authorMode"], "agent");
         assert_eq!(post["linkedAgent"]["id"], agent["id"]);

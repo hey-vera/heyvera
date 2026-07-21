@@ -102,6 +102,17 @@ pub struct CreatePostRequest {
     pub quote_post_id: Option<String>,
     #[serde(rename = "mediaIds", default)]
     pub media_ids: Vec<String>,
+    /// Optional community to attach the post to (uuid or will be stored as-is if valid).
+    #[serde(default, rename = "communityId", alias = "community_id")]
+    pub community_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCommunityRequest {
+    pub name: String,
+    pub slug: String,
+    pub description: Option<String>,
+    pub visibility: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -120,15 +131,16 @@ pub struct CreateLongformRequest {
 
 #[derive(Debug, Deserialize)]
 pub struct UpdateProfileRequest {
-    #[serde(default, alias = "displayName", alias = "display_name")]
+    /// Accept camelCase (FE) and snake_case (legacy clients).
+    #[serde(default, rename = "displayName", alias = "display_name")]
     pub display_name: Option<String>,
     pub bio: Option<String>,
-    #[serde(default, alias = "avatarUrl", alias = "avatar_url")]
+    #[serde(default, rename = "avatarUrl", alias = "avatar_url")]
     pub avatar_url: Option<String>,
-    #[serde(default, alias = "bannerUrl", alias = "banner_url")]
+    #[serde(default, rename = "bannerUrl", alias = "banner_url")]
     pub banner_url: Option<String>,
     pub location: Option<String>,
-    #[serde(default, alias = "website", alias = "websiteUrl", alias = "website_url")]
+    #[serde(default, rename = "websiteUrl", alias = "website_url")]
     pub website: Option<String>,
 }
 
@@ -418,6 +430,22 @@ pub async fn create_post(
     }
 
     let visibility = req.visibility.as_deref().unwrap_or("public");
+
+    // Resolve optional communityId (uuid or slug) before insert.
+    let community_id = if let Some(ref raw) = req.community_id {
+        let raw = raw.trim();
+        if raw.is_empty() {
+            None
+        } else {
+            match db(&state).social_resolve_community_id(raw) {
+                Some(id) => Some(id),
+                None => return bad_request("communityId not found"),
+            }
+        }
+    } else {
+        None
+    };
+
     let post = db(&state).social_create_post(
         &profile_id,
         &body,
@@ -426,6 +454,7 @@ pub async fn create_post(
         linked_agent_id.as_deref(),
         req.reply_to_post_id.as_deref(),
         req.quote_post_id.as_deref(),
+        community_id.as_deref(),
     );
 
     let post_id = post["id"].as_str().unwrap_or("").to_string();
@@ -889,15 +918,19 @@ pub async fn get_user_posts(
     let profile_id = profile["id"].as_str().unwrap_or("");
     let limit = params.limit.unwrap_or(20).min(100);
 
-    let legacy_offset = match params.cursor.as_deref() {
-        Some(c) => match decode_cursor(c) {
-            Some(_) => 0i64,
-            None => c.parse::<i64>().unwrap_or(0).max(0),
-        },
-        None => 0,
-    };
+    let (cursor_created_at, cursor_id) = params
+        .cursor
+        .as_deref()
+        .and_then(decode_cursor)
+        .map(|(c, i)| (Some(c), Some(i)))
+        .unwrap_or((None, None));
 
-    let mut posts = db(&state).social_get_user_posts(profile_id, limit, legacy_offset);
+    let mut posts = db(&state).social_get_user_posts(
+        profile_id,
+        limit,
+        cursor_created_at.as_deref(),
+        cursor_id.as_deref(),
+    );
     db(&state).social_enrich_feed_posts(&mut posts, None);
     let next_cursor = next_cursor_from_posts(&posts, limit);
     let has_more = posts.len() as i64 == limit;
@@ -937,15 +970,24 @@ pub async fn get_following_feed(
     let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
     let limit = params.limit.unwrap_or(20).min(100);
 
-    let legacy_offset = match params.cursor.as_deref() {
-        Some(c) => c.parse::<i64>().unwrap_or(0).max(0),
-        None => 0,
-    };
+    let (cursor_created_at, cursor_id) = params
+        .cursor
+        .as_deref()
+        .and_then(decode_cursor)
+        .map(|(c, i)| (Some(c), Some(i)))
+        .unwrap_or((None, None));
 
     let blocked_ids = db(&state).social_get_blocked_ids(&profile_id);
     let muted_ids = db(&state).social_get_muted_ids(&profile_id);
 
-    let mut posts = db(&state).social_get_following_feed(&profile_id, limit, legacy_offset, &blocked_ids, &muted_ids);
+    let mut posts = db(&state).social_get_following_feed(
+        &profile_id,
+        limit,
+        cursor_created_at.as_deref(),
+        cursor_id.as_deref(),
+        &blocked_ids,
+        &muted_ids,
+    );
     db(&state).social_enrich_feed_posts(&mut posts, Some(&profile_id));
     let next_cursor = next_cursor_from_posts(&posts, limit);
     let has_more = posts.len() as i64 == limit;
@@ -1046,12 +1088,83 @@ pub async fn delete_post(
 
 // ─── Task #36: Community feed ──────────────────────────────────────────────
 
+/// Resolve path param as community uuid id, else slug.
+fn resolve_community_path(state: &AppState, id_or_slug: &str) -> Result<String, ApiResponse> {
+    match db(state).social_resolve_community_id(id_or_slug) {
+        Some(id) => Ok(id),
+        None => Err(not_found("Community not found")),
+    }
+}
+
+pub async fn create_community(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateCommunityRequest>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+
+    let name = req.name.trim().to_string();
+    if name.is_empty() || name.len() > 80 {
+        return bad_request("name must be 1-80 characters");
+    }
+
+    let slug = req.slug.trim().to_lowercase();
+    if slug.len() < 2 || slug.len() > 40 {
+        return bad_request("slug must be 2-40 characters");
+    }
+    if !slug
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_')
+    {
+        return bad_request("slug may only contain a-z, 0-9, hyphen, underscore");
+    }
+
+    let description = req.description.unwrap_or_default();
+    let visibility = req.visibility.as_deref().unwrap_or("public");
+    if visibility != "public" && visibility != "private" {
+        return bad_request("visibility must be public or private");
+    }
+
+    match db(&state).social_create_community(
+        &profile_id,
+        &slug,
+        &name,
+        description.trim(),
+        visibility,
+    ) {
+        Ok(community) => ok(serde_json::json!({ "ok": true, "community": community })),
+        Err(msg) if msg.contains("already taken") => conflict(&msg),
+        Err(msg) => internal_error(&msg),
+    }
+}
+
+pub async fn list_my_communities(
+    user: ClerkUser,
+    Query(params): Query<FeedQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let limit = params.limit.unwrap_or(20).min(100);
+    let communities = db(&state).social_list_my_communities(&profile_id, limit);
+    ok(serde_json::json!({ "communities": communities }))
+}
+
 pub async fn get_community_feed(
     Path(community_id): Path<String>,
     Query(params): Query<FeedQuery>,
     headers: HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
+    let community_id = match resolve_community_path(&state, &community_id) {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
     let limit = params.limit.unwrap_or(20).min(100);
 
     let (cursor_created_at, cursor_id) = params
@@ -1101,6 +1214,10 @@ pub async fn join_community(
         Ok(p) => p,
         Err(e) => return e,
     };
+    let community_id = match resolve_community_path(&state, &community_id) {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
     let joined = db(&state).social_join_community(&community_id, &profile_id);
     if joined {
         ok(serde_json::json!({ "ok": true, "joined": true }))
@@ -1118,6 +1235,10 @@ pub async fn leave_community(
         Ok(p) => p,
         Err(e) => return e,
     };
+    let community_id = match resolve_community_path(&state, &community_id) {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
     let left = db(&state).social_leave_community(&community_id, &profile_id);
     if left {
         ok(serde_json::json!({ "ok": true, "left": true }))
@@ -1131,6 +1252,10 @@ pub async fn list_community_members(
     Query(params): Query<FeedQuery>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
+    let community_id = match resolve_community_path(&state, &community_id) {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
     let limit = params.limit.unwrap_or(50).min(200);
     let members = db(&state).social_list_community_members(&community_id, limit);
     let count = members.len();

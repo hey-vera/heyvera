@@ -17,6 +17,7 @@ import {
   unbookmarkPost,
   unfollowProfile,
   unlikePost,
+  unrepostPost,
   updateProfile,
   uploadMediaFile,
 } from '../api/social';
@@ -118,8 +119,9 @@ export function ProfilePage() {
             return;
           }
 
+          const tokenForFeed = await getToken();
           const [feedRes, statsRes] = await Promise.all([
-            fetchProfileFeed(nextProfile.handle),
+            fetchProfileFeed(nextProfile.handle, 20, null, tokenForFeed),
             fetchProfileStats(nextProfile.handle),
           ]);
           if (!cancelled) {
@@ -133,12 +135,13 @@ export function ProfilePage() {
 
         const token = authEnabled && isSignedIn ? await getToken() : null;
         const [profileRes, feedRes, statsRes] = await Promise.all([
-          fetchProfile(handle),
-          fetchProfileFeed(handle),
+          fetchProfile(handle, token),
+          fetchProfileFeed(handle, 20, null, token),
           fetchProfileStats(handle),
         ]);
-        let following = false;
-        if (token) {
+        // Prefer isFollowing from profile payload; fall back to dedicated follow-status route.
+        let following = Boolean(profileRes.profile.isFollowing);
+        if (token && profileRes.profile.isFollowing === undefined) {
           try {
             const followRes = await fetchFollowStatus(token, handle);
             following = followRes.following;
@@ -282,7 +285,7 @@ export function ProfilePage() {
           : post,
       ),
     );
-    void repostPost(token, id);
+    void (reposted ? repostPost : unrepostPost)(token, id);
   };
 
   const handleBookmark = (id: string, bookmarked: boolean, token: string) => {

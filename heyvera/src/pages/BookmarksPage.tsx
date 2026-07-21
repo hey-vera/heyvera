@@ -9,6 +9,7 @@ import {
   repostPost,
   unbookmarkPost,
   unlikePost,
+  unrepostPost,
 } from '../api/social';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
@@ -107,7 +108,7 @@ export function BookmarksPage() {
           : post,
       ),
     );
-    void repostPost(token, id);
+    void (reposted ? repostPost : unrepostPost)(token, id);
   };
 
   const handleBookmark = (id: string, bookmarked: boolean, token: string) => {
