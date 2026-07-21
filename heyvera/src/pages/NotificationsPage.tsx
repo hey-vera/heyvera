@@ -8,6 +8,7 @@ import { EmptyState, ErrorState, LoadingState } from '../components/shared/Async
 import { useAuth } from '../hooks/useAuth';
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
 import { relativeTime } from '../utils/time';
+import { SOFT_POLL_STATUS_LABEL, softPollTooltip } from '../utils/softRealtimeLabel';
 
 type NotificationType = SocialNotification['type'];
 type ApiNotification = SocialNotification;
@@ -157,14 +158,14 @@ export function NotificationsPage() {
               className="flex items-center gap-1.5 text-[12px] font-medium"
               style={{ color: 'var(--text-secondary)' }}
               role="status"
-              title="Soft-poll refresh while this tab is visible"
+              title={softPollTooltip()}
             >
               <span
                 className="inline-block h-1.5 w-1.5 rounded-full"
                 style={{ backgroundColor: 'var(--accent)' }}
                 aria-hidden="true"
               />
-              Live · refreshing
+              {SOFT_POLL_STATUS_LABEL}
             </span>
           )}
         </div>

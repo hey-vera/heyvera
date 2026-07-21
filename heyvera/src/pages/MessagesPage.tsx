@@ -7,6 +7,7 @@ import { getConversations, getMessages } from '../api/social';
 import { LoadingState, EmptyState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
+import { SOFT_POLL_STATUS_LABEL, formatSoftPollAge, softPollTooltip } from '../utils/softRealtimeLabel';
 
 /* ─── API helper for sending a message ──────────────────────────────────────── */
 
@@ -85,6 +86,7 @@ export function MessagesPage() {
   const [messagesError, setMessagesError] = useState<string | null>(null);
   const [composeText, setComposeText] = useState('');
   const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | null>(null);
@@ -246,14 +248,19 @@ export function MessagesPage() {
   const handleSend = async () => {
     if (!composeText.trim() || !selectedId || sending) return;
     setSending(true);
+    setSendError(null);
     try {
       const token = await getToken();
-      if (!token) return;
+      if (!token) {
+        setSendError('Sign in again to send.');
+        return;
+      }
       const newMsg = await sendMessage(token, selectedId, composeText.trim());
       setMessages((current) => [...current, newMsg]);
       setComposeText('');
-    } catch {
-      // Silently handle — the user can retry
+      setLastUpdatedAt(Date.now());
+    } catch (err) {
+      setSendError(err instanceof Error ? err.message : 'Send failed. Try again.');
     } finally {
       setSending(false);
     }
@@ -320,14 +327,14 @@ export function MessagesPage() {
               className="flex items-center gap-1.5 text-[12px] font-medium"
               style={{ color: 'var(--text-secondary)' }}
               role="status"
-              title="Soft-poll refresh while this tab is visible"
+              title={softPollTooltip(formatSoftPollAge(lastUpdatedAt) ?? undefined)}
             >
               <span
                 className="inline-block h-1.5 w-1.5 rounded-full"
                 style={{ backgroundColor: 'var(--accent)' }}
                 aria-hidden="true"
               />
-              Live · refreshing
+              {SOFT_POLL_STATUS_LABEL}
             </span>
           )}
         </div>
@@ -534,14 +541,14 @@ export function MessagesPage() {
                         className="hidden shrink-0 items-center gap-1.5 text-[12px] font-medium sm:flex"
                         style={{ color: 'var(--text-secondary)' }}
                         role="status"
-                        title="Soft-poll refresh while this tab is visible"
+                        title={softPollTooltip(formatSoftPollAge(lastUpdatedAt) ?? undefined)}
                       >
                         <span
                           className="inline-block h-1.5 w-1.5 rounded-full"
                           style={{ backgroundColor: 'var(--accent)' }}
                           aria-hidden="true"
                         />
-                        Live
+                        {SOFT_POLL_STATUS_LABEL}
                       </span>
                     )}
                   </div>
@@ -608,11 +615,19 @@ export function MessagesPage() {
               className="border-t px-4 py-3"
               style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-primary)' }}
             >
+              {sendError && (
+                <p className="mb-2 text-[13px]" style={{ color: 'var(--color-danger)' }} role="alert">
+                  {sendError}
+                </p>
+              )}
               <div className="flex items-center gap-3">
                 <input
                   type="text"
                   value={composeText}
-                  onChange={(e) => setComposeText(e.target.value)}
+                  onChange={(e) => {
+                    setComposeText(e.target.value);
+                    if (sendError) setSendError(null);
+                  }}
                   onKeyDown={handleKeyDown}
                   placeholder="Start a new message"
                   className="flex-1 rounded-full border px-4 py-2.5 text-[15px] outline-none transition-colors focus:border-[var(--accent)]"

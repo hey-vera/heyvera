@@ -2,31 +2,22 @@
 
 ## Current track
 
-- **Active:** Social customer-ready waves — see `ROADMAP-SOCIAL.md`
-- **Master checklist (ops):** `heyvera/CHECKLIST.md` when present
-- **Product truth:** `heyvera/CURRENT.md` when present
-- **Contract:** `heyvera/docs/API-CONTRACT.md` when present
+- **Active:** Waves 0–7 ship track — see `ROADMAP-SOCIAL.md`
 - **Live surface:** `router.tsx` + `AppShell` + `pages/*` only
-- **Branch intent:** `feat/wave6-page-foundation` (Wave 6)
+- **Branch intent:** `feat/wave7-soft-realtime-automation`
 
 ## Wave progress
 
 | Wave | Status |
 |------|--------|
-| 0 Integrity & honesty | Shell #345 + contract #346 done |
-| 1 Core social feel | Done on waves 1–4 ship |
-| 2 Communities E2E | Done on waves 1–4 ship |
-| 3 Pulse + credits wedge | Done on waves 1–4 ship |
-| 4 Media & discovery | Done on waves 1–4 ship |
-| 5 Threads / views / DM dedupe | Done (#348) |
-| 6 Page multi-surface foundation | **In progress** on `feat/wave6-page-foundation` |
-| Post-wave backlog (PW-*) | Remaining: WS DMs, ledger, ingest; multi-Page marketplace incomplete |
+| 0–5 | Done on main (#345–#348) |
+| 6 Page multi-surface | Done (#349) |
+| 7 Soft-realtime + automation honesty | Shipping |
+| 8+ / PW-* | Deferred (WS, x402, live ingest, dual-client kill, full ledger) |
 
 ## Active truth
 
-- Dual shell (`App.tsx` / `VeraSocials`) is orphaned — do not grow it.
-- Wave 6: Page list (person + agent + brand), compose Page selector, brand create,
-  follow-by-page-id for brand; person posts/follows unchanged. Brand-as-author and
-  full multi-Page switcher product still incomplete.
+- Dual shell orphaned — do not grow.
+- Soft-poll is the DM realtime path; labeled **Updating live (poll)** (not WebSocket).
+- Premium probes checkout; credits ledger UI not available (honest copy).
 - Agents product switcher remains WIP.
-- Pulse rebuild references may live at `heyvera/reference/synthr-pulse/` when present.
