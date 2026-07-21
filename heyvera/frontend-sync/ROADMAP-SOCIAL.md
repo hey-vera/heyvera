@@ -184,7 +184,9 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-21 | Wave 0B | Contract unbreak (FE+BE) on `feat/wave0-contract-unbreak` |
 | 2026-07-21 | #346 | Wave 0 contract unbreak merged to main |
 | 2026-07-21 | Waves 1–4 | Ship branch `feat/waves-1-4-social` (DM, follow lists, guilds, Pulse/Premium, Explore/Live honesty) |
-| 2026-07-21 | Wave 5 | Nested threads + view_count + 1:1 DM dedupe on `feat/wave5-threads-views-dm` |
+| 2026-07-21 | #348 | Wave 5 nested threads + views + DM dedupe **merged** |
+| 2026-07-21 | #349 | Wave 6 Page multi-surface foundation **merged** |
+| 2026-07-21 | #350 | Wave 7 soft-poll honesty + Premium probe + Pulse empty-state **merged** |
 
 ### Waves 1–4 implemented (2026-07-21)
 
@@ -245,7 +247,7 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 3. 1:1 DM dedupe — done
 4. Reply-to-reply compose — done
 
-### Wave 6 — Page multi-surface foundation — **done** (branch `feat/wave6-page-foundation`)
+### Wave 6 — Page multi-surface foundation — **done (#349)**
 1. Schema/API for Page kinds beyond 1:1 person profile — **done**
    - Person = `social_profiles` (unchanged 1:1); agent = `social_linked_agents`; brand = `social_pages` + `social_page_follows` (migration v45)
    - `GET /v1/social/pages/mine`, `POST /v1/social/pages` (kind brand), `POST|DELETE /v1/social/pages/{id}/follow`
@@ -255,19 +257,19 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 4. Follow Page seam — **done** (brand → `social_page_follows`; agent → owner profile follow; person → profile follow / handle still works)
 5. Honesty: Agents product switcher still WIP; multi-Page is **not** a complete marketplace
 
-### Wave 7 — Soft-realtime + automation depth *(shipping)*
-1. Soft-poll for DMs — **done** (honest “Updating live (poll)” labels)
+### Wave 7 — Soft-realtime + automation depth — **done (#350)**
+1. Soft-poll for DMs — **done** (honest “Updating live (poll)” labels; not WebSocket)
 2. Pulse Draft helper empty-state honesty — **done**
 3. Premium checkout probe + no ledger honesty — **done**
-4. Still **not**: WS, live encoder, x402, ML related video
+4. Still **not** (Wave 8+): true WS DMs, live encoder, x402, ML related video, full credits ledger UI
 
-### Wave 8+ (from PW backlog, ordered)
-- Nested thread “show more” pagination · Private guilds/roles · Video shelves · Live ingest · x402 · Kill dual client
+### Wave 8+ (from PW backlog, ordered) — deferred
+- Nested thread “show more” pagination · Private guilds/roles · Video shelves · Live ingest · x402 · Kill dual client · full credits ledger · true WS
 
 | ID | Item | Target wave |
 |----|------|-------------|
-| PW-1 | Nested threads | **Wave 5** |
-| PW-2 | Realtime DMs (WS) | Wave 7 |
-| PW-14 | Views (honest, not vanity) | **Wave 5** (light) |
-| PW-17 | Multi-Page switcher | Wave 6 |
+| PW-1 | Nested threads | **Wave 5 done** |
+| PW-2 | Realtime DMs (WS) | **Wave 8+** (soft-poll is Wave 7) |
+| PW-14 | Views (honest, not vanity) | **Wave 5 done** (light) |
+| PW-17 | Multi-Page switcher foundation | **Wave 6 done** |
 | PW-3–PW-8, PW-12… | Live/x402/etc. | Wave 8+ |
