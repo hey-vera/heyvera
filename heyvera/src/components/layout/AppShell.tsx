@@ -1,14 +1,17 @@
 import React from "react";
-import { BarChart3, Gift, Image, Smile, X } from "lucide-react";
+import { X } from "lucide-react";
 import { SignInButton } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import { createPost, fetchMyProfile } from "../../api/social";
 import { useAuth } from "../../hooks/useAuth";
 import { RightRail } from "./RightRail";
 import { BottomBar } from "./BottomBar";
-import { TopBar } from "./TopBar";
+import { TopBar, type CreateAction } from "./TopBar";
 
 const COMPOSE_MAX_CHARS = 280;
+
+/** Dispatched after a successful shell compose so Home can prepend without refresh. */
+export const HEYVERA_POST_CREATED_EVENT = "heyvera:post-created";
 
 interface AppShellProps {
   children: React.ReactNode;
@@ -19,7 +22,8 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
   const navigate = useNavigate();
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const isMessagesRoute = activeRoute === "/messages";
-  const isWideRoute = isMessagesRoute || activeRoute === "/videos" || activeRoute === "/live" || activeRoute === "/longform";
+  const isWideRoute =
+    isMessagesRoute || activeRoute === "/videos" || activeRoute === "/live" || activeRoute === "/longform";
   const [composeOpen, setComposeOpen] = React.useState(false);
   const [composeText, setComposeText] = React.useState("");
   const [composeToken, setComposeToken] = React.useState<string | null>(null);
@@ -73,7 +77,11 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
       setComposeOpen(true);
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
-      if (msg.includes("404") || msg.toLowerCase().includes("not found") || msg.toLowerCase().includes("no profile")) {
+      if (
+        msg.includes("404") ||
+        msg.toLowerCase().includes("not found") ||
+        msg.toLowerCase().includes("no profile")
+      ) {
         setComposeGate("profile_required");
       } else {
         setComposeError("We could not verify your profile. Try again.");
@@ -84,6 +92,19 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     }
   };
 
+  const handleCreateAction = (action: CreateAction) => {
+    if (action === "post") {
+      void openCompose();
+      return;
+    }
+    if (action === "video") {
+      navigate("/videos");
+      return;
+    }
+    // Automate → Pulse / AI surface (honest drafts path; full Agents product is WIP)
+    navigate("/ai");
+  };
+
   const handleSubmitPost = async () => {
     if (!canPost || composeGate) return;
 
@@ -91,7 +112,14 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     setComposeError(null);
 
     try {
-      await createPost(composeToken!, { body: composeText.trim() });
+      const result = await createPost(composeToken!, { body: composeText.trim() });
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent(HEYVERA_POST_CREATED_EVENT, {
+            detail: { post: result.post },
+          }),
+        );
+      }
       closeCompose();
     } catch {
       setComposeError("Post failed. Try again.");
@@ -104,7 +132,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
       <TopBar
         activeRoute={activeRoute}
         onNavigate={handleNavigate}
-        onCompose={() => void openCompose()}
+        onCreateAction={handleCreateAction}
         onProfileClick={() => handleNavigate("/profile")}
       />
 
@@ -144,11 +172,15 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
           className="fixed inset-0 z-50 flex items-start justify-center px-4 pt-12 sm:pt-16"
           style={{ backgroundColor: "color-mix(in srgb, var(--bg-primary) 60%, transparent)" }}
           onClick={closeCompose}
+          role="presentation"
         >
           <div
             className="w-full max-w-[600px] overflow-hidden rounded-2xl"
             style={{ backgroundColor: "var(--bg-primary)", border: "1px solid var(--border-primary)" }}
             onClick={(e) => e.stopPropagation()}
+            role="dialog"
+            aria-modal="true"
+            aria-label="Create post"
           >
             <div
               className="flex items-center justify-between px-4 py-3"
@@ -167,7 +199,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                 className="rounded-full px-5 py-1.5 text-sm font-bold transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
                 style={{ backgroundColor: "var(--accent)", color: "var(--bg-primary)" }}
                 disabled={!canPost || Boolean(composeGate)}
-                onClick={handleSubmitPost}
+                onClick={() => void handleSubmitPost()}
                 type="button"
               >
                 {isPosting ? "Posting" : "Post"}
@@ -185,7 +217,9 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
             ) : (
               <div className="px-4 pb-4 pt-3">
                 <textarea
-                  placeholder={isCheckingComposeAccess ? "Checking profile..." : "What's happening?"}
+                  placeholder={
+                    isCheckingComposeAccess ? "Checking profile..." : "Share something with the network"
+                  }
                   autoFocus
                   className="w-full resize-none border-none bg-transparent text-xl outline-none placeholder:text-[var(--text-secondary)]"
                   style={{ color: "var(--text-primary)", minHeight: "144px" }}
@@ -208,27 +242,11 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                   className="mt-3 flex items-center justify-between pt-3"
                   style={{ borderTop: "1px solid var(--border-primary)" }}
                 >
-                  <div className="flex items-center gap-1">
-                    {[
-                      { label: "Add media", icon: Image },
-                      { label: "Add GIF", icon: Gift },
-                      { label: "Create poll", icon: BarChart3 },
-                      { label: "Add emoji", icon: Smile },
-                    ].map(({ label, icon: Icon }) => (
-                      <button
-                        key={label}
-                        type="button"
-                        className="rounded-full p-2 transition-colors hover-overlay disabled:cursor-not-allowed disabled:opacity-50"
-                        style={{ color: "var(--accent)" }}
-                        aria-label={label}
-                        disabled={isPosting || isCheckingComposeAccess}
-                      >
-                        <Icon className="h-5 w-5" aria-hidden="true" />
-                      </button>
-                    ))}
-                  </div>
+                  <p className="text-[13px]" style={{ color: "var(--text-secondary)" }}>
+                    Media and rich attachments ship after Wave 0 media path.
+                  </p>
                   <span
-                    className="text-sm"
+                    className="text-sm tabular-nums"
                     style={{ color: remainingChars <= 20 ? "var(--color-danger)" : "var(--text-secondary)" }}
                     aria-live="polite"
                   >

@@ -1,26 +1,28 @@
 import {
   Bot,
   ChevronDown,
-  Coins,
   Compass,
   Feather,
+  Film,
   Home,
   Mail,
   PlaySquare,
   Radio,
   Search,
   Settings,
-  Store,
+  Sparkles,
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AuthControls } from "../shared/AuthControls";
+
+export type CreateAction = "post" | "video" | "automate";
 
 interface TopBarProps {
   activeRoute: string;
   onNavigate: (route: string) => void;
-  onCompose: () => void;
+  onCreateAction: (action: CreateAction) => void;
   onProfileClick?: () => void;
 }
 
@@ -34,11 +36,29 @@ const socialNav: ReadonlyArray<{ label: string; route: string; icon: LucideIcon 
   { label: "AI", route: "/ai", icon: Bot },
 ];
 
-const productAreas: ReadonlyArray<{ label: string; state: string; icon: LucideIcon }> = [
-  { label: "Social", state: "Active", icon: Users },
-  { label: "Crypto", state: "Planned", icon: Coins },
-  { label: "Marketplace", state: "Planned", icon: Store },
-  { label: "AI Agents", state: "Available", icon: Bot },
+type ProductArea = {
+  label: string;
+  state: string;
+  icon: LucideIcon;
+  navigable: boolean;
+  route?: string;
+};
+
+/** Product page switcher — Social active; Agents WIP (not a page yet). */
+const productAreas: ReadonlyArray<ProductArea> = [
+  { label: "Social", state: "Active", icon: Users, navigable: true, route: "/home" },
+  { label: "Agents", state: "WIP", icon: Bot, navigable: false },
+];
+
+const createMenuItems: ReadonlyArray<{
+  action: CreateAction;
+  label: string;
+  detail: string;
+  icon: LucideIcon;
+}> = [
+  { action: "post", label: "Post", detail: "Share text with the network", icon: Feather },
+  { action: "video", label: "Video", detail: "Video surface (preview)", icon: Film },
+  { action: "automate", label: "Automate", detail: "Pulse drafts and agent assist", icon: Sparkles },
 ];
 
 function isRouteActive(activeRoute: string, route: string): boolean {
@@ -46,8 +66,39 @@ function isRouteActive(activeRoute: string, route: string): boolean {
   return activeRoute === route;
 }
 
-export function TopBar({ activeRoute, onNavigate, onCompose, onProfileClick }: TopBarProps) {
-  const [menuOpen, setMenuOpen] = useState(false);
+export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick }: TopBarProps) {
+  const [productMenuOpen, setProductMenuOpen] = useState(false);
+  const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const productMenuRef = useRef<HTMLDivElement | null>(null);
+  const createMenuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!productMenuOpen && !createMenuOpen) return;
+
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node;
+      if (productMenuOpen && productMenuRef.current && !productMenuRef.current.contains(target)) {
+        setProductMenuOpen(false);
+      }
+      if (createMenuOpen && createMenuRef.current && !createMenuRef.current.contains(target)) {
+        setCreateMenuOpen(false);
+      }
+    };
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setProductMenuOpen(false);
+        setCreateMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [productMenuOpen, createMenuOpen]);
 
   return (
     <header
@@ -59,14 +110,18 @@ export function TopBar({ activeRoute, onNavigate, onCompose, onProfileClick }: T
       }}
     >
       <div className="mx-auto flex min-h-[var(--top-bar-height)] w-full max-w-[1225px] items-center gap-2 px-3 sm:px-4">
-        <div className="relative shrink-0">
+        <div className="relative shrink-0" ref={productMenuRef}>
           <button
             type="button"
-            onClick={() => setMenuOpen((open) => !open)}
+            onClick={() => {
+              setProductMenuOpen((open) => !open);
+              setCreateMenuOpen(false);
+            }}
             className="flex h-10 items-center gap-2 rounded-full px-2.5 text-[15px] font-black transition-colors hover-overlay sm:px-3"
             style={{ color: "var(--text-primary)" }}
-            aria-expanded={menuOpen}
+            aria-expanded={productMenuOpen}
             aria-haspopup="menu"
+            aria-label="Product switcher"
           >
             <span
               className="flex h-8 w-8 items-center justify-center rounded-full text-[13px] font-black"
@@ -79,37 +134,58 @@ export function TopBar({ activeRoute, onNavigate, onCompose, onProfileClick }: T
             <ChevronDown className="h-4 w-4" aria-hidden="true" />
           </button>
 
-          {menuOpen && (
+          {productMenuOpen && (
             <div
               className="absolute left-0 top-12 w-64 overflow-hidden rounded-xl border shadow-xl"
               style={{ backgroundColor: "var(--bg-primary)", borderColor: "var(--border-primary)" }}
               role="menu"
+              aria-label="Products"
             >
-              {productAreas.map(({ label, state, icon: Icon }) => {
+              {productAreas.map(({ label, state, icon: Icon, navigable, route }) => {
                 const active = label === "Social";
+                const wip = !navigable;
                 return (
                   <button
                     key={label}
                     type="button"
-                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover-overlay"
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover-overlay disabled:cursor-not-allowed"
                     onClick={() => {
-                      setMenuOpen(false);
-                      if (label === "Social") onNavigate("/home");
-                      if (label === "AI Agents") onNavigate("/ai");
+                      if (!navigable || !route) return;
+                      setProductMenuOpen(false);
+                      onNavigate(route);
                     }}
-                    disabled={!active && label !== "AI Agents"}
-                    style={{ opacity: active || label === "AI Agents" ? 1 : 0.56 }}
+                    disabled={!navigable}
+                    style={{ opacity: wip ? 0.45 : 1 }}
                     role="menuitem"
+                    aria-disabled={wip || undefined}
                   >
-                    <Icon className="h-5 w-5 shrink-0" style={{ color: "var(--accent)" }} aria-hidden="true" />
+                    <Icon
+                      className="h-5 w-5 shrink-0"
+                      style={{ color: wip ? "var(--text-secondary)" : "var(--accent)" }}
+                      aria-hidden="true"
+                    />
                     <span className="min-w-0 flex-1">
-                      <span className="block text-[15px] font-bold" style={{ color: "var(--text-primary)" }}>
+                      <span
+                        className="block text-[15px] font-bold"
+                        style={{ color: wip ? "var(--text-secondary)" : "var(--text-primary)" }}
+                      >
                         {label}
                       </span>
                       <span className="block text-[13px]" style={{ color: "var(--text-secondary)" }}>
-                        {state}
+                        {active ? "Active" : state}
                       </span>
                     </span>
+                    {wip && (
+                      <span
+                        className="rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide"
+                        style={{
+                          backgroundColor: "var(--border-primary)",
+                          color: "var(--text-secondary)",
+                        }}
+                      >
+                        WIP
+                      </span>
+                    )}
                   </button>
                 );
               })}
@@ -139,34 +215,84 @@ export function TopBar({ activeRoute, onNavigate, onCompose, onProfileClick }: T
           })}
         </nav>
 
-        <div className="hidden shrink-0 items-center gap-2 md:flex">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           <button
             type="button"
             onClick={() => onNavigate("/explore")}
-            className="flex h-10 w-10 items-center justify-center rounded-full transition-colors hover-overlay"
+            className="hidden h-10 w-10 items-center justify-center rounded-full transition-colors hover-overlay sm:flex"
             aria-label="Search"
             style={{ color: "var(--text-secondary)" }}
           >
             <Search className="h-5 w-5" aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            onClick={onCompose}
-            className="flex h-10 items-center gap-2 rounded-full px-4 text-[14px] font-bold"
-            style={{ backgroundColor: "var(--accent)", color: "#000" }}
-          >
-            <Feather className="h-4 w-4" aria-hidden="true" />
-            Create
-          </button>
+
+          <div className="relative" ref={createMenuRef}>
+            <button
+              type="button"
+              onClick={() => {
+                setCreateMenuOpen((open) => !open);
+                setProductMenuOpen(false);
+              }}
+              className="flex h-10 items-center gap-1.5 rounded-full px-3 text-[14px] font-bold sm:gap-2 sm:px-4"
+              style={{ backgroundColor: "var(--accent)", color: "#000" }}
+              aria-expanded={createMenuOpen}
+              aria-haspopup="menu"
+              aria-label="Create"
+            >
+              <Feather className="h-4 w-4" aria-hidden="true" />
+              <span className="hidden xs:inline sm:inline">Create</span>
+              <ChevronDown className="h-3.5 w-3.5 opacity-80" aria-hidden="true" />
+            </button>
+
+            {createMenuOpen && (
+              <div
+                className="absolute right-0 top-12 w-72 overflow-hidden rounded-xl border shadow-xl"
+                style={{ backgroundColor: "var(--bg-primary)", borderColor: "var(--border-primary)" }}
+                role="menu"
+                aria-label="Create options"
+              >
+                {createMenuItems.map(({ action, label, detail, icon: Icon }) => (
+                  <button
+                    key={action}
+                    type="button"
+                    className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover-overlay"
+                    onClick={() => {
+                      setCreateMenuOpen(false);
+                      onCreateAction(action);
+                    }}
+                    role="menuitem"
+                  >
+                    <span
+                      className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+                      style={{ backgroundColor: "color-mix(in srgb, var(--accent) 16%, transparent)" }}
+                    >
+                      <Icon className="h-4 w-4" style={{ color: "var(--accent)" }} aria-hidden="true" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block text-[15px] font-bold" style={{ color: "var(--text-primary)" }}>
+                        {label}
+                      </span>
+                      <span className="block text-[13px]" style={{ color: "var(--text-secondary)" }}>
+                        {detail}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
           <button
             type="button"
             onClick={() => onNavigate("/settings")}
-            className="flex h-10 w-10 items-center justify-center rounded-full transition-colors hover-overlay"
+            className="hidden h-10 w-10 items-center justify-center rounded-full transition-colors hover-overlay sm:flex"
             aria-label="Settings"
             style={{ color: "var(--text-secondary)" }}
           >
             <Settings className="h-5 w-5" aria-hidden="true" />
           </button>
+
+          {/* Auth always visible (including mobile) — was md:flex only */}
           <AuthControls variant="mobile" onProfile={onProfileClick ?? (() => onNavigate("/profile"))} />
         </div>
       </div>

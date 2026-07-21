@@ -1,18 +1,24 @@
 # Frontend Status
 
-## Current Packet
+## Current track
 
-- Active: Signed-in shell baseline
-- Branch: `feat/heyvera-shell-baseline-clean`
-- Last Pushed Commit: `5ad12e7`
-- Ready for Review: yes
+- **Active:** Social customer-ready waves (see `ROADMAP-SOCIAL.md`)
+- **Branch intent:** `feat/wave0-shell-honesty` (then contract unbreak)
+- **Live surface:** `router.tsx` + `AppShell` + `pages/*` only
+
+## Wave progress
+
+| Wave | Status |
+|------|--------|
+| 0 Integrity & honesty | In progress (shell first) |
+| 1 Core social feel | Pending |
+| 2 Communities E2E | Pending |
+| 3 Pulse + credits wedge | Pending |
+| 4 Media & discovery | Pending |
+| Post-wave backlog (PW-*) | Deferred until waves done — **not forgotten** |
 
 ## Notes
 
-- This clean branch isolates the signed-in shell baseline away from the
-  dirtier mixed frontend/backend branch.
-- `Home` and `Network` are the active implemented regions.
-- `Agent`, `Market`, and `Proof` remain honest placeholders.
-- Next release step is conflict resolution, checks, and PR review.
-- Prefer `npm run status:update -- "Packet N" yes` over hand-editing
-  this file.
+- Dual shell (`App.tsx` / `VeraSocials`) is orphaned — do not grow it.
+- Post-wave items (Live ingest, x402, nested threads, etc.) are listed under
+  **Post-wave backlog** in `ROADMAP-SOCIAL.md` for after Waves 0–3/4.

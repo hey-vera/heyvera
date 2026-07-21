@@ -82,7 +82,7 @@ export function ComposePost({
       <textarea
         className="compose-post-input"
         aria-label="Write a post"
-        placeholder="What's happening on Vera?"
+        placeholder="Share something with the network"
         value={body}
         onChange={(e) => setBody(e.target.value)}
         rows={3}
