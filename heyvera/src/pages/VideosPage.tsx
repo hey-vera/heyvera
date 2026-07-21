@@ -179,7 +179,7 @@ export function VideosPage() {
           type="button"
           disabled
           title="Video upload after image media pipeline is production-ready"
-          className="inline-flex h-10 items-center justify-center gap-2 rounded-full px-4 text-[14px] font-bold opacity-50"
+          className="inline-flex h-10 cursor-not-allowed items-center justify-center gap-2 rounded-full px-4 text-[14px] font-bold opacity-50"
           style={{ backgroundColor: 'var(--accent)', color: '#000' }}
         >
           <Film className="h-4 w-4" aria-hidden="true" />

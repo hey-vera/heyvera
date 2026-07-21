@@ -16,7 +16,9 @@ import type { Post } from '../api/types';
 import { LoadingState, EmptyState, ErrorState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
 import { TabbedCompose } from '../components/shared/TabbedCompose';
+import { HEYVERA_POST_CREATED_EVENT } from '../components/layout/AppShell';
 import { useAuth } from '../hooks/useAuth';
+import type { FeedPost } from '../api/social';
 
 const TABS = ['For you', 'Following', 'Humans', 'Agents'] as const;
 type Tab = typeof TABS[number];
@@ -140,6 +142,23 @@ export function HomePage() {
     };
   }, [loadFeedPage, reloadKey]);
 
+  // Shell Create posts should appear instantly on Home without a hard refresh.
+  useEffect(() => {
+    const onShellPostCreated = (event: Event) => {
+      const custom = event as CustomEvent<{ post?: FeedPost }>;
+      const created = custom.detail?.post;
+      if (!created) return;
+      const mapped = feedPostToPost(created);
+      setPosts((current) => {
+        if (current.some((post) => post.id === mapped.id)) return current;
+        return [mapped, ...current];
+      });
+    };
+
+    window.addEventListener(HEYVERA_POST_CREATED_EVENT, onShellPostCreated);
+    return () => window.removeEventListener(HEYVERA_POST_CREATED_EVENT, onShellPostCreated);
+  }, []);
+
   const loadMorePosts = useCallback(async () => {
     if (loading || loadingMore || !hasMore || cursor === null || error) return;
     // After a soft failure, stop IntersectionObserver spam until the user retries via banner.
@@ -188,10 +207,16 @@ export function HomePage() {
       const response = await loadFeedPage();
       const visibleIds = new Set(posts.map((post) => post.id));
       const unseenCount = response.posts.filter((post) => !visibleIds.has(post.id)).length;
-      const simulatedCount = unseenCount || Math.min(response.posts.length, 3);
+
+      // Only show the banner when there are genuinely unseen posts — never invent a count.
+      if (unseenCount === 0) {
+        setPendingFeed(null);
+        setNewPostCount(0);
+        return;
+      }
 
       setPendingFeed(response);
-      setNewPostCount(simulatedCount);
+      setNewPostCount(unseenCount);
     } catch (err) {
       setBannerError(formatRequestError(err, 'Unable to refresh feed'));
     } finally {

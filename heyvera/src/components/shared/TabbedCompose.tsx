@@ -128,7 +128,7 @@ function PostTab({
         <textarea
           value={content}
           onChange={(event) => onContentChange(event.target.value.slice(0, 280))}
-          placeholder="What's happening?"
+          placeholder="Share something with the network"
           rows={2}
           className="w-full resize-none bg-transparent text-[20px] leading-normal outline-none"
           style={{ color: 'var(--text-primary)' }}
