@@ -530,7 +530,7 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
         <div className="flex flex-col items-center py-12 text-center">
           <p className="text-[15px] font-medium" style={{ color: 'var(--text-primary)' }}>No {filter !== 'all' ? filter : ''} drafts</p>
           <p className="mt-1 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-            Use Hey Vera to create a draft, then approve or publish it here.
+            Use the Draft helper tab to create a draft, then approve or publish it here.
           </p>
         </div>
       ) : (

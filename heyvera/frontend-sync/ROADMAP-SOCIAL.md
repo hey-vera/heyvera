@@ -255,11 +255,11 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 4. Follow Page seam — **done** (brand → `social_page_follows`; agent → owner profile follow; person → profile follow / handle still works)
 5. Honesty: Agents product switcher still WIP; multi-Page is **not** a complete marketplace
 
-### Wave 7 — Soft-realtime + automation depth *(next)*
-1. Soft-poll for DMs (honest when WS missing)
-2. Pulse schedule + goals polish under Automate
-3. Credits ledger MVP if Stripe present
-4. Still **not**: live encoder, x402, ML related video
+### Wave 7 — Soft-realtime + automation depth *(shipping)*
+1. Soft-poll for DMs — **done** (honest “Updating live (poll)” labels)
+2. Pulse Draft helper empty-state honesty — **done**
+3. Premium checkout probe + no ledger honesty — **done**
+4. Still **not**: WS, live encoder, x402, ML related video
 
 ### Wave 8+ (from PW backlog, ordered)
 - Nested thread “show more” pagination · Private guilds/roles · Video shelves · Live ingest · x402 · Kill dual client

@@ -233,6 +233,9 @@ function PremiumMemberView({
           <> Renews on {new Date(status.period_end).toLocaleDateString()}.</>
         ) : null}
       </p>
+      <p className="text-[13px] text-[var(--text-secondary)] mb-5">
+        Credits ledger (remaining automation balance) is not exposed in this environment yet — manage billing in the portal.
+      </p>
       <button
         type="button"
         disabled={managing}
@@ -256,7 +259,11 @@ export function PremiumPage() {
   const [checkoutAvailable, setCheckoutAvailable] = useState<boolean | null>(null);
 
   useEffect(() => {
-    if (!isSignedIn) return;
+    if (!isSignedIn) {
+      setCheckoutAvailable(null);
+      setBillingStatus(null);
+      return;
+    }
 
     setLoadingStatus(true);
     void (async () => {
@@ -265,8 +272,27 @@ export function PremiumPage() {
         if (!token) return;
         const status = await fetchBillingStatus(token);
         setBillingStatus(status);
-        // Probe checkout availability once (no charge) — only mark available on 4xx business errors with stripe up.
-        // If checkout returns 502/503/501/500 about stripe missing, treat as unavailable.
+
+        // Probe checkout once so Unavailable shows before first click when Stripe is down.
+        // Using annual plan as a lightweight probe; no redirect unless user explicitly subscribes.
+        const probe = await startCheckout(token, 'monthly');
+        if (probe.url) {
+          // Do not auto-redirect; session may be single-use. Mark available only.
+          setCheckoutAvailable(true);
+        } else {
+          const msg = (probe.error ?? '').toLowerCase();
+          const stripeMissing =
+            msg.includes('stripe') ||
+            msg.includes('not configured') ||
+            msg.includes('unavailable') ||
+            msg.includes('502') ||
+            msg.includes('503') ||
+            msg.includes('501');
+          setCheckoutAvailable(stripeMissing ? false : true);
+          if (stripeMissing && probe.error) {
+            setPortalError(probe.error);
+          }
+        }
       } finally {
         setLoadingStatus(false);
       }
