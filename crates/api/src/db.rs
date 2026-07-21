@@ -447,6 +447,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 43 {
         migrate_v43(conn);
     }
+    if current < 44 {
+        migrate_v44(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -1526,6 +1529,7 @@ fn ensure_social_tables(conn: &Connection) {
             author_mode TEXT NOT NULL DEFAULT 'person',
             reply_to_post_id TEXT REFERENCES social_posts(id), quote_post_id TEXT REFERENCES social_posts(id),
             community_id TEXT, deleted_at TEXT DEFAULT NULL,
+            view_count INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_social_posts_profile ON social_posts(profile_id);
@@ -2122,6 +2126,35 @@ fn migrate_v43(conn: &Connection) {
     )
     .expect("migration v43 failed creating unique index");
     tracing::info!("applied migration v43: agent_key_hash for linked-agent bearer auth");
+}
+
+fn migrate_v44(conn: &Connection) {
+    // Light view counts on posts (incremented on single-post open).
+    let has_col: bool = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('social_posts') WHERE name='view_count'",
+            [],
+            |r| r.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0;
+    if !has_col {
+        match conn.execute(
+            "ALTER TABLE social_posts ADD COLUMN view_count INTEGER NOT NULL DEFAULT 0",
+            [],
+        ) {
+            Ok(_) => tracing::info!("migration v44: added social_posts.view_count"),
+            Err(e) => {
+                let msg = e.to_string();
+                if !msg.contains("duplicate column") {
+                    panic!("migration v44 failed adding view_count: {e}");
+                }
+            }
+        }
+    }
+    conn.execute_batch("UPDATE schema_version SET version = 44;")
+        .expect("migration v44 failed marking version");
+    tracing::info!("applied migration v44: social_posts.view_count");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -11357,7 +11390,7 @@ impl Database {
         let mut stmt = conn.prepare(
             "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
                     sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
-                    sp.created_at, sp.updated_at,
+                    sp.created_at, sp.updated_at, COALESCE(sp.view_count, 0),
                     p.handle, p.display_name,
                     la.agent_name, la.agent_slug
              FROM social_posts sp
@@ -11366,7 +11399,7 @@ impl Database {
              WHERE sp.id = ?1 AND sp.deleted_at IS NULL"
         ).ok()?;
         let mut post = stmt.query_row([post_id], |row| {
-            let agent_name: Option<String> = row.get(13)?;
+            let agent_name: Option<String> = row.get(14)?;
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
                 "body": row.get::<_, String>(3)?,
@@ -11377,16 +11410,17 @@ impl Database {
                 "quotePostId": row.get::<_, Option<String>>(8)?,
                 "createdAt": row.get::<_, String>(9)?,
                 "updatedAt": row.get::<_, String>(10)?,
+                "viewCount": row.get::<_, i64>(11)?,
                 "author": {
                     "profileId": row.get::<_, String>(1)?,
-                    "handle": row.get::<_, String>(11)?,
-                    "displayName": row.get::<_, String>(12)?,
+                    "handle": row.get::<_, String>(12)?,
+                    "displayName": row.get::<_, String>(13)?,
                 },
                 "linkedAgent": if agent_name.is_some() {
                     serde_json::json!({
                         "id": row.get::<_, Option<String>>(2)?,
                         "agentName": agent_name,
-                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                        "agentSlug": row.get::<_, Option<String>>(15)?,
                     })
                 } else { serde_json::Value::Null },
             }))
@@ -11439,106 +11473,164 @@ impl Database {
         Some(post)
     }
 
+    /// Light view counter: always increments once per call (no anon dedupe).
+    /// Returns the new view_count, or None if the post is missing/deleted.
+    pub fn social_record_post_view(&self, post_id: &str) -> Option<i64> {
+        let conn = self.conn.lock().unwrap();
+        let updated = conn
+            .execute(
+                "UPDATE social_posts SET view_count = COALESCE(view_count, 0) + 1
+                 WHERE id = ?1 AND deleted_at IS NULL",
+                params![post_id],
+            )
+            .unwrap_or(0);
+        if updated == 0 {
+            return None;
+        }
+        conn.query_row(
+            "SELECT COALESCE(view_count, 0) FROM social_posts WHERE id = ?1",
+            params![post_id],
+            |r| r.get(0),
+        )
+        .ok()
+    }
+
+    /// Direct children only (legacy helper). Prefer `social_get_thread_replies` for threads.
     pub fn social_get_post_replies(
         &self,
         post_id: &str,
         viewer_profile_id: Option<&str>,
     ) -> Vec<serde_json::Value> {
+        // Keep direct-child path as depth-1 slice of full thread walk.
+        self.social_get_thread_replies(post_id, viewer_profile_id)
+            .into_iter()
+            .filter(|r| r["replyToPostId"].as_str() == Some(post_id))
+            .collect()
+    }
+
+    /// All descendants under `root_post_id` (flat list), max depth 8, cap 100.
+    /// Each post includes `replyToPostId` so the FE can rebuild a tree.
+    /// Shape matches feed posts (camelCase) so `social_enrich_feed_posts` works.
+    pub fn social_get_thread_replies(
+        &self,
+        root_post_id: &str,
+        _viewer_profile_id: Option<&str>,
+    ) -> Vec<serde_json::Value> {
         let _t = std::time::Instant::now();
+        const MAX_DEPTH: i64 = 8;
+        const MAX_REPLIES: usize = 100;
         let conn = self.conn.lock().unwrap();
 
-        let mut stmt = conn.prepare(
-            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
-                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
-                    sp.created_at, sp.updated_at,
-                    p.handle, p.display_name, p.avatar_url,
-                    la.agent_name, la.agent_slug
-             FROM social_posts sp
-             JOIN social_profiles p ON p.id = sp.profile_id
-             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
-             WHERE sp.reply_to_post_id = ?1 AND sp.deleted_at IS NULL
-             ORDER BY sp.created_at ASC"
-        ).unwrap();
-
-        let rows = stmt.query_map([post_id], |row| {
-            let agent_name: Option<String> = row.get(14)?;
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "body": row.get::<_, String>(3)?,
-                "visibility": row.get::<_, String>(4)?,
-                "proof_state": row.get::<_, String>(5)?,
-                "author_mode": row.get::<_, String>(6)?,
-                "reply_to_post_id": row.get::<_, Option<String>>(7)?,
-                "quote_post_id": row.get::<_, Option<String>>(8)?,
-                "created_at": row.get::<_, String>(9)?,
-                "updated_at": row.get::<_, String>(10)?,
-                "author": {
-                    "profile_id": row.get::<_, String>(1)?,
-                    "handle": row.get::<_, String>(11)?,
-                    "display_name": row.get::<_, String>(12)?,
-                    "avatar_url": row.get::<_, Option<String>>(13)?
-                },
-                "agent": agent_name.map(|name| serde_json::json!({
-                    "name": name,
-                    "slug": row.get::<_, Option<String>>(15).unwrap_or(None)
-                }))
-            }))
-        }).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
-
-        // Add engagement data for each reply
-        let count_likes = |post_id: &str| -> i64 {
-            conn.query_row("SELECT COUNT(*) FROM social_likes WHERE post_id = ?1", [post_id], |r| r.get(0)).unwrap_or(0)
-        };
-        let count_reposts = |post_id: &str| -> i64 {
-            conn.query_row("SELECT COUNT(*) FROM social_reposts WHERE post_id = ?1", [post_id], |r| r.get(0)).unwrap_or(0)
-        };
-        let count_bookmarks = |post_id: &str| -> i64 {
-            conn.query_row("SELECT COUNT(*) FROM social_bookmarks WHERE post_id = ?1", [post_id], |r| r.get(0)).unwrap_or(0)
-        };
-        let count_replies = |post_id: &str| -> i64 {
-            conn.query_row("SELECT COUNT(*) FROM social_posts WHERE reply_to_post_id = ?1 AND deleted_at IS NULL", [post_id], |r| r.get(0)).unwrap_or(0)
-        };
-
-        let results: Vec<serde_json::Value> = rows.into_iter().map(|mut reply| {
-            let reply_id = reply["id"].as_str().unwrap().to_string();
-            let like_count = count_likes(&reply_id);
-            let repost_count = count_reposts(&reply_id);
-            let bookmark_count = count_bookmarks(&reply_id);
-            let reply_count = count_replies(&reply_id);
-
-            if let Some(m) = reply.as_object_mut() {
-                m.insert("likeCount".into(), serde_json::json!(like_count));
-                m.insert("repostCount".into(), serde_json::json!(repost_count));
-                m.insert("bookmarkCount".into(), serde_json::json!(bookmark_count));
-                m.insert("replyCount".into(), serde_json::json!(reply_count));
-
-                if let Some(viewer_id) = viewer_profile_id {
-                    let liked = conn.query_row(
-                        "SELECT 1 FROM social_likes WHERE profile_id = ?1 AND post_id = ?2",
-                        [viewer_id, &reply_id], |_| Ok(())
-                    ).is_ok();
-                    let bookmarked = conn.query_row(
-                        "SELECT 1 FROM social_bookmarks WHERE profile_id = ?1 AND post_id = ?2",
-                        [viewer_id, &reply_id], |_| Ok(())
-                    ).is_ok();
-                    let reposted = conn.query_row(
-                        "SELECT 1 FROM social_reposts WHERE profile_id = ?1 AND post_id = ?2",
-                        [viewer_id, &reply_id], |_| Ok(())
-                    ).is_ok();
-
-                    m.insert("liked".into(), serde_json::json!(liked));
-                    m.insert("bookmarked".into(), serde_json::json!(bookmarked));
-                    m.insert("reposted".into(), serde_json::json!(reposted));
-                } else {
-                    m.insert("liked".into(), serde_json::json!(false));
-                    m.insert("bookmarked".into(), serde_json::json!(false));
-                    m.insert("reposted".into(), serde_json::json!(false));
+        // Iterative BFS: one parent at a time (avoids dynamic IN param packing).
+        let mut ids: Vec<String> = Vec::new();
+        let mut frontier: Vec<String> = vec![root_post_id.to_string()];
+        let mut depth = 0i64;
+        while depth < MAX_DEPTH && !frontier.is_empty() && ids.len() < MAX_REPLIES {
+            let mut next_frontier: Vec<String> = Vec::new();
+            for parent_id in &frontier {
+                if ids.len() >= MAX_REPLIES {
+                    break;
+                }
+                let mut stmt = match conn.prepare(
+                    "SELECT id FROM social_posts
+                     WHERE reply_to_post_id = ?1 AND deleted_at IS NULL
+                     ORDER BY created_at ASC",
+                ) {
+                    Ok(s) => s,
+                    Err(_) => continue,
+                };
+                let children: Vec<String> = stmt
+                    .query_map(params![parent_id], |row| row.get::<_, String>(0))
+                    .ok()
+                    .map(|rows| rows.filter_map(|r| r.ok()).collect())
+                    .unwrap_or_default();
+                for child_id in children {
+                    if ids.len() >= MAX_REPLIES {
+                        break;
+                    }
+                    next_frontier.push(child_id.clone());
+                    ids.push(child_id);
                 }
             }
-            reply
-        }).collect();
+            frontier = next_frontier;
+            depth += 1;
+        }
 
-        tracing::info!(method = "social_get_post_replies", duration_ms = _t.elapsed().as_millis(), row_count = results.len(), "db query");
+        if ids.is_empty() {
+            tracing::info!(
+                method = "social_get_thread_replies",
+                duration_ms = _t.elapsed().as_millis(),
+                row_count = 0,
+                "db query"
+            );
+            return Vec::new();
+        }
+
+        // Fetch full post rows one-by-one, then sort by created_at for stable flat order.
+        let mut results: Vec<serde_json::Value> = Vec::with_capacity(ids.len());
+        for id in &ids {
+            let mut stmt = match conn.prepare(
+                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                        sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                        sp.created_at, sp.updated_at, COALESCE(sp.view_count, 0),
+                        p.handle, p.display_name, p.avatar_url,
+                        la.agent_name, la.agent_slug
+                 FROM social_posts sp
+                 JOIN social_profiles p ON p.id = sp.profile_id
+                 LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
+                 WHERE sp.id = ?1 AND sp.deleted_at IS NULL",
+            ) {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            if let Ok(post) = stmt.query_row(params![id], |row| {
+                let agent_name: Option<String> = row.get(15)?;
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "body": row.get::<_, String>(3)?,
+                    "visibility": row.get::<_, String>(4)?,
+                    "proofState": row.get::<_, String>(5)?,
+                    "authorMode": row.get::<_, String>(6)?,
+                    "replyToPostId": row.get::<_, Option<String>>(7)?,
+                    "quotePostId": row.get::<_, Option<String>>(8)?,
+                    "createdAt": row.get::<_, String>(9)?,
+                    "updatedAt": row.get::<_, String>(10)?,
+                    "viewCount": row.get::<_, i64>(11)?,
+                    "author": {
+                        "profileId": row.get::<_, String>(1)?,
+                        "handle": row.get::<_, String>(12)?,
+                        "displayName": row.get::<_, String>(13)?,
+                        "avatar_url": row.get::<_, Option<String>>(14)?,
+                    },
+                    "linkedAgent": if agent_name.is_some() {
+                        serde_json::json!({
+                            "id": row.get::<_, Option<String>>(2)?,
+                            "agentName": agent_name,
+                            "agentSlug": row.get::<_, Option<String>>(16)?,
+                        })
+                    } else {
+                        serde_json::Value::Null
+                    },
+                }))
+            }) {
+                results.push(post);
+            }
+        }
+
+        results.sort_by(|a, b| {
+            let ca = a["createdAt"].as_str().unwrap_or("");
+            let cb = b["createdAt"].as_str().unwrap_or("");
+            ca.cmp(cb).then_with(|| {
+                a["id"].as_str().unwrap_or("").cmp(b["id"].as_str().unwrap_or(""))
+            })
+        });
+
+        tracing::info!(
+            method = "social_get_thread_replies",
+            duration_ms = _t.elapsed().as_millis(),
+            row_count = results.len(),
+            "db query"
+        );
         results
     }
 
@@ -11575,11 +11667,20 @@ impl Database {
                 "SELECT avatar_url FROM social_profiles WHERE id = ?1", [&profile_id_str], |r| r.get(0),
             ).unwrap_or(None);
 
+            let view_count: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(view_count, 0) FROM social_posts WHERE id = ?1",
+                    [&post_id],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+
             if let Some(m) = post.as_object_mut() {
                 m.insert("likeCount".into(), serde_json::json!(like_count));
                 m.insert("repostCount".into(), serde_json::json!(repost_count));
                 m.insert("bookmarkCount".into(), serde_json::json!(bookmark_count));
                 m.insert("replyCount".into(), serde_json::json!(reply_count));
+                m.insert("viewCount".into(), serde_json::json!(view_count));
 
                 // Inject avatar_url into author
                 if let Some(author) = m.get_mut("author").and_then(|a| a.as_object_mut()) {
@@ -12761,8 +12862,104 @@ impl Database {
     }
 
     /// Create a conversation with the given participant profile IDs.
+    /// For exactly 2 participants (1:1 DM), return an existing conversation with the same
+    /// pair instead of creating a duplicate.
     pub fn social_create_conversation(&self, participant_profile_ids: &[String]) -> serde_json::Value {
         let conn = self.conn.lock().unwrap();
+
+        // Dedupe 1:1 DMs: same set of 2 profiles → reuse existing conversation.
+        if participant_profile_ids.len() == 2 {
+            let a = &participant_profile_ids[0];
+            let b = &participant_profile_ids[1];
+            if a != b {
+                let existing: Option<String> = conn
+                    .query_row(
+                        "SELECT cp1.conversation_id
+                         FROM social_conversation_participants cp1
+                         JOIN social_conversation_participants cp2
+                           ON cp2.conversation_id = cp1.conversation_id
+                         WHERE cp1.profile_id = ?1 AND cp2.profile_id = ?2
+                           AND (
+                             SELECT COUNT(*) FROM social_conversation_participants cpx
+                             WHERE cpx.conversation_id = cp1.conversation_id
+                           ) = 2
+                         LIMIT 1",
+                        params![a, b],
+                        |r| r.get(0),
+                    )
+                    .ok();
+
+                if let Some(conv_id) = existing {
+                    let mut part_stmt = conn
+                        .prepare(
+                            "SELECT p.id, p.handle, p.display_name, p.avatar_url
+                             FROM social_conversation_participants cp
+                             JOIN social_profiles p ON p.id = cp.profile_id
+                             WHERE cp.conversation_id = ?1",
+                        )
+                        .unwrap();
+                    let participants: Vec<serde_json::Value> = part_stmt
+                        .query_map(params![conv_id], |row| {
+                            Ok(serde_json::json!({
+                                "id": row.get::<_, String>(0)?,
+                                "display_name": row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                                "handle": row.get::<_, String>(1)?,
+                                "avatar_url": row.get::<_, Option<String>>(3)?,
+                                "verified": false,
+                            }))
+                        })
+                        .unwrap()
+                        .filter_map(|r| r.ok())
+                        .collect();
+
+                    let last_message: Option<serde_json::Value> = conn
+                        .query_row(
+                            "SELECT m.id, m.sender_profile_id, m.content, m.created_at, m.read,
+                                    p.handle, p.display_name, p.avatar_url
+                             FROM social_messages m
+                             JOIN social_profiles p ON p.id = m.sender_profile_id
+                             WHERE m.conversation_id = ?1
+                             ORDER BY m.created_at DESC
+                             LIMIT 1",
+                            params![conv_id],
+                            |row| {
+                                Ok(serde_json::json!({
+                                    "id": row.get::<_, String>(0)?,
+                                    "sender": {
+                                        "id": row.get::<_, String>(1)?,
+                                        "handle": row.get::<_, String>(5)?,
+                                        "display_name": row.get::<_, Option<String>>(6)?.unwrap_or_default(),
+                                        "avatar_url": row.get::<_, Option<String>>(7)?,
+                                        "verified": false,
+                                    },
+                                    "content": row.get::<_, String>(2)?,
+                                    "created_at": row.get::<_, String>(3)?,
+                                    "read": row.get::<_, i64>(4)? == 1,
+                                }))
+                            },
+                        )
+                        .ok();
+
+                    let unread_count: i64 = conn
+                        .query_row(
+                            "SELECT COUNT(*) FROM social_messages
+                             WHERE conversation_id = ?1 AND read = 0",
+                            params![conv_id],
+                            |r| r.get(0),
+                        )
+                        .unwrap_or(0);
+
+                    return serde_json::json!({
+                        "id": conv_id,
+                        "participants": participants,
+                        "last_message": last_message,
+                        "unread_count": unread_count,
+                        "pinned": false,
+                    });
+                }
+            }
+        }
+
         let conv_id = Uuid::new_v4().to_string();
 
         conn.execute(
@@ -16455,5 +16652,89 @@ mod tests {
             .pulse_update_draft_status(draft_id, profile_id, "approved")
             .expect("approve");
         assert_eq!(approved["status"], "approved");
+    }
+
+    #[test]
+    fn social_thread_replies_include_nested_descendants() {
+        let db = test_db();
+        let alice = db.social_create_profile("clerk_thread_a", "threada", "Alice", "");
+        let bob = db.social_create_profile("clerk_thread_b", "threadb", "Bob", "");
+        let carol = db.social_create_profile("clerk_thread_c", "threadc", "Carol", "");
+        let alice_id = alice["id"].as_str().unwrap();
+        let bob_id = bob["id"].as_str().unwrap();
+        let carol_id = carol["id"].as_str().unwrap();
+
+        let root = db.social_create_post(alice_id, "root", "public", "person", None, None, None, None);
+        let root_id = root["id"].as_str().unwrap().to_string();
+        let r1 = db.social_create_post(
+            bob_id,
+            "direct reply",
+            "public",
+            "person",
+            None,
+            Some(&root_id),
+            None,
+            None,
+        );
+        let r1_id = r1["id"].as_str().unwrap().to_string();
+        let r2 = db.social_create_post(
+            carol_id,
+            "nested reply",
+            "public",
+            "person",
+            None,
+            Some(&r1_id),
+            None,
+            None,
+        );
+        let r2_id = r2["id"].as_str().unwrap().to_string();
+
+        let thread = db.social_get_thread_replies(&root_id, None);
+        assert_eq!(thread.len(), 2);
+        let ids: Vec<&str> = thread.iter().filter_map(|p| p["id"].as_str()).collect();
+        assert!(ids.contains(&r1_id.as_str()));
+        assert!(ids.contains(&r2_id.as_str()));
+        let nested = thread.iter().find(|p| p["id"] == r2_id).unwrap();
+        assert_eq!(nested["replyToPostId"].as_str(), Some(r1_id.as_str()));
+        assert_eq!(nested["body"], "nested reply");
+        // camelCase shape for FE
+        assert!(nested["author"]["profileId"].as_str().is_some());
+        assert!(nested["createdAt"].as_str().is_some());
+    }
+
+    #[test]
+    fn social_record_post_view_increments() {
+        let db = test_db();
+        let p = db.social_create_profile("clerk_views", "viewuser", "Viewer", "");
+        let pid = p["id"].as_str().unwrap();
+        let post = db.social_create_post(pid, "watch me", "public", "person", None, None, None, None);
+        let post_id = post["id"].as_str().unwrap();
+
+        let got = db.social_get_post_by_id(post_id, None).unwrap();
+        assert_eq!(got["viewCount"].as_i64(), Some(0));
+
+        assert_eq!(db.social_record_post_view(post_id), Some(1));
+        assert_eq!(db.social_record_post_view(post_id), Some(2));
+
+        let after = db.social_get_post_by_id(post_id, None).unwrap();
+        assert_eq!(after["viewCount"].as_i64(), Some(2));
+    }
+
+    #[test]
+    fn social_create_conversation_dedupes_one_to_one() {
+        let db = test_db();
+        let a = db.social_create_profile("clerk_dm_a", "dma", "A", "");
+        let b = db.social_create_profile("clerk_dm_b", "dmb", "B", "");
+        let a_id = a["id"].as_str().unwrap().to_string();
+        let b_id = b["id"].as_str().unwrap().to_string();
+
+        let c1 = db.social_create_conversation(&[a_id.clone(), b_id.clone()]);
+        let c2 = db.social_create_conversation(&[b_id.clone(), a_id.clone()]);
+        assert_eq!(c1["id"], c2["id"], "same 1:1 pair should reuse conversation");
+
+        let c = db.social_create_profile("clerk_dm_c", "dmc", "C", "");
+        let c_id = c["id"].as_str().unwrap().to_string();
+        let group = db.social_create_conversation(&[a_id.clone(), b_id.clone(), c_id]);
+        assert_ne!(group["id"], c1["id"], "3-party conversation is distinct");
     }
 }

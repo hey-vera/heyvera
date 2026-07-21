@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { bookmarkPost, createPost, feedPostToPost, fetchMyProfile, fetchSinglePost, likePost, repostPost, unbookmarkPost, unlikePost, unrepostPost } from '../api/social';
@@ -7,6 +7,11 @@ import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
+import {
+  buildReplyTree,
+  flattenTreeForRender,
+  parentHandleFor,
+} from '../utils/threadTree';
 
 export function PostThreadPage() {
   const { id } = useParams<{ id: string }>();
@@ -17,6 +22,7 @@ export function PostThreadPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const [replyTargetId, setReplyTargetId] = useState<string | null>(null);
 
   const softRefreshCounts = () => setReloadKey((key) => key + 1);
 
@@ -24,13 +30,24 @@ export function PostThreadPage() {
     const mapped = feedPostToPost(created);
     setReplies((current) => {
       if (current.some((r) => r.id === mapped.id)) return current;
-      return [...current, mapped];
+      const next = [...current, mapped];
+      // Bump parent reply_count when replying to a nested post.
+      const parentId = mapped.reply_to;
+      if (parentId && parentId !== id) {
+        return next.map((r) =>
+          r.id === parentId
+            ? { ...r, reply_count: Math.max(0, (r.reply_count ?? 0) + 1) }
+            : r,
+        );
+      }
+      return next;
     });
     setPost((current) =>
       current
         ? { ...current, reply_count: Math.max(0, (current.reply_count ?? 0) + 1) }
         : current,
     );
+    setReplyTargetId(null);
   };
 
   useEffect(() => {
@@ -50,13 +67,13 @@ export function PostThreadPage() {
       try {
         const response = await fetchSinglePost(id);
         const postResponse = feedPostToPost(response.post);
-        const directReplies = response.replies
-          .map(feedPostToPost)
-          .sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        // Flat descendant list from BE; tree built client-side.
+        const allReplies = response.replies.map(feedPostToPost);
 
         if (!cancelled) {
           setPost(postResponse);
-          setReplies(directReplies);
+          setReplies(allReplies);
+          setReplyTargetId(null);
         }
       } catch (err) {
         if (!cancelled) {
@@ -74,6 +91,18 @@ export function PostThreadPage() {
       cancelled = true;
     };
   }, [id, reloadKey]);
+
+  const repliesById = useMemo(() => {
+    const map = new Map<string, Post>();
+    for (const r of replies) map.set(r.id, r);
+    return map;
+  }, [replies]);
+
+  const flattenedReplies = useMemo(() => {
+    if (!id || replies.length === 0) return [];
+    const tree = buildReplyTree(replies, id);
+    return flattenTreeForRender(tree);
+  }, [id, replies]);
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
@@ -100,13 +129,14 @@ export function PostThreadPage() {
       {!loading && !error && !post && (
         <EmptyState title="Post not found" detail="This post may have been deleted or is no longer available." />
       )}
-      {!loading && !error && post && (
+      {!loading && !error && post && id && (
         <section aria-label="Post thread">
           <ThreadPost
             post={post}
             hasConnector={replies.length > 0}
             onReplyPosted={softRefreshCounts}
           />
+          {/* Root-level compose always available (targets root post). */}
           <InlineReplyCompose
             postId={post.id}
             authorHandle={post.author.handle}
@@ -115,14 +145,48 @@ export function PostThreadPage() {
             getToken={getToken}
             onReplyCreated={appendOptimisticReply}
           />
-          {replies.length > 0 ? (
-            replies.map((reply, index) => (
-              <ThreadReply
-                key={reply.id}
-                post={reply}
-                isLast={index === replies.length - 1}
-              />
-            ))
+          {flattenedReplies.length > 0 ? (
+            flattenedReplies.map((item) => {
+              const parentHandle = parentHandleFor(
+                item.post.reply_to,
+                id,
+                post.author.handle,
+                repliesById,
+              );
+              const showReplyingTo =
+                Boolean(item.post.reply_to) && item.post.reply_to !== id && parentHandle;
+
+              return (
+                <div key={item.post.id}>
+                  <ThreadReply
+                    post={item.post}
+                    visualDepth={item.visualDepth}
+                    isLast={item.isLastSibling}
+                    replyingToHandle={showReplyingTo ? parentHandle : null}
+                    onReplyPosted={() => {
+                      // PostCard modal reply → soft reload to pick up nested placement.
+                      softRefreshCounts();
+                    }}
+                    onFocusInlineReply={() =>
+                      setReplyTargetId((cur) => (cur === item.post.id ? null : item.post.id))
+                    }
+                  />
+                  {replyTargetId === item.post.id && (
+                    <div style={{ paddingLeft: `${Math.min(item.visualDepth + 1, 4) * 12}px` }}>
+                      <InlineReplyCompose
+                        postId={item.post.id}
+                        authorHandle={item.post.author.handle}
+                        authEnabled={authEnabled}
+                        isSignedIn={isSignedIn}
+                        getToken={getToken}
+                        onReplyCreated={appendOptimisticReply}
+                        onCancel={() => setReplyTargetId(null)}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })
           ) : (
             <EmptyState title="No replies yet" detail="Replies to this post will appear here." />
           )}
@@ -142,7 +206,11 @@ interface ThreadPostProps {
 
 interface ThreadReplyProps {
   post: Post;
+  visualDepth: number;
   isLast: boolean;
+  replyingToHandle: string | null;
+  onReplyPosted: () => void;
+  onFocusInlineReply: () => void;
 }
 
 function ThreadPost({ post, hasConnector, onReplyPosted }: ThreadPostProps) {
@@ -160,11 +228,46 @@ function ThreadPost({ post, hasConnector, onReplyPosted }: ThreadPostProps) {
   );
 }
 
-function ThreadReply({ post, isLast }: ThreadReplyProps) {
+function ThreadReply({
+  post,
+  visualDepth,
+  isLast,
+  replyingToHandle,
+  onReplyPosted,
+  onFocusInlineReply,
+}: ThreadReplyProps) {
+  const pad = visualDepth * 12;
   return (
-    <div className="relative">
-      <ConnectorLine className={isLast ? 'top-0 h-9' : 'top-0 bottom-0'} />
-      <PostCard post={post} onLike={handleLike} onRepost={handleRepost} onBookmark={handleBookmark} />
+    <div className="relative" style={{ paddingLeft: `${pad}px` }}>
+      {visualDepth === 0 && (
+        <ConnectorLine className={isLast ? 'top-0 h-9' : 'top-0 bottom-0'} />
+      )}
+      {replyingToHandle && (
+        <div
+          className="px-4 pt-2 text-[13px]"
+          style={{ color: 'var(--text-secondary)' }}
+        >
+          Replying to <span style={{ color: 'var(--accent)' }}>@{replyingToHandle}</span>
+        </div>
+      )}
+      {/* Inline target control — PostCard also has modal reply; both valid. */}
+      <div className="flex justify-end px-4 pt-1">
+        <button
+          type="button"
+          className="text-[12px] font-medium"
+          style={{ color: 'var(--accent)' }}
+          onClick={onFocusInlineReply}
+        >
+          Reply here
+        </button>
+      </div>
+      <PostCard
+        post={post}
+        onLike={handleLike}
+        onRepost={handleRepost}
+        onBookmark={handleBookmark}
+        onReply={onReplyPosted}
+      />
     </div>
   );
 }
@@ -190,6 +293,7 @@ function InlineReplyCompose({
   isSignedIn,
   getToken,
   onReplyCreated,
+  onCancel,
 }: {
   postId: string;
   authorHandle: string;
@@ -197,6 +301,7 @@ function InlineReplyCompose({
   isSignedIn: boolean;
   getToken: () => Promise<string | null>;
   onReplyCreated: (created: FeedPost) => void;
+  onCancel?: () => void;
 }) {
   const [text, setText] = useState('');
   const [posting, setPosting] = useState(false);
@@ -216,7 +321,7 @@ function InlineReplyCompose({
       await fetchMyProfile(token);
       const result = await createPost(token, { body: text.trim(), replyToPostId: postId });
       setText('');
-      // Append immediately — no full thread reload required.
+      // Append immediately under the correct parent via replyToPostId.
       onReplyCreated(result.post);
     } catch (e) {
       const msg = e instanceof Error ? e.message.toLowerCase() : '';
@@ -235,8 +340,20 @@ function InlineReplyCompose({
       className="border-b px-4 py-3"
       style={{ borderColor: 'var(--border-primary)' }}
     >
-      <div className="text-[13px] mb-2" style={{ color: 'var(--text-secondary)' }}>
-        Replying to <span style={{ color: 'var(--accent)' }}>@{authorHandle}</span>
+      <div className="flex items-center justify-between text-[13px] mb-2" style={{ color: 'var(--text-secondary)' }}>
+        <span>
+          Replying to <span style={{ color: 'var(--accent)' }}>@{authorHandle}</span>
+        </span>
+        {onCancel && (
+          <button
+            type="button"
+            className="text-[13px] font-medium"
+            style={{ color: 'var(--text-secondary)' }}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        )}
       </div>
       <div className="flex gap-3">
         <textarea

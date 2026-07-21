@@ -1,10 +1,10 @@
 # HeyVera Social Roadmap (active)
 
-**Status:** Full-ship track — Waves 0–4 + Page model  
+**Status:** Full-ship track — Waves 0–5 + Page model  
 **Grounded:** 2026-07-21  
 **Live entry:** `heyvera/src/main.tsx` → `router.tsx` → `AppShell` / `pages/*`  
 **Do not grow:** orphaned `App.tsx` / `VeraSocials` dual shell  
-**Main tip note:** Wave 0 shell honesty landed (#345)
+**Main tip note:** Wave 0 shell honesty landed (#345); Wave 5 on `feat/wave5-threads-views-dm`
 
 ---
 
@@ -142,7 +142,7 @@ Steward (Clerk user)
 
 | ID | Item |
 |----|------|
-| PW-1 | Nested threads |
+| PW-1 | Nested threads — **Wave 5 done** (flat tree + depth UI) |
 | PW-2 | Realtime DMs (WS) |
 | PW-3 | Live encoder ingest under Page |
 | PW-4 | Video shelves / playlists under Page |
@@ -184,6 +184,7 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-21 | Wave 0B | Contract unbreak (FE+BE) on `feat/wave0-contract-unbreak` |
 | 2026-07-21 | #346 | Wave 0 contract unbreak merged to main |
 | 2026-07-21 | Waves 1–4 | Ship branch `feat/waves-1-4-social` (DM, follow lists, guilds, Pulse/Premium, Explore/Live honesty) |
+| 2026-07-21 | Wave 5 | Nested threads + view_count + 1:1 DM dedupe on `feat/wave5-threads-views-dm` |
 
 ### Waves 1–4 implemented (2026-07-21)
 
@@ -209,7 +210,60 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 - **Page-scoped content note:** v1 stores posts/guilds/follows under `profile_id` (= person Page 1:1). No schema migration in this wave; multi-Page is later (PW-17).
 
 ### Remaining gaps
-- Realtime WS DMs; nested threads; view_count recording
+- Realtime WS DMs
 - Multi-Page switcher UI; full credits ledger
 - Stripe may be unset in local/dev — Premium CTA correctly fails soft
 - Video/live ingest still shell-only
+- View count is light (no per-viewer dedupe / anon hashing)
+
+---
+
+## Wave 5 — Nested threads, views, DM dedupe (2026-07-21)
+
+**Branch:** `feat/wave5-threads-views-dm`
+
+### Backend (`crates/api`)
+1. **Thread descendants** — `social_get_thread_replies(root, viewer)` walks replies max depth 8, cap 100; `GET /v1/social/posts/{id}` returns full flat `replies` with `replyToPostId`.
+2. **View counts** — migration v44 `social_posts.view_count`; `social_record_post_view` on single-post open; `viewCount` on post JSON + feed enrich.
+3. **DM dedupe** — `social_create_conversation` reuses existing 1:1 conversation for the same two profiles.
+
+### Frontend (`heyvera/src`)
+1. **`utils/threadTree.ts`** — `buildReplyTree`, `flattenTreeForRender` (visual depth cap 4).
+2. **`PostThreadPage`** — nested indent, “Replying to @x” for non-root parents, inline compose under branch, optimistic append into correct parent.
+3. **Views** — `feedPostToPost` already maps `viewCount`; PostCard hides zeros.
+
+### Tests
+- `threadTree.test.ts`, existing `feedPostToPost` viewCount cases, BE unit tests for thread/views/DM dedupe.
+
+---
+
+## Next waves (after 0–5 on main)
+
+### Wave 5 — Threads, views, DM integrity *(active)*
+1. Nested reply tree under a root post (depth-aware UI, max visual depth ~4)
+2. Light `viewCount` increment on single-post open; show when &gt; 0
+3. 1:1 DM conversation dedupe (reuse existing thread)
+4. Reply-to-reply compose + “Replying to @handle”
+
+### Wave 6 — Page multi-surface foundation
+1. Schema/API for Page kinds beyond 1:1 person profile
+2. Active Page selector in Create (person default)
+3. Agent Pages linked as publish actors
+4. Follow Page (not only profile alias)
+
+### Wave 7 — Soft-realtime + automation depth
+1. Soft-poll / optional WS for DMs (honest when WS missing)
+2. Pulse schedule + goals polish under Automate
+3. Credits ledger MVP if Stripe present
+4. Still **not**: live encoder, x402, ML related video
+
+### Wave 8+ (from PW backlog, ordered)
+- Nested thread “show more” pagination · Private guilds/roles · Video shelves · Live ingest · x402 · Kill dual client
+
+| ID | Item | Target wave |
+|----|------|-------------|
+| PW-1 | Nested threads | **Wave 5** |
+| PW-2 | Realtime DMs (WS) | Wave 7 |
+| PW-14 | Views (honest, not vanity) | **Wave 5** (light) |
+| PW-17 | Multi-Page switcher | Wave 6 |
+| PW-3–PW-8, PW-12… | Live/x402/etc. | Wave 8+ |
