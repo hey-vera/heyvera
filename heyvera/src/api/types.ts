@@ -16,6 +16,12 @@ export interface Post {
   reposted: boolean;
   reply_to?: string;
   quote_post?: Post;
+  /** Present when the post was authored with a linked agent Page. */
+  linked_agent?: {
+    id: string;
+    agent_name: string;
+    agent_slug: string;
+  };
 }
 
 export interface UserSummary {

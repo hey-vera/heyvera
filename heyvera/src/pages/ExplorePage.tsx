@@ -17,8 +17,14 @@ import { EmptyState, ErrorState, LoadingState } from '../components/shared/Async
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
 
-const TABS = ['For you', 'Trending', 'News', 'Tech', 'AI'] as const;
-type Tab = typeof TABS[number];
+/** Real filters that map to search type or a query seed — no decorative dead tabs. */
+const FILTERS = [
+  { id: 'all', label: 'All', searchType: 'all' as const, querySeed: null as string | null },
+  { id: 'people', label: 'People', searchType: 'profiles' as const, querySeed: null },
+  { id: 'posts', label: 'Posts', searchType: 'posts' as const, querySeed: null },
+  { id: 'trending', label: 'Trending', searchType: 'all' as const, querySeed: null },
+] as const;
+type FilterId = (typeof FILTERS)[number]['id'];
 
 type TrendingItem = { tag: string; postCount: number };
 type ProfileItem = { id: string; handle: string; displayName: string; avatarUrl: string | null; bio: string };
@@ -43,7 +49,10 @@ export function ExplorePage() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQuery = searchParams.get('q') ?? '';
-  const [activeTab, setActiveTab] = useState<Tab>('For you');
+  const initialFilter = (searchParams.get('filter') as FilterId | null) ?? 'all';
+  const [activeFilter, setActiveFilter] = useState<FilterId>(
+    FILTERS.some((f) => f.id === initialFilter) ? initialFilter : 'all',
+  );
   const [query, setQuery] = useState(initialQuery);
   const [debouncedQuery, setDebouncedQuery] = useState(initialQuery);
   const [trending, setTrending] = useState<TrendingItem[]>([]);
@@ -54,19 +63,19 @@ export function ExplorePage() {
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const trimmedQuery = debouncedQuery.trim();
   const isSearching = trimmedQuery.length > 0;
+  const filterMeta = FILTERS.find((f) => f.id === activeFilter) ?? FILTERS[0];
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(() => {
       setDebouncedQuery(query);
-      if (query.trim()) {
-        setSearchParams({ q: query.trim() }, { replace: true });
-      } else {
-        setSearchParams({}, { replace: true });
-      }
+      const next: Record<string, string> = {};
+      if (query.trim()) next.q = query.trim();
+      if (activeFilter !== 'all') next.filter = activeFilter;
+      setSearchParams(next, { replace: true });
     }, 300);
     return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
-  }, [query, setSearchParams]);
+  }, [query, activeFilter, setSearchParams]);
 
   useEffect(() => {
     let cancelled = false;
@@ -75,17 +84,26 @@ export function ExplorePage() {
       setLoading(true);
       setError(null);
       try {
+        // Trending filter always loads trends when there is no query.
+        if (!trimmedQuery || activeFilter === 'trending') {
+          if (!trimmedQuery) {
+            const result = await fetchTrending();
+            if (!cancelled) {
+              setTrending(result.topics);
+              setSearchResults(EMPTY_SEARCH_RESULTS);
+            }
+            return;
+          }
+        }
+
         if (trimmedQuery) {
-          const result = await searchSocial(trimmedQuery);
+          const result = await searchSocial(trimmedQuery, filterMeta.searchType);
           if (!cancelled) {
             setSearchResults({
               posts: result.posts.map(feedPostToPost),
               profiles: result.profiles,
             });
           }
-        } else {
-          const result = await fetchTrending();
-          if (!cancelled) setTrending(result.topics);
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load explore data');
@@ -98,11 +116,13 @@ export function ExplorePage() {
     return () => {
       cancelled = true;
     };
-  }, [authEnabled, isSignedIn, reloadKey, trimmedQuery]);
+  }, [authEnabled, isSignedIn, reloadKey, trimmedQuery, activeFilter, filterMeta.searchType]);
 
   const hasSearchResults =
     searchResults.posts.length > 0 ||
     searchResults.profiles.length > 0;
+
+  const showTrends = !isSearching || activeFilter === 'trending';
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
@@ -125,17 +145,17 @@ export function ExplorePage() {
       </div>
 
       <div className="flex overflow-x-auto border-b" style={{ borderColor: 'var(--border-primary)' }}>
-        {TABS.map((tab) => (
+        {FILTERS.map((tab) => (
           <button
-            key={tab}
+            key={tab.id}
             type="button"
-            onClick={() => setActiveTab(tab)}
+            onClick={() => setActiveFilter(tab.id)}
             className="flex-shrink-0 px-5 py-4 text-[15px] font-medium transition-colors hover:bg-[color:color-mix(in_srgb,var(--text-primary)_5%,transparent)]"
-            style={{ color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+            style={{ color: activeFilter === tab.id ? 'var(--text-primary)' : 'var(--text-secondary)' }}
           >
             <span className="relative inline-block">
-              {tab}
-              {activeTab === tab && (
+              {tab.label}
+              {activeFilter === tab.id && (
                 <span className="absolute -bottom-[17px] left-0 right-0 h-[4px] rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
               )}
             </span>
@@ -144,9 +164,15 @@ export function ExplorePage() {
       </div>
 
       {loading && <LoadingState label={isSearching ? 'Searching' : 'Loading trends'} />}
-      {!loading && error && <ErrorState detail={error} onRetry={() => setReloadKey((key) => key + 1)} />}
+      {!loading && error && (
+        <ErrorState
+          title="Search unavailable"
+          detail={error}
+          onRetry={() => setReloadKey((key) => key + 1)}
+        />
+      )}
 
-      {!loading && !error && !isSearching && (
+      {!loading && !error && showTrends && !isSearching && (
         <section className="mx-4 mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
           <h2 className="px-4 pb-2 pt-4 text-[20px] font-bold">Trending</h2>
           {trending.length === 0 && <EmptyState title="No trends yet" />}
@@ -156,7 +182,10 @@ export function ExplorePage() {
               type="button"
               className="w-full px-4 py-3 text-left transition-colors hover:bg-[color:color-mix(in_srgb,var(--text-primary)_5%,transparent)]"
               style={{ borderBottom: index < trending.length - 1 ? '1px solid var(--border-primary)' : undefined }}
-              onClick={() => setQuery(item.tag)}
+              onClick={() => {
+                setActiveFilter('all');
+                setQuery(item.tag);
+              }}
             >
               <p className="mb-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>Trending</p>
               <p className="text-[15px] font-bold leading-tight">{item.tag}</p>
@@ -172,7 +201,7 @@ export function ExplorePage() {
 
       {!loading && !error && isSearching && hasSearchResults && (
         <div>
-          {searchResults.profiles.length > 0 && (
+          {searchResults.profiles.length > 0 && filterMeta.searchType !== 'posts' && (
             <SearchSection title="People">
               {searchResults.profiles.map((profile, index) => (
                 <UserRow key={profile.id} user={profile} showBorder={index < searchResults.profiles.length - 1} onNavigate={(handle) => navigate(`/profile/${handle}`)} />
@@ -180,7 +209,7 @@ export function ExplorePage() {
             </SearchSection>
           )}
 
-          {searchResults.posts.length > 0 && (
+          {searchResults.posts.length > 0 && filterMeta.searchType !== 'profiles' && (
             <section className="border-t" style={{ borderColor: 'var(--border-primary)' }}>
               <h2 className="px-4 pb-2 pt-4 text-[20px] font-bold">Posts</h2>
               {searchResults.posts.map((post) => (

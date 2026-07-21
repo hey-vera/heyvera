@@ -19,7 +19,8 @@ type VideoItem = {
   duration: string;
   category: string;
   tags: string[];
-  state?: 'live' | 'scheduled' | 'archive';
+  /** Preview shells only — never claim live stream until ingest exists. */
+  state?: 'preview' | 'scheduled' | 'archive';
   description: string;
 };
 
@@ -81,11 +82,11 @@ const VIDEOS: VideoItem[] = [
     title: 'Live room layout test with comments beside the player',
     channel: 'Live Systems',
     age: 'Preview',
-    duration: 'Live slot',
+    duration: 'Soon',
     category: 'Live',
     tags: ['#live', '#comments', '#schedule'],
-    state: 'scheduled',
-    description: 'A future room model for live video and live comments.',
+    state: 'preview',
+    description: 'A future room model for live video and live comments. Not broadcasting.',
   },
   {
     id: 'v6',
@@ -131,9 +132,15 @@ function Thumbnail({ item, large = false }: { item: VideoItem; large?: boolean }
       >
         {item.duration}
       </span>
-      {item.state === 'scheduled' && (
-        <span className="absolute left-2 top-2 px-2 py-1 text-[12px] font-bold" style={{ backgroundColor: 'var(--accent)', color: '#000' }}>
-          Scheduled
+      {(item.state === 'scheduled' || item.state === 'preview') && (
+        <span
+          className="absolute left-2 top-2 px-2 py-1 text-[12px] font-bold"
+          style={{
+            backgroundColor: 'var(--border-primary)',
+            color: 'var(--text-secondary)',
+          }}
+        >
+          {item.state === 'scheduled' ? 'Soon' : 'Preview'}
         </span>
       )}
     </div>
@@ -172,7 +179,8 @@ export function VideosPage() {
           </div>
           <h1 className="text-[28px] font-black leading-tight sm:text-[34px]">Watch</h1>
           <p className="mt-1 max-w-2xl text-[15px]" style={{ color: 'var(--text-secondary)' }}>
-            Unique watch surface shell — layout is live; full upload/transcode pipeline is not shipping yet.
+            Preview / Soon only — layout shell is ready; upload, transcode, and live ingest are not shipping yet.
+            Content will be scoped to the active Page (person profile today).
           </p>
         </div>
         <button

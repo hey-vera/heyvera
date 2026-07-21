@@ -105,36 +105,36 @@ Steward (Clerk user)
 12. **Page model docs + 1:1 profile=page mapping** (this file)
 
 ### Wave 1 — Core social feel
-1. Optimistic thread replies + reply_count  
-2. Thread UX (flat depth OK; nest later)  
-3. Start DM from profile (Page)  
-4. Followers / following lists  
-5. Notifs deep links + unread badge + mark-read  
-6. Quote mapping  
-7. Views: hide until real **or** light record on Page content  
+1. Optimistic thread replies + reply_count — **done**  
+2. Thread UX (flat depth OK; nest later) — **done (flat)**  
+3. Start DM from profile (Page) — **done**  
+4. Followers / following lists — **done**  
+5. Notifs deep links + unread badge + mark-read — **done**  
+6. Quote mapping — **partial / feed-dependent**  
+7. Views: hide when zero — **done** (no vanity zeros)
 
 ### Wave 2 — Guilds that work (Page-owned)
-1. BE create guild + mine  
-2. Join/leave/feed by slug or id  
-3. `communityId` / guild id on create post  
-4. Live Create CTA + server membership  
-5. Members list  
-6. Owner = creating Page (person default)
+1. BE create guild + mine — **done (#346 + Waves 1–4)**  
+2. Join/leave/feed by slug or id — **done**  
+3. `communityId` on create post — **done** (compose guild picker)  
+4. Live Create CTA + server membership — **done**  
+5. Members list — **partial** (API exists; light UI)  
+6. Owner = creating Page (person default) — **done** (creator profile)
 
 ### Wave 3 — Pulse + Page automation
-1. Create → Automate layout (drafts / schedule / goals)  
-2. Agent-signed / Page-kind chips on posts  
-3. Honest Pulse chat or real model path  
-4. Premium → credits for automation/API  
-5. Agent API keys scoped to Page verbs  
-6. Proof/continuity chips (light)
+1. Create → Automate layout (drafts / schedule / goals) — **done** (AIPage tabs + honest helper)  
+2. Agent-signed chips on posts — **done** (linkedAgent chip)  
+3. Honest Pulse chat — **done** (“Draft helper”, tools_v1/v2 labeled)  
+4. Premium → credits narrative — **done**  
+5. Agent API keys scoped — **prior residual** (hvak_ path)  
+6. Proof/continuity chips — **partial** (fields exist; light UI)
 
 ### Wave 4 — Media, Watch, Page libraries
-1. Image E2E solid; video path starts  
-2. Content scoped to active Page  
-3. Explore real filters  
-4. Watch/Live honest until ingest; then Page-owned  
-5. Soft-visibility when ACL real  
+1. Image E2E solid — **done** (upload → mediaIds → post)  
+2. Content scoped to active Page — **v1 profile_id = person Page**  
+3. Explore real filters — **done**  
+4. Watch/Live honest until ingest — **done** (Preview/Soon)  
+5. Soft-visibility when ACL real — **deferred** (needs BE ACL product)
 
 ---
 
@@ -182,3 +182,34 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-21 | #345 | Wave 0 shell honesty merged |
 | 2026-07-21 | Page model | Page/Actor identity adopted as working model |
 | 2026-07-21 | Wave 0B | Contract unbreak (FE+BE) on `feat/wave0-contract-unbreak` |
+| 2026-07-21 | #346 | Wave 0 contract unbreak merged to main |
+| 2026-07-21 | Waves 1–4 | Ship branch `feat/waves-1-4-social` (DM, follow lists, guilds, Pulse/Premium, Explore/Live honesty) |
+
+### Waves 1–4 implemented (2026-07-21)
+
+**Wave 1 — Core social feel**
+- Profile **Message** → `POST /v1/social/conversations` with `participant_ids` → `/messages?c=`
+- Followers/following lists: BE `GET /profiles|users/{handle}/followers|following` + ProfilePage panel
+- Notifications mark-read (existing) + TopBar unread badge (poll)
+- Optimistic thread replies (existing polish kept); views hidden at 0
+
+**Wave 2 — Guilds**
+- Create / mine / join-leave by slug (BE+FE); shell compose optional guild picker + `communityId`
+- Owner = creator profile (existing BE auto-join)
+
+**Wave 3 — Pulse + Premium**
+- AIPage tabs: **Drafts | Schedule | Goals | Draft helper** (honest tool path label)
+- PostCard linked-agent chip when feed has `linkedAgent`
+- Premium features rewritten to **automation credits**; checkout attempted when Stripe up, else disabled with reason
+
+**Wave 4 — Media & discovery honesty**
+- AppShell createPost passes `mediaIds`; feed/thread attach media URLs
+- Explore filters map to real search type; search errors surface
+- Live/Videos: Preview/Soon only — no LIVE claim
+- **Page-scoped content note:** v1 stores posts/guilds/follows under `profile_id` (= person Page 1:1). No schema migration in this wave; multi-Page is later (PW-17).
+
+### Remaining gaps
+- Realtime WS DMs; nested threads; view_count recording
+- Multi-Page switcher UI; full credits ledger
+- Stripe may be unset in local/dev — Premium CTA correctly fails soft
+- Video/live ingest still shell-only

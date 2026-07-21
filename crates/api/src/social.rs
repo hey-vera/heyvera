@@ -906,6 +906,71 @@ pub async fn get_user_profile_stats(
     ok(serde_json::json!({ "stats": stats }))
 }
 
+/// GET /v1/social/profiles/{handle}/followers — list profiles that follow this Page.
+pub async fn get_profile_followers(
+    Path(handle): Path<String>,
+    Query(params): Query<FeedQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile = match db(&state).social_find_profile_by_handle(&handle) {
+        Some(p) => p,
+        None => return not_found("User not found"),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+    let limit = params.limit.unwrap_or(20).min(100);
+    // Opaque string cursor = decimal offset (followers are not keyset-paginated).
+    let offset = params
+        .cursor
+        .as_deref()
+        .and_then(|c| c.parse::<i64>().ok())
+        .unwrap_or(0)
+        .max(0);
+    let followers = db(&state).social_list_followers(profile_id, limit, offset);
+    let next_cursor = if followers.len() as i64 == limit {
+        Some((offset + limit).to_string())
+    } else {
+        None
+    };
+    ok(serde_json::json!({
+        "profile": profile,
+        "followers": followers,
+        "cursor": next_cursor,
+        "has_more": next_cursor.is_some(),
+    }))
+}
+
+/// GET /v1/social/profiles/{handle}/following — list profiles this Page follows.
+pub async fn get_profile_following(
+    Path(handle): Path<String>,
+    Query(params): Query<FeedQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile = match db(&state).social_find_profile_by_handle(&handle) {
+        Some(p) => p,
+        None => return not_found("User not found"),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+    let limit = params.limit.unwrap_or(20).min(100);
+    let offset = params
+        .cursor
+        .as_deref()
+        .and_then(|c| c.parse::<i64>().ok())
+        .unwrap_or(0)
+        .max(0);
+    let following = db(&state).social_list_following(profile_id, limit, offset);
+    let next_cursor = if following.len() as i64 == limit {
+        Some((offset + limit).to_string())
+    } else {
+        None
+    };
+    ok(serde_json::json!({
+        "profile": profile,
+        "following": following,
+        "cursor": next_cursor,
+        "has_more": next_cursor.is_some(),
+    }))
+}
+
 pub async fn get_user_posts(
     Path(handle): Path<String>,
     Query(params): Query<FeedQuery>,
@@ -951,8 +1016,14 @@ pub async fn get_single_post(
 ) -> impl IntoResponse {
     let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
     match db(&state).social_get_post_by_id(&id, viewer_pid.as_deref()) {
-        Some(post) => {
-            let replies = db(&state).social_get_post_replies(&id, viewer_pid.as_deref());
+        Some(mut post) => {
+            // Attach media so thread PostCard can render images without a separate call.
+            let media = db(&state).social_get_post_media(&id);
+            if let Some(obj) = post.as_object_mut() {
+                obj.insert("media".into(), serde_json::json!(media));
+            }
+            let mut replies = db(&state).social_get_post_replies(&id, viewer_pid.as_deref());
+            db(&state).social_enrich_feed_posts(&mut replies, viewer_pid.as_deref());
             ok(serde_json::json!({
                 "post": post,
                 "replies": replies,

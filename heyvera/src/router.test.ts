@@ -21,12 +21,16 @@ describe('router surface', () => {
         'messages',
         'bookmarks',
         'communities',
+        'videos',
+        'longform',
+        'live',
         'premium',
         'profile',
         'profile/:handle',
         'settings',
         'ai',
         'post/:id',
+        '*',
       ])
     );
   });

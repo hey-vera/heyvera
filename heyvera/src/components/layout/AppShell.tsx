@@ -2,7 +2,13 @@ import React from "react";
 import { ImagePlus, X } from "lucide-react";
 import { SignInButton } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
-import { createPost, fetchMyProfile, uploadMediaFile } from "../../api/social";
+import {
+  createPost,
+  fetchMyCommunities,
+  fetchMyProfile,
+  uploadMediaFile,
+  type CommunityMembership,
+} from "../../api/social";
 import { useAuth } from "../../hooks/useAuth";
 import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from "../../utils/imageUpload";
 import { RightRail } from "./RightRail";
@@ -34,6 +40,8 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
   const [composeError, setComposeError] = React.useState<string | null>(null);
   const [imageFile, setImageFile] = React.useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = React.useState<string | null>(null);
+  const [myCommunities, setMyCommunities] = React.useState<CommunityMembership[]>([]);
+  const [selectedCommunityId, setSelectedCommunityId] = React.useState<string>("");
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const remainingChars = COMPOSE_MAX_CHARS - composeText.length;
@@ -61,6 +69,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     setComposeError(null);
     setIsPosting(false);
     setIsCheckingComposeAccess(false);
+    setSelectedCommunityId("");
     clearImage();
   };
 
@@ -91,6 +100,13 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
       setComposeGate(null);
       setComposeToken(token);
       setComposeOpen(true);
+      // Optional guild picker — only when /communities/mine works.
+      try {
+        const mine = await fetchMyCommunities(token);
+        setMyCommunities(mine.communities ?? []);
+      } catch {
+        setMyCommunities([]);
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
       if (
@@ -158,6 +174,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
       const result = await createPost(token, {
         body: composeText.trim(),
         ...(mediaIds.length > 0 ? { mediaIds } : {}),
+        ...(selectedCommunityId ? { communityId: selectedCommunityId } : {}),
       });
 
       if (typeof window !== "undefined") {
@@ -310,6 +327,31 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                   <p className="mt-2 text-sm" style={{ color: "var(--color-danger)" }}>
                     {composeError}
                   </p>
+                )}
+
+                {myCommunities.length > 0 && (
+                  <label className="mt-3 flex flex-col gap-1 text-[13px]" style={{ color: "var(--text-secondary)" }}>
+                    <span>Post to guild (optional)</span>
+                    <select
+                      value={selectedCommunityId}
+                      onChange={(e) => setSelectedCommunityId(e.target.value)}
+                      disabled={isPosting || isCheckingComposeAccess}
+                      className="rounded-lg border px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)]"
+                      style={{
+                        borderColor: "var(--border-primary)",
+                        backgroundColor: "var(--bg-elevated)",
+                        color: "var(--text-primary)",
+                      }}
+                      aria-label="Choose guild"
+                    >
+                      <option value="">Personal feed</option>
+                      {myCommunities.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
                 )}
 
                 <div

@@ -1,4 +1,5 @@
 import {
+  Bell,
   Bot,
   ChevronDown,
   Compass,
@@ -14,7 +15,10 @@ import {
   Users,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { fetchUnreadNotificationCount } from "../../api/social";
+import { useAuth } from "../../hooks/useAuth";
+import { useVisibilityPoll } from "../../hooks/useVisibilityPoll";
 import { AuthControls } from "../shared/AuthControls";
 
 export type CreateAction = "post" | "video" | "automate";
@@ -68,10 +72,38 @@ function isRouteActive(activeRoute: string, route: string): boolean {
 }
 
 export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick }: TopBarProps) {
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [productMenuOpen, setProductMenuOpen] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
   const productMenuRef = useRef<HTMLDivElement | null>(null);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
+
+  const pollUnread = useCallback(async () => {
+    if (!authEnabled || !isSignedIn) {
+      setUnreadCount(0);
+      return;
+    }
+    try {
+      const token = await getToken();
+      if (!token) {
+        setUnreadCount(0);
+        return;
+      }
+      const count = await fetchUnreadNotificationCount(token);
+      setUnreadCount(count);
+    } catch {
+      // quiet poll
+    }
+  }, [authEnabled, getToken, isSignedIn]);
+
+  useEffect(() => {
+    void pollUnread();
+  }, [pollUnread, activeRoute]);
+
+  useVisibilityPoll(pollUnread, 30_000, Boolean(authEnabled && isSignedIn), {
+    runOnVisible: true,
+  });
 
   useEffect(() => {
     if (!productMenuOpen && !createMenuOpen) return;
@@ -226,6 +258,33 @@ export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick
             style={{ color: "var(--text-secondary)" }}
           >
             <Search className="h-5 w-5" aria-hidden="true" />
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onNavigate("/notifications")}
+            className="relative flex h-10 w-10 items-center justify-center rounded-full transition-colors hover-overlay"
+            aria-label={
+              unreadCount > 0
+                ? `Notifications, ${unreadCount} unread`
+                : "Notifications"
+            }
+            style={{
+              color:
+                activeRoute === "/notifications"
+                  ? "var(--text-primary)"
+                  : "var(--text-secondary)",
+            }}
+          >
+            <Bell className="h-5 w-5" aria-hidden="true" />
+            {unreadCount > 0 && (
+              <span
+                className="absolute right-1 top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none"
+                style={{ backgroundColor: "var(--accent)", color: "#000" }}
+              >
+                {unreadCount > 99 ? "99+" : unreadCount}
+              </span>
+            )}
           </button>
 
           <div className="relative" ref={createMenuRef}>

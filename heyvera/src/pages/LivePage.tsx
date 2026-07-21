@@ -40,7 +40,8 @@ export function LivePage() {
           <div>
             <h1 className="text-[28px] font-black leading-tight sm:text-[34px]">Live</h1>
             <p className="mt-1 max-w-2xl text-[15px]" style={{ color: 'var(--text-secondary)' }}>
-              Channel-based live rooms, scheduled broadcasts, and future stream archives.
+              Preview / Soon only — Page-owned live rooms and stream archives when ingest ships. Nothing is
+              broadcasting here yet.
             </p>
           </div>
           <button

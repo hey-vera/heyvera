@@ -10919,6 +10919,92 @@ impl Database {
         ).is_ok()
     }
 
+    /// Profiles that follow `profile_id` (followers list). Offset-based pagination.
+    pub fn social_list_followers(
+        &self,
+        profile_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
+                        p.banner_url, p.location, p.website_url, p.proof_state, p.continuity_state,
+                        p.created_at, p.updated_at
+                 FROM social_follows f
+                 JOIN social_profiles p ON p.id = f.follower_profile_id
+                 WHERE f.following_profile_id = ?1
+                 ORDER BY f.created_at DESC
+                 LIMIT ?2 OFFSET ?3",
+            )
+            .unwrap();
+        stmt.query_map(params![profile_id, limit, offset], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "accountId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(2)?,
+                "displayName": row.get::<_, String>(3)?,
+                "bio": row.get::<_, String>(4)?,
+                "avatarUrl": row.get::<_, Option<String>>(5)?,
+                "bannerUrl": row.get::<_, Option<String>>(6)?,
+                "location": row.get::<_, Option<String>>(7)?,
+                "websiteUrl": row.get::<_, Option<String>>(8)?,
+                "proofState": row.get::<_, String>(9)?,
+                "continuityState": row.get::<_, String>(10)?,
+                "createdAt": row.get::<_, String>(11)?,
+                "updatedAt": row.get::<_, String>(12)?,
+                "primaryAgent": null,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    /// Profiles that `profile_id` follows (following list). Offset-based pagination.
+    pub fn social_list_following(
+        &self,
+        profile_id: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
+                        p.banner_url, p.location, p.website_url, p.proof_state, p.continuity_state,
+                        p.created_at, p.updated_at
+                 FROM social_follows f
+                 JOIN social_profiles p ON p.id = f.following_profile_id
+                 WHERE f.follower_profile_id = ?1
+                 ORDER BY f.created_at DESC
+                 LIMIT ?2 OFFSET ?3",
+            )
+            .unwrap();
+        stmt.query_map(params![profile_id, limit, offset], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "accountId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(2)?,
+                "displayName": row.get::<_, String>(3)?,
+                "bio": row.get::<_, String>(4)?,
+                "avatarUrl": row.get::<_, Option<String>>(5)?,
+                "bannerUrl": row.get::<_, Option<String>>(6)?,
+                "location": row.get::<_, Option<String>>(7)?,
+                "websiteUrl": row.get::<_, Option<String>>(8)?,
+                "proofState": row.get::<_, String>(9)?,
+                "continuityState": row.get::<_, String>(10)?,
+                "createdAt": row.get::<_, String>(11)?,
+                "updatedAt": row.get::<_, String>(12)?,
+                "primaryAgent": null,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
     // ─── Block / Mute / Report DB methods ────────────────────────────────────
 
     pub fn social_block_user(&self, blocker_id: &str, blocked_id: &str) {

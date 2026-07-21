@@ -481,13 +481,10 @@ export async function searchSocial(
   posts: FeedPost[];
   profiles: Array<{ id: string; handle: string; displayName: string; avatarUrl: string | null; bio: string }>;
 }> {
-  try {
-    const params = new URLSearchParams({ q: query });
-    if (type !== "all") params.set("type", type);
-    return await apiFetch(`/search?${params.toString()}`);
-  } catch {
-    return { posts: [], profiles: [] };
-  }
+  const params = new URLSearchParams({ q: query });
+  if (type !== "all") params.set("type", type);
+  // Surface errors to callers (ExplorePage shows ErrorState) — do not swallow.
+  return apiFetch(`/search?${params.toString()}`);
 }
 
 // ─── Public: trending ───────────────────────────────────────────────────────
@@ -579,6 +576,16 @@ export async function fetchNotifications(token: string): Promise<{
 /** Mark all notifications as read for the signed-in profile. */
 export async function markNotificationsRead(token: string): Promise<{ ok: true; updated?: number }> {
   return apiAuthFetch("/notifications/read", { method: "POST", token });
+}
+
+/** Count unread notifications (poll-friendly). Uses list endpoint; filters unread. */
+export async function fetchUnreadNotificationCount(token: string): Promise<number> {
+  try {
+    const result = await fetchNotifications(token);
+    return result.notifications.filter((n) => n.read === false).length;
+  } catch {
+    return 0;
+  }
 }
 
 // ─── Authenticated: my profile ─────────────────────────────────────────────
@@ -1000,6 +1007,14 @@ export function feedPostToPost(fp: FeedPost): Post {
       }))
     : undefined;
 
+  const linkedAgent = fp.linkedAgent
+    ? {
+        id: fp.linkedAgent.id,
+        agent_name: fp.linkedAgent.agentName,
+        agent_slug: fp.linkedAgent.agentSlug,
+      }
+    : undefined;
+
   return {
     id: fp.id,
     author: {
@@ -1011,6 +1026,7 @@ export function feedPostToPost(fp: FeedPost): Post {
     },
     content: fp.body,
     ...(media ? { media } : {}),
+    ...(linkedAgent ? { linked_agent: linkedAgent } : {}),
     created_at: fp.createdAt,
     reply_count: fp.replyCount ?? 0,
     repost_count: fp.repostCount ?? 0,
@@ -1127,6 +1143,21 @@ export async function getConversations(token?: string): Promise<Conversation[]> 
   if (!token) throw new Error('Auth token required');
   const res = await legacyFetchAuthedApi<{ conversations: Conversation[] }>('/conversations', token);
   return res.conversations ?? [];
+}
+
+/**
+ * Start or open a DM. POST /v1/social/conversations with participant_ids
+ * (other profile ids; server adds the viewer).
+ */
+export async function createConversation(
+  token: string,
+  participantIds: string[],
+): Promise<Conversation> {
+  return apiAuthFetch<Conversation>('/conversations', {
+    method: 'POST',
+    token,
+    body: { participant_ids: participantIds },
+  });
 }
 
 /** Get messages in a conversation */
