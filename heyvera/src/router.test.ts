@@ -28,6 +28,7 @@ describe('router surface', () => {
         'profile',
         'profile/:handle',
         'settings',
+        'page/:slug',
         'ai',
         'post/:id',
         '*',

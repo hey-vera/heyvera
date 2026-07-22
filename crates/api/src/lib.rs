@@ -524,6 +524,7 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/posts", post(social::create_post))
         .route("/v1/social/pages/mine", get(social::list_my_pages))
         .route("/v1/social/pages", post(social::create_page))
+        .route("/v1/social/pages/{slug}", get(social::get_page_by_slug))
         .route(
             "/v1/social/pages/{id}/follow",
             post(social::follow_page).delete(social::unfollow_page),
@@ -630,6 +631,7 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/posts", post(social::create_post))
         .route("/v1/social/pages/mine", get(social::list_my_pages))
         .route("/v1/social/pages", post(social::create_page))
+        .route("/v1/social/pages/{slug}", get(social::get_page_by_slug))
         .route(
             "/v1/social/pages/{id}/follow",
             post(social::follow_page).delete(social::unfollow_page),
@@ -843,6 +845,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/posts", post(social::create_post))
         .route("/v1/social/pages/mine", get(social::list_my_pages))
         .route("/v1/social/pages", post(social::create_page))
+        .route("/v1/social/pages/{slug}", get(social::get_page_by_slug))
         .route(
             "/v1/social/pages/{id}/follow",
             post(social::follow_page).delete(social::unfollow_page),

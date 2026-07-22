@@ -15,11 +15,18 @@ import {
   unlikePost,
   unrepostPost,
 } from '../api/social';
-import type { Community, Post } from '../api/social';
+import type { Community, CommunityMembership, Post } from '../api/social';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { CreateCommunityForm } from '../components/shared/CreateCommunityForm';
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
+import {
+  canAccessGuildFeed,
+  filterDiscoverGuilds,
+  isPrivateGuild,
+  membershipRoleLabel,
+  mergeCommunityLists,
+} from '../utils/guildVisibility';
 
 const TABS = ['Your Communities', 'Discover'] as const;
 type Tab = typeof TABS[number];
@@ -85,6 +92,8 @@ export function CommunitiesPage() {
   const [communities, setCommunities] = useState<Community[]>([]);
   /** Server membership ids when /communities/mine is available; updated after join/leave. */
   const [joinedIds, setJoinedIds] = useState<Set<string>>(new Set());
+  /** Role by community id from /communities/mine (owner | member). */
+  const [roleById, setRoleById] = useState<Map<string, string>>(new Map());
   const [mineLoaded, setMineLoaded] = useState(false);
   const [mineAvailable, setMineAvailable] = useState(false);
   const [membershipBusyId, setMembershipBusyId] = useState<string | null>(null);
@@ -98,13 +107,25 @@ export function CommunitiesPage() {
   const [reloadKey, setReloadKey] = useState(0);
   const [feedReloadKey, setFeedReloadKey] = useState(0);
 
+  const applyMineMeta = (mineList: CommunityMembership[]) => {
+    const ids = new Set(mineList.map((c) => c.id));
+    const roles = new Map<string, string>();
+    for (const c of mineList) {
+      if (c.role) roles.set(c.id, c.role);
+    }
+    setJoinedIds(ids);
+    setRoleById(roles);
+    return ids;
+  };
+
   const reloadMemberships = async (
     token: string,
   ): Promise<{ ids: Set<string>; available: boolean }> => {
     try {
       const mine = await fetchMyCommunities(token);
-      const ids = new Set((mine.communities ?? []).map((c) => c.id));
-      setJoinedIds(ids);
+      const list = mine.communities ?? [];
+      const ids = applyMineMeta(list);
+      setCommunities((prev) => mergeCommunityLists(prev, list));
       setMineAvailable(true);
       setMineLoaded(true);
       return { ids, available: true };
@@ -124,21 +145,40 @@ export function CommunitiesPage() {
       try {
         const { communities: list } = await fetchCommunities();
         if (cancelled) return;
-        setCommunities(list);
 
         if (authEnabled && isSignedIn) {
           const token = await getToken();
           if (token && !cancelled) {
-            await reloadMemberships(token);
+            try {
+              const mine = await fetchMyCommunities(token);
+              const mineList = mine.communities ?? [];
+              if (cancelled) return;
+              applyMineMeta(mineList);
+              setCommunities(mergeCommunityLists(list, mineList));
+              setMineAvailable(true);
+              setMineLoaded(true);
+            } catch {
+              if (!cancelled) {
+                setCommunities(list);
+                setMineAvailable(false);
+                setMineLoaded(true);
+                setJoinedIds(new Set());
+                setRoleById(new Map());
+              }
+            }
           } else if (!cancelled) {
+            setCommunities(list);
             setMineLoaded(true);
             setMineAvailable(false);
             setJoinedIds(new Set());
+            setRoleById(new Map());
           }
         } else if (!cancelled) {
+          setCommunities(list);
           setMineLoaded(true);
           setMineAvailable(false);
           setJoinedIds(new Set());
+          setRoleById(new Map());
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load communities');
@@ -171,6 +211,16 @@ export function CommunitiesPage() {
         return;
       }
 
+      const isMember = joinedIds.has(community.id);
+      if (!canAccessGuildFeed(community.visibility, isMember)) {
+        if (!cancelled) {
+          setFeedPosts([]);
+          setFeedError('Private community — join to view the feed.');
+          setFeedLoading(false);
+        }
+        return;
+      }
+
       setFeedLoading(true);
       setFeedError(null);
       try {
@@ -192,12 +242,12 @@ export function CommunitiesPage() {
     return () => {
       cancelled = true;
     };
-  }, [communities, selectedCommunityId, feedReloadKey, authEnabled, isSignedIn, getToken]);
+  }, [communities, selectedCommunityId, feedReloadKey, authEnabled, isSignedIn, getToken, joinedIds]);
 
   const visibleCommunities =
     activeTab === 'Your Communities'
       ? communities.filter((community) => joinedIds.has(community.id))
-      : communities;
+      : filterDiscoverGuilds(communities, joinedIds);
 
   const selectedCommunity =
     selectedCommunityId ? communities.find((community) => community.id === selectedCommunityId) ?? null : null;
@@ -285,9 +335,10 @@ export function CommunitiesPage() {
           role="status"
         >
           Communities are early access — browse, feeds, and join/leave hit the real API.
+          Private guilds stay out of Discover unless you are a member; feeds require membership.
           {mineLoaded && !mineAvailable
             ? ' Membership list API is not available yet; joined state may not persist across reloads.'
-            : ' Your Communities reflects server memberships when available.'}
+            : ' Your Communities reflects server memberships (and owner role) when available.'}
         </div>
         <div className="flex">
           {TABS.map((tab) => (
@@ -347,7 +398,35 @@ export function CommunitiesPage() {
 
             <div className="mt-4 flex items-start justify-between gap-3">
               <div className="min-w-0">
-                <h2 className="text-[20px] font-bold leading-6">{selectedCommunity.name}</h2>
+                <div className="flex flex-wrap items-center gap-2">
+                  <h2 className="text-[20px] font-bold leading-6">{selectedCommunity.name}</h2>
+                  {isPrivateGuild(selectedCommunity.visibility) && (
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide"
+                      style={{
+                        backgroundColor: 'color-mix(in srgb, var(--text-secondary) 18%, transparent)',
+                        color: 'var(--text-secondary)',
+                      }}
+                    >
+                      Private
+                    </span>
+                  )}
+                  {membershipRoleLabel(
+                    roleById.get(selectedCommunity.id) ?? selectedCommunity.role,
+                  ) && (
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide"
+                      style={{
+                        backgroundColor: 'color-mix(in srgb, var(--accent) 18%, transparent)',
+                        color: 'var(--accent)',
+                      }}
+                    >
+                      {membershipRoleLabel(
+                        roleById.get(selectedCommunity.id) ?? selectedCommunity.role,
+                      )}
+                    </span>
+                  )}
+                </div>
                 {(selectedCommunity as { member_count?: number }).member_count !== undefined && (
                   <p className="mt-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
                     {formatMembers((selectedCommunity as { member_count?: number }).member_count!)}
@@ -427,7 +506,31 @@ export function CommunitiesPage() {
                 )}
 
                 <div className="p-4">
-                  <h3 className="text-[15px] font-bold leading-tight">{community.name}</h3>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h3 className="text-[15px] font-bold leading-tight">{community.name}</h3>
+                    {isPrivateGuild(community.visibility) && (
+                      <span
+                        className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                        style={{
+                          backgroundColor: 'color-mix(in srgb, var(--text-secondary) 18%, transparent)',
+                          color: 'var(--text-secondary)',
+                        }}
+                      >
+                        Private
+                      </span>
+                    )}
+                    {membershipRoleLabel(roleById.get(community.id) ?? community.role) && (
+                      <span
+                        className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                        style={{
+                          backgroundColor: 'color-mix(in srgb, var(--accent) 18%, transparent)',
+                          color: 'var(--accent)',
+                        }}
+                      >
+                        {membershipRoleLabel(roleById.get(community.id) ?? community.role)}
+                      </span>
+                    )}
+                  </div>
                   {(community as { member_count?: number }).member_count !== undefined && (
                     <p className="mt-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>{formatMembers((community as { member_count?: number }).member_count!)}</p>
                   )}
