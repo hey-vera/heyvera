@@ -37,10 +37,17 @@ import {
   linkAgent,
   listMyPages,
   rotateLinkedAgentKey,
+  updateLinkedAgentPolicies,
   updateProfile,
   uploadMediaFile,
 } from '../api/social';
 import type { LinkedAgent, Profile, SocialPage, X402Status } from '../api/social';
+import {
+  AGENT_POLICY_FOUNDATION_DETAIL,
+  AGENT_POLICY_NOT_LIVE_BADGE,
+  AGENT_POLICY_SECTION_TITLE,
+  normalizeAgentPolicyFlags,
+} from '../utils/agentPolicy';
 import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from '../utils/imageUpload';
 import { brandPagePath } from '../utils/guildVisibility';
 
@@ -856,6 +863,8 @@ function LinkedAgentsPanel({
   const [slug, setSlug] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [rotatingId, setRotatingId] = useState<string | null>(null);
+  /** Agent id currently saving a policy flag. */
+  const [policySavingId, setPolicySavingId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   /** One-time plaintext key shown only after create or rotate. */
   const [oneTimeKey, setOneTimeKey] = useState<{ agentName: string; key: string } | null>(null);
@@ -970,6 +979,46 @@ function LinkedAgentsPanel({
     }
   };
 
+  /** Persist steward policy flags (Wave 12a). Does not start a silent auto-reply bot. */
+  const handlePolicyToggle = async (
+    agent: LinkedAgent,
+    field: 'autoReplyEnabled' | 'autoFollowEnabled',
+    next: boolean,
+  ) => {
+    if (!isSignedIn) return;
+    setPolicySavingId(agent.id);
+    setError(null);
+    setNotice(null);
+    // Optimistic local update; rollback on error.
+    const prev = agents;
+    setAgents((list) =>
+      list.map((a) => (a.id === agent.id ? { ...a, [field]: next } : a)),
+    );
+    try {
+      const token = await getToken();
+      if (!token) {
+        setAgents(prev);
+        setNotice('Sign in to save agent policies.');
+        return;
+      }
+      const res = await updateLinkedAgentPolicies(token, agent.id, { [field]: next });
+      if (res.linkedAgent) {
+        setAgents((list) =>
+          list.map((a) => (a.id === agent.id ? { ...a, ...res.linkedAgent } : a)),
+        );
+      }
+      setNotice(
+        res.note ??
+          'Policy saved. Auto-reply and auto-follow are foundation only — not fully automated yet.',
+      );
+    } catch (err) {
+      setAgents(prev);
+      setError(err instanceof Error ? err.message : 'Failed to save agent policy');
+    } finally {
+      setPolicySavingId(null);
+    }
+  };
+
   const handleCopyKey = async () => {
     if (!oneTimeKey) return;
     try {
@@ -996,6 +1045,25 @@ function LinkedAgentsPanel({
         key (<code className="text-[12px]">Authorization: Bearer hvak_…</code>). Keys are shown once
         on create/rotate; list views only show a prefix.
       </p>
+
+      <div
+        className="mb-4 rounded-2xl border px-4 py-3"
+        style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+        role="note"
+      >
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-[14px] font-bold">{AGENT_POLICY_SECTION_TITLE}</p>
+          <span
+            className="rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+            style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-secondary)' }}
+          >
+            {AGENT_POLICY_NOT_LIVE_BADGE}
+          </span>
+        </div>
+        <p className="mt-1 text-[13px] leading-5 text-[var(--text-secondary)]">
+          {AGENT_POLICY_FOUNDATION_DETAIL}
+        </p>
+      </div>
 
       {oneTimeKey && (
         <div
@@ -1040,41 +1108,93 @@ function LinkedAgentsPanel({
         </div>
       ) : (
         <ul className="mb-4 divide-y divide-[var(--border-primary)] rounded-2xl border border-[var(--border-primary)]">
-          {agents.map((agent) => (
-            <li key={agent.id} className="flex items-start gap-3 px-4 py-3">
-              <span
-                className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
-                style={{
-                  backgroundColor: 'color-mix(in srgb, var(--accent) 14%, transparent)',
-                  color: 'var(--accent)',
-                }}
-              >
-                <Bot size={18} />
-              </span>
-              <span className="min-w-0 flex-1">
-                <span className="block text-[15px] font-bold">{agent.agentName}</span>
-                <span className="block text-[13px] text-[var(--text-secondary)]">
-                  @{agent.agentSlug}
-                  {agent.isPrimary ? ' · primary' : ''}
-                  {agent.linkState ? ` · ${agent.linkState}` : ''}
-                </span>
-                {agent.agentKeyPrefix && (
-                  <span className="mt-0.5 block font-mono text-[12px] text-[var(--text-secondary)]">
-                    key {agent.agentKeyPrefix}
+          {agents.map((agent) => {
+            const policies = normalizeAgentPolicyFlags(agent);
+            const saving = policySavingId === agent.id;
+            return (
+              <li key={agent.id} className="px-4 py-3">
+                <div className="flex items-start gap-3">
+                  <span
+                    className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full"
+                    style={{
+                      backgroundColor: 'color-mix(in srgb, var(--accent) 14%, transparent)',
+                      color: 'var(--accent)',
+                    }}
+                  >
+                    <Bot size={18} />
                   </span>
-                )}
-              </span>
-              <button
-                type="button"
-                onClick={() => void handleRotate(agent)}
-                disabled={rotatingId === agent.id}
-                className="shrink-0 rounded-full border px-3 py-1 text-[12px] font-semibold transition-opacity disabled:opacity-50"
-                style={{ borderColor: 'var(--border-primary)' }}
-              >
-                {rotatingId === agent.id ? 'Rotating…' : 'Rotate key'}
-              </button>
-            </li>
-          ))}
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-[15px] font-bold">{agent.agentName}</span>
+                    <span className="block text-[13px] text-[var(--text-secondary)]">
+                      @{agent.agentSlug}
+                      {agent.isPrimary ? ' · primary' : ''}
+                      {agent.linkState ? ` · ${agent.linkState}` : ''}
+                    </span>
+                    {agent.agentKeyPrefix && (
+                      <span className="mt-0.5 block font-mono text-[12px] text-[var(--text-secondary)]">
+                        key {agent.agentKeyPrefix}
+                      </span>
+                    )}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void handleRotate(agent)}
+                    disabled={rotatingId === agent.id}
+                    className="shrink-0 rounded-full border px-3 py-1 text-[12px] font-semibold transition-opacity disabled:opacity-50"
+                    style={{ borderColor: 'var(--border-primary)' }}
+                  >
+                    {rotatingId === agent.id ? 'Rotating…' : 'Rotate key'}
+                  </button>
+                </div>
+                <div className="mt-3 ml-12 space-y-2">
+                  <p className="text-[12px] font-semibold text-[var(--text-secondary)]">
+                    Policies (save real flags — not live automation)
+                  </p>
+                  <label className="flex items-start gap-3 text-[13px]">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+                      checked={policies.autoReplyEnabled}
+                      disabled={saving}
+                      onChange={(e) =>
+                        void handlePolicyToggle(agent, 'autoReplyEnabled', e.target.checked)
+                      }
+                      aria-label={`Auto-reply for ${agent.agentName} (foundation, not fully automated yet)`}
+                    />
+                    <span>
+                      <span className="font-semibold">Auto-reply preferred</span>
+                      <span className="block text-[12px] text-[var(--text-secondary)]">
+                        Foundation / not fully automated yet — no silent auto-reply bot posts without
+                        steward visibility.
+                      </span>
+                    </span>
+                  </label>
+                  <label className="flex items-start gap-3 text-[13px]">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5 h-4 w-4 accent-[var(--accent)]"
+                      checked={policies.autoFollowEnabled}
+                      disabled={saving}
+                      onChange={(e) =>
+                        void handlePolicyToggle(agent, 'autoFollowEnabled', e.target.checked)
+                      }
+                      aria-label={`Auto-follow for ${agent.agentName} (foundation, not fully automated yet)`}
+                    />
+                    <span>
+                      <span className="font-semibold">Auto-follow preferred</span>
+                      <span className="block text-[12px] text-[var(--text-secondary)]">
+                        Foundation / not fully automated yet — no auto-follow worker runs these flags
+                        today.
+                      </span>
+                    </span>
+                  </label>
+                  {saving && (
+                    <p className="text-[12px] text-[var(--text-secondary)]">Saving policy…</p>
+                  )}
+                </div>
+              </li>
+            );
+          })}
         </ul>
       )}
 

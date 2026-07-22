@@ -64,6 +64,16 @@ export type LinkedAgent = {
   visibility: string;
   proofState: string;
   isPrimary: boolean;
+  /**
+   * Wave 12a — steward preference for auto-reply. Defaults false.
+   * Foundation only: no auto-reply worker runs yet.
+   */
+  autoReplyEnabled?: boolean;
+  /**
+   * Wave 12a — steward preference for auto-follow. Defaults false.
+   * Foundation only: no auto-follow worker runs yet.
+   */
+  autoFollowEnabled?: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -1140,6 +1150,28 @@ export async function rotateLinkedAgentKey(
   return apiAuthFetch(`/linked-agents/${encodeURIComponent(agentId)}/rotate-key`, {
     method: "POST",
     token,
+  });
+}
+
+/**
+ * PATCH /v1/social/linked-agents/{id} — steward-gated policy flags (Wave 12a).
+ * Flags persist only; API note reminds that auto-reply/follow is not live runtime.
+ */
+export async function updateLinkedAgentPolicies(
+  token: string,
+  agentId: string,
+  data: {
+    autoReplyEnabled?: boolean;
+    autoFollowEnabled?: boolean;
+  },
+): Promise<{ ok: true; linkedAgent: LinkedAgent; note?: string }> {
+  return apiAuthFetch(`/linked-agents/${encodeURIComponent(agentId)}`, {
+    method: "PATCH",
+    token,
+    body: {
+      autoReplyEnabled: data.autoReplyEnabled,
+      autoFollowEnabled: data.autoFollowEnabled,
+    },
   });
 }
 
