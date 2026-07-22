@@ -112,4 +112,42 @@ describe('fetchBillingUsage', () => {
     const { fetchBillingUsage } = await import('./billing');
     await expect(fetchBillingUsage('tok')).resolves.toBeNull();
   });
+
+  it('maps a real metered creditsBalance number when present', async () => {
+    vi.stubEnv('VITE_API_URL', '');
+    const fetchMock = mockFetch();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        active: true,
+        access_state: 'active',
+        creditsBalance: 42.5,
+        usage: {},
+        history: [],
+        note: 'metered',
+      }),
+    });
+
+    const { fetchBillingUsage } = await import('./billing');
+    const result = await fetchBillingUsage('tok');
+    expect(result!.creditsBalance).toBe(42.5);
+    expect(result!.note).toBe('metered');
+  });
+});
+
+describe('coerceCreditsBalance + billingMeteredLabel', () => {
+  it('never invents a balance', async () => {
+    const { coerceCreditsBalance, billingMeteredLabel } = await import('./billing');
+    expect(coerceCreditsBalance(undefined, undefined)).toBeNull();
+    expect(coerceCreditsBalance(null)).toBeNull();
+    expect(coerceCreditsBalance('200' as unknown as number)).toBeNull();
+    expect(coerceCreditsBalance(10)).toBe(10);
+    expect(billingMeteredLabel(null).metered).toBe(false);
+    expect(billingMeteredLabel(null).label).toContain('not metered');
+    expect(billingMeteredLabel(5, 'metered')).toEqual({
+      metered: true,
+      label: 'metered',
+    });
+  });
 });

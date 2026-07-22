@@ -12,6 +12,35 @@ export function resolveBillingPath(path: string): string {
   return `${API_BASE}${path}`;
 }
 
+/**
+ * Coerce raw credits balance fields to number | null.
+ * Never invent a default balance client-side.
+ */
+export function coerceCreditsBalance(
+  creditsBalance: unknown,
+  credits_balance?: unknown,
+): number | null {
+  if (creditsBalance === undefined && credits_balance === undefined) {
+    return null;
+  }
+  const v = creditsBalance !== undefined ? creditsBalance : credits_balance;
+  return typeof v === 'number' && Number.isFinite(v) ? v : null;
+}
+
+/** Map server note + balance presence to honest UI label. */
+export function billingMeteredLabel(
+  creditsBalance: number | null,
+  note?: string | null,
+): { metered: boolean; label: string } {
+  if (creditsBalance !== null && creditsBalance !== undefined) {
+    return { metered: true, label: note?.trim() || 'metered' };
+  }
+  return {
+    metered: false,
+    label: note?.trim() || 'ledger balance not metered yet',
+  };
+}
+
 export type BillingUsageWindow = {
   total_tokens_in: number;
   total_tokens_out: number;
@@ -88,16 +117,16 @@ export async function fetchBillingUsage(token: string): Promise<BillingUsageResp
     });
 
     // Prefer explicit null over inventing a balance when the field is missing.
-    const creditsBalance =
-      raw.creditsBalance === undefined && raw.credits_balance === undefined
-        ? null
-        : (raw.creditsBalance ?? raw.credits_balance ?? null);
+    const creditsBalance = coerceCreditsBalance(
+      raw.creditsBalance,
+      raw.credits_balance,
+    );
 
     return {
       active: raw.active === true,
       access_state: raw.access_state ?? '',
       plan: raw.plan ?? null,
-      creditsBalance: typeof creditsBalance === 'number' ? creditsBalance : null,
+      creditsBalance,
       usage: {
         last_24h: mapWindow(raw.usage?.last_24h) || emptyWindow(),
         last_30d: mapWindow(raw.usage?.last_30d) || emptyWindow(),

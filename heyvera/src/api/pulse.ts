@@ -29,6 +29,18 @@ const PULSE_API_BASE = import.meta.env.VITE_API_URL
 
 // ─── Fetch helper ───────────────────────────────────────────────────────────
 
+export class PulseApiError extends Error {
+  readonly status: number;
+  readonly code: string | null;
+
+  constructor(message: string, status: number, code?: string | null) {
+    super(message);
+    this.name = 'PulseApiError';
+    this.status = status;
+    this.code = code ?? null;
+  }
+}
+
 async function pulseAuthFetch<T>(
   path: string,
   options: {
@@ -46,9 +58,14 @@ async function pulseAuthFetch<T>(
     body: options.body ? JSON.stringify(options.body) : undefined,
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(
-      (err as { error?: string }).error ?? `API error ${res.status}`,
+    const err = (await res.json().catch(() => ({}))) as {
+      error?: string;
+      code?: string;
+    };
+    throw new PulseApiError(
+      err.error ?? `API error ${res.status}`,
+      res.status,
+      err.code ?? null,
     );
   }
   return res.json() as Promise<T>;

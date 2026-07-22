@@ -24,6 +24,8 @@ import type {
 } from '../api/pulse';
 import { fetchX402Status } from '../api/social';
 import type { X402Status } from '../api/social';
+import { PulseApiError } from '../api/pulse';
+import { pulseCreditErrorMessage } from '../utils/pulseCreditError';
 
 type Tab = 'drafts' | 'schedule' | 'goals' | 'helper';
 
@@ -227,11 +229,18 @@ function ChatTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean; 
         toolsUsed,
       };
       setMessages((prev) => [...prev, veraMsg]);
-    } catch {
+    } catch (err) {
+      const status = err instanceof PulseApiError ? err.status : null;
+      const serverMsg = err instanceof Error ? err.message : '';
+      const content =
+        status === 402 || /insufficient credits|INSUFFICIENT_CREDITS/i.test(serverMsg)
+          ? pulseCreditErrorMessage(err, status)
+          : serverMsg ||
+            "Couldn't reach Pulse tools. Check your connection and try again.";
       const errMsg: ChatMessage = {
         id: `e-${Date.now()}`,
         role: 'vera',
-        content: "Couldn't reach Pulse tools. Check your connection and try again.",
+        content,
         timestamp: Date.now(),
       };
       setMessages((prev) => [...prev, errMsg]);
@@ -398,7 +407,8 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
       });
       if (auditOpenId === id) setAuditOpenId(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      const status = err instanceof PulseApiError ? err.status : null;
+      setError(pulseCreditErrorMessage(err, status));
     } finally {
       setActionLoading(null);
     }

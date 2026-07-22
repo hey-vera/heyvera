@@ -9455,7 +9455,9 @@ impl Database {
         .ok()
     }
 
-    pub fn get_credit_balance(&self, clerk_user_id: &str) -> CreditBalanceRecord {
+    /// Honest credit balance read: returns `None` when no ledger row exists.
+    /// Never invents a default (e.g. 200) — product APIs must use this.
+    pub fn get_credit_balance_row(&self, clerk_user_id: &str) -> Option<CreditBalanceRecord> {
         let conn = self.conn.lock().unwrap();
         conn.query_row(
             "SELECT subscription_remaining, subscription_total, pack_remaining
@@ -9469,29 +9471,52 @@ impl Database {
                 })
             },
         )
-        .unwrap_or(CreditBalanceRecord {
-            subscription_remaining: 200.0,
-            subscription_total: 200.0,
-            pack_remaining: 0.0,
-        })
+        .ok()
     }
 
+    /// Legacy helper that invents a default of 200 when no row exists.
+    /// **Do not use for product billing/usage or Pulse metering** — prefer
+    /// [`Self::get_credit_balance_row`] which returns `None` when unmetered.
+    pub fn get_credit_balance(&self, clerk_user_id: &str) -> CreditBalanceRecord {
+        self.get_credit_balance_row(clerk_user_id)
+            .unwrap_or(CreditBalanceRecord {
+                subscription_remaining: 200.0,
+                subscription_total: 200.0,
+                pack_remaining: 0.0,
+            })
+    }
+
+    /// Deduct credits from an **existing** balance row. Does not invent a row
+    /// or default balance — returns an error when no ledger row exists.
     pub fn deduct_credits(
         &self,
         clerk_user_id: &str,
         amount: f64,
         description: &str,
     ) -> Result<CreditBalanceRecord, String> {
+        if amount < 0.0 {
+            return Err("credit amount must be non-negative".into());
+        }
+
         let conn = self.conn.lock().unwrap();
 
         conn.execute("BEGIN IMMEDIATE", [])
             .map_err(|e| format!("failed to begin transaction: {e}"))?;
 
-        let (sub_rem, pack_rem) = conn.query_row(
-            "SELECT subscription_remaining, pack_remaining FROM credit_balances WHERE clerk_user_id = ?1",
+        let (sub_rem, pack_rem, sub_total) = match conn.query_row(
+            "SELECT subscription_remaining, pack_remaining, subscription_total
+             FROM credit_balances WHERE clerk_user_id = ?1",
             params![clerk_user_id],
-            |row| Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?)),
-        ).unwrap_or((200.0, 0.0));
+            |row| Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?, row.get::<_, f64>(2)?)),
+        ) {
+            Ok(v) => v,
+            Err(_) => {
+                conn.execute("ROLLBACK", []).ok();
+                return Err(
+                    "no credit balance row — unmetered (refusing to invent a balance)".into(),
+                );
+            }
+        };
 
         let total_available = sub_rem + pack_rem;
         if total_available < amount {
@@ -9507,16 +9532,24 @@ impl Database {
         let new_sub_rem = sub_rem - from_sub;
         let new_pack_rem = pack_rem - from_pack;
 
-        conn.execute(
-            "INSERT INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining)
-             VALUES (?1, ?2, 200.0, ?3)
-             ON CONFLICT(clerk_user_id) DO UPDATE SET
-                subscription_remaining = ?2, pack_remaining = ?3",
-            params![clerk_user_id, new_sub_rem, new_pack_rem],
-        ).map_err(|e| {
+        // UPDATE only — never INSERT invent a balance via deduction.
+        let updated = conn
+            .execute(
+                "UPDATE credit_balances
+                 SET subscription_remaining = ?1, pack_remaining = ?2
+                 WHERE clerk_user_id = ?3",
+                params![new_sub_rem, new_pack_rem, clerk_user_id],
+            )
+            .map_err(|e| {
+                conn.execute("ROLLBACK", []).ok();
+                format!("failed to update credit balance: {e}")
+            })?;
+        if updated == 0 {
             conn.execute("ROLLBACK", []).ok();
-            format!("failed to update credit balance: {e}")
-        })?;
+            return Err(
+                "no credit balance row — unmetered (refusing to invent a balance)".into(),
+            );
+        }
 
         if from_sub > 0.0 {
             let tx_id = Uuid::new_v4().to_string();
@@ -9524,7 +9557,8 @@ impl Database {
                 "INSERT INTO credit_transactions (id, clerk_user_id, amount, balance_type, description)
                  VALUES (?1, ?2, ?3, 'subscription', ?4)",
                 params![tx_id, clerk_user_id, -from_sub, description],
-            ).map_err(|e| {
+            )
+            .map_err(|e| {
                 conn.execute("ROLLBACK", []).ok();
                 format!("failed to record subscription transaction: {e}")
             })?;
@@ -9536,7 +9570,8 @@ impl Database {
                 "INSERT INTO credit_transactions (id, clerk_user_id, amount, balance_type, description)
                  VALUES (?1, ?2, ?3, 'pack', ?4)",
                 params![tx_id, clerk_user_id, -from_pack, description],
-            ).map_err(|e| {
+            )
+            .map_err(|e| {
                 conn.execute("ROLLBACK", []).ok();
                 format!("failed to record pack transaction: {e}")
             })?;
@@ -9544,14 +9579,6 @@ impl Database {
 
         conn.execute("COMMIT", [])
             .map_err(|e| format!("failed to commit transaction: {e}"))?;
-
-        let sub_total = conn
-            .query_row(
-                "SELECT subscription_total FROM credit_balances WHERE clerk_user_id = ?1",
-                params![clerk_user_id],
-                |row| row.get::<_, f64>(0),
-            )
-            .unwrap_or(200.0);
 
         Ok(CreditBalanceRecord {
             subscription_remaining: new_sub_rem,

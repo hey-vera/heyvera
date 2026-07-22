@@ -252,7 +252,12 @@ function UsageCreditsSection({
           <dt className="text-[var(--text-secondary)]">Credits balance</dt>
           <dd className="font-medium text-[var(--text-primary)] text-right">
             {usage && usage.creditsBalance !== null && usage.creditsBalance !== undefined ? (
-              <span>{usage.creditsBalance}</span>
+              <span>
+                {usage.creditsBalance}
+                <span className="block text-[12px] mt-0.5 text-[var(--text-secondary)] font-normal">
+                  {usage.note?.trim() || 'metered'}
+                </span>
+              </span>
             ) : (
               <span className="text-[var(--text-secondary)] font-normal">
                 Not metered yet
