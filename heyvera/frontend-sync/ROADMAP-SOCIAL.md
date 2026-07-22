@@ -1,10 +1,10 @@
 # HeyVera Social Roadmap (active)
 
-**Status:** Full-ship track — Waves 0–5 + Page model  
+**Status:** Waves 0–8 shipped on main  
 **Grounded:** 2026-07-21  
 **Live entry:** `heyvera/src/main.tsx` → `router.tsx` → `AppShell` / `pages/*`  
-**Do not grow:** orphaned `App.tsx` / `VeraSocials` dual shell  
-**Main tip note:** Wave 0 shell honesty landed (#345); Wave 5 on `feat/wave5-threads-views-dm`
+**Do not grow:** orphaned `App.tsx` / `VeraSocials` dual shell (quarantined under `src/orphan/`)  
+**Main tip note:** Wave 8 complete (#353–#357); next = product depth from extended backlog
 
 ---
 
@@ -143,22 +143,22 @@ Steward (Clerk user)
 | ID | Item |
 |----|------|
 | PW-1 | Nested threads — **Wave 5 done** (flat tree + depth UI) |
-| PW-2 | Realtime DMs (WS) |
-| PW-3 | Live encoder ingest under Page |
-| PW-4 | Video shelves / playlists under Page |
+| PW-2 | Realtime DMs (WS) — **Wave 8b done** (#353; poll fallback remains) |
+| PW-3 | Live encoder ingest under Page — **foundation only** (8f honesty; not encoder) |
+| PW-4 | Video shelves / playlists under Page — **foundation only** (8f) |
 | PW-5 | ML related discovery |
-| PW-6 | Full credits ledger UI |
-| PW-7 | x402 / agent micropayments |
+| PW-6 | Full credits ledger UI — **MVP done** (8c #354; full metering still open) |
+| PW-7 | x402 / agent micropayments — **scaffold done** (8g #356; off unless `X402_ENABLED`) |
 | PW-8 | Agent auto-reply / follow policies |
 | PW-9 | Bookmark folders |
 | PW-10 | Settings backend |
 | PW-11 | Crypto / Markets product regions |
-| PW-12 | Kill dual client + dead shell |
+| PW-12 | Kill dual client + dead shell — **Wave 8a done** (#355) |
 | PW-13 | GIF / poll / emoji |
 | PW-14 | Vanity view leaderboards (prefer private) |
-| PW-15 | Private guilds + roles / room rails |
+| PW-15 | Private guilds + roles / room rails — **foundation done** (8e #357) |
 | PW-16 | Mod workflow depth |
-| PW-17 | Multi-Page switcher UI + brand Pages |
+| PW-17 | Multi-Page switcher UI + brand Pages — **Wave 6 + 8d done** (#349, #357) |
 | PW-18 | Page rename (if better product word emerges) |
 
 ---
@@ -261,29 +261,29 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 1. Soft-poll for DMs — **done** (honest “Updating live (poll)” labels; not WebSocket)
 2. Pulse Draft helper empty-state honesty — **done**
 3. Premium checkout probe + no ledger honesty — **done**
-4. Still **not** (Wave 8+): true WS DMs, live encoder, x402, ML related video, full credits ledger UI
+4. Wave 8 closed true WS DMs, credits MVP, dual-shell kill, brand pages, private guilds foundation, media honesty, x402 scaffold. Still **not**: live encoder, ML related video, full metered credits, production x402 facilitator
 
-### Wave 8 — Remaining PW backlog *(active full-ship)*
+### Wave 8 — Remaining PW backlog — **done (#353–#357)**
 
-Ship as sequential green PRs (8a–8g). Honesty: incomplete capability stays labeled, never fake LIVE/Available.
+Shipped as sequential green PRs. Honesty: incomplete capability stays labeled, never fake LIVE/Available.
 
-| Slice | Scope |
-|-------|--------|
-| **8a** | Dual-shell/dual-client kill: orphan quarantine, single social API client path, router-only entry test |
-| **8b** | True WS for DMs (`GET /v1/social/ws?token=`; subscribe + broadcast on send); soft-poll remains fallback — **this PR** |
-| **8c** | Credits / usage ledger MVP on Premium (Stripe/billing when present) |
-| **8d** | Multi-Page marketplace polish: public brand Page profile route, follow UI |
-| **8e** | Private guilds + roles foundation (visibility + owner/mod role) |
-| **8f** | Video/Live foundation: upload path honesty + Page-scoped media metadata (not full encoder) |
-| **8g** | x402 agent payment scaffold (docs + gated endpoint stub) |
+| Slice | Scope | PR |
+|-------|--------|-----|
+| **8a** | Dual-shell/dual-client kill: orphan quarantine, single social API client path, router-only entry test | #355 |
+| **8b** | True WS for DMs (`GET /v1/social/ws?token=`; subscribe + broadcast on send); soft-poll remains fallback | #353 |
+| **8c** | Credits / usage ledger MVP on Premium (Stripe/billing when present) | #354 |
+| **8d** | Multi-Page marketplace polish: public brand Page profile route, follow UI | #357 |
+| **8e** | Private guilds + roles foundation (visibility + owner/mod role) | #357 |
+| **8f** | Video/Live foundation: upload path honesty + Page-scoped media metadata (not full encoder) | #356 |
+| **8g** | x402 agent payment scaffold (docs + gated endpoint stub) | #356 |
 
 | ID | Item | Target |
 |----|------|--------|
 | PW-1 | Nested threads | **Wave 5 done** |
-| PW-2 | Realtime DMs (WS) | **8b** (this PR: `/v1/social/ws` + MessagesPage; poll fallback) |
-| PW-12 | Kill dual client | **8a** |
-| PW-6 | Credits ledger | **8c** |
-| PW-17 | Multi-Page polish | **8d** |
-| PW-15 | Private guilds/roles | **8e** |
-| PW-3/4 | Live/video | **8f** (foundation) |
-| PW-7 | x402 | **8g** (scaffold) |
+| PW-2 | Realtime DMs (WS) | **8b done** |
+| PW-12 | Kill dual client | **8a done** |
+| PW-6 | Credits ledger | **8c MVP done** |
+| PW-17 | Multi-Page polish | **8d done** |
+| PW-15 | Private guilds/roles | **8e foundation done** |
+| PW-3/4 | Live/video | **8f foundation done** |
+| PW-7 | x402 | **8g scaffold done** |
