@@ -234,21 +234,24 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply }: PostCa
       {/* Avatar */}
       <button
         type="button"
-        className="shrink-0"
+        className="shrink-0 rounded-full focus-visible:outline-none focus-ring"
         onClick={() => navigate(`/profile/${post.author.handle}`)}
         style={{ background: 'transparent', border: 'none', padding: 0 }}
+        aria-label={`${post.author.display_name}'s profile`}
       >
         {post.author.avatar_url ? (
           <img
             src={post.author.avatar_url}
-            alt={post.author.display_name}
+            alt=""
             className="h-10 w-10 rounded-full object-cover hover:brightness-90 transition-all"
             style={{ backgroundColor: 'var(--border-primary)' }}
+            aria-hidden="true"
           />
         ) : (
           <div
             className="flex h-10 w-10 items-center justify-center rounded-full text-sm hover:brightness-90 transition-all"
             style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+            aria-hidden="true"
           >
             {post.author.display_name.charAt(0)}
           </div>
@@ -673,13 +676,14 @@ function MenuItem({
   return (
     <button
       type="button"
-      className="flex w-full items-center gap-3 px-4 py-2 text-left text-[15px] transition-colors duration-150 hover-overlay focus-visible:bg-[var(--bg-hover)] focus-visible:outline-none"
+      role="menuitem"
+      className="flex w-full items-center gap-3 px-4 py-2 text-left text-[15px] transition-colors duration-150 hover-overlay focus-visible:bg-[var(--bg-hover)] focus-visible:outline-none focus-ring"
       onClick={(e) => {
         e.stopPropagation();
         onClick();
       }}
     >
-      <Icon size={18} strokeWidth={2} />
+      <Icon size={18} strokeWidth={2} aria-hidden="true" />
       <span>{label}</span>
     </button>
   );

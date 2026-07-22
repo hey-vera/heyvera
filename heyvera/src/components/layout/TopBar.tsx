@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { fetchUnreadNotificationCount, getConversations } from "../../api/social";
 import { useAuth } from "../../hooks/useAuth";
 import { useVisibilityPoll } from "../../hooks/useVisibilityPoll";
+import { inboxAriaLabel } from "../../utils/inboxAriaLabel";
 import { AuthControls } from "../shared/AuthControls";
 
 export type CreateAction = "post" | "video" | "automate";
@@ -177,7 +178,7 @@ export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick
               setProductMenuOpen((open) => !open);
               setCreateMenuOpen(false);
             }}
-            className="flex h-10 items-center gap-2 rounded-full px-2.5 text-[15px] font-black transition-colors hover-overlay sm:px-3"
+            className="flex h-10 items-center gap-2 rounded-full px-2.5 text-[15px] font-black transition-colors hover-overlay focus-visible:outline-none focus-ring sm:px-3"
             style={{ color: "var(--text-primary)" }}
             aria-expanded={productMenuOpen}
             aria-haspopup="menu"
@@ -258,18 +259,14 @@ export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick
           {socialNav.map(({ label, route, icon: Icon }) => {
             const active = isRouteActive(activeRoute, route);
             const isInbox = route === "/messages";
-            const ariaLabel =
-              isInbox && dmUnreadCount > 0
-                ? `Unread messages, ${dmUnreadCount}`
-                : isInbox
-                  ? "Unread messages"
-                  : undefined;
+            // Zero unread → "Inbox" only (honest); count when > 0.
+            const ariaLabel = isInbox ? inboxAriaLabel("Inbox", dmUnreadCount) : undefined;
             return (
               <button
                 key={route}
                 type="button"
                 onClick={() => onNavigate(route)}
-                className="relative flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-[14px] font-semibold transition-colors hover-overlay"
+                className="relative flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-[14px] font-semibold transition-colors hover-overlay focus-visible:outline-none focus-ring"
                 style={{
                   color: active ? "var(--text-primary)" : "var(--text-secondary)",
                   backgroundColor: active ? "color-mix(in srgb, var(--accent) 14%, transparent)" : "transparent",
@@ -299,7 +296,7 @@ export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick
           <button
             type="button"
             onClick={() => onNavigate("/explore")}
-            className="hidden h-10 w-10 items-center justify-center rounded-full transition-colors hover-overlay sm:flex"
+            className="hidden h-10 w-10 items-center justify-center rounded-full transition-colors hover-overlay focus-visible:outline-none focus-ring sm:flex"
             aria-label="Search"
             style={{ color: "var(--text-secondary)" }}
           >
@@ -309,7 +306,7 @@ export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick
           <button
             type="button"
             onClick={() => onNavigate("/notifications")}
-            className="relative flex h-10 w-10 items-center justify-center rounded-full transition-colors hover-overlay"
+            className="relative flex h-10 w-10 items-center justify-center rounded-full transition-colors hover-overlay focus-visible:outline-none focus-ring"
             aria-label={
               unreadCount > 0
                 ? `Notifications, ${unreadCount} unread`
@@ -340,7 +337,7 @@ export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick
                 setCreateMenuOpen((open) => !open);
                 setProductMenuOpen(false);
               }}
-              className="flex h-10 items-center gap-1.5 rounded-full px-3 text-[14px] font-bold sm:gap-2 sm:px-4"
+              className="flex h-10 items-center gap-1.5 rounded-full px-3 text-[14px] font-bold focus-visible:outline-none focus-ring sm:gap-2 sm:px-4"
               style={{ backgroundColor: "var(--accent)", color: "#000" }}
               aria-expanded={createMenuOpen}
               aria-haspopup="menu"
@@ -392,7 +389,7 @@ export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick
           <button
             type="button"
             onClick={() => onNavigate("/settings")}
-            className="hidden h-10 w-10 items-center justify-center rounded-full transition-colors hover-overlay sm:flex"
+            className="hidden h-10 w-10 items-center justify-center rounded-full transition-colors hover-overlay focus-visible:outline-none focus-ring sm:flex"
             aria-label="Settings"
             style={{ color: "var(--text-secondary)" }}
           >

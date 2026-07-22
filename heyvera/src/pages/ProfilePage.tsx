@@ -466,12 +466,14 @@ export function ProfilePage() {
             type="button"
             onClick={ownProfile ? () => setEditOpen(true) : toggleFollow}
             disabled={!ownProfile && followBusy}
-            className="rounded-full px-4 py-1.5 text-[14px] font-bold transition-colors hover:opacity-90"
+            className="rounded-full px-4 py-1.5 text-[14px] font-bold transition-colors hover:opacity-90 focus-visible:outline-none focus-ring"
             style={{
               border: ownProfile || isFollowing ? '1px solid var(--border-primary)' : undefined,
               backgroundColor: ownProfile || isFollowing ? 'transparent' : 'var(--accent)',
               color: ownProfile || isFollowing ? 'var(--text-primary)' : '#000',
             }}
+            aria-pressed={ownProfile ? undefined : isFollowing}
+            aria-busy={!ownProfile && followBusy ? true : undefined}
           >
             {ownProfile ? 'Edit profile' : followBusy ? 'Saving' : isFollowing ? 'Following' : 'Follow'}
           </button>
@@ -553,23 +555,33 @@ export function ProfilePage() {
         />
       )}
 
-      <div className="flex border-b" style={{ borderColor: 'var(--border-primary)' }}>
-        {TABS.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className="flex-1 py-4 text-[15px] font-medium transition-colors hover-overlay"
-            style={{ color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)' }}
-          >
-            <span className="relative inline-block">
-              {tab}
-              {activeTab === tab && (
-                <span className="absolute -bottom-[17px] left-0 right-0 h-[4px] rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
-              )}
-            </span>
-          </button>
-        ))}
+      <div
+        className="flex border-b"
+        style={{ borderColor: 'var(--border-primary)' }}
+        role="tablist"
+        aria-label="Profile content"
+      >
+        {TABS.map((tab) => {
+          const selected = activeTab === tab;
+          return (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => setActiveTab(tab)}
+              className="flex-1 py-4 text-[15px] font-medium transition-colors hover-overlay focus-visible:outline-none focus-ring"
+              style={{ color: selected ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+            >
+              <span className="relative inline-block">
+                {tab}
+                {selected && (
+                  <span className="absolute -bottom-[17px] left-0 right-0 h-[4px] rounded-full" style={{ backgroundColor: 'var(--accent)' }} aria-hidden="true" />
+                )}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {visiblePosts.length === 0 ? (

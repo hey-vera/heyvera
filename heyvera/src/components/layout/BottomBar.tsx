@@ -12,6 +12,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { getConversations } from '../../api/social';
 import { useAuth } from '../../hooks/useAuth';
 import { useVisibilityPoll } from '../../hooks/useVisibilityPoll';
+import { inboxAriaLabel } from '../../utils/inboxAriaLabel';
 
 interface BottomBarProps {
   activeRoute: string;
@@ -66,9 +67,10 @@ export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps
 
       {/* FAB compose button */}
       <button
+        type="button"
         onClick={onCompose}
         aria-label="Compose post"
-        className="sm:hidden fixed bottom-[calc(61px+env(safe-area-inset-bottom))] right-4 z-50 w-14 h-14 rounded-full flex items-center justify-center text-2xl font-bold shadow-lg"
+        className="sm:hidden fixed bottom-[calc(61px+env(safe-area-inset-bottom))] right-4 z-50 w-14 h-14 rounded-full flex items-center justify-center text-2xl font-bold shadow-lg focus-visible:outline-none focus-ring"
         style={{ backgroundColor: "var(--accent)", color: "#000" }}
       >
         <Feather className="h-6 w-6" strokeWidth={2.4} aria-hidden="true" />
@@ -88,19 +90,18 @@ export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps
           const isActive = activeRoute === tab.route;
           const Icon = tab.icon;
           const isMessages = tab.route === "/messages";
-          const ariaLabel =
-            isMessages && dmUnreadCount > 0
-              ? `Unread messages, ${dmUnreadCount}`
-              : isMessages
-                ? "Unread messages"
-                : tab.label;
+          // Zero unread → "Messages" only (honest); count when > 0.
+          const ariaLabel = isMessages
+            ? inboxAriaLabel("Messages", dmUnreadCount)
+            : tab.label;
           return (
             <button
+              type="button"
               key={tab.route}
               onClick={() => onNavigate(tab.route)}
               aria-label={ariaLabel}
               aria-current={isActive ? "page" : undefined}
-              className="relative flex flex-col items-center justify-center flex-1 h-full transition-opacity"
+              className="relative flex flex-col items-center justify-center flex-1 h-full transition-opacity focus-visible:outline-none focus-ring"
               style={{
                 color: isActive ? "var(--accent)" : "var(--text-primary)",
                 opacity: isActive ? 1 : 0.8,
