@@ -26,6 +26,11 @@ import { fetchX402Status } from '../api/social';
 import type { X402Status } from '../api/social';
 import { PulseApiError } from '../api/pulse';
 import { pulseCreditErrorMessage } from '../utils/pulseCreditError';
+import {
+  canPulseDraftAction,
+  pulseDraftActionLabel,
+  pulseTransitionErrorMessage,
+} from '../utils/pulseDraftActions';
 
 type Tab = 'drafts' | 'schedule' | 'goals' | 'helper';
 
@@ -392,11 +397,25 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
 
   useEffect(() => { void loadDrafts(); }, [loadDrafts]);
 
+  const actionErrorMessage = (err: unknown, fallback: string) => {
+    const status = err instanceof PulseApiError ? err.status : null;
+    if (status === 409 || (err instanceof PulseApiError && err.code === 'ILLEGAL_TRANSITION')) {
+      return pulseTransitionErrorMessage(err, status);
+    }
+    // Credit errors only apply to create; still surface message honestly.
+    if (status === 402) {
+      return pulseCreditErrorMessage(err, status);
+    }
+    return err instanceof Error ? err.message : fallback;
+  };
+
   const handleApprove = async (id: string) => {
     setActionLoading(id);
+    setError(null);
     try {
       const token = await getToken();
       if (!token) return;
+      // Approve only then publish — two real server steps (not a fake combined API).
       await approveDraft(token, id);
       await publishDraft(token, id);
       setDrafts((prev) => prev.filter((d) => d.id !== id));
@@ -407,8 +426,8 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
       });
       if (auditOpenId === id) setAuditOpenId(null);
     } catch (err) {
-      const status = err instanceof PulseApiError ? err.status : null;
-      setError(pulseCreditErrorMessage(err, status));
+      setError(actionErrorMessage(err, 'Approve & publish failed'));
+      await loadDrafts();
     } finally {
       setActionLoading(null);
     }
@@ -416,6 +435,7 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
 
   const handleDismiss = async (id: string) => {
     setActionLoading(id);
+    setError(null);
     try {
       const token = await getToken();
       if (!token) return;
@@ -428,7 +448,8 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
       });
       if (auditOpenId === id) setAuditOpenId(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Action failed');
+      setError(actionErrorMessage(err, 'Reject failed'));
+      await loadDrafts();
     } finally {
       setActionLoading(null);
     }
@@ -436,13 +457,15 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
 
   const handleApproveOnly = async (id: string) => {
     setActionLoading(id);
+    setError(null);
     try {
       const token = await getToken();
       if (!token) return;
       await approveDraft(token, id);
       await loadDrafts();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Approve failed');
+      setError(actionErrorMessage(err, 'Approve failed'));
+      await loadDrafts();
     } finally {
       setActionLoading(null);
     }
@@ -470,7 +493,7 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
       });
       await loadDrafts();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Schedule failed');
+      setError(actionErrorMessage(err, 'Schedule failed'));
     } finally {
       setActionLoading(null);
     }
@@ -478,6 +501,7 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
 
   const handlePublishApproved = async (id: string) => {
     setActionLoading(id);
+    setError(null);
     try {
       const token = await getToken();
       if (!token) return;
@@ -485,7 +509,8 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
       setDrafts((prev) => prev.filter((d) => d.id !== id));
       await loadDrafts();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Publish failed');
+      setError(actionErrorMessage(err, 'Publish failed'));
+      await loadDrafts();
     } finally {
       setActionLoading(null);
     }
@@ -632,38 +657,33 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
                     >
                       {auditLoading ? 'Loading…' : auditOpen ? 'Hide audit' : 'Audit'}
                     </button>
-                    {draft.status === 'pending' && (
-                      <>
-                        <button
-                          type="button"
-                          onClick={() => void handleApproveOnly(draft.id)}
-                          disabled={actionLoading === draft.id}
-                          className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover-overlay disabled:opacity-50"
-                          style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleApprove(draft.id)}
-                          disabled={actionLoading === draft.id}
-                          className="rounded-full px-3 py-1 text-[13px] font-bold transition-opacity hover:opacity-90 disabled:opacity-50"
-                          style={{ backgroundColor: 'var(--accent)', color: '#000' }}
-                        >
-                          {actionLoading === draft.id ? 'Publishing...' : 'Approve & Post'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void handleDismiss(draft.id)}
-                          disabled={actionLoading === draft.id}
-                          className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover-overlay disabled:opacity-50"
-                          style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
-                        >
-                          Dismiss
-                        </button>
-                      </>
+                    {canPulseDraftAction(draft.status, 'approve') && (
+                      <button
+                        type="button"
+                        onClick={() => void handleApproveOnly(draft.id)}
+                        disabled={actionLoading === draft.id}
+                        className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover-overlay disabled:opacity-50"
+                        style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
+                        title="Mark approved only — does not publish"
+                      >
+                        {pulseDraftActionLabel('approve')}
+                      </button>
                     )}
-                    {draft.status === 'approved' && (
+                    {canPulseDraftAction(draft.status, 'approveAndPublish') && (
+                      <button
+                        type="button"
+                        onClick={() => void handleApprove(draft.id)}
+                        disabled={actionLoading === draft.id}
+                        className="rounded-full px-3 py-1 text-[13px] font-bold transition-opacity hover:opacity-90 disabled:opacity-50"
+                        style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+                        title="Approve then publish as two server steps"
+                      >
+                        {actionLoading === draft.id
+                          ? 'Publishing…'
+                          : pulseDraftActionLabel('approveAndPublish')}
+                      </button>
+                    )}
+                    {canPulseDraftAction(draft.status, 'publish') && (
                       <button
                         type="button"
                         onClick={() => void handlePublishApproved(draft.id)}
@@ -671,20 +691,33 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
                         className="rounded-full px-3 py-1 text-[13px] font-bold transition-opacity hover:opacity-90 disabled:opacity-50"
                         style={{ backgroundColor: 'var(--accent)', color: '#000' }}
                       >
-                        {actionLoading === draft.id ? 'Publishing…' : 'Publish now'}
+                        {actionLoading === draft.id
+                          ? 'Publishing…'
+                          : pulseDraftActionLabel('publish')}
+                      </button>
+                    )}
+                    {canPulseDraftAction(draft.status, 'reject') && (
+                      <button
+                        type="button"
+                        onClick={() => void handleDismiss(draft.id)}
+                        disabled={actionLoading === draft.id}
+                        className="rounded-full border px-3 py-1 text-[13px] font-bold transition-colors hover-overlay disabled:opacity-50"
+                        style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
+                      >
+                        {pulseDraftActionLabel('reject')}
                       </button>
                     )}
                   </div>
                 </div>
 
-                {draft.status === 'approved' && (
+                {canPulseDraftAction(draft.status, 'schedule') && (
                   <div
                     className="mt-3 flex flex-wrap items-end gap-2 border-t pt-3"
                     style={{ borderColor: 'var(--border-primary)' }}
                   >
                     <label className="flex min-w-[12rem] flex-1 flex-col gap-1">
                       <span className="text-[12px] font-medium" style={{ color: 'var(--text-secondary)' }}>
-                        Schedule publish
+                        Schedule publish (approved drafts only)
                       </span>
                       <input
                         type="datetime-local"
@@ -703,7 +736,9 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
                       className="rounded-full border px-3 py-2 text-[13px] font-bold transition-colors hover-overlay disabled:opacity-50"
                       style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
                     >
-                      {actionLoading === draft.id ? 'Scheduling…' : 'Schedule'}
+                      {actionLoading === draft.id
+                        ? 'Scheduling…'
+                        : pulseDraftActionLabel('schedule')}
                     </button>
                   </div>
                 )}
