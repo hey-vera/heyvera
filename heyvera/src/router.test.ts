@@ -1,5 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import { router } from './router';
+
+const srcDir = dirname(fileURLToPath(import.meta.url));
 
 describe('router surface', () => {
   it('keeps the expected top-level route map', () => {
@@ -33,5 +38,13 @@ describe('router surface', () => {
         '*',
       ])
     );
+  });
+
+  it('live entry main.tsx mounts router only (not orphan App.tsx)', () => {
+    const mainSrc = readFileSync(join(srcDir, 'main.tsx'), 'utf8');
+    expect(mainSrc).toMatch(/from\s+['"]\.\/router['"]/);
+    expect(mainSrc).toMatch(/RouterProvider/);
+    expect(mainSrc).not.toMatch(/from\s+['"]\.\/App['"]/);
+    expect(mainSrc).not.toMatch(/VeraSocials/);
   });
 });
