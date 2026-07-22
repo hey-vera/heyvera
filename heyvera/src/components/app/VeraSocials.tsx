@@ -46,6 +46,11 @@ import type {
 type SocialsTab = "feed" | "profiles" | "communities" | "longform" | "pulse" | "you";
 type AccountViewTab = "posts" | "longform" | "communities" | "agents" | "settings" | "followers" | "following";
 
+/**
+ * @deprecated ORPHAN shell — not mounted by main/router.
+ * Do not add product features here. Live social is pages/* + AppShell.
+ * See heyvera/src/orphan/README.md.
+ */
 type VeraSocialsProps = {
   shellState: ShellState;
 };

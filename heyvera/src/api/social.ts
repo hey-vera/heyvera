@@ -1134,8 +1134,9 @@ export function feedPostToPost(fp: FeedPost): Post {
   };
 }
 
-// ─── Legacy-compatible public API (replaces client.ts) ──────────────────────
-// Paths are relative to API_BASE (/v1/social), same as modern helpers.
+// ─── Compatibility wrappers (single client base) ────────────────────────────
+// All paths are relative to API_BASE (/v1/social). Prefer modern helpers above
+// for new code; these remain for older page call sites.
 
 function legacyJsonHeaders(headers?: HeadersInit): Headers {
   const next = new Headers(headers);
