@@ -207,6 +207,17 @@ export type LongformEntry = {
   } | null;
 };
 
+/** Wave 11b — Page-owned empty media shelf (no items yet). */
+export type MediaShelf = {
+  id: string;
+  ownerProfileId: string;
+  title: string;
+  description: string;
+  /** Always 0 until shelf items ship — never invent cards. */
+  itemCount: number;
+  createdAt: string;
+};
+
 export type CommunityMembership = Community & {
   joinedAt: string;
   role?: string;
@@ -956,6 +967,24 @@ export async function createLongform(
   },
 ): Promise<{ ok: true; longform: LongformEntry }> {
   return apiAuthFetch("/longform", { method: "POST", token, body: data });
+}
+
+// ─── Wave 11b: Page-owned media shelves (empty foundation) ───────────────────
+
+/** GET /v1/social/shelves/mine — steward's empty shelves (auth required). */
+export async function fetchMyShelves(
+  token: string,
+  limit = 50,
+): Promise<{ shelves: MediaShelf[] }> {
+  return apiAuthFetch(`/shelves/mine?limit=${limit}`, { method: "GET", token });
+}
+
+/** POST /v1/social/shelves — create an empty shelf for the steward person Page. */
+export async function createShelf(
+  token: string,
+  data: { title: string; description?: string },
+): Promise<{ ok: true; shelf: MediaShelf }> {
+  return apiAuthFetch("/shelves", { method: "POST", token, body: data });
 }
 
 // ─── x402 agent micropayments scaffold (Wave 8g) ─────────────────────────────

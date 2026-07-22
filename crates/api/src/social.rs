@@ -143,6 +143,13 @@ pub struct CreateLongformRequest {
     pub linked_agent_id: Option<String>,
 }
 
+/// Wave 11b — create an empty Page-owned media shelf (no items yet).
+#[derive(Debug, Deserialize)]
+pub struct CreateShelfRequest {
+    pub title: String,
+    pub description: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UpdateProfileRequest {
     /// Accept camelCase (FE) and snake_case (legacy clients).
@@ -1672,4 +1679,40 @@ pub async fn unfollow_page(
     }
 
     not_found("Page not found")
+}
+
+// ─── Wave 11b: Page-owned media shelves (empty foundation) ───────────────────
+
+/// GET /v1/social/shelves/mine — list empty shelves for the steward person Page.
+/// Never invents video cards; itemCount is always 0 until items ship.
+pub async fn list_my_shelves(
+    user: ClerkUser,
+    Query(params): Query<FeedQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let limit = params.limit.unwrap_or(50).clamp(1, 100);
+    let shelves = db(&state).social_list_media_shelves(&profile_id, limit);
+    ok(serde_json::json!({ "shelves": shelves }))
+}
+
+/// POST /v1/social/shelves — create an empty shelf owned by the steward person Page.
+/// No items / playlist membership yet — foundation only.
+pub async fn create_shelf(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateShelfRequest>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let description = req.description.unwrap_or_default();
+    match db(&state).social_create_media_shelf(&profile_id, &req.title, &description) {
+        Ok(shelf) => ok(serde_json::json!({ "ok": true, "shelf": shelf })),
+        Err(msg) => bad_request(&msg),
+    }
 }

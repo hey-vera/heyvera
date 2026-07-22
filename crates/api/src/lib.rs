@@ -533,6 +533,8 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
             "/v1/social/pages/{id}/follow",
             post(social::follow_page).delete(social::unfollow_page),
         )
+        .route("/v1/social/shelves/mine", get(social::list_my_shelves))
+        .route("/v1/social/shelves", post(social::create_shelf))
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
         .route(
@@ -643,6 +645,8 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
             "/v1/social/pages/{id}/follow",
             post(social::follow_page).delete(social::unfollow_page),
         )
+        .route("/v1/social/shelves/mine", get(social::list_my_shelves))
+        .route("/v1/social/shelves", post(social::create_shelf))
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
         .route(
@@ -862,6 +866,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
             "/v1/social/pages/{id}/follow",
             post(social::follow_page).delete(social::unfollow_page),
         )
+        // Wave 11b: empty media shelves under steward Page
+        .route("/v1/social/shelves/mine", get(social::list_my_shelves))
+        .route("/v1/social/shelves", post(social::create_shelf))
         // Task #47: Media uploads
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))

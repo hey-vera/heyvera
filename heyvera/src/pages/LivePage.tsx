@@ -1,23 +1,36 @@
 import { CalendarClock, MessageSquare, Radio, Settings, ShieldCheck, Video } from 'lucide-react';
+import {
+  LIVE_DEFAULT_PHASE,
+  LIVE_INGEST_FOUNDATION_DETAIL,
+  isLiveChromeAllowed,
+  liveStreamBadgeLabel,
+  type LiveStreamPhase,
+} from '../utils/mediaHonesty';
 
-const LIVE_ROOMS = [
+/** Foundation room cards — not schedules, not LIVE. phase is never 'live' until ingest. */
+const LIVE_ROOMS: {
+  title: string;
+  channel: string;
+  state: string;
+  phase: Exclude<LiveStreamPhase, 'live'>;
+}[] = [
   {
     title: 'Creator studio open room',
     channel: 'HeyVera Founding Channel',
     state: 'Layout placeholder — not broadcasting',
-    time: 'Preview only',
+    phase: 'preview',
   },
   {
     title: 'Community watch room',
     channel: 'Social / Communities',
     state: 'Not scheduled — no ingest',
-    time: 'Soon',
+    phase: 'soon',
   },
   {
     title: 'Agent-assisted broadcast',
     channel: 'Vera Agents',
     state: 'Planned after encoder foundation',
-    time: 'Later',
+    phase: 'scheduled',
   },
 ];
 
@@ -28,11 +41,21 @@ const SETUP_STEPS = [
   'Open live room with comments and moderation (future)',
 ];
 
+/** Main player chrome phase for this page — always Preview until real session API. */
+const PLAYER_PHASE: LiveStreamPhase = LIVE_DEFAULT_PHASE;
+
 export function LivePage() {
+  // Hold: never enable LIVE chrome without real ingest.
+  const playerBadge = liveStreamBadgeLabel(PLAYER_PHASE);
+  const showLiveChrome = isLiveChromeAllowed(PLAYER_PHASE);
+
   return (
     <div className="min-h-screen px-3 pb-10 pt-4 sm:px-5" style={{ color: 'var(--text-primary)' }}>
       <header className="mb-5 border-b pb-4" style={{ borderColor: 'var(--border-primary)' }}>
-        <div className="mb-2 inline-flex items-center gap-2 text-[13px] font-bold uppercase tracking-[0.08em]" style={{ color: 'var(--text-secondary)' }}>
+        <div
+          className="mb-2 inline-flex items-center gap-2 text-[13px] font-bold uppercase tracking-[0.08em]"
+          style={{ color: 'var(--text-secondary)' }}
+        >
           <Radio className="h-4 w-4" aria-hidden="true" />
           Social / Live
         </div>
@@ -40,14 +63,14 @@ export function LivePage() {
           <div>
             <h1 className="text-[28px] font-black leading-tight sm:text-[34px]">Live</h1>
             <p className="mt-1 max-w-2xl text-[15px]" style={{ color: 'var(--text-secondary)' }}>
-              Preview only — no streams are live. Encoder ingest is Wave 8f foundation documentation only.
+              Preview only — no streams are live. Encoder ingest is foundation documentation only.
             </p>
           </div>
           <button
             type="button"
             disabled
             title="Live scheduling ships after stream ingest is real"
-            className="inline-flex h-10 items-center justify-center gap-2 rounded-full px-4 text-[14px] font-bold opacity-50 cursor-not-allowed"
+            className="inline-flex h-10 cursor-not-allowed items-center justify-center gap-2 rounded-full px-4 text-[14px] font-bold opacity-50"
             style={{ backgroundColor: 'var(--accent)', color: '#000' }}
           >
             <Video className="h-4 w-4" aria-hidden="true" />
@@ -56,64 +79,92 @@ export function LivePage() {
         </div>
       </header>
 
-      {/* Wave 8f foundation honesty */}
       <div
         className="mb-5 rounded-2xl border px-4 py-3"
         style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
         role="status"
       >
         <p className="text-[14px] font-bold" style={{ color: 'var(--text-primary)' }}>
-          Wave 8f — encoder ingest foundation only
+          Wave 11c — live honesty hold
         </p>
         <p className="mt-1 text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          This page documents the future live path (channel identity → room → archive). There is no RTMP/WHIP ingest,
-          no session service, and no LIVE badge on real streams. UI never claims a room is broadcasting. When ingest
-          ships, Preview becomes a real player attached to the creator Page.
+          {LIVE_INGEST_FOUNDATION_DETAIL} Labels are Preview / Soon only
+          {showLiveChrome ? '' : ' (LIVE chrome disabled)'}.
         </p>
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <main className="min-w-0">
-          <section className="border" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
-            <div className="relative flex min-h-[320px] items-center justify-center border-b" style={{ borderColor: 'var(--border-primary)', backgroundColor: '#050505' }}>
+          <section
+            className="border"
+            style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+          >
+            <div
+              className="relative flex min-h-[320px] items-center justify-center border-b"
+              style={{ borderColor: 'var(--border-primary)', backgroundColor: '#050505' }}
+            >
               <div className="text-center">
-                <span className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full" style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff' }}>
+                <span
+                  className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.12)', color: '#fff' }}
+                >
                   <Radio className="h-8 w-8" aria-hidden="true" />
                 </span>
                 <h2 className="text-[24px] font-black text-white">Live room preview</h2>
                 <p className="mt-2 max-w-md text-[14px] text-white/70">
-                  Playback will attach here once stream ingest and live sessions are wired to HeyVera profiles.
-                  Nothing is broadcasting here.
+                  Playback will attach here once stream ingest and live sessions are wired to HeyVera
+                  profiles. Nothing is broadcasting here.
                 </p>
               </div>
               <span
                 className="absolute left-3 top-3 rounded-full px-3 py-1 text-[13px] font-black"
-                style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+                style={{
+                  backgroundColor: showLiveChrome ? '#dc2626' : 'var(--border-primary)',
+                  color: showLiveChrome ? '#fff' : 'var(--text-secondary)',
+                }}
+                data-live-chrome={showLiveChrome ? 'true' : 'false'}
               >
-                Preview
+                {playerBadge}
               </span>
             </div>
             <div className="grid gap-4 p-4 md:grid-cols-[1fr_280px]">
               <div>
                 <h2 className="text-[22px] font-black">Creator studio open room</h2>
                 <p className="mt-2 text-[15px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-                  A broadcast room should belong to the creator channel, not a detached stream object. Clerk signs the user in, HeyVera profile owns the channel, and the live room becomes an archive when it ends.
+                  A broadcast room should belong to the creator channel, not a detached stream object.
+                  Clerk signs the user in, HeyVera profile owns the channel, and the live room becomes an
+                  archive when it ends.
                 </p>
                 <div className="mt-4 flex flex-wrap gap-2">
                   {['#live', '#channels', '#comments', '#archives'].map((tag) => (
-                    <span key={tag} className="rounded-full border px-3 py-1.5 text-[13px] font-semibold" style={{ borderColor: 'var(--border-primary)', color: 'var(--accent)' }}>
+                    <span
+                      key={tag}
+                      className="rounded-full border px-3 py-1.5 text-[13px] font-semibold"
+                      style={{ borderColor: 'var(--border-primary)', color: 'var(--accent)' }}
+                    >
                       {tag}
                     </span>
                   ))}
                 </div>
               </div>
-              <div className="border p-3" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-primary)' }}>
+              <div
+                className="border p-3"
+                style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-primary)' }}
+              >
                 <h3 className="mb-2 flex items-center gap-2 text-[15px] font-black">
                   <MessageSquare className="h-4 w-4" aria-hidden="true" />
                   Live comments (placeholder)
                 </h3>
-                {['No live session — sample copy only.', 'Comments will be moderated and archivable.', 'Agent summaries can happen later.'].map((message) => (
-                  <p key={message} className="border-t py-2 text-[13px] first:border-t-0" style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
+                {[
+                  'No live session — sample copy only.',
+                  'Comments will be moderated and archivable.',
+                  'Agent summaries can happen later.',
+                ].map((message) => (
+                  <p
+                    key={message}
+                    className="border-t py-2 text-[13px] first:border-t-0"
+                    style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+                  >
                     {message}
                   </p>
                 ))}
@@ -127,23 +178,40 @@ export function LivePage() {
               Illustrative room cards — not real schedules and not LIVE.
             </p>
             <div className="grid gap-3 md:grid-cols-3">
-              {LIVE_ROOMS.map((room) => (
-                <article key={room.title} className="border p-4" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
-                  <span className="mb-3 inline-flex items-center gap-2 text-[13px] font-bold" style={{ color: 'var(--text-secondary)' }}>
-                    <CalendarClock className="h-4 w-4" aria-hidden="true" />
-                    {room.time}
-                  </span>
-                  <h3 className="text-[16px] font-black leading-snug">{room.title}</h3>
-                  <p className="mt-1 text-[14px]" style={{ color: 'var(--text-secondary)' }}>{room.channel}</p>
-                  <p className="mt-3 text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>{room.state}</p>
-                </article>
-              ))}
+              {LIVE_ROOMS.map((room) => {
+                const badge = liveStreamBadgeLabel(room.phase);
+                return (
+                  <article
+                    key={room.title}
+                    className="border p-4"
+                    style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+                  >
+                    <span
+                      className="mb-3 inline-flex items-center gap-2 text-[13px] font-bold"
+                      style={{ color: 'var(--text-secondary)' }}
+                    >
+                      <CalendarClock className="h-4 w-4" aria-hidden="true" />
+                      {badge}
+                    </span>
+                    <h3 className="text-[16px] font-black leading-snug">{room.title}</h3>
+                    <p className="mt-1 text-[14px]" style={{ color: 'var(--text-secondary)' }}>
+                      {room.channel}
+                    </p>
+                    <p className="mt-3 text-[13px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+                      {room.state}
+                    </p>
+                  </article>
+                );
+              })}
             </div>
           </section>
         </main>
 
         <aside className="grid content-start gap-4">
-          <section className="border p-4" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
+          <section
+            className="border p-4"
+            style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+          >
             <h2 className="mb-3 flex items-center gap-2 text-[17px] font-black">
               <Settings className="h-5 w-5" style={{ color: 'var(--accent)' }} aria-hidden="true" />
               Creator setup (future)
@@ -151,7 +219,13 @@ export function LivePage() {
             <ol className="grid gap-3">
               {SETUP_STEPS.map((step, index) => (
                 <li key={step} className="flex gap-3 text-[14px]" style={{ color: 'var(--text-secondary)' }}>
-                  <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-black" style={{ backgroundColor: 'color-mix(in srgb, var(--accent) 16%, transparent)', color: 'var(--text-primary)' }}>
+                  <span
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[12px] font-black"
+                    style={{
+                      backgroundColor: 'color-mix(in srgb, var(--accent) 16%, transparent)',
+                      color: 'var(--text-primary)',
+                    }}
+                  >
                     {index + 1}
                   </span>
                   {step}
@@ -160,13 +234,18 @@ export function LivePage() {
             </ol>
           </section>
 
-          <section className="border p-4" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
+          <section
+            className="border p-4"
+            style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+          >
             <h2 className="mb-2 flex items-center gap-2 text-[17px] font-black">
               <ShieldCheck className="h-5 w-5" style={{ color: 'var(--accent)' }} aria-hidden="true" />
               Account routing
             </h2>
             <p className="text-[14px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-              Live creation should require a signed-in Clerk user with a HeyVera profile. Public viewers can watch; creators manage streams through their channel identity. Not available until ingest ships.
+              Live creation should require a signed-in Clerk user with a HeyVera profile. Public viewers
+              can watch; creators manage streams through their channel identity. Not available until
+              ingest ships.
             </p>
           </section>
         </aside>
