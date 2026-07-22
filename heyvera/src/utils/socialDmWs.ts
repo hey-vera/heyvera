@@ -73,3 +73,18 @@ export function socialDmWsUrl(token: string, apiBase?: string): string {
 export function subscribePayload(conversationId: string): string {
   return JSON.stringify({ type: 'subscribe', conversationId });
 }
+
+/** Client application ping (server replies with `{ type: "pong" }`). */
+export function pingPayload(): string {
+  return JSON.stringify({ type: 'ping' });
+}
+
+/**
+ * Light exponential backoff for DM WebSocket reconnect.
+ * attempt 0 → 2s, 1 → 4s, 2 → 8s, … capped at 30s.
+ */
+export function nextDmReconnectDelayMs(attempt: number, capMs = 30_000): number {
+  const n = Number.isFinite(attempt) ? Math.max(0, Math.floor(attempt)) : 0;
+  const delay = 2_000 * Math.pow(2, n);
+  return Math.min(capMs, delay);
+}
