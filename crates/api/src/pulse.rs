@@ -17,9 +17,94 @@ type ApiResponse = (StatusCode, Json<serde_json::Value>);
 fn ok(v: serde_json::Value) -> ApiResponse { (StatusCode::OK, Json(v)) }
 fn not_found(msg: &str) -> ApiResponse { (StatusCode::NOT_FOUND, Json(json!({ "error": msg, "code": "NOT_FOUND" }))) }
 fn bad_request(msg: &str) -> ApiResponse { (StatusCode::BAD_REQUEST, Json(json!({ "error": msg, "code": "BAD_REQUEST" }))) }
+fn payment_required(msg: &str) -> ApiResponse {
+    (
+        StatusCode::PAYMENT_REQUIRED,
+        Json(json!({ "error": msg, "code": "INSUFFICIENT_CREDITS" })),
+    )
+}
 
 fn db(state: &AppState) -> &crate::db::Database {
     state.db.as_ref().expect("database not initialized")
+}
+
+/// Fixed credit cost for creating a Pulse draft when a ledger row exists.
+pub const PULSE_DRAFT_CREDIT_COST: f64 = 1.0;
+
+/// Decision for whether a Pulse draft create should charge credits.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PulseDraftMeterDecision {
+    /// No credit_balances row — free / unmetered path.
+    AllowFree,
+    /// Row exists with sufficient balance — charge `cost`.
+    AllowAndCharge { cost: f64, have: f64 },
+    /// Row exists but balance is insufficient.
+    DenyInsufficient { need: f64, have: f64 },
+}
+
+/// Pure helper: decide metering from optional (sub_remaining, pack_remaining).
+pub fn pulse_draft_meter_decision(
+    balance_row: Option<(f64, f64)>,
+    cost: f64,
+) -> PulseDraftMeterDecision {
+    match balance_row {
+        None => PulseDraftMeterDecision::AllowFree,
+        Some((sub, pack)) => {
+            let have = sub + pack;
+            if have < cost {
+                PulseDraftMeterDecision::DenyInsufficient { need: cost, have }
+            } else {
+                PulseDraftMeterDecision::AllowAndCharge { cost, have }
+            }
+        }
+    }
+}
+
+/// Apply Pulse draft metering for a clerk user.
+/// - No balance row → free (unmetered), returns Ok(None remaining).
+/// - Row exists → deduct `PULSE_DRAFT_CREDIT_COST`, record usage event, Ok(Some(remaining)).
+/// - Insufficient → Err with human-readable message.
+pub fn meter_pulse_draft_create(
+    database: &crate::db::Database,
+    clerk_user_id: &str,
+) -> Result<Option<f64>, String> {
+    let row = database.get_credit_balance_row(clerk_user_id);
+    let decision = pulse_draft_meter_decision(
+        row.as_ref()
+            .map(|r| (r.subscription_remaining, r.pack_remaining)),
+        PULSE_DRAFT_CREDIT_COST,
+    );
+    match decision {
+        PulseDraftMeterDecision::AllowFree => Ok(None),
+        PulseDraftMeterDecision::DenyInsufficient { need, have } => Err(format!(
+            "insufficient credits: need {need:.2}, have {have:.2}"
+        )),
+        PulseDraftMeterDecision::AllowAndCharge { cost, .. } => {
+            let bal = database.deduct_credits(clerk_user_id, cost, "pulse draft create")?;
+            // Record activity so Premium usage windows show Pulse drafts (tokens can be 0).
+            database.record_usage(
+                clerk_user_id,
+                "pulse",
+                "automation",
+                "draft",
+                None,
+                Some(0),
+                Some(0),
+                None,
+            );
+            Ok(Some(bal.subscription_remaining + bal.pack_remaining))
+        }
+    }
+}
+
+/// Resolve clerk_user_id for metering from profile id (accountId on profile JSON).
+fn clerk_user_id_for_profile(
+    database: &crate::db::Database,
+    profile_id: &str,
+) -> Option<String> {
+    database
+        .social_find_profile_by_id(profile_id)
+        .and_then(|p| p["accountId"].as_str().map(|s| s.to_string()))
 }
 
 #[derive(Debug, Deserialize)]
@@ -62,12 +147,21 @@ pub async fn create_draft(
     Json(req): Json<CreateDraftRequest>,
 ) -> ApiResponse {
     // Dual auth: Clerk or Agent bearer. Agent forces profile + author_mode=agent.
-    let (profile_id, author_mode, linked_agent_id): (String, String, Option<String>) = match &auth {
-        SocialWriteAuth::Agent(agent) => (
-            agent.profile_id.clone(),
-            "agent".to_string(),
-            Some(agent.agent_id.clone()),
-        ),
+    let (profile_id, author_mode, linked_agent_id, clerk_user_id): (
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+    ) = match &auth {
+        SocialWriteAuth::Agent(agent) => {
+            let clerk_id = clerk_user_id_for_profile(db(&state), &agent.profile_id);
+            (
+                agent.profile_id.clone(),
+                "agent".to_string(),
+                Some(agent.agent_id.clone()),
+                clerk_id,
+            )
+        }
         SocialWriteAuth::Clerk(user) => {
             let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
                 Some(p) => p,
@@ -83,9 +177,25 @@ pub async fn create_draft(
             ) {
                 return resp;
             }
-            (profile_id, author_mode, req.linked_agent_id.clone())
+            (
+                profile_id,
+                author_mode,
+                req.linked_agent_id.clone(),
+                Some(user.user_id.clone()),
+            )
         }
     };
+
+    // Meter when a credit balance row exists; free when unmetered.
+    if let Some(ref uid) = clerk_user_id {
+        if let Err(msg) = meter_pulse_draft_create(db(&state), uid) {
+            if msg.contains("insufficient credits") {
+                return payment_required(&msg);
+            }
+            return bad_request(&msg);
+        }
+    }
+
     let draft = db(&state).pulse_create_draft(
         &profile_id,
         &req.body,
@@ -501,6 +611,21 @@ pub(crate) fn execute_pulse_tool(
                     draft: None,
                     extra: serde_json::Map::new(),
                 };
+            }
+            // Same metering as HTTP create_draft: free when unmetered, charge when row exists.
+            if let Some(clerk_id) = clerk_user_id_for_profile(database, profile_id) {
+                if let Err(msg) = meter_pulse_draft_create(database, &clerk_id) {
+                    let mut extra = serde_json::Map::new();
+                    extra.insert("code".into(), json!("INSUFFICIENT_CREDITS"));
+                    return PulseToolOutcome {
+                        reply: format!(
+                            "Could not create draft: {msg}. Top up credits on Premium, or wait until metering is not required."
+                        ),
+                        tools_used: vec!["create_draft".into()],
+                        draft: None,
+                        extra,
+                    };
+                }
             }
             let draft = database.pulse_create_draft(profile_id, body, "public", "person", None);
             let short = if body.len() > 100 {
@@ -1599,6 +1724,145 @@ mod tests {
         assert_eq!(out.tools_used, vec!["schedule_draft"]);
         assert!(out.reply.contains("Scheduled"));
         assert!(out.extra.get("schedule").is_some());
+    }
+
+    #[test]
+    fn pulse_draft_meter_decision_unmetered_is_free() {
+        assert_eq!(
+            pulse_draft_meter_decision(None, PULSE_DRAFT_CREDIT_COST),
+            PulseDraftMeterDecision::AllowFree
+        );
+    }
+
+    #[test]
+    fn pulse_draft_meter_decision_charges_when_row_has_balance() {
+        assert_eq!(
+            pulse_draft_meter_decision(Some((5.0, 0.0)), PULSE_DRAFT_CREDIT_COST),
+            PulseDraftMeterDecision::AllowAndCharge {
+                cost: PULSE_DRAFT_CREDIT_COST,
+                have: 5.0
+            }
+        );
+    }
+
+    #[test]
+    fn pulse_draft_meter_decision_denies_insufficient() {
+        assert_eq!(
+            pulse_draft_meter_decision(Some((0.0, 0.5)), PULSE_DRAFT_CREDIT_COST),
+            PulseDraftMeterDecision::DenyInsufficient {
+                need: PULSE_DRAFT_CREDIT_COST,
+                have: 0.5
+            }
+        );
+    }
+
+    #[test]
+    fn create_draft_unmetered_succeeds_without_balance_row() {
+        let db = test_db();
+        let profile = db.social_create_profile("clerk_unmetered", "unmetered", "Unmetered", "");
+        let profile_id = profile["id"].as_str().unwrap();
+        assert!(db.get_credit_balance_row("clerk_unmetered").is_none());
+
+        let mut args = serde_json::Map::new();
+        args.insert("body".into(), json!("Free path draft body"));
+        let created = execute_pulse_tool(
+            &db,
+            profile_id,
+            &PulseToolCall {
+                tool: "create_draft".into(),
+                args,
+            },
+        );
+        assert_eq!(created.tools_used, vec!["create_draft"]);
+        assert!(created.draft.is_some());
+        assert!(created.reply.contains("Saved a draft"));
+        // Still no invented balance row.
+        assert!(db.get_credit_balance_row("clerk_unmetered").is_none());
+    }
+
+    #[test]
+    fn create_draft_with_balance_deducts_and_records_usage() {
+        let db = test_db();
+        let profile = db.social_create_profile("clerk_metered", "metered", "Metered", "");
+        let profile_id = profile["id"].as_str().unwrap();
+        db.init_credit_balance("clerk_metered", 10.0);
+
+        let mut args = serde_json::Map::new();
+        args.insert("body".into(), json!("Metered draft body text"));
+        let created = execute_pulse_tool(
+            &db,
+            profile_id,
+            &PulseToolCall {
+                tool: "create_draft".into(),
+                args,
+            },
+        );
+        assert!(created.draft.is_some());
+        let bal = db.get_credit_balance_row("clerk_metered").expect("row");
+        assert!((bal.subscription_remaining - (10.0 - PULSE_DRAFT_CREDIT_COST)).abs() < 1e-9);
+
+        let now_ms = chrono::Utc::now().timestamp_millis();
+        let summary = db.get_user_usage_summary("clerk_metered", now_ms - 60_000);
+        assert!(
+            summary.step_count >= 1,
+            "expected pulse usage event in window, got step_count={}",
+            summary.step_count
+        );
+        assert!(
+            summary
+                .by_provider
+                .iter()
+                .any(|p| p.provider == "pulse"),
+            "expected provider=pulse in usage summary"
+        );
+    }
+
+    #[test]
+    fn create_draft_insufficient_credits_fails_without_draft() {
+        let db = test_db();
+        let profile = db.social_create_profile("clerk_broke", "brokuser", "Broke User", "");
+        let profile_id = profile["id"].as_str().unwrap();
+        db.init_credit_balance("clerk_broke", 0.0);
+
+        let mut args = serde_json::Map::new();
+        args.insert("body".into(), json!("Should not be saved"));
+        let created = execute_pulse_tool(
+            &db,
+            profile_id,
+            &PulseToolCall {
+                tool: "create_draft".into(),
+                args,
+            },
+        );
+        assert!(created.draft.is_none());
+        assert!(created.reply.contains("insufficient credits"));
+        assert_eq!(
+            created.extra.get("code").and_then(|c| c.as_str()),
+            Some("INSUFFICIENT_CREDITS")
+        );
+        assert_eq!(db.pulse_list_drafts(profile_id, None).len(), 0);
+        let bal = db.get_credit_balance_row("clerk_broke").expect("row");
+        assert_eq!(bal.subscription_remaining, 0.0);
+    }
+
+    #[test]
+    fn meter_pulse_draft_create_and_get_credit_balance_row_honesty() {
+        let db = test_db();
+        assert!(db.get_credit_balance_row("nobody").is_none());
+        // Legacy get_credit_balance still invents 200 — product path must not use it.
+        let invented = db.get_credit_balance("nobody");
+        assert_eq!(invented.subscription_remaining, 200.0);
+
+        assert_eq!(meter_pulse_draft_create(&db, "nobody"), Ok(None));
+
+        db.init_credit_balance("somebody", 3.0);
+        let remaining = meter_pulse_draft_create(&db, "somebody").expect("ok");
+        assert_eq!(remaining, Some(2.0));
+        db.init_credit_balance("empty", 0.0);
+        // init is INSERT OR IGNORE — force zero via reset
+        db.reset_subscription_credits("empty", 0.0);
+        let err = meter_pulse_draft_create(&db, "empty").unwrap_err();
+        assert!(err.contains("insufficient credits"));
     }
 
     #[test]

@@ -791,20 +791,37 @@ pub struct BillingUsageSummary {
 
 /// GET /api/billing/usage — subscription access + usage summary + billing history.
 ///
-/// Credits balance is intentionally `null` until a real metered ledger is wired
-/// for HeyVera automation. `get_credit_balance` invents a default of 200 when no
-/// row exists — that must never be returned as a real balance.
+/// Credits balance is `null` when no ledger row exists (unmetered free path).
+/// When a row exists, balance is subscription_remaining + pack_remaining.
+/// Never call inventing `get_credit_balance` from this product path.
 #[derive(Serialize)]
 pub struct BillingUsageResponse {
     pub active: bool,
     pub access_state: AccessState,
     pub plan: Option<PlanInfo>,
-    /// Always null in this MVP — ledger is not metered for product automation yet.
+    /// Real ledger total when a balance row exists; `null` when unmetered.
     #[serde(rename = "creditsBalance")]
     pub credits_balance: Option<f64>,
     pub usage: BillingUsageSummary,
     pub history: Vec<BillingHistoryEntry>,
     pub note: String,
+}
+
+/// Pure helper: map optional ledger row → API `creditsBalance`.
+/// `None` row → `None` (never invent). `Some` → sub + pack remaining.
+pub fn credit_balance_for_api(
+    row: Option<&crate::db::CreditBalanceRecord>,
+) -> Option<f64> {
+    row.map(|r| r.subscription_remaining + r.pack_remaining)
+}
+
+/// Honest note for billing/usage responses.
+pub fn billing_usage_note(has_metered_balance: bool) -> &'static str {
+    if has_metered_balance {
+        "metered"
+    } else {
+        "ledger balance not metered yet"
+    }
 }
 
 fn usage_window_from_summary(summary: &cortex_core::usage::UsageSummary) -> BillingUsageWindow {
@@ -821,8 +838,6 @@ pub async fn get_billing_usage(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
 ) -> Json<BillingUsageResponse> {
-    const NOTE: &str = "ledger balance not metered yet";
-
     let empty_usage = BillingUsageSummary {
         last_24h: BillingUsageWindow {
             total_tokens_in: 0,
@@ -851,7 +866,7 @@ pub async fn get_billing_usage(
                 credits_balance: None,
                 usage: empty_usage,
                 history: vec![],
-                note: NOTE.into(),
+                note: billing_usage_note(false).into(),
             });
         }
     };
@@ -929,16 +944,54 @@ pub async fn get_billing_usage(
         })
         .collect();
 
+    // Honest balance: only from a real ledger row — never invent 200.
+    let balance_row = db.get_credit_balance_row(&user.user_id);
+    let credits_balance = credit_balance_for_api(balance_row.as_ref());
+    let note = billing_usage_note(credits_balance.is_some());
+
     Json(BillingUsageResponse {
         active,
         access_state,
         plan,
-        // Never invent balances from get_credit_balance defaults.
-        credits_balance: None,
+        credits_balance,
         usage,
         history,
-        note: NOTE.into(),
+        note: note.into(),
     })
+}
+
+#[cfg(test)]
+mod credit_balance_api_tests {
+    use super::{billing_usage_note, credit_balance_for_api};
+    use crate::db::CreditBalanceRecord;
+
+    #[test]
+    fn credit_balance_for_api_none_is_null() {
+        assert_eq!(credit_balance_for_api(None), None);
+        assert_eq!(billing_usage_note(false), "ledger balance not metered yet");
+    }
+
+    #[test]
+    fn credit_balance_for_api_sums_sub_and_pack() {
+        let row = CreditBalanceRecord {
+            subscription_remaining: 12.5,
+            subscription_total: 200.0,
+            pack_remaining: 7.5,
+        };
+        assert_eq!(credit_balance_for_api(Some(&row)), Some(20.0));
+        assert_eq!(billing_usage_note(true), "metered");
+    }
+
+    #[test]
+    fn credit_balance_for_api_zero_row_is_zero_not_null() {
+        let row = CreditBalanceRecord {
+            subscription_remaining: 0.0,
+            subscription_total: 200.0,
+            pack_remaining: 0.0,
+        };
+        // Zero is a real metered balance — not "unmetered".
+        assert_eq!(credit_balance_for_api(Some(&row)), Some(0.0));
+    }
 }
 
 // --- Stripe Webhook ---
