@@ -1,10 +1,10 @@
 # HeyVera Social Roadmap (active)
 
-**Status:** Waves 0–9 shipped on main (9a–9e complete)  
+**Status:** Waves 0–12 shipped on main  
 **Grounded:** 2026-07-22  
 **Live entry:** `heyvera/src/main.tsx` → `router.tsx` → `AppShell` / `pages/*`  
 **Do not grow:** orphaned `App.tsx` / `VeraSocials` dual shell (quarantined under `src/orphan/`)  
-**Main tip note:** Wave 9 complete (#359–#365); next = Wave 10+ product depth (metering, media, agents)
+**Main tip note:** Waves 10–12 complete (#367–#372); extended backlog only (no open product wave table)
 
 ---
 
@@ -193,6 +193,12 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-22 | #364 | Wave 9d private guild role labels + join honesty **merged** |
 | 2026-07-22 | #365 | Wave 9e core route a11y + mineral focus rings **merged** |
 | 2026-07-22 | docs | Wave 9 complete on STATUS/ROADMAP |
+| 2026-07-22 | #367 | Wave 10a Pulse draft metering **merged** |
+| 2026-07-22 | #368 | Wave 10b Premium history + access_state **merged** |
+| 2026-07-22 | #369 | Wave 10c Pulse transition CAS **merged** |
+| 2026-07-22 | #371 | Wave 11 media depth honesty + shelves **merged** |
+| 2026-07-22 | #372 | Wave 12 agent policy + switcher + x402 hold **merged** |
+| 2026-07-22 | docs | Waves 10–12 complete on STATUS/ROADMAP |
 
 ### Waves 1–4 implemented (2026-07-21)
 
@@ -306,4 +312,26 @@ Goal: make shipped Social feel solid for real users — no new half-features.
 | **9d** | Private guild UX: invite/join honesty, role labels owner/member, no fake mod tools | **Done (#364)** — Owner/Member chips; private unlisted + no-invite copy; no Kick/Ban/Invite theater |
 | **9e** | Visual/a11y pass on core routes (Home, Profile, Messages, Guilds, Premium) | **Done (#365)** — skip link, mineral focus rings, tab/inbox a11y |
 
-Still later (Waves 10–12): metered credits, media depth, agent network — see passoff / extended backlog.
+### Wave 10 — Credits & automation depth — **done (#367–#369)**
+
+| Slice | Status |
+|-------|--------|
+| **10a** Pulse draft metering + honest credit balance API | **Done (#367)** |
+| **10b** Premium history pagination + access_state clarity | **Done (#368)** |
+| **10c** Pulse draft transition CAS + honest UI | **Done (#369)** |
+
+### Wave 11 — Media depth — **done (#371)**
+
+| Slice | Status |
+|-------|--------|
+| **11a–c** Watch/upload honesty, shelves foundation (empty items), Live Preview/Soon only | **Done (#371)** |
+
+### Wave 12 — Agent network foundation — **done (#372)**
+
+| Slice | Status |
+|-------|--------|
+| **12a** Linked-agent policy flags (auto_reply/auto_follow) foundation, not live runtime | **Done (#372)** |
+| **12b** Agents product switcher stays WIP | **Done (#372)** |
+| **12c** x402 remains off unless `X402_ENABLED`; no fake payments | **Done (#372)** |
+
+Extended backlog still open: full encoder (PW-3), ML discovery (PW-5), production x402 facilitator, mod depth (PW-16), bookmark folders (PW-9), markets (PW-11) — out of Waves 0–12.
