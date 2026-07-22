@@ -23,9 +23,162 @@ fn payment_required(msg: &str) -> ApiResponse {
         Json(json!({ "error": msg, "code": "INSUFFICIENT_CREDITS" })),
     )
 }
+fn conflict_transition(msg: &str) -> ApiResponse {
+    (
+        StatusCode::CONFLICT,
+        Json(json!({ "error": msg, "code": "ILLEGAL_TRANSITION" })),
+    )
+}
 
 fn db(state: &AppState) -> &crate::db::Database {
     state.db.as_ref().expect("database not initialized")
+}
+
+/// Pure transition matrix for Pulse draft statuses.
+///
+/// - `pending` → `approved` | `rejected`
+/// - `approved` → `published` | `rejected`
+/// - `published` → (none)
+/// - `rejected` → (none; re-create a new draft instead)
+pub fn allowed_pulse_transition(from: &str, to: &str) -> bool {
+    matches!(
+        (from, to),
+        ("pending", "approved")
+            | ("pending", "rejected")
+            | ("approved", "published")
+            | ("approved", "rejected")
+    )
+}
+
+/// Expected source statuses for a target transition (for CAS WHERE clauses).
+pub fn pulse_transition_expected_from(to: &str) -> &'static [&'static str] {
+    match to {
+        "approved" => &["pending"],
+        "rejected" => &["pending", "approved"],
+        "published" => &["approved"],
+        _ => &[],
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PulseTransitionError {
+    NotFound,
+    Illegal { from: String, to: String },
+}
+
+impl PulseTransitionError {
+    pub fn message(&self) -> String {
+        match self {
+            Self::NotFound => "Draft not found".into(),
+            Self::Illegal { from, to } => {
+                format!("Illegal draft transition: {from} → {to}")
+            }
+        }
+    }
+}
+
+/// CAS status change guarded by [`allowed_pulse_transition`].
+pub fn try_pulse_transition(
+    database: &crate::db::Database,
+    id: &str,
+    profile_id: &str,
+    to: &str,
+) -> Result<serde_json::Value, PulseTransitionError> {
+    let draft = database
+        .pulse_get_draft(id, profile_id)
+        .ok_or(PulseTransitionError::NotFound)?;
+    let from = draft["status"].as_str().unwrap_or("").to_string();
+    if !allowed_pulse_transition(&from, to) {
+        return Err(PulseTransitionError::Illegal {
+            from,
+            to: to.to_string(),
+        });
+    }
+    let expected = pulse_transition_expected_from(to);
+    match database.pulse_cas_update_draft_status(id, profile_id, expected, to) {
+        Some(updated) => Ok(updated),
+        None => {
+            // Race: status changed between read and CAS.
+            match database.pulse_get_draft(id, profile_id) {
+                None => Err(PulseTransitionError::NotFound),
+                Some(current) => {
+                    let cur = current["status"].as_str().unwrap_or("").to_string();
+                    Err(PulseTransitionError::Illegal {
+                        from: cur,
+                        to: to.to_string(),
+                    })
+                }
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PulsePublishError {
+    NotFound,
+    Illegal { status: String },
+}
+
+impl PulsePublishError {
+    pub fn message(&self) -> String {
+        match self {
+            Self::NotFound => "Draft not found".into(),
+            Self::Illegal { status } => format!(
+                "Draft must be approved before publishing (status is '{status}')"
+            ),
+        }
+    }
+}
+
+/// Shared publish path for HTTP + tools: CAS approved→published, then create social post.
+pub fn publish_approved_pulse_draft(
+    database: &crate::db::Database,
+    profile_id: &str,
+    id: &str,
+) -> Result<(serde_json::Value, String), PulsePublishError> {
+    let draft = database
+        .pulse_get_draft(id, profile_id)
+        .ok_or(PulsePublishError::NotFound)?;
+    let status = draft["status"].as_str().unwrap_or("").to_string();
+    if status != "approved" || !allowed_pulse_transition(&status, "published") {
+        return Err(PulsePublishError::Illegal { status });
+    }
+
+    let body = draft["body"].as_str().unwrap_or("").to_string();
+    let visibility = draft["visibility"].as_str().unwrap_or("public").to_string();
+    let author_mode = draft["authorMode"].as_str().unwrap_or("person").to_string();
+    let linked_agent_id = draft["linkedAgentId"].as_str().map(|s| s.to_string());
+
+    // CAS first so concurrent publish / schedule worker cannot double-post.
+    let updated = database
+        .pulse_cas_update_draft_status(id, profile_id, &["approved"], "published")
+        .ok_or_else(|| {
+            match database.pulse_get_draft(id, profile_id) {
+                None => PulsePublishError::NotFound,
+                Some(current) => PulsePublishError::Illegal {
+                    status: current["status"].as_str().unwrap_or("").to_string(),
+                },
+            }
+        })?;
+
+    let post = database.social_create_post(
+        profile_id,
+        &body,
+        &visibility,
+        &author_mode,
+        linked_agent_id.as_deref(),
+        None,
+        None,
+        None,
+    );
+    let post_id = post["id"].as_str().unwrap_or("").to_string();
+    database.pulse_add_audit(
+        id,
+        profile_id,
+        "published",
+        Some(&json!({ "postId": post_id }).to_string()),
+    );
+    Ok((updated, post_id))
 }
 
 /// Fixed credit cost for creating a Pulse draft when a ledger row exists.
@@ -203,6 +356,9 @@ pub async fn create_draft(
         &author_mode,
         linked_agent_id.as_deref(),
     );
+    if let Some(draft_id) = draft["id"].as_str() {
+        db(&state).pulse_add_audit(draft_id, &profile_id, "created", None);
+    }
     ok(json!({ "ok": true, "draft": draft }))
 }
 
@@ -232,12 +388,14 @@ pub async fn approve_draft(
         None => return not_found("Not found"),
     };
     let profile_id = profile["id"].as_str().unwrap_or("");
-    match db(&state).pulse_update_draft_status(&id, profile_id, "approved") {
-        Some(draft) => {
+    // Only pending → approved (CAS).
+    match try_pulse_transition(db(&state), &id, profile_id, "approved") {
+        Ok(draft) => {
             db(&state).pulse_add_audit(&id, profile_id, "approved", None);
             ok(json!({ "ok": true, "draft": draft }))
         }
-        None => not_found("Draft not found"),
+        Err(PulseTransitionError::NotFound) => not_found("Draft not found"),
+        Err(e @ PulseTransitionError::Illegal { .. }) => conflict_transition(&e.message()),
     }
 }
 
@@ -252,13 +410,15 @@ pub async fn reject_draft(
         None => return not_found("Not found"),
     };
     let profile_id = profile["id"].as_str().unwrap_or("");
-    match db(&state).pulse_update_draft_status(&id, profile_id, "rejected") {
-        Some(draft) => {
+    // pending | approved → rejected (CAS).
+    match try_pulse_transition(db(&state), &id, profile_id, "rejected") {
+        Ok(draft) => {
             let details = req.reason.as_deref().map(|r| json!({ "reason": r }).to_string());
             db(&state).pulse_add_audit(&id, profile_id, "rejected", details.as_deref());
             ok(json!({ "ok": true, "draft": draft }))
         }
-        None => not_found("Draft not found"),
+        Err(PulseTransitionError::NotFound) => not_found("Draft not found"),
+        Err(e @ PulseTransitionError::Illegal { .. }) => conflict_transition(&e.message()),
     }
 }
 
@@ -273,27 +433,13 @@ pub async fn publish_draft(
     };
     let profile_id = profile["id"].as_str().unwrap_or("");
 
-    let draft = match db(&state).pulse_get_draft(&id, profile_id) {
-        Some(d) => d,
-        None => return not_found("Draft not found"),
-    };
-
-    if draft["status"].as_str() != Some("approved") {
-        return bad_request("Draft must be approved before publishing");
+    match publish_approved_pulse_draft(db(&state), profile_id, &id) {
+        Ok((updated_draft, post_id)) => {
+            ok(json!({ "ok": true, "draft": updated_draft, "postId": post_id }))
+        }
+        Err(PulsePublishError::NotFound) => not_found("Draft not found"),
+        Err(e @ PulsePublishError::Illegal { .. }) => conflict_transition(&e.message()),
     }
-
-    let body = draft["body"].as_str().unwrap_or("");
-    let visibility = draft["visibility"].as_str().unwrap_or("public");
-    let author_mode = draft["authorMode"].as_str().unwrap_or("person");
-    let linked_agent_id = draft["linkedAgentId"].as_str();
-
-    let post = db(&state).social_create_post(profile_id, body, visibility, author_mode, linked_agent_id, None, None, None);
-    let post_id = post["id"].as_str().unwrap_or("").to_string();
-
-    let updated_draft = db(&state).pulse_update_draft_status(&id, profile_id, "published");
-    db(&state).pulse_add_audit(&id, profile_id, "published", Some(&json!({ "postId": post_id }).to_string()));
-
-    ok(json!({ "ok": true, "draft": updated_draft, "postId": post_id }))
 }
 
 pub async fn get_draft_audit(
@@ -628,6 +774,9 @@ pub(crate) fn execute_pulse_tool(
                 }
             }
             let draft = database.pulse_create_draft(profile_id, body, "public", "person", None);
+            if let Some(draft_id) = draft["id"].as_str() {
+                database.pulse_add_audit(draft_id, profile_id, "created", None);
+            }
             let short = if body.len() > 100 {
                 format!("{}…", &body[..100])
             } else {
@@ -706,8 +855,8 @@ pub(crate) fn execute_pulse_tool(
                     extra: serde_json::Map::new(),
                 };
             }
-            match database.pulse_update_draft_status(id, profile_id, "approved") {
-                Some(draft) => {
+            match try_pulse_transition(database, id, profile_id, "approved") {
+                Ok(draft) => {
                     database.pulse_add_audit(id, profile_id, "approved", None);
                     PulseToolOutcome {
                         reply: format!(
@@ -718,12 +867,25 @@ pub(crate) fn execute_pulse_tool(
                         extra: serde_json::Map::new(),
                     }
                 }
-                None => PulseToolOutcome {
+                Err(PulseTransitionError::NotFound) => PulseToolOutcome {
                     reply: format!("I couldn't find draft {id} on your profile."),
                     tools_used: vec!["approve_draft".into()],
                     draft: None,
                     extra: serde_json::Map::new(),
                 },
+                Err(e @ PulseTransitionError::Illegal { .. }) => {
+                    let mut extra = serde_json::Map::new();
+                    extra.insert("code".into(), json!("ILLEGAL_TRANSITION"));
+                    PulseToolOutcome {
+                        reply: format!(
+                            "Cannot approve draft {id}: {}. Only pending drafts can be approved.",
+                            e.message()
+                        ),
+                        tools_used: vec!["approve_draft".into()],
+                        draft: database.pulse_get_draft(id, profile_id),
+                        extra,
+                    }
+                }
             }
         }
         "reject_draft" => {
@@ -741,8 +903,8 @@ pub(crate) fn execute_pulse_tool(
                     extra: serde_json::Map::new(),
                 };
             }
-            match database.pulse_update_draft_status(id, profile_id, "rejected") {
-                Some(draft) => {
+            match try_pulse_transition(database, id, profile_id, "rejected") {
+                Ok(draft) => {
                     let reason = call.args.get("reason").and_then(|r| r.as_str());
                     let details = reason.map(|r| json!({ "reason": r }).to_string());
                     database.pulse_add_audit(id, profile_id, "rejected", details.as_deref());
@@ -753,12 +915,25 @@ pub(crate) fn execute_pulse_tool(
                         extra: serde_json::Map::new(),
                     }
                 }
-                None => PulseToolOutcome {
+                Err(PulseTransitionError::NotFound) => PulseToolOutcome {
                     reply: format!("I couldn't find draft {id} on your profile."),
                     tools_used: vec!["reject_draft".into()],
                     draft: None,
                     extra: serde_json::Map::new(),
                 },
+                Err(e @ PulseTransitionError::Illegal { .. }) => {
+                    let mut extra = serde_json::Map::new();
+                    extra.insert("code".into(), json!("ILLEGAL_TRANSITION"));
+                    PulseToolOutcome {
+                        reply: format!(
+                            "Cannot reject draft {id}: {}. Only pending or approved drafts can be rejected.",
+                            e.message()
+                        ),
+                        tools_used: vec!["reject_draft".into()],
+                        draft: database.pulse_get_draft(id, profile_id),
+                        extra,
+                    }
+                }
             }
         }
         "publish_draft" => {
@@ -776,59 +951,36 @@ pub(crate) fn execute_pulse_tool(
                     extra: serde_json::Map::new(),
                 };
             }
-            let draft = match database.pulse_get_draft(id, profile_id) {
-                Some(d) => d,
-                None => {
-                    return PulseToolOutcome {
-                        reply: format!("I couldn't find draft {id} on your profile."),
+            match publish_approved_pulse_draft(database, profile_id, id) {
+                Ok((updated_draft, post_id)) => {
+                    let mut extra = serde_json::Map::new();
+                    extra.insert("postId".into(), json!(post_id));
+                    PulseToolOutcome {
+                        reply: format!("Published draft {id} as post {post_id}."),
                         tools_used: vec!["publish_draft".into()],
-                        draft: None,
-                        extra: serde_json::Map::new(),
-                    };
+                        draft: Some(updated_draft),
+                        extra,
+                    }
                 }
-            };
-            // ALWAYS enforce approved check server-side (never trust model).
-            if draft["status"].as_str() != Some("approved") {
-                return PulseToolOutcome {
-                    reply: format!(
-                        "Draft {id} must be approved before publishing (status is '{}'). Try \"approve draft {id}\" first.",
-                        draft["status"].as_str().unwrap_or("unknown")
-                    ),
+                Err(PulsePublishError::NotFound) => PulseToolOutcome {
+                    reply: format!("I couldn't find draft {id} on your profile."),
                     tools_used: vec!["publish_draft".into()],
-                    draft: Some(draft),
+                    draft: None,
                     extra: serde_json::Map::new(),
-                };
-            }
-            let body = draft["body"].as_str().unwrap_or("");
-            let visibility = draft["visibility"].as_str().unwrap_or("public");
-            let author_mode = draft["authorMode"].as_str().unwrap_or("person");
-            let linked_agent_id = draft["linkedAgentId"].as_str();
-            let post = database.social_create_post(
-                profile_id,
-                body,
-                visibility,
-                author_mode,
-                linked_agent_id,
-                None,
-                None,
-                None,
-            );
-            let post_id = post["id"].as_str().unwrap_or("").to_string();
-            let updated_draft = database.pulse_update_draft_status(id, profile_id, "published");
-            database.pulse_add_audit(
-                id,
-                profile_id,
-                "published",
-                Some(&json!({ "postId": post_id }).to_string()),
-            );
-            let mut extra = serde_json::Map::new();
-            extra.insert("postId".into(), json!(post_id));
-            extra.insert("post".into(), post);
-            PulseToolOutcome {
-                reply: format!("Published draft {id} as post {post_id}."),
-                tools_used: vec!["publish_draft".into()],
-                draft: updated_draft,
-                extra,
+                },
+                Err(e @ PulsePublishError::Illegal { .. }) => {
+                    let mut extra = serde_json::Map::new();
+                    extra.insert("code".into(), json!("ILLEGAL_TRANSITION"));
+                    PulseToolOutcome {
+                        reply: format!(
+                            "{}. Try \"approve draft {id}\" first.",
+                            e.message()
+                        ),
+                        tools_used: vec!["publish_draft".into()],
+                        draft: database.pulse_get_draft(id, profile_id),
+                        extra,
+                    }
+                }
             }
         }
         "list_my_posts" => {
@@ -1724,6 +1876,132 @@ mod tests {
         assert_eq!(out.tools_used, vec!["schedule_draft"]);
         assert!(out.reply.contains("Scheduled"));
         assert!(out.extra.get("schedule").is_some());
+    }
+
+    #[test]
+    fn allowed_pulse_transition_matrix() {
+        // pending → approved | rejected
+        assert!(allowed_pulse_transition("pending", "approved"));
+        assert!(allowed_pulse_transition("pending", "rejected"));
+        assert!(!allowed_pulse_transition("pending", "published"));
+        assert!(!allowed_pulse_transition("pending", "pending"));
+
+        // approved → published | rejected
+        assert!(allowed_pulse_transition("approved", "published"));
+        assert!(allowed_pulse_transition("approved", "rejected"));
+        assert!(!allowed_pulse_transition("approved", "pending"));
+        assert!(!allowed_pulse_transition("approved", "approved"));
+
+        // published → none
+        assert!(!allowed_pulse_transition("published", "pending"));
+        assert!(!allowed_pulse_transition("published", "approved"));
+        assert!(!allowed_pulse_transition("published", "rejected"));
+        assert!(!allowed_pulse_transition("published", "published"));
+
+        // rejected → none (re-create a new draft instead)
+        assert!(!allowed_pulse_transition("rejected", "pending"));
+        assert!(!allowed_pulse_transition("rejected", "approved"));
+        assert!(!allowed_pulse_transition("rejected", "published"));
+        assert!(!allowed_pulse_transition("rejected", "rejected"));
+
+        // unknown statuses
+        assert!(!allowed_pulse_transition("", "approved"));
+        assert!(!allowed_pulse_transition("pending", ""));
+        assert!(!allowed_pulse_transition("foo", "bar"));
+    }
+
+    #[test]
+    fn try_pulse_transition_cas_enforces_matrix() {
+        let db = test_db();
+        let profile = db.social_create_profile("clerk_cas", "casuser", "CAS User", "");
+        let profile_id = profile["id"].as_str().unwrap();
+        let draft = db.pulse_create_draft(profile_id, "CAS body", "public", "person", None);
+        let id = draft["id"].as_str().unwrap();
+
+        // pending → published illegal
+        assert!(matches!(
+            try_pulse_transition(&db, id, profile_id, "published"),
+            Err(PulseTransitionError::Illegal { .. })
+        ));
+        assert_eq!(
+            db.pulse_get_draft(id, profile_id).unwrap()["status"],
+            "pending"
+        );
+
+        // pending → approved ok
+        let approved = try_pulse_transition(&db, id, profile_id, "approved").unwrap();
+        assert_eq!(approved["status"], "approved");
+
+        // approved → approved illegal
+        assert!(matches!(
+            try_pulse_transition(&db, id, profile_id, "approved"),
+            Err(PulseTransitionError::Illegal { .. })
+        ));
+
+        // approved → published via shared publish helper
+        let (published, post_id) = publish_approved_pulse_draft(&db, profile_id, id).unwrap();
+        assert_eq!(published["status"], "published");
+        assert!(!post_id.is_empty());
+
+        // published → reject illegal
+        assert!(matches!(
+            try_pulse_transition(&db, id, profile_id, "rejected"),
+            Err(PulseTransitionError::Illegal { .. })
+        ));
+
+        // missing draft
+        assert_eq!(
+            try_pulse_transition(&db, "does-not-exist-id", profile_id, "approved"),
+            Err(PulseTransitionError::NotFound)
+        );
+    }
+
+    #[test]
+    fn try_pulse_transition_reject_from_pending_and_approved() {
+        let db = test_db();
+        let profile = db.social_create_profile("clerk_rej", "rejuser", "Rej User", "");
+        let profile_id = profile["id"].as_str().unwrap();
+
+        let d1 = db.pulse_create_draft(profile_id, "rej pending", "public", "person", None);
+        let id1 = d1["id"].as_str().unwrap();
+        let rejected = try_pulse_transition(&db, id1, profile_id, "rejected").unwrap();
+        assert_eq!(rejected["status"], "rejected");
+        // rejected is terminal
+        assert!(matches!(
+            try_pulse_transition(&db, id1, profile_id, "approved"),
+            Err(PulseTransitionError::Illegal { .. })
+        ));
+
+        let d2 = db.pulse_create_draft(profile_id, "rej approved", "public", "person", None);
+        let id2 = d2["id"].as_str().unwrap();
+        try_pulse_transition(&db, id2, profile_id, "approved").unwrap();
+        let rejected2 = try_pulse_transition(&db, id2, profile_id, "rejected").unwrap();
+        assert_eq!(rejected2["status"], "rejected");
+    }
+
+    #[test]
+    fn publish_approved_pulse_draft_requires_approved() {
+        let db = test_db();
+        let profile = db.social_create_profile("clerk_pub", "pubuser", "Pub User", "");
+        let profile_id = profile["id"].as_str().unwrap();
+        let draft = db.pulse_create_draft(profile_id, "pub body", "public", "person", None);
+        let id = draft["id"].as_str().unwrap();
+
+        assert!(matches!(
+            publish_approved_pulse_draft(&db, profile_id, id),
+            Err(PulsePublishError::Illegal { .. })
+        ));
+
+        try_pulse_transition(&db, id, profile_id, "approved").unwrap();
+        let (draft, post_id) = publish_approved_pulse_draft(&db, profile_id, id).unwrap();
+        assert_eq!(draft["status"], "published");
+        assert!(!post_id.is_empty());
+
+        // second publish fails
+        assert!(matches!(
+            publish_approved_pulse_draft(&db, profile_id, id),
+            Err(PulsePublishError::Illegal { .. })
+        ));
     }
 
     #[test]

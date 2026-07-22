@@ -13862,6 +13862,8 @@ impl Database {
         .ok()
     }
 
+    /// Unconditional status write (tests / internal). Prefer
+    /// [`Self::pulse_cas_update_draft_status`] for product transitions.
     pub fn pulse_update_draft_status(&self, id: &str, profile_id: &str, status: &str) -> Option<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
@@ -13869,6 +13871,45 @@ impl Database {
             "UPDATE pulse_drafts SET status = ?1, updated_at = ?2 WHERE id = ?3 AND profile_id = ?4",
             params![status, now, id, profile_id],
         ).unwrap();
+        if changed == 0 {
+            return None;
+        }
+        drop(conn);
+        self.pulse_get_draft(id, profile_id)
+    }
+
+    /// Compare-and-swap draft status: updates only when current status is one of
+    /// `expected_from`. Returns `None` when the row is missing or status did not match.
+    pub fn pulse_cas_update_draft_status(
+        &self,
+        id: &str,
+        profile_id: &str,
+        expected_from: &[&str],
+        to_status: &str,
+    ) -> Option<serde_json::Value> {
+        if expected_from.is_empty() {
+            return None;
+        }
+        let conn = self.conn.lock().unwrap();
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        // Positional binds: to_status, now, id, profile_id, then each expected status.
+        let in_ph = vec!["?"; expected_from.len()].join(", ");
+        let sql = format!(
+            "UPDATE pulse_drafts SET status = ?, updated_at = ? \
+             WHERE id = ? AND profile_id = ? AND status IN ({in_ph})"
+        );
+        let mut params_owned: Vec<Box<dyn rusqlite::types::ToSql>> =
+            Vec::with_capacity(4 + expected_from.len());
+        params_owned.push(Box::new(to_status.to_string()));
+        params_owned.push(Box::new(now));
+        params_owned.push(Box::new(id.to_string()));
+        params_owned.push(Box::new(profile_id.to_string()));
+        for s in expected_from {
+            params_owned.push(Box::new((*s).to_string()));
+        }
+        let refs: Vec<&dyn rusqlite::types::ToSql> =
+            params_owned.iter().map(|b| b.as_ref()).collect();
+        let changed = conn.execute(&sql, refs.as_slice()).unwrap();
         if changed == 0 {
             return None;
         }
@@ -14105,22 +14146,33 @@ impl Database {
                     continue;
                 }
             };
-            let body = draft["body"].as_str().unwrap_or("");
-            let visibility = draft["visibility"].as_str().unwrap_or("public");
-            let author_mode = draft["authorMode"].as_str().unwrap_or("person");
-            let linked = draft["linkedAgentId"].as_str();
+            // CAS first so concurrent HTTP publish cannot double-post the same draft.
+            let body = draft["body"].as_str().unwrap_or("").to_string();
+            let visibility = draft["visibility"].as_str().unwrap_or("public").to_string();
+            let author_mode = draft["authorMode"].as_str().unwrap_or("person").to_string();
+            let linked = draft["linkedAgentId"].as_str().map(|s| s.to_string());
+            if self
+                .pulse_cas_update_draft_status(&draft_id, &profile_id, &["approved"], "published")
+                .is_none()
+            {
+                let conn = self.conn.lock().unwrap();
+                let _ = conn.execute(
+                    "UPDATE pulse_schedules SET status = 'failed', updated_at = ?1 WHERE id = ?2",
+                    params![now_iso, sched_id],
+                );
+                continue;
+            }
             let post = self.social_create_post(
                 &profile_id,
-                body,
-                visibility,
-                author_mode,
-                linked,
+                &body,
+                &visibility,
+                &author_mode,
+                linked.as_deref(),
                 None,
                 None,
                 None,
             );
             let post_id = post["id"].as_str().unwrap_or("").to_string();
-            let _ = self.pulse_update_draft_status(&draft_id, &profile_id, "published");
             self.pulse_add_audit(
                 &draft_id,
                 &profile_id,
