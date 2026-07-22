@@ -11848,6 +11848,7 @@ impl Database {
     ) -> Vec<serde_json::Value> {
         // Keep direct-child path as depth-1 slice of full thread walk.
         self.social_get_thread_replies(post_id, viewer_profile_id)
+            .0
             .into_iter()
             .filter(|r| r["replyToPostId"].as_str() == Some(post_id))
             .collect()
@@ -11856,11 +11857,14 @@ impl Database {
     /// All descendants under `root_post_id` (flat list), max depth 8, cap 100.
     /// Each post includes `replyToPostId` so the FE can rebuild a tree.
     /// Shape matches feed posts (camelCase) so `social_enrich_feed_posts` works.
+    ///
+    /// Returns `(replies, truncated)` where `truncated` is true when the walk stopped
+    /// early due to the reply cap (100) or remaining frontier blocked by max depth (8).
     pub fn social_get_thread_replies(
         &self,
         root_post_id: &str,
         _viewer_profile_id: Option<&str>,
-    ) -> Vec<serde_json::Value> {
+    ) -> (Vec<serde_json::Value>, bool) {
         let _t = std::time::Instant::now();
         const MAX_DEPTH: i64 = 8;
         const MAX_REPLIES: usize = 100;
@@ -11870,10 +11874,23 @@ impl Database {
         let mut ids: Vec<String> = Vec::new();
         let mut frontier: Vec<String> = vec![root_post_id.to_string()];
         let mut depth = 0i64;
-        while depth < MAX_DEPTH && !frontier.is_empty() && ids.len() < MAX_REPLIES {
+        let mut truncated = false;
+        // When we stop mid-level due to cap, these parents still need a child-exists probe.
+        let mut unexpanded_parents: Vec<String> = Vec::new();
+
+        while depth < MAX_DEPTH && !frontier.is_empty() && !truncated {
+            if ids.len() >= MAX_REPLIES {
+                // At capacity — only truncated if frontier posts still have children.
+                unexpanded_parents = frontier.clone();
+                break;
+            }
             let mut next_frontier: Vec<String> = Vec::new();
-            for parent_id in &frontier {
+            let mut parent_iter = frontier.iter();
+            while let Some(parent_id) = parent_iter.next() {
                 if ids.len() >= MAX_REPLIES {
+                    // This parent + remaining siblings in frontier were not fully handled.
+                    unexpanded_parents.push(parent_id.clone());
+                    unexpanded_parents.extend(parent_iter.cloned());
                     break;
                 }
                 let mut stmt = match conn.prepare(
@@ -11889,16 +11906,72 @@ impl Database {
                     .ok()
                     .map(|rows| rows.filter_map(|r| r.ok()).collect())
                     .unwrap_or_default();
-                for child_id in children {
+                let mut child_iter = children.into_iter();
+                while let Some(child_id) = child_iter.next() {
                     if ids.len() >= MAX_REPLIES {
+                        // Remaining siblings under this parent were not collected.
+                        truncated = true;
+                        // Drain: don't need probe — we observed a skipped child id.
+                        let _ = child_iter.count();
+                        unexpanded_parents.clear();
                         break;
                     }
                     next_frontier.push(child_id.clone());
                     ids.push(child_id);
                 }
+                if truncated {
+                    break;
+                }
+            }
+            if truncated {
+                break;
+            }
+            // Cap hit without observing a concrete skipped child — probe below.
+            if !unexpanded_parents.is_empty() {
+                break;
             }
             frontier = next_frontier;
             depth += 1;
+        }
+
+        // Cap: remaining unexpanded parents may still have children we never saw.
+        if !truncated && !unexpanded_parents.is_empty() {
+            for parent_id in &unexpanded_parents {
+                let has_child: bool = conn
+                    .query_row(
+                        "SELECT EXISTS(
+                            SELECT 1 FROM social_posts
+                            WHERE reply_to_post_id = ?1 AND deleted_at IS NULL
+                         )",
+                        params![parent_id],
+                        |r| r.get(0),
+                    )
+                    .unwrap_or(false);
+                if has_child {
+                    truncated = true;
+                    break;
+                }
+            }
+        }
+
+        // Depth limit: frontier holds collected posts we never expanded for children.
+        if !truncated && !frontier.is_empty() && depth >= MAX_DEPTH {
+            for parent_id in &frontier {
+                let has_child: bool = conn
+                    .query_row(
+                        "SELECT EXISTS(
+                            SELECT 1 FROM social_posts
+                            WHERE reply_to_post_id = ?1 AND deleted_at IS NULL
+                         )",
+                        params![parent_id],
+                        |r| r.get(0),
+                    )
+                    .unwrap_or(false);
+                if has_child {
+                    truncated = true;
+                    break;
+                }
+            }
         }
 
         if ids.is_empty() {
@@ -11906,9 +11979,10 @@ impl Database {
                 method = "social_get_thread_replies",
                 duration_ms = _t.elapsed().as_millis(),
                 row_count = 0,
+                truncated,
                 "db query"
             );
-            return Vec::new();
+            return (Vec::new(), false);
         }
 
         // Fetch full post rows one-by-one, then sort by created_at for stable flat order.
@@ -11974,9 +12048,10 @@ impl Database {
             method = "social_get_thread_replies",
             duration_ms = _t.elapsed().as_millis(),
             row_count = results.len(),
+            truncated,
             "db query"
         );
-        results
+        (results, truncated)
     }
 
     /// Enrich a list of feed posts with engagement counts and viewer state.
@@ -17043,8 +17118,9 @@ mod tests {
         );
         let r2_id = r2["id"].as_str().unwrap().to_string();
 
-        let thread = db.social_get_thread_replies(&root_id, None);
+        let (thread, truncated) = db.social_get_thread_replies(&root_id, None);
         assert_eq!(thread.len(), 2);
+        assert!(!truncated, "small nested thread must not report truncation");
         let ids: Vec<&str> = thread.iter().filter_map(|p| p["id"].as_str()).collect();
         assert!(ids.contains(&r1_id.as_str()));
         assert!(ids.contains(&r2_id.as_str()));
@@ -17054,6 +17130,81 @@ mod tests {
         // camelCase shape for FE
         assert!(nested["author"]["profileId"].as_str().is_some());
         assert!(nested["createdAt"].as_str().is_some());
+    }
+
+    #[test]
+    fn social_thread_replies_truncated_when_cap_hit() {
+        let db = test_db();
+        let author = db.social_create_profile("clerk_thread_cap", "threadcap", "Cap", "");
+        let author_id = author["id"].as_str().unwrap();
+
+        let root = db.social_create_post(
+            author_id,
+            "root many replies",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        let root_id = root["id"].as_str().unwrap().to_string();
+
+        // Cap is 100 — create 101 direct children so the walk stops early.
+        for i in 0..101 {
+            db.social_create_post(
+                author_id,
+                &format!("reply {i}"),
+                "public",
+                "person",
+                None,
+                Some(&root_id),
+                None,
+                None,
+            );
+        }
+
+        let (thread, truncated) = db.social_get_thread_replies(&root_id, None);
+        assert_eq!(thread.len(), 100, "must return at most the reply cap");
+        assert!(truncated, "cap hit must set truncated true");
+    }
+
+    #[test]
+    fn social_thread_replies_truncated_when_max_depth_blocks_frontier() {
+        let db = test_db();
+        let author = db.social_create_profile("clerk_thread_depth", "threaddepth", "Depth", "");
+        let author_id = author["id"].as_str().unwrap();
+
+        let root = db.social_create_post(
+            author_id,
+            "root deep",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        let mut parent_id = root["id"].as_str().unwrap().to_string();
+
+        // Max depth 8: create a chain of 9 replies so depth-9 is beyond the walk.
+        for i in 0..9 {
+            let child = db.social_create_post(
+                author_id,
+                &format!("depth {i}"),
+                "public",
+                "person",
+                None,
+                Some(&parent_id),
+                None,
+                None,
+            );
+            parent_id = child["id"].as_str().unwrap().to_string();
+        }
+
+        let (thread, truncated) = db.social_get_thread_replies(root["id"].as_str().unwrap(), None);
+        assert_eq!(thread.len(), 8, "walk collects up to max depth 8");
+        assert!(truncated, "remaining frontier blocked by max depth must set truncated");
     }
 
     #[test]

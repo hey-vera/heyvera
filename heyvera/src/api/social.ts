@@ -866,6 +866,10 @@ export async function uploadMediaFile(
 export async function fetchSinglePost(postId: string): Promise<{
   post: FeedPost;
   replies: FeedPost[];
+  /** True when BE walk stopped early (cap 100 / max depth 8). Missing on older servers. */
+  repliesTruncated?: boolean;
+  /** Reply list hard cap from BE when present. */
+  repliesCap?: number;
 }> {
   return apiFetch(`/posts/${postId}`);
 }
