@@ -13116,6 +13116,12 @@ impl Database {
         count > 0
     }
 
+    /// Public participant check (social DM WebSocket subscribe authorization).
+    pub fn social_is_conversation_participant(&self, conversation_id: &str, profile_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        Self::is_conversation_participant_inner(&conn, conversation_id, profile_id)
+    }
+
     /// List conversations where the user is a participant, with last message and unread count.
     pub fn social_list_conversations(&self, profile_id: &str) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();

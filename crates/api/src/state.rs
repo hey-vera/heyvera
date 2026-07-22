@@ -22,6 +22,16 @@ use crate::github::GitHubClient;
 use crate::mission_control::{McSubscriber, MissionControlEvent, SubscriberId};
 // Removed problematic module imports
 use crate::ratelimit::RateLimiter;
+
+/// Unique ID for each social-DM WebSocket subscriber (per socket).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub struct DmSubscriberId(pub Uuid);
+
+/// Fan-out target for a conversation's realtime message pushes.
+pub struct DmSubscriber {
+    pub id: DmSubscriberId,
+    pub tx: mpsc::Sender<serde_json::Value>,
+}
 use crate::soma::CortexHeart;
 use crate::storage::Storage;
 use crate::vera::VeraTracker;
@@ -60,6 +70,8 @@ pub struct AppState {
     pub is_shutting_down: AtomicBool,
     /// Mission Control WebSocket subscribers, keyed by user_id.
     pub mc_subscribers: RwLock<HashMap<String, Vec<McSubscriber>>>,
+    /// Social DM WebSocket subscribers, keyed by conversation_id.
+    pub dm_subscribers: RwLock<HashMap<String, Vec<DmSubscriber>>>,
     /// GitHub API client, initialized from `GITHUB_TOKEN` env var.
     pub github_client: Option<GitHubClient>,
     /// Cortex routing intelligence store (UCB bandit stats, evidence signals).
@@ -278,6 +290,7 @@ impl AppState {
             usage_limits,
             is_shutting_down: AtomicBool::new(false),
             mc_subscribers: RwLock::new(HashMap::new()),
+            dm_subscribers: RwLock::new(HashMap::new()),
             github_client,
             cortex_store,
             ucb_scorer: RwLock::new(ucb_scorer),
@@ -450,6 +463,60 @@ impl AppState {
         if let Some(tx) = self.scheduler_tx.read().await.as_ref() {
             if tx.send(event).await.is_err() {
                 tracing::error!("scheduler channel closed");
+            }
+        }
+    }
+
+    // --- Social DM subscriber management (Wave 8b) ---
+
+    pub async fn subscribe_dm(&self, conversation_id: &str, sub: DmSubscriber) {
+        let mut subs = self.dm_subscribers.write().await;
+        // Avoid duplicate registration of the same socket for one conversation.
+        let list = subs.entry(conversation_id.to_string()).or_default();
+        list.retain(|s| s.id != sub.id);
+        list.push(sub);
+        tracing::debug!("dm: subscribed to conversation {conversation_id}");
+    }
+
+    pub async fn unsubscribe_dm(&self, conversation_id: &str, id: DmSubscriberId) {
+        let mut subs = self.dm_subscribers.write().await;
+        if let Some(list) = subs.get_mut(conversation_id) {
+            list.retain(|s| s.id != id);
+            if list.is_empty() {
+                subs.remove(conversation_id);
+            }
+        }
+        tracing::debug!("dm: unsubscribed from conversation {conversation_id}");
+    }
+
+    /// Push a new DM to all WebSocket subscribers of `conversation_id`.
+    /// Payload shape: `{ type: "message", conversationId, message }`.
+    pub async fn broadcast_dm_message(&self, conversation_id: &str, message: serde_json::Value) {
+        let event = serde_json::json!({
+            "type": "message",
+            "conversationId": conversation_id,
+            "message": message,
+        });
+
+        let mut closed = Vec::new();
+        {
+            let subs = self.dm_subscribers.read().await;
+            if let Some(list) = subs.get(conversation_id) {
+                for sub in list {
+                    if sub.tx.try_send(event.clone()).is_err() {
+                        closed.push(sub.id);
+                    }
+                }
+            }
+        }
+
+        if !closed.is_empty() {
+            let mut subs = self.dm_subscribers.write().await;
+            if let Some(list) = subs.get_mut(conversation_id) {
+                list.retain(|s| !closed.contains(&s.id));
+                if list.is_empty() {
+                    subs.remove(conversation_id);
+                }
             }
         }
     }

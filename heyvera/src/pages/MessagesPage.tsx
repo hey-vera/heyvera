@@ -7,7 +7,16 @@ import { getConversations, getMessages } from '../api/social';
 import { LoadingState, EmptyState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
-import { SOFT_POLL_STATUS_LABEL, formatSoftPollAge, softPollTooltip } from '../utils/softRealtimeLabel';
+import {
+  formatSoftPollAge,
+  softRealtimeLabel,
+  softRealtimeTooltip,
+} from '../utils/softRealtimeLabel';
+import {
+  parseSocialDmWsMessage,
+  socialDmWsUrl,
+  subscribePayload,
+} from '../utils/socialDmWs';
 
 /* ─── API helper for sending a message ──────────────────────────────────────── */
 
@@ -88,11 +97,19 @@ export function MessagesPage() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  /** Wave 8b: true when social DM WebSocket is open (else soft-poll). */
+  const [wsConnected, setWsConnected] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
+  const wsRef = useRef<WebSocket | null>(null);
 
   const selectedConversation = conversations.find((c) => c.id === selectedId) ?? null;
+  const liveStatusLabel = softRealtimeLabel({ wsConnected });
+  const liveStatusTooltip = softRealtimeTooltip({
+    wsConnected,
+    ageDetail: formatSoftPollAge(lastUpdatedAt) ?? undefined,
+  });
 
   /* Load conversations (quiet = background poll: no LoadingState flash). */
   const loadConversations = useCallback(async (opts?: { quiet?: boolean }) => {
@@ -228,16 +245,104 @@ export function MessagesPage() {
     };
   }, [selectedId, getToken, isSignedIn]);
 
-  // Soft-realtime: quiet message poll while a conversation is open and tab visible.
+  // Soft-realtime fallback: quiet message poll when WS is down (Wave 8b).
   useVisibilityPoll(
     () => {
       const id = selectedIdRef.current;
       if (id) void loadMessagesFor(id, { quiet: true });
     },
     MESSAGES_POLL_MS,
-    Boolean(isSignedIn && selectedId),
+    Boolean(isSignedIn && selectedId && !wsConnected),
     { runOnVisible: true },
   );
+
+  // Wave 8b: social DM WebSocket — auth via ?token=, subscribe per conversation.
+  useEffect(() => {
+    if (!isSignedIn) {
+      setWsConnected(false);
+      return;
+    }
+
+    let cancelled = false;
+    let socket: WebSocket | null = null;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const connect = async () => {
+      try {
+        const token = await getToken();
+        if (!token || cancelled) return;
+        const url = socialDmWsUrl(token);
+        socket = new WebSocket(url);
+        wsRef.current = socket;
+
+        socket.onopen = () => {
+          if (cancelled) {
+            socket?.close();
+            return;
+          }
+          setWsConnected(true);
+          const id = selectedIdRef.current;
+          if (id && socket?.readyState === WebSocket.OPEN) {
+            socket.send(subscribePayload(id));
+          }
+        };
+
+        socket.onmessage = (ev) => {
+          if (typeof ev.data !== 'string') return;
+          const event = parseSocialDmWsMessage(ev.data);
+          if (!event) return;
+          if (event.type === 'message') {
+            const activeId = selectedIdRef.current;
+            if (event.conversationId !== activeId) return;
+            setMessages((prev) => {
+              if (prev.some((m) => m.id === event.message.id)) return prev;
+              return [...prev, event.message];
+            });
+            setLastUpdatedAt(Date.now());
+          }
+        };
+
+        socket.onerror = () => {
+          // onclose will flip status + soft-poll resumes
+        };
+
+        socket.onclose = () => {
+          if (wsRef.current === socket) wsRef.current = null;
+          setWsConnected(false);
+          if (!cancelled) {
+            reconnectTimer = setTimeout(() => {
+              void connect();
+            }, 4_000);
+          }
+        };
+      } catch {
+        setWsConnected(false);
+      }
+    };
+
+    void connect();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      const s = socket ?? wsRef.current;
+      if (s) {
+        s.onclose = null;
+        s.close();
+      }
+      wsRef.current = null;
+      setWsConnected(false);
+    };
+  }, [getToken, isSignedIn]);
+
+  // Resubscribe when the selected conversation changes while WS is live.
+  useEffect(() => {
+    if (!selectedId || !wsConnected) return;
+    const s = wsRef.current;
+    if (s && s.readyState === WebSocket.OPEN) {
+      s.send(subscribePayload(selectedId));
+    }
+  }, [selectedId, wsConnected]);
 
   /* Scroll to bottom when messages change */
   useEffect(() => {
@@ -322,19 +427,19 @@ export function MessagesPage() {
           style={{ borderColor: 'var(--border-primary)' }}
         >
           <h1 className="text-[20px] font-bold">Messages</h1>
-          {isSignedIn && lastUpdatedAt != null && (
+          {isSignedIn && (wsConnected || lastUpdatedAt != null) && (
             <span
               className="flex items-center gap-1.5 text-[12px] font-medium"
               style={{ color: 'var(--text-secondary)' }}
               role="status"
-              title={softPollTooltip(formatSoftPollAge(lastUpdatedAt) ?? undefined)}
+              title={liveStatusTooltip}
             >
               <span
                 className="inline-block h-1.5 w-1.5 rounded-full"
                 style={{ backgroundColor: 'var(--accent)' }}
                 aria-hidden="true"
               />
-              {SOFT_POLL_STATUS_LABEL}
+              {liveStatusLabel}
             </span>
           )}
         </div>
@@ -536,19 +641,19 @@ export function MessagesPage() {
                         </p>
                       </div>
                     </div>
-                    {lastUpdatedAt != null && (
+                    {(wsConnected || lastUpdatedAt != null) && (
                       <span
                         className="hidden shrink-0 items-center gap-1.5 text-[12px] font-medium sm:flex"
                         style={{ color: 'var(--text-secondary)' }}
                         role="status"
-                        title={softPollTooltip(formatSoftPollAge(lastUpdatedAt) ?? undefined)}
+                        title={liveStatusTooltip}
                       >
                         <span
                           className="inline-block h-1.5 w-1.5 rounded-full"
                           style={{ backgroundColor: 'var(--accent)' }}
                           aria-hidden="true"
                         />
-                        {SOFT_POLL_STATUS_LABEL}
+                        {liveStatusLabel}
                       </span>
                     )}
                   </div>
