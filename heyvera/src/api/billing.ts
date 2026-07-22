@@ -63,6 +63,14 @@ export type BillingHistoryEntry = {
   status: string;
 };
 
+export type BillingHistoryPage = {
+  items: BillingHistoryEntry[];
+  hasMore: boolean;
+  nextOffset: number | null;
+  limit: number;
+  offset: number;
+};
+
 export type BillingUsageResponse = {
   active: boolean;
   access_state: string;
@@ -77,6 +85,9 @@ export type BillingUsageResponse = {
   history: BillingHistoryEntry[];
   note: string;
 };
+
+/** Default page size aligned with BE clamp (max 50). */
+export const BILLING_HISTORY_DEFAULT_LIMIT = 20;
 
 /**
  * GET /api/billing/usage — subscription access, usage aggregates, billing history.
@@ -136,6 +147,87 @@ export async function fetchBillingUsage(token: string): Promise<BillingUsageResp
       },
       history: Array.isArray(raw.history) ? raw.history : [],
       note: raw.note ?? 'ledger balance not metered yet',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function mapHistoryEntry(raw: unknown): BillingHistoryEntry | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const e = raw as Record<string, unknown>;
+  return {
+    date: typeof e.date === 'string' ? e.date : '',
+    amount_cents: Number(e.amount_cents ?? 0),
+    description: typeof e.description === 'string' ? e.description : '',
+    status: typeof e.status === 'string' ? e.status : '',
+  };
+}
+
+/**
+ * GET /api/billing/history?limit=&offset= — paginated purchase history.
+ * Default limit 20, server max 50. Returns null on failure.
+ */
+export async function fetchBillingHistory(
+  token: string,
+  opts?: { limit?: number; offset?: number },
+): Promise<BillingHistoryPage | null> {
+  try {
+    const limit = opts?.limit ?? BILLING_HISTORY_DEFAULT_LIMIT;
+    const offset = opts?.offset ?? 0;
+    const qs = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+    });
+    const res = await fetch(
+      `${resolveBillingPath('/api/billing/history')}?${qs.toString()}`,
+      {
+        headers: { Authorization: `Bearer ${token}` },
+      },
+    );
+    if (!res.ok) return null;
+    const raw: unknown = await res.json();
+
+    // Support both paginated object and legacy bare array during rollout.
+    if (Array.isArray(raw)) {
+      const items = raw
+        .map(mapHistoryEntry)
+        .filter((x): x is BillingHistoryEntry => x !== null);
+      return {
+        items,
+        hasMore: false,
+        nextOffset: null,
+        limit: items.length,
+        offset: 0,
+      };
+    }
+
+    const page = (raw ?? {}) as {
+      items?: unknown[];
+      hasMore?: boolean;
+      has_more?: boolean;
+      nextOffset?: number | null;
+      next_offset?: number | null;
+      limit?: number;
+      offset?: number;
+    };
+
+    const items = Array.isArray(page.items)
+      ? page.items
+          .map(mapHistoryEntry)
+          .filter((x): x is BillingHistoryEntry => x !== null)
+      : [];
+    const hasMore = page.hasMore === true || page.has_more === true;
+    const nextRaw = page.nextOffset ?? page.next_offset;
+    const nextOffset =
+      typeof nextRaw === 'number' && Number.isFinite(nextRaw) ? nextRaw : null;
+
+    return {
+      items,
+      hasMore,
+      nextOffset: hasMore ? (nextOffset ?? offset + limit) : null,
+      limit: Number(page.limit ?? limit),
+      offset: Number(page.offset ?? offset),
     };
   } catch {
     return null;

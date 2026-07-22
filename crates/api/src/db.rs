@@ -9635,21 +9635,24 @@ impl Database {
         rows > 0
     }
 
+    /// Purchase/billing ledger rows for a user, newest first.
+    /// `offset` skips that many rows; `limit` caps the page size.
     pub fn get_billing_history(
         &self,
         clerk_user_id: &str,
         limit: i64,
+        offset: i64,
     ) -> Vec<BillingHistoryRecord> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
                 "SELECT id, amount_cents, description, status, created_at
              FROM billing_history WHERE clerk_user_id = ?1
-             ORDER BY created_at DESC LIMIT ?2",
+             ORDER BY created_at DESC LIMIT ?2 OFFSET ?3",
             )
             .unwrap();
 
-        stmt.query_map(params![clerk_user_id, limit], |row| {
+        stmt.query_map(params![clerk_user_id, limit, offset], |row| {
             Ok(BillingHistoryRecord {
                 id: row.get(0)?,
                 amount_cents: row.get(1)?,

@@ -151,3 +151,54 @@ describe('coerceCreditsBalance + billingMeteredLabel', () => {
     });
   });
 });
+
+describe('fetchBillingHistory', () => {
+  beforeEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    vi.unstubAllGlobals();
+  });
+
+  it('hits GET /api/billing/history with limit/offset and maps page', async () => {
+    vi.stubEnv('VITE_API_URL', '');
+    const fetchMock = mockFetch();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        items: [
+          {
+            date: '2026-07-01T00:00:00Z',
+            amount_cents: 699,
+            description: 'Invoice paid',
+            status: 'paid',
+          },
+        ],
+        hasMore: true,
+        nextOffset: 20,
+        limit: 20,
+        offset: 0,
+      }),
+    });
+
+    const { fetchBillingHistory } = await import('./billing');
+    const page = await fetchBillingHistory('tok', { limit: 20, offset: 0 });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/billing/history?limit=20&offset=0',
+      { headers: { Authorization: 'Bearer tok' } },
+    );
+    expect(page).not.toBeNull();
+    expect(page!.items).toHaveLength(1);
+    expect(page!.hasMore).toBe(true);
+    expect(page!.nextOffset).toBe(20);
+  });
+
+  it('returns null on non-OK', async () => {
+    vi.stubEnv('VITE_API_URL', '');
+    const fetchMock = mockFetch();
+    fetchMock.mockResolvedValue({ ok: false, status: 401, json: vi.fn() });
+    const { fetchBillingHistory } = await import('./billing');
+    await expect(fetchBillingHistory('bad')).resolves.toBeNull();
+  });
+});
