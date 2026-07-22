@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { parseSocialDmWsMessage, socialDmWsUrl, subscribePayload } from './socialDmWs';
+import {
+  nextDmReconnectDelayMs,
+  parseSocialDmWsMessage,
+  pingPayload,
+  socialDmWsUrl,
+  subscribePayload,
+} from './socialDmWs';
 
 describe('parseSocialDmWsMessage', () => {
   it('parses message events with camelCase conversationId', () => {
@@ -76,5 +82,18 @@ describe('socialDmWsUrl / subscribePayload', () => {
       type: 'subscribe',
       conversationId: 'conv-9',
     });
+  });
+
+  it('builds ping frame', () => {
+    expect(JSON.parse(pingPayload())).toEqual({ type: 'ping' });
+  });
+
+  it('exponential reconnect backoff 2s → 4s → 8s capped at 30s', () => {
+    expect(nextDmReconnectDelayMs(0)).toBe(2_000);
+    expect(nextDmReconnectDelayMs(1)).toBe(4_000);
+    expect(nextDmReconnectDelayMs(2)).toBe(8_000);
+    expect(nextDmReconnectDelayMs(3)).toBe(16_000);
+    expect(nextDmReconnectDelayMs(4)).toBe(30_000);
+    expect(nextDmReconnectDelayMs(10)).toBe(30_000);
   });
 });

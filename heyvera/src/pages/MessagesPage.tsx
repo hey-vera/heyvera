@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import { ArrowLeft, MessageCircle, Search, Send } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
@@ -6,14 +6,20 @@ import type { Conversation, Message } from '../api/types';
 import { getConversations, getMessages } from '../api/social';
 import { LoadingState, EmptyState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';
+import { useAuthContext } from '../hooks/useAuthContext';
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
 import {
+  dmConnectionBanner,
   formatSoftPollAge,
+  resolveSoftRealtimeMode,
   softRealtimeLabel,
   softRealtimeTooltip,
+  type SoftRealtimeMode,
 } from '../utils/softRealtimeLabel';
 import {
+  nextDmReconnectDelayMs,
   parseSocialDmWsMessage,
+  pingPayload,
   socialDmWsUrl,
   subscribePayload,
 } from '../utils/socialDmWs';
@@ -28,6 +34,10 @@ const API_BASE = import.meta.env.VITE_API_URL
 const MESSAGES_POLL_MS = 6_000;
 /** Soft-realtime: conversation list refresh. */
 const CONVERSATIONS_POLL_MS = 20_000;
+/** Application-level WS ping interval (server replies with pong). */
+const WS_PING_MS = 30_000;
+/** When getToken is null, wait before retrying connect (avoid silent spin). */
+const TOKEN_RETRY_MS = 15_000;
 
 async function sendMessage(
   token: string,
@@ -65,9 +75,13 @@ function formatTimestamp(iso: string): string {
   return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
-function getOtherParticipant(conversation: Conversation, currentUserId: string | null) {
-  const other = conversation.participants.find((p) => p.id !== currentUserId);
-  return other ?? conversation.participants[0];
+/** Prefer social profile id; fall back to first participant when identity unknown. */
+function getOtherParticipant(conversation: Conversation, currentProfileId: string | null) {
+  if (currentProfileId) {
+    const other = conversation.participants.find((p) => p.id !== currentProfileId);
+    if (other) return other;
+  }
+  return conversation.participants[0];
 }
 
 function sameMessageIds(a: Message[], b: Message[]): boolean {
@@ -78,10 +92,44 @@ function sameMessageIds(a: Message[], b: Message[]): boolean {
   return true;
 }
 
+function clearUnreadLocal(list: Conversation[], conversationId: string): Conversation[] {
+  let changed = false;
+  const next = list.map((c) => {
+    if (c.id !== conversationId || c.unread_count === 0) return c;
+    changed = true;
+    return { ...c, unread_count: 0 };
+  });
+  return changed ? next : list;
+}
+
+function bumpUnreadLocal(
+  list: Conversation[],
+  conversationId: string,
+  message: Message,
+): Conversation[] {
+  return list.map((c) => {
+    if (c.id !== conversationId) return c;
+    return {
+      ...c,
+      unread_count: (c.unread_count ?? 0) + 1,
+      last_message: message,
+    };
+  });
+}
+
+function readNavigatorOnline(): boolean {
+  if (typeof navigator === 'undefined') return true;
+  return navigator.onLine !== false;
+}
+
 /* ─── Main Component ────────────────────────────────────────────────────────── */
 
 export function MessagesPage() {
-  const { authEnabled, isSignedIn, getToken, userId } = useAuth();
+  const { authEnabled, isSignedIn, getToken } = useAuth();
+  const { myProfile } = useAuthContext();
+  /** Social profile id for isSent / other-participant (not Clerk user id). */
+  const viewerProfileId = myProfile?.profile?.id ?? null;
+
   const [searchParams, setSearchParams] = useSearchParams();
   const deepLinkConversationId = searchParams.get('c');
   const [conversations, setConversations] = useState<Conversation[]>([]);
@@ -97,18 +145,60 @@ export function MessagesPage() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
-  /** Wave 8b: true when social DM WebSocket is open (else soft-poll). */
+  /** Wave 8b/9b: true only when social DM WebSocket is open. */
   const [wsConnected, setWsConnected] = useState(false);
+  /** Wave 9b: browser offline (navigator.onLine). */
+  const [navigatorOnline, setNavigatorOnline] = useState(readNavigatorOnline);
+  /** Wave 9b: WS closed / connecting with backoff. */
+  const [reconnecting, setReconnecting] = useState(false);
+
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
   const wsRef = useRef<WebSocket | null>(null);
+  const loadMessagesForRef = useRef<
+    ((conversationId: string, opts?: { quiet?: boolean }) => Promise<void>) | null
+  >(null);
 
   const selectedConversation = conversations.find((c) => c.id === selectedId) ?? null;
-  const liveStatusLabel = softRealtimeLabel({ wsConnected });
+
+  /**
+   * Status chip: honest about *data transport*.
+   * When WS is down but online, label is poll (not Live) even while reconnect runs.
+   * Banner uses reconnecting separately so degraded WS still shows connection-lost copy.
+   */
+  const statusMode: SoftRealtimeMode = useMemo(
+    () =>
+      resolveSoftRealtimeMode({
+        offline: !navigatorOnline,
+        wsConnected,
+        // Prefer poll over reconnecting for the chip once soft-poll is the transport.
+        reconnecting: false,
+      }),
+    [navigatorOnline, wsConnected],
+  );
+
+  const bannerMode: SoftRealtimeMode = useMemo(
+    () =>
+      resolveSoftRealtimeMode({
+        offline: !navigatorOnline,
+        wsConnected,
+        reconnecting,
+      }),
+    [navigatorOnline, wsConnected, reconnecting],
+  );
+
+  const liveStatusLabel = softRealtimeLabel({ mode: statusMode });
   const liveStatusTooltip = softRealtimeTooltip({
-    wsConnected,
+    mode: statusMode,
     ageDetail: formatSoftPollAge(lastUpdatedAt) ?? undefined,
+  });
+
+  // Poll is the active message transport when not live (and signed in with a thread).
+  const pollActive = Boolean(isSignedIn && selectedId && !wsConnected && navigatorOnline);
+  const connectionBanner = dmConnectionBanner({
+    mode: bannerMode,
+    pollActive,
   });
 
   /* Load conversations (quiet = background poll: no LoadingState flash). */
@@ -173,7 +263,7 @@ export function MessagesPage() {
     }
     setFilteredConversations(
       conversations.filter((c) => {
-        const other = getOtherParticipant(c, userId);
+        const other = getOtherParticipant(c, viewerProfileId);
         if (!other) return false;
         return (
           other.display_name.toLowerCase().includes(q) ||
@@ -182,7 +272,7 @@ export function MessagesPage() {
         );
       }),
     );
-  }, [searchQuery, conversations, userId]);
+  }, [searchQuery, conversations, viewerProfileId]);
 
   /* Load messages for selected conversation (initial = full load; poll = quiet). */
   const loadMessagesFor = useCallback(
@@ -198,6 +288,8 @@ export function MessagesPage() {
         const result = await getMessages(conversationId, token);
         // Avoid re-render/scroll churn when nothing changed.
         setMessages((prev) => (sameMessageIds(prev, result) ? prev : result));
+        // Server marks read on GET — clear list badge locally.
+        setConversations((prev) => clearUnreadLocal(prev, conversationId));
         setMessagesError(null);
         setLastUpdatedAt(Date.now());
       } catch (err) {
@@ -210,6 +302,7 @@ export function MessagesPage() {
     },
     [getToken],
   );
+  loadMessagesForRef.current = loadMessagesFor;
 
   useEffect(() => {
     if (!selectedId || !isSignedIn) {
@@ -227,6 +320,8 @@ export function MessagesPage() {
         const result = await getMessages(selectedId!, token);
         if (!cancelled) {
           setMessages(result);
+          // Server marks read on GET — clear list badge locally.
+          setConversations((prev) => clearUnreadLocal(prev, selectedId!));
           setLastUpdatedAt(Date.now());
         }
       } catch (err) {
@@ -245,7 +340,7 @@ export function MessagesPage() {
     };
   }, [selectedId, getToken, isSignedIn]);
 
-  // Soft-realtime fallback: quiet message poll when WS is down (Wave 8b).
+  // Soft-realtime fallback: quiet message poll when WS is down (Wave 8b/9b).
   useVisibilityPoll(
     () => {
       const id = selectedIdRef.current;
@@ -256,31 +351,127 @@ export function MessagesPage() {
     { runOnVisible: true },
   );
 
-  // Wave 8b: social DM WebSocket — auth via ?token=, subscribe per conversation.
+  // Track browser online/offline for honest labels (never claim Live when offline).
+  useEffect(() => {
+    const onOnline = () => setNavigatorOnline(true);
+    const onOffline = () => setNavigatorOnline(false);
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    setNavigatorOnline(readNavigatorOnline());
+    return () => {
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+    };
+  }, []);
+
+  // Wave 8b/9b: social DM WebSocket — auth via ?token=, subscribe per conversation.
+  // Reconnect: exponential backoff, fresh token each attempt, online + visibility kicks.
   useEffect(() => {
     if (!isSignedIn) {
       setWsConnected(false);
+      setReconnecting(false);
       return;
     }
 
     let cancelled = false;
     let socket: WebSocket | null = null;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let pingTimer: ReturnType<typeof setInterval> | null = null;
+    let attempt = 0;
+
+    const clearTimers = () => {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      if (pingTimer) {
+        clearInterval(pingTimer);
+        pingTimer = null;
+      }
+    };
+
+    const detachSocket = (s: WebSocket | null) => {
+      if (!s) return;
+      s.onopen = null;
+      s.onmessage = null;
+      s.onerror = null;
+      s.onclose = null;
+      try {
+        s.close();
+      } catch {
+        // ignore
+      }
+    };
+
+    const scheduleReconnect = (delayMs: number) => {
+      if (cancelled) return;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      setReconnecting(true);
+      setWsConnected(false);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        void connect();
+      }, delayMs);
+    };
 
     const connect = async () => {
+      if (cancelled) return;
+      if (!readNavigatorOnline()) {
+        setWsConnected(false);
+        setReconnecting(false);
+        return;
+      }
+
+      setReconnecting(true);
+
       try {
+        // Fresh token each connect attempt.
         const token = await getToken();
-        if (!token || cancelled) return;
+        if (cancelled) return;
+        if (!token) {
+          // Don't spin forever silently — stay on poll with honest label, retry later.
+          setWsConnected(false);
+          setReconnecting(false);
+          if (reconnectTimer) clearTimeout(reconnectTimer);
+          reconnectTimer = setTimeout(() => {
+            reconnectTimer = null;
+            void connect();
+          }, TOKEN_RETRY_MS);
+          return;
+        }
+
+        detachSocket(socket);
+        if (wsRef.current && wsRef.current !== socket) {
+          detachSocket(wsRef.current);
+        }
+        socket = null;
+        wsRef.current = null;
+
         const url = socialDmWsUrl(token);
         socket = new WebSocket(url);
         wsRef.current = socket;
 
         socket.onopen = () => {
           if (cancelled) {
-            socket?.close();
+            detachSocket(socket);
             return;
           }
+          attempt = 0;
           setWsConnected(true);
+          setReconnecting(false);
+
+          if (pingTimer) clearInterval(pingTimer);
+          pingTimer = setInterval(() => {
+            const s = wsRef.current;
+            if (s && s.readyState === WebSocket.OPEN) {
+              try {
+                s.send(pingPayload());
+              } catch {
+                // ignore send errors; close handler will reconnect
+              }
+            }
+          }, WS_PING_MS);
+
           const id = selectedIdRef.current;
           if (id && socket?.readyState === WebSocket.OPEN) {
             socket.send(subscribePayload(id));
@@ -293,12 +484,21 @@ export function MessagesPage() {
           if (!event) return;
           if (event.type === 'message') {
             const activeId = selectedIdRef.current;
-            if (event.conversationId !== activeId) return;
-            setMessages((prev) => {
-              if (prev.some((m) => m.id === event.message.id)) return prev;
-              return [...prev, event.message];
-            });
-            setLastUpdatedAt(Date.now());
+            if (event.conversationId === activeId) {
+              setMessages((prev) => {
+                if (prev.some((m) => m.id === event.message.id)) return prev;
+                return [...prev, event.message];
+              });
+              setLastUpdatedAt(Date.now());
+              // Quiet re-GET marks read on server + keeps list honest.
+              void loadMessagesForRef.current?.(event.conversationId, { quiet: true });
+            } else {
+              // Other conversation: bump local unread + last_message.
+              setConversations((prev) =>
+                bumpUnreadLocal(prev, event.conversationId, event.message),
+              );
+              setLastUpdatedAt(Date.now());
+            }
           }
         };
 
@@ -308,30 +508,87 @@ export function MessagesPage() {
 
         socket.onclose = () => {
           if (wsRef.current === socket) wsRef.current = null;
+          if (pingTimer) {
+            clearInterval(pingTimer);
+            pingTimer = null;
+          }
           setWsConnected(false);
-          if (!cancelled) {
-            reconnectTimer = setTimeout(() => {
-              void connect();
-            }, 4_000);
+          if (!cancelled && readNavigatorOnline()) {
+            const delay = nextDmReconnectDelayMs(attempt);
+            attempt += 1;
+            scheduleReconnect(delay);
+          } else if (!cancelled) {
+            setReconnecting(false);
           }
         };
       } catch {
         setWsConnected(false);
+        if (!cancelled && readNavigatorOnline()) {
+          const delay = nextDmReconnectDelayMs(attempt);
+          attempt += 1;
+          scheduleReconnect(delay);
+        } else if (!cancelled) {
+          setReconnecting(false);
+        }
       }
     };
+
+    const onOnline = () => {
+      if (cancelled) return;
+      attempt = 0;
+      clearTimers();
+      void connect();
+    };
+
+    const onOffline = () => {
+      setWsConnected(false);
+      setReconnecting(false);
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      detachSocket(socket);
+      socket = null;
+      if (wsRef.current) {
+        detachSocket(wsRef.current);
+        wsRef.current = null;
+      }
+    };
+
+    const onVisibility = () => {
+      if (cancelled) return;
+      if (document.visibilityState !== 'visible') return;
+      const open =
+        wsRef.current?.readyState === WebSocket.OPEN ||
+        wsRef.current?.readyState === WebSocket.CONNECTING;
+      if (open) return;
+      attempt = 0;
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+      void connect();
+    };
+
+    window.addEventListener('online', onOnline);
+    window.addEventListener('offline', onOffline);
+    document.addEventListener('visibilitychange', onVisibility);
 
     void connect();
 
     return () => {
       cancelled = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      const s = socket ?? wsRef.current;
-      if (s) {
-        s.onclose = null;
-        s.close();
+      clearTimers();
+      window.removeEventListener('online', onOnline);
+      window.removeEventListener('offline', onOffline);
+      document.removeEventListener('visibilitychange', onVisibility);
+      detachSocket(socket);
+      if (wsRef.current && wsRef.current !== socket) {
+        detachSocket(wsRef.current);
       }
       wsRef.current = null;
       setWsConnected(false);
+      setReconnecting(false);
     };
   }, [getToken, isSignedIn]);
 
@@ -364,6 +621,12 @@ export function MessagesPage() {
       setMessages((current) => [...current, newMsg]);
       setComposeText('');
       setLastUpdatedAt(Date.now());
+      // Keep list preview fresh for the open thread.
+      setConversations((prev) =>
+        prev.map((c) =>
+          c.id === selectedId ? { ...c, last_message: newMsg, unread_count: 0 } : c,
+        ),
+      );
     } catch (err) {
       setSendError(err instanceof Error ? err.message : 'Send failed. Try again.');
     } finally {
@@ -377,6 +640,8 @@ export function MessagesPage() {
       void handleSend();
     }
   };
+
+  const showStatusChrome = isSignedIn && (wsConnected || lastUpdatedAt != null || !navigatorOnline || reconnecting);
 
   /* Not signed in */
   if (authEnabled && !isSignedIn) {
@@ -427,7 +692,7 @@ export function MessagesPage() {
           style={{ borderColor: 'var(--border-primary)' }}
         >
           <h1 className="text-[20px] font-bold">Messages</h1>
-          {isSignedIn && (wsConnected || lastUpdatedAt != null) && (
+          {showStatusChrome && (
             <span
               className="flex items-center gap-1.5 text-[12px] font-medium"
               style={{ color: 'var(--text-secondary)' }}
@@ -436,13 +701,33 @@ export function MessagesPage() {
             >
               <span
                 className="inline-block h-1.5 w-1.5 rounded-full"
-                style={{ backgroundColor: 'var(--accent)' }}
+                style={{
+                  backgroundColor:
+                    statusMode === 'offline' ? 'var(--text-secondary)' : 'var(--accent)',
+                  opacity: statusMode === 'live' ? 1 : 0.55,
+                }}
                 aria-hidden="true"
               />
               {liveStatusLabel}
             </span>
           )}
         </div>
+
+        {/* Wave 9b: scoped connection honesty banner (not app-global). */}
+        {connectionBanner && (
+          <div
+            className="border-b px-4 py-2 text-[13px]"
+            style={{
+              borderColor: 'var(--border-primary)',
+              backgroundColor: 'color-mix(in srgb, var(--accent) 12%, var(--bg-elevated))',
+              color: 'var(--text-primary)',
+            }}
+            role="status"
+            data-testid="dm-connection-banner"
+          >
+            {connectionBanner}
+          </div>
+        )}
 
         <div
           className="border-b px-4 py-2 text-[13px]"
@@ -501,7 +786,7 @@ export function MessagesPage() {
           {!loadingConversations &&
             !conversationsError &&
             filteredConversations.map((convo) => {
-              const other = getOtherParticipant(convo, userId);
+              const other = getOtherParticipant(convo, viewerProfileId);
               if (!other) return null;
               const isActive = convo.id === selectedId;
               return (
@@ -614,7 +899,7 @@ export function MessagesPage() {
               </button>
 
               {(() => {
-                const other = getOtherParticipant(selectedConversation, userId);
+                const other = getOtherParticipant(selectedConversation, viewerProfileId);
                 if (!other) return null;
                 return (
                   <div className="flex min-w-0 flex-1 items-center justify-between gap-3">
@@ -641,7 +926,7 @@ export function MessagesPage() {
                         </p>
                       </div>
                     </div>
-                    {(wsConnected || lastUpdatedAt != null) && (
+                    {showStatusChrome && (
                       <span
                         className="hidden shrink-0 items-center gap-1.5 text-[12px] font-medium sm:flex"
                         style={{ color: 'var(--text-secondary)' }}
@@ -650,7 +935,10 @@ export function MessagesPage() {
                       >
                         <span
                           className="inline-block h-1.5 w-1.5 rounded-full"
-                          style={{ backgroundColor: 'var(--accent)' }}
+                          style={{
+                            backgroundColor: 'var(--accent)',
+                            opacity: statusMode === 'live' ? 1 : 0.55,
+                          }}
                           aria-hidden="true"
                         />
                         {liveStatusLabel}
@@ -684,7 +972,7 @@ export function MessagesPage() {
               {!loadingMessages &&
                 !messagesError &&
                 messages.map((msg) => {
-                  const isSent = msg.sender.id === userId;
+                  const isSent = Boolean(viewerProfileId && msg.sender.id === viewerProfileId);
                   return (
                     <div
                       key={msg.id}

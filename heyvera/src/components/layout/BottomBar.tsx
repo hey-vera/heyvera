@@ -8,6 +8,10 @@ import {
   Search,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
+import { useCallback, useEffect, useState } from 'react';
+import { getConversations } from '../../api/social';
+import { useAuth } from '../../hooks/useAuth';
+import { useVisibilityPoll } from '../../hooks/useVisibilityPoll';
 
 interface BottomBarProps {
   activeRoute: string;
@@ -24,6 +28,37 @@ const tabs: ReadonlyArray<{ icon: LucideIcon; label: string; route: string }> = 
 ];
 
 export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps) {
+  const { authEnabled, isSignedIn, getToken } = useAuth();
+  /** DM unread only — not notification Bell (Wave 9b). */
+  const [dmUnreadCount, setDmUnreadCount] = useState(0);
+
+  const pollDmUnread = useCallback(async () => {
+    if (!authEnabled || !isSignedIn) {
+      setDmUnreadCount(0);
+      return;
+    }
+    try {
+      const token = await getToken();
+      if (!token) {
+        setDmUnreadCount(0);
+        return;
+      }
+      const convos = await getConversations(token);
+      const sum = convos.reduce((acc, c) => acc + (c.unread_count ?? 0), 0);
+      setDmUnreadCount(sum);
+    } catch {
+      // quiet poll
+    }
+  }, [authEnabled, getToken, isSignedIn]);
+
+  useEffect(() => {
+    void pollDmUnread();
+  }, [pollDmUnread, activeRoute]);
+
+  useVisibilityPoll(pollDmUnread, 30_000, Boolean(authEnabled && isSignedIn), {
+    runOnVisible: true,
+  });
+
   return (
     <>
       {/* Spacer so content isn't hidden behind the bar */}
@@ -52,19 +87,37 @@ export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps
         {tabs.map((tab) => {
           const isActive = activeRoute === tab.route;
           const Icon = tab.icon;
+          const isMessages = tab.route === "/messages";
+          const ariaLabel =
+            isMessages && dmUnreadCount > 0
+              ? `Unread messages, ${dmUnreadCount}`
+              : isMessages
+                ? "Unread messages"
+                : tab.label;
           return (
             <button
               key={tab.route}
               onClick={() => onNavigate(tab.route)}
-              aria-label={tab.label}
+              aria-label={ariaLabel}
               aria-current={isActive ? "page" : undefined}
-              className="flex flex-col items-center justify-center flex-1 h-full transition-opacity"
+              className="relative flex flex-col items-center justify-center flex-1 h-full transition-opacity"
               style={{
                 color: isActive ? "var(--accent)" : "var(--text-primary)",
                 opacity: isActive ? 1 : 0.8,
               }}
             >
-              <Icon className="h-6 w-6" strokeWidth={isActive ? 2.6 : 2} aria-hidden="true" />
+              <span className="relative inline-flex">
+                <Icon className="h-6 w-6" strokeWidth={isActive ? 2.6 : 2} aria-hidden="true" />
+                {isMessages && dmUnreadCount > 0 && (
+                  <span
+                    className="absolute -right-2 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none"
+                    style={{ backgroundColor: "var(--accent)", color: "#000" }}
+                    aria-hidden="true"
+                  >
+                    {dmUnreadCount > 99 ? "99+" : dmUnreadCount}
+                  </span>
+                )}
+              </span>
             </button>
           );
         })}

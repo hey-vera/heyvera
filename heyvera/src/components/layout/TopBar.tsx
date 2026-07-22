@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchUnreadNotificationCount } from "../../api/social";
+import { fetchUnreadNotificationCount, getConversations } from "../../api/social";
 import { useAuth } from "../../hooks/useAuth";
 import { useVisibilityPoll } from "../../hooks/useVisibilityPoll";
 import { AuthControls } from "../shared/AuthControls";
@@ -75,7 +75,10 @@ export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const [productMenuOpen, setProductMenuOpen] = useState(false);
   const [createMenuOpen, setCreateMenuOpen] = useState(false);
+  /** Notification unread — Bell only. Never mix DM counts here. */
   const [unreadCount, setUnreadCount] = useState(0);
+  /** DM unread sum — Inbox/Mail only (Wave 9b). Distinct from Bell. */
+  const [dmUnreadCount, setDmUnreadCount] = useState(0);
   const productMenuRef = useRef<HTMLDivElement | null>(null);
   const createMenuRef = useRef<HTMLDivElement | null>(null);
 
@@ -97,11 +100,35 @@ export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick
     }
   }, [authEnabled, getToken, isSignedIn]);
 
+  const pollDmUnread = useCallback(async () => {
+    if (!authEnabled || !isSignedIn) {
+      setDmUnreadCount(0);
+      return;
+    }
+    try {
+      const token = await getToken();
+      if (!token) {
+        setDmUnreadCount(0);
+        return;
+      }
+      const convos = await getConversations(token);
+      const sum = convos.reduce((acc, c) => acc + (c.unread_count ?? 0), 0);
+      setDmUnreadCount(sum);
+    } catch {
+      // quiet poll
+    }
+  }, [authEnabled, getToken, isSignedIn]);
+
   useEffect(() => {
     void pollUnread();
-  }, [pollUnread, activeRoute]);
+    void pollDmUnread();
+  }, [pollUnread, pollDmUnread, activeRoute]);
 
   useVisibilityPoll(pollUnread, 30_000, Boolean(authEnabled && isSignedIn), {
+    runOnVisible: true,
+  });
+
+  useVisibilityPoll(pollDmUnread, 30_000, Boolean(authEnabled && isSignedIn), {
     runOnVisible: true,
   });
 
@@ -230,19 +257,38 @@ export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick
         <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto px-1" aria-label="Social navigation">
           {socialNav.map(({ label, route, icon: Icon }) => {
             const active = isRouteActive(activeRoute, route);
+            const isInbox = route === "/messages";
+            const ariaLabel =
+              isInbox && dmUnreadCount > 0
+                ? `Unread messages, ${dmUnreadCount}`
+                : isInbox
+                  ? "Unread messages"
+                  : undefined;
             return (
               <button
                 key={route}
                 type="button"
                 onClick={() => onNavigate(route)}
-                className="flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-[14px] font-semibold transition-colors hover-overlay"
+                className="relative flex h-10 shrink-0 items-center gap-2 rounded-full px-3 text-[14px] font-semibold transition-colors hover-overlay"
                 style={{
                   color: active ? "var(--text-primary)" : "var(--text-secondary)",
                   backgroundColor: active ? "color-mix(in srgb, var(--accent) 14%, transparent)" : "transparent",
                 }}
                 aria-current={active ? "page" : undefined}
+                aria-label={ariaLabel}
               >
-                <Icon className="h-4 w-4" strokeWidth={active ? 2.6 : 2} aria-hidden="true" />
+                <span className="relative inline-flex">
+                  <Icon className="h-4 w-4" strokeWidth={active ? 2.6 : 2} aria-hidden="true" />
+                  {isInbox && dmUnreadCount > 0 && (
+                    <span
+                      className="absolute -right-2 -top-1.5 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none"
+                      style={{ backgroundColor: "var(--accent)", color: "#000" }}
+                      aria-hidden="true"
+                    >
+                      {dmUnreadCount > 99 ? "99+" : dmUnreadCount}
+                    </span>
+                  )}
+                </span>
                 <span>{label}</span>
               </button>
             );
