@@ -453,6 +453,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 45 {
         migrate_v45(conn);
     }
+    if current < 46 {
+        migrate_v46(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -2194,6 +2197,27 @@ fn migrate_v45(conn: &Connection) {
     )
     .expect("migration v45 failed creating social_pages tables");
     tracing::info!("applied migration v45: social_pages + social_page_follows (brand Pages)");
+}
+
+fn migrate_v46(conn: &Connection) {
+    // Guild membership roles foundation (owner | member).
+    let _ = conn.execute(
+        "ALTER TABLE social_community_memberships ADD COLUMN role TEXT NOT NULL DEFAULT 'member'",
+        [],
+    );
+    let _ = conn.execute(
+        "UPDATE social_community_memberships
+         SET role = 'owner'
+         WHERE EXISTS (
+             SELECT 1 FROM social_communities sc
+             WHERE sc.id = social_community_memberships.community_id
+               AND sc.creator_profile_id = social_community_memberships.profile_id
+         )",
+        [],
+    );
+    conn.execute_batch("UPDATE schema_version SET version = 46;")
+        .expect("migration v46 failed setting schema version");
+    tracing::info!("applied migration v46: social_community_memberships.role");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -10295,6 +10319,41 @@ impl Database {
         .ok()
     }
 
+    /// Find a brand page by public slug.
+    pub fn social_find_page_by_slug(&self, slug: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, owner_profile_id, kind, slug, display_name, description, avatar_url, created_at
+                 FROM social_pages WHERE slug = ?1 AND kind = 'brand'",
+            )
+            .ok()?;
+        stmt.query_row([slug], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "ownerProfileId": row.get::<_, String>(1)?,
+                "kind": row.get::<_, String>(2)?,
+                "slug": row.get::<_, String>(3)?,
+                "displayName": row.get::<_, String>(4)?,
+                "description": row.get::<_, String>(5)?,
+                "avatarUrl": row.get::<_, Option<String>>(6)?,
+                "createdAt": row.get::<_, String>(7)?,
+            }))
+        })
+        .ok()
+    }
+
+    /// Follower count for a brand page.
+    pub fn social_page_follower_count(&self, page_id: &str) -> i64 {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COUNT(*) FROM social_page_follows WHERE page_id = ?1",
+            params![page_id],
+            |row| row.get(0),
+        )
+        .unwrap_or(0)
+    }
+
     /// True when slug is taken by a brand page, a person handle, or a linked agent slug.
     pub fn social_page_slug_taken(&self, slug: &str) -> bool {
         let conn = self.conn.lock().unwrap();
@@ -10860,11 +10919,11 @@ impl Database {
                 return Err(format!("create community failed: {e}"));
             }
         }
-        // Auto-join creator
+        // Auto-join creator as owner
         let mem_id = format!("cmem_{}", Uuid::new_v4());
         let _ = conn.execute(
-            "INSERT OR IGNORE INTO social_community_memberships (id, community_id, profile_id)
-             VALUES (?1, ?2, ?3)",
+            "INSERT OR IGNORE INTO social_community_memberships (id, community_id, profile_id, role)
+             VALUES (?1, ?2, ?3, 'owner')",
             params![mem_id, id, creator_profile_id],
         );
         drop(conn);
@@ -10872,13 +10931,14 @@ impl Database {
             .ok_or_else(|| "community created but not found".into())
     }
 
-    /// Communities the profile has membership in (includes joinedAt).
+    /// Communities the profile has membership in (includes joinedAt + role).
     pub fn social_list_my_communities(&self, profile_id: &str, limit: i64) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
                 "SELECT sc.id, sc.slug, sc.name, sc.description, sc.visibility, sc.created_at, sc.updated_at,
-                        sc.creator_profile_id, p.handle, p.display_name, m.joined_at
+                        sc.creator_profile_id, p.handle, p.display_name, m.joined_at,
+                        COALESCE(m.role, 'member')
                  FROM social_community_memberships m
                  JOIN social_communities sc ON sc.id = m.community_id
                  JOIN social_profiles p ON p.id = sc.creator_profile_id
@@ -10902,11 +10962,28 @@ impl Database {
                     "displayName": row.get::<_, String>(9)?,
                 },
                 "joinedAt": row.get::<_, String>(10)?,
+                "role": row.get::<_, String>(11)?,
             }))
         })
         .unwrap()
         .filter_map(|r| r.ok())
         .collect()
+    }
+
+    /// Membership role for a profile in a community (`owner` | `member`), if any.
+    pub fn social_community_member_role(
+        &self,
+        community_id: &str,
+        profile_id: &str,
+    ) -> Option<String> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT COALESCE(role, 'member') FROM social_community_memberships
+             WHERE community_id = ?1 AND profile_id = ?2",
+            params![community_id, profile_id],
+            |row| row.get::<_, String>(0),
+        )
+        .ok()
     }
 
     pub fn social_list_longform_keyset(
@@ -12863,13 +12940,13 @@ impl Database {
 
     // --- Community membership ---
 
-    /// Join a community (insert membership row; no-op if already a member).
+    /// Join a community as `member` (insert membership row; no-op if already a member).
     pub fn social_join_community(&self, community_id: &str, profile_id: &str) -> bool {
         let conn = self.conn.lock().unwrap();
         let id = format!("cmem_{}", Uuid::new_v4());
         let inserted = conn.execute(
-            "INSERT OR IGNORE INTO social_community_memberships (id, community_id, profile_id)
-             VALUES (?1, ?2, ?3)",
+            "INSERT OR IGNORE INTO social_community_memberships (id, community_id, profile_id, role)
+             VALUES (?1, ?2, ?3, 'member')",
             params![id, community_id, profile_id],
         ).unwrap_or(0);
         inserted > 0
@@ -12886,15 +12963,17 @@ impl Database {
         deleted > 0
     }
 
-    /// List members of a community, most-recently-joined first.
+    /// List members of a community, most-recently-joined first (includes role).
     pub fn social_list_community_members(&self, community_id: &str, limit: i64) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
-            "SELECT p.id, p.handle, p.display_name, p.avatar_url, m.joined_at
+            "SELECT p.id, p.handle, p.display_name, p.avatar_url, m.joined_at,
+                    COALESCE(m.role, 'member')
              FROM social_community_memberships m
              JOIN social_profiles p ON p.id = m.profile_id
              WHERE m.community_id = ?1
-             ORDER BY m.joined_at DESC
+             ORDER BY CASE COALESCE(m.role, 'member') WHEN 'owner' THEN 0 ELSE 1 END,
+                      m.joined_at DESC
              LIMIT ?2"
         ).unwrap();
         stmt.query_map(params![community_id, limit], |row| {
@@ -12904,6 +12983,7 @@ impl Database {
                 "displayName": row.get::<_, String>(2)?,
                 "avatarUrl": row.get::<_, Option<String>>(3)?,
                 "joinedAt": row.get::<_, String>(4)?,
+                "role": row.get::<_, String>(5)?,
             }))
         }).unwrap().filter_map(|r| r.ok()).collect()
     }
@@ -17036,7 +17116,44 @@ mod tests {
         let page_id = brand["id"].as_str().unwrap();
         db.social_page_follow(page_id, fan_id);
         assert!(db.social_page_is_following(page_id, fan_id));
+        assert_eq!(db.social_page_follower_count(page_id), 1);
         assert!(db.social_page_unfollow(page_id, fan_id));
         assert!(!db.social_page_is_following(page_id, fan_id));
+        assert_eq!(db.social_page_follower_count(page_id), 0);
+
+        let by_slug = db.social_find_page_by_slug("acme").expect("slug lookup");
+        assert_eq!(by_slug["id"], brand["id"]);
+    }
+
+    #[test]
+    fn social_community_owner_role_and_private_create() {
+        let db = test_db();
+        let owner = db.social_create_profile("clerk_guild_owner", "guildowner", "Owner", "");
+        let owner_id = owner["id"].as_str().unwrap();
+        let community = db
+            .social_create_community(owner_id, "private-guild", "Private Guild", "secret", "private")
+            .expect("create private guild");
+        let community_id = community["id"].as_str().unwrap();
+        assert_eq!(community["visibility"], "private");
+        assert_eq!(
+            db.social_community_member_role(community_id, owner_id).as_deref(),
+            Some("owner")
+        );
+
+        let public_list = db.social_list_communities(50);
+        assert!(public_list.iter().all(|c| c["id"] != community["id"]));
+
+        let mine = db.social_list_my_communities(owner_id, 20);
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0]["role"], "owner");
+        assert_eq!(mine[0]["visibility"], "private");
+
+        let member = db.social_create_profile("clerk_guild_member", "guildmember", "Member", "");
+        let member_id = member["id"].as_str().unwrap();
+        assert!(db.social_join_community(community_id, member_id));
+        assert_eq!(
+            db.social_community_member_role(community_id, member_id).as_deref(),
+            Some("member")
+        );
     }
 }

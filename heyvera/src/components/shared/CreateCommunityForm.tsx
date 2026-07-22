@@ -18,6 +18,7 @@ export function CreateCommunityForm({
   const [name, setName] = useState("");
   const [slug, setSlug] = useState("");
   const [description, setDescription] = useState("");
+  const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -51,11 +52,13 @@ export function CreateCommunityForm({
         slug: slug.trim().toLowerCase(),
         name: name.trim(),
         description: description.trim() || undefined,
+        visibility,
       });
 
       setName("");
       setSlug("");
       setDescription("");
+      setVisibility("public");
       setOpen(false);
       onCommunityCreated?.();
     } catch (err: unknown) {
@@ -99,6 +102,20 @@ export function CreateCommunityForm({
         maxLength={1000}
         disabled={submitting}
       />
+
+      <label className="create-community-visibility" style={{ display: "flex", alignItems: "center", gap: "0.5rem", fontSize: 13 }}>
+        <span>Visibility</span>
+        <select
+          value={visibility}
+          onChange={(e) => setVisibility(e.target.value === "private" ? "private" : "public")}
+          disabled={submitting}
+          className="create-community-input"
+          aria-label="Community visibility"
+        >
+          <option value="public">Public</option>
+          <option value="private">Private</option>
+        </select>
+      </label>
 
       <div className="create-community-actions">
         <button

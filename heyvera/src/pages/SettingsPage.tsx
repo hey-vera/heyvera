@@ -27,7 +27,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { useMyProfile } from '../hooks/useMyProfile';
 import {
@@ -42,6 +42,7 @@ import {
 } from '../api/social';
 import type { LinkedAgent, Profile, SocialPage, X402Status } from '../api/social';
 import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from '../utils/imageUpload';
+import { brandPagePath } from '../utils/guildVisibility';
 
 type Section =
   | 'profile'
@@ -1239,15 +1240,30 @@ function BrandPagesPanel({
         <p className="mb-4 text-[13px] text-[var(--text-secondary)]">No brand pages yet.</p>
       ) : (
         <ul className="mb-4 space-y-2">
-          {pages.map((p) => (
+          {pages.map((p) => {
+            const pageSlug = p.slug || p.handle;
+            return (
             <li
               key={p.id}
               className="rounded-xl border border-[var(--border-primary)] px-3 py-2"
             >
-              <span className="font-bold">{p.displayName}</span>
-              <span className="ml-2 text-[13px] text-[var(--text-secondary)]">@{p.handle}</span>
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <span className="font-bold">{p.displayName}</span>
+                  <span className="ml-2 text-[13px] text-[var(--text-secondary)]">@{pageSlug}</span>
+                </div>
+                {pageSlug ? (
+                  <Link
+                    to={brandPagePath(pageSlug)}
+                    className="shrink-0 text-[13px] font-bold text-[var(--accent)] hover:underline"
+                  >
+                    View page
+                  </Link>
+                ) : null}
+              </div>
             </li>
-          ))}
+            );
+          })}
         </ul>
       )}
 

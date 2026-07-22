@@ -1305,6 +1305,24 @@ pub async fn get_community_feed(
         Ok(id) => id,
         Err(e) => return e,
     };
+
+    // Private guilds require membership (Wave 8e).
+    let community = match db(&state).social_get_community_by_id(&community_id) {
+        Some(c) => c,
+        None => return not_found("Community not found"),
+    };
+    let visibility = community["visibility"].as_str().unwrap_or("public");
+    let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
+    if visibility == "private" {
+        let is_member = viewer_pid
+            .as_deref()
+            .map(|pid| db(&state).social_is_community_member(&community_id, pid))
+            .unwrap_or(false);
+        if !is_member {
+            return forbidden("Private community — membership required");
+        }
+    }
+
     let limit = params.limit.unwrap_or(20).min(100);
 
     let (cursor_created_at, cursor_id) = params
@@ -1314,7 +1332,6 @@ pub async fn get_community_feed(
         .map(|(c, i)| (Some(c), Some(i)))
         .unwrap_or((None, None));
 
-    let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
     let (blocked_ids, muted_ids) = if let Some(ref pid) = viewer_pid {
         (
             db(&state).social_get_blocked_ids(pid),
@@ -1405,7 +1422,59 @@ pub async fn list_community_members(
     }))
 }
 
-// ─── Wave 6: Page multi-surface ──────────────────────────────────────────────
+// ─── Wave 6 / 8d: Page multi-surface ─────────────────────────────────────────
+
+/// GET /v1/social/pages/{slug} — public brand page by slug (also accepts page id).
+pub async fn get_page_by_slug(
+    Path(slug): Path<String>,
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let slug = slug.trim().to_lowercase();
+    if slug.is_empty() {
+        return bad_request("slug is required");
+    }
+
+    let brand = db(&state)
+        .social_find_page_by_slug(&slug)
+        .or_else(|| db(&state).social_find_page_by_id(&slug));
+    let brand = match brand {
+        Some(b) if b["kind"].as_str() == Some("brand") => b,
+        _ => return not_found("Page not found"),
+    };
+
+    let page_id = brand["id"].as_str().unwrap_or("").to_string();
+    let owner_id = brand["ownerProfileId"].as_str().unwrap_or("").to_string();
+    let follower_count = db(&state).social_page_follower_count(&page_id);
+
+    let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
+    let is_following = viewer_pid
+        .as_deref()
+        .map(|pid| db(&state).social_page_is_following(&page_id, pid))
+        .unwrap_or(false);
+    let is_owner = viewer_pid
+        .as_deref()
+        .map(|pid| pid == owner_id)
+        .unwrap_or(false);
+
+    ok(serde_json::json!({
+        "page": {
+            "id": brand["id"],
+            "kind": "brand",
+            "handle": brand["slug"],
+            "slug": brand["slug"],
+            "displayName": brand["displayName"],
+            "description": brand["description"],
+            "avatarUrl": brand["avatarUrl"],
+            "parentProfileId": brand["ownerProfileId"],
+            "isDefault": false,
+            "createdAt": brand["createdAt"],
+            "followerCount": follower_count,
+            "isFollowing": is_following,
+            "isOwner": is_owner,
+        }
+    }))
+}
 
 /// GET /v1/social/pages/mine — steward's person Page + linked agent Pages + brand Pages.
 pub async fn list_my_pages(

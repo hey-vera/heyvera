@@ -82,6 +82,12 @@ export type SocialPage = {
   /** Set for agent/brand pages owned by a person profile. */
   parentProfileId?: string;
   description?: string;
+  /** Brand public slug (same as handle for brand pages). */
+  slug?: string;
+  followerCount?: number;
+  isFollowing?: boolean;
+  isOwner?: boolean;
+  createdAt?: string;
 };
 
 export type CreateAuthorship = {
@@ -174,6 +180,8 @@ export type Community = {
     handle: string;
     displayName: string;
   };
+  /** Present on /communities/mine — owner | member. */
+  role?: string;
 };
 
 export type LongformEntry = {
@@ -201,6 +209,7 @@ export type LongformEntry = {
 
 export type CommunityMembership = Community & {
   joinedAt: string;
+  role?: string;
 };
 
 export type PageInfo = {
@@ -744,6 +753,17 @@ export async function createBrandPage(
       description: data.description,
     },
   });
+}
+
+/**
+ * Public brand Page by slug (GET /pages/{slug}).
+ * Optional auth enriches isFollowing / isOwner.
+ */
+export async function fetchBrandPage(
+  slug: string,
+  token?: string | null,
+): Promise<{ page: SocialPage }> {
+  return apiFetch(`/pages/${encodeURIComponent(slug)}`, token);
 }
 
 /** Follow a Page by id (brand → page follows; agent → owner profile; person → profile follow). */

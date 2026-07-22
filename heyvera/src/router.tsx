@@ -41,6 +41,7 @@ const LivePage = lazy(() => import('./pages/LivePage').then(m => ({ default: m.L
 const PremiumPage = lazy(() => import('./pages/PremiumPage').then(m => ({ default: m.PremiumPage })));
 const ProfilePage = lazy(() => import('./pages/ProfilePage').then(m => ({ default: m.ProfilePage })));
 const SettingsPage = lazy(() => import('./pages/SettingsPage').then(m => ({ default: m.SettingsPage })));
+const BrandPage = lazy(() => import('./pages/BrandPage').then(m => ({ default: m.BrandPage })));
 const AIPage = lazy(() => import('./pages/AIPage').then(m => ({ default: m.AIPage })));
 const PostThreadPage = lazy(() => import('./pages/PostThreadPage').then(m => ({ default: m.PostThreadPage })));
 
@@ -85,6 +86,7 @@ export const router = createBrowserRouter([
       { path: 'profile', element: <ProfilePage /> },
       { path: 'profile/:handle', element: <ProfilePage /> },
       { path: 'settings', element: <SettingsPage /> },
+      { path: 'page/:slug', element: <BrandPage /> },
       { path: 'ai', element: <AIPage /> },
       { path: 'post/:id', element: <PostThreadPage /> },
       { path: '*', element: <Navigate to="/home" replace /> },
