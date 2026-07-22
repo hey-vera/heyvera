@@ -459,6 +459,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 47 {
         migrate_v47(conn);
     }
+    if current < 48 {
+        migrate_v48(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -1524,6 +1527,8 @@ fn ensure_social_tables(conn: &Connection) {
             agent_type TEXT NOT NULL DEFAULT 'general', link_state TEXT NOT NULL DEFAULT 'active',
             visibility TEXT NOT NULL DEFAULT 'public', proof_state TEXT NOT NULL DEFAULT 'pending',
             is_primary INTEGER NOT NULL DEFAULT 0,
+            auto_reply_enabled INTEGER NOT NULL DEFAULT 0,
+            auto_follow_enabled INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now'))
         );
         CREATE INDEX IF NOT EXISTS idx_social_linked_agents_profile ON social_linked_agents(profile_id);
@@ -2241,6 +2246,44 @@ fn migrate_v47(conn: &Connection) {
     )
     .expect("migration v47 failed creating social_media_shelves");
     tracing::info!("applied migration v47: social_media_shelves (empty shelf foundation)");
+}
+
+fn migrate_v48(conn: &Connection) {
+    // Wave 12a — Steward-gated agent policy flags (foundation; no auto-reply/follow runner yet).
+    // Defaults false. Flags persist only — workers that act on them are not shipped.
+    let has_auto_reply: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('social_linked_agents') WHERE name='auto_reply_enabled'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if has_auto_reply == 0 {
+        conn.execute(
+            "ALTER TABLE social_linked_agents ADD COLUMN auto_reply_enabled INTEGER NOT NULL DEFAULT 0",
+            [],
+        )
+        .expect("migration v48 failed adding auto_reply_enabled");
+    }
+    let has_auto_follow: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM pragma_table_info('social_linked_agents') WHERE name='auto_follow_enabled'",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if has_auto_follow == 0 {
+        conn.execute(
+            "ALTER TABLE social_linked_agents ADD COLUMN auto_follow_enabled INTEGER NOT NULL DEFAULT 0",
+            [],
+        )
+        .expect("migration v48 failed adding auto_follow_enabled");
+    }
+    conn.execute_batch("UPDATE schema_version SET version = 48;")
+        .expect("migration v48 failed setting schema version");
+    tracing::info!(
+        "applied migration v48: social_linked_agents auto_reply_enabled + auto_follow_enabled (policy foundation)"
+    );
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -10280,7 +10323,9 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT id, profile_id, agent_name, agent_slug, agent_key, agent_type,
-                    link_state, visibility, proof_state, is_primary, created_at, updated_at
+                    link_state, visibility, proof_state, is_primary,
+                    COALESCE(auto_reply_enabled, 0), COALESCE(auto_follow_enabled, 0),
+                    created_at, updated_at
              FROM social_linked_agents WHERE profile_id = ?1
              ORDER BY is_primary DESC, created_at ASC"
         ).unwrap();
@@ -10298,8 +10343,10 @@ impl Database {
                 "visibility": row.get::<_, String>(7)?,
                 "proofState": row.get::<_, String>(8)?,
                 "isPrimary": row.get::<_, i64>(9)? == 1,
-                "createdAt": row.get::<_, String>(10)?,
-                "updatedAt": row.get::<_, String>(11)?,
+                "autoReplyEnabled": row.get::<_, i64>(10)? == 1,
+                "autoFollowEnabled": row.get::<_, i64>(11)? == 1,
+                "createdAt": row.get::<_, String>(12)?,
+                "updatedAt": row.get::<_, String>(13)?,
             }))
         }).unwrap().filter_map(|r| r.ok()).collect()
     }
@@ -10694,6 +10741,9 @@ impl Database {
             "visibility": visibility,
             "proofState": proof_state,
             "isPrimary": is_primary,
+            // Wave 12a — policy foundation defaults off (no auto-reply/follow runner).
+            "autoReplyEnabled": false,
+            "autoFollowEnabled": false,
             "createdAt": now,
             "updatedAt": now,
         }))
@@ -10745,7 +10795,9 @@ impl Database {
         }
         conn.query_row(
             "SELECT id, profile_id, agent_name, agent_slug, agent_key, agent_type,
-                    link_state, visibility, proof_state, is_primary, created_at, updated_at
+                    link_state, visibility, proof_state, is_primary,
+                    COALESCE(auto_reply_enabled, 0), COALESCE(auto_follow_enabled, 0),
+                    created_at, updated_at
              FROM social_linked_agents WHERE id = ?1",
             params![agent_id],
             |row| {
@@ -10761,8 +10813,86 @@ impl Database {
                     "visibility": row.get::<_, String>(7)?,
                     "proofState": row.get::<_, String>(8)?,
                     "isPrimary": row.get::<_, i64>(9)? == 1,
-                    "createdAt": row.get::<_, String>(10)?,
-                    "updatedAt": row.get::<_, String>(11)?,
+                    "autoReplyEnabled": row.get::<_, i64>(10)? == 1,
+                    "autoFollowEnabled": row.get::<_, i64>(11)? == 1,
+                    "createdAt": row.get::<_, String>(12)?,
+                    "updatedAt": row.get::<_, String>(13)?,
+                }))
+            },
+        )
+        .map_err(|e| e.to_string())
+    }
+
+    /// Patch steward-gated policy flags on a linked agent owned by `profile_id`.
+    ///
+    /// Wave 12a foundation: flags persist only. No auto-reply/follow worker is shipped;
+    /// enabling a flag does not start silent automated posting.
+    pub fn social_update_linked_agent_policies(
+        &self,
+        profile_id: &str,
+        agent_id: &str,
+        auto_reply_enabled: Option<bool>,
+        auto_follow_enabled: Option<bool>,
+    ) -> Result<serde_json::Value, String> {
+        if auto_reply_enabled.is_none() && auto_follow_enabled.is_none() {
+            return Err("at least one of autoReplyEnabled or autoFollowEnabled is required".to_string());
+        }
+        let conn = self.conn.lock().unwrap();
+        // Ownership + active check
+        let exists: bool = conn
+            .query_row(
+                "SELECT 1 FROM social_linked_agents
+                 WHERE id = ?1 AND profile_id = ?2 AND link_state = 'active' LIMIT 1",
+                params![agent_id, profile_id],
+                |_| Ok(true),
+            )
+            .unwrap_or(false);
+        if !exists {
+            return Err("linked agent not found or not active".to_string());
+        }
+
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        if let Some(v) = auto_reply_enabled {
+            conn.execute(
+                "UPDATE social_linked_agents SET auto_reply_enabled = ?1, updated_at = ?2
+                 WHERE id = ?3 AND profile_id = ?4",
+                params![if v { 1i64 } else { 0i64 }, now, agent_id, profile_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+        if let Some(v) = auto_follow_enabled {
+            conn.execute(
+                "UPDATE social_linked_agents SET auto_follow_enabled = ?1, updated_at = ?2
+                 WHERE id = ?3 AND profile_id = ?4",
+                params![if v { 1i64 } else { 0i64 }, now, agent_id, profile_id],
+            )
+            .map_err(|e| e.to_string())?;
+        }
+
+        conn.query_row(
+            "SELECT id, profile_id, agent_name, agent_slug, agent_key, agent_type,
+                    link_state, visibility, proof_state, is_primary,
+                    COALESCE(auto_reply_enabled, 0), COALESCE(auto_follow_enabled, 0),
+                    created_at, updated_at
+             FROM social_linked_agents WHERE id = ?1",
+            params![agent_id],
+            |row| {
+                let key_prefix: String = row.get(4)?;
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "profileId": row.get::<_, String>(1)?,
+                    "agentName": row.get::<_, String>(2)?,
+                    "agentSlug": row.get::<_, String>(3)?,
+                    "agentKeyPrefix": key_prefix,
+                    "agentType": row.get::<_, String>(5)?,
+                    "linkState": row.get::<_, String>(6)?,
+                    "visibility": row.get::<_, String>(7)?,
+                    "proofState": row.get::<_, String>(8)?,
+                    "isPrimary": row.get::<_, i64>(9)? == 1,
+                    "autoReplyEnabled": row.get::<_, i64>(10)? == 1,
+                    "autoFollowEnabled": row.get::<_, i64>(11)? == 1,
+                    "createdAt": row.get::<_, String>(12)?,
+                    "updatedAt": row.get::<_, String>(13)?,
                 }))
             },
         )

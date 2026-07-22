@@ -943,6 +943,97 @@ pub async fn rotate_linked_agent_key(
     }
 }
 
+// ─── Wave 12a — agent policy foundation (steward-gated flags) ────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct PatchLinkedAgentRequest {
+    /// When true, steward prefers auto-reply for this linked agent.
+    /// Foundation only: no auto-reply worker runs yet.
+    #[serde(default, alias = "autoReplyEnabled")]
+    pub auto_reply_enabled: Option<bool>,
+    /// When true, steward prefers auto-follow for this linked agent.
+    /// Foundation only: no auto-follow worker runs yet.
+    #[serde(default, alias = "autoFollowEnabled")]
+    pub auto_follow_enabled: Option<bool>,
+}
+
+/// Honesty note returned with policy patches so clients never claim live automation.
+pub const AGENT_POLICY_FOUNDATION_NOTE: &str =
+    "Policy flags saved. Auto-reply and auto-follow are foundation only — not fully automated yet (no worker runs these flags).";
+
+/// Pure helper: whether a policy patch body has at least one recognized flag.
+pub fn has_policy_patch(req: &PatchLinkedAgentRequest) -> bool {
+    req.auto_reply_enabled.is_some() || req.auto_follow_enabled.is_some()
+}
+
+/// PATCH /v1/social/linked-agents/{id} — steward-only policy flags.
+///
+/// Persists `autoReplyEnabled` / `autoFollowEnabled` (default false). Does **not**
+/// start silent auto-reply bots; workers that honor these flags are not shipped.
+pub async fn patch_linked_agent(
+    user: ClerkUser,
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PatchLinkedAgentRequest>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    if !has_policy_patch(&req) {
+        return bad_request("at least one of autoReplyEnabled or autoFollowEnabled is required");
+    }
+    match db(&state).social_update_linked_agent_policies(
+        &profile_id,
+        &id,
+        req.auto_reply_enabled,
+        req.auto_follow_enabled,
+    ) {
+        Ok(agent) => ok(serde_json::json!({
+            "ok": true,
+            "linkedAgent": agent,
+            "note": AGENT_POLICY_FOUNDATION_NOTE,
+        })),
+        Err(msg) if msg.contains("not found") => not_found(&msg),
+        Err(msg) => bad_request(&msg),
+    }
+}
+
+#[cfg(test)]
+mod agent_policy_tests {
+    use super::*;
+
+    #[test]
+    fn has_policy_patch_false_when_empty() {
+        let req = PatchLinkedAgentRequest {
+            auto_reply_enabled: None,
+            auto_follow_enabled: None,
+        };
+        assert!(!has_policy_patch(&req));
+    }
+
+    #[test]
+    fn has_policy_patch_true_for_reply_or_follow() {
+        assert!(has_policy_patch(&PatchLinkedAgentRequest {
+            auto_reply_enabled: Some(true),
+            auto_follow_enabled: None,
+        }));
+        assert!(has_policy_patch(&PatchLinkedAgentRequest {
+            auto_reply_enabled: None,
+            auto_follow_enabled: Some(false),
+        }));
+    }
+
+    #[test]
+    fn foundation_note_is_honest() {
+        let lower = AGENT_POLICY_FOUNDATION_NOTE.to_lowercase();
+        assert!(lower.contains("foundation") || lower.contains("not fully automated"));
+        assert!(lower.contains("no worker") || lower.contains("not fully automated"));
+        assert!(!lower.contains("agents active"));
+        assert!(!lower.contains("live automation"));
+    }
+}
+
 /// Whether the authenticated viewer follows `{handle}`.
 pub async fn get_follow_status(
     user: ClerkUser,

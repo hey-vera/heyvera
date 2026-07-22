@@ -20,6 +20,10 @@ import { fetchUnreadNotificationCount, getConversations } from "../../api/social
 import { useAuth } from "../../hooks/useAuth";
 import { useVisibilityPoll } from "../../hooks/useVisibilityPoll";
 import { inboxAriaLabel } from "../../utils/inboxAriaLabel";
+import {
+  PRODUCT_SWITCHER_ITEMS,
+  type ProductSwitcherItem,
+} from "../../utils/productSwitcher";
 import { AuthControls } from "../shared/AuthControls";
 
 export type CreateAction = "post" | "video" | "automate";
@@ -42,19 +46,16 @@ const socialNav: ReadonlyArray<{ label: string; route: string; icon: LucideIcon 
   { label: "Pulse", route: "/ai", icon: Bot },
 ];
 
-type ProductArea = {
-  label: string;
-  state: string;
-  icon: LucideIcon;
-  navigable: boolean;
-  route?: string;
+const productIcons: Record<ProductSwitcherItem["id"], LucideIcon> = {
+  social: Users,
+  agents: Bot,
 };
 
-/** Product page switcher — Social active; Agents WIP (not a full product page yet). */
-const productAreas: ReadonlyArray<ProductArea> = [
-  { label: "Social", state: "Active", icon: Users, navigable: true, route: "/home" },
-  { label: "Agents", state: "WIP", icon: Bot, navigable: false },
-];
+/** Product page switcher — Social active; Agents WIP (Wave 12b honesty). */
+const productAreas = PRODUCT_SWITCHER_ITEMS.map((item) => ({
+  ...item,
+  icon: productIcons[item.id],
+}));
 
 const createMenuItems: ReadonlyArray<{
   action: CreateAction;
@@ -202,12 +203,12 @@ export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick
               role="menu"
               aria-label="Products"
             >
-              {productAreas.map(({ label, state, icon: Icon, navigable, route }) => {
-                const active = label === "Social";
-                const wip = !navigable;
+              {productAreas.map(({ id, label, stateLabel, icon: Icon, navigable, route }) => {
+                const active = id === "social";
+                const wip = !navigable || id === "agents";
                 return (
                   <button
-                    key={label}
+                    key={id}
                     type="button"
                     className="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover-overlay disabled:cursor-not-allowed"
                     onClick={() => {
@@ -234,7 +235,7 @@ export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick
                         {label}
                       </span>
                       <span className="block text-[13px]" style={{ color: "var(--text-secondary)" }}>
-                        {active ? "Active" : state}
+                        {stateLabel}
                       </span>
                     </span>
                     {wip && (
