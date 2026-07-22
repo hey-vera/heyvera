@@ -311,23 +311,33 @@ export function HomePage() {
       onTouchEnd={handleTouchEnd}
       style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}
     >
-      <div className="sticky top-[var(--top-bar-height)] z-10 flex border-b sticky-header-bg backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
-        {TABS.map((tab) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => setActiveTab(tab)}
-            className="flex-1 py-4 text-[15px] font-medium transition-colors hover-overlay"
-            style={{ color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)' }}
-          >
-            <span className="relative inline-block">
-              {tab}
-              {activeTab === tab && (
-                <span className="absolute -bottom-[17px] left-0 right-0 h-[4px] rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
-              )}
-            </span>
-          </button>
-        ))}
+      <div
+        className="sticky top-[var(--top-bar-height)] z-10 flex border-b sticky-header-bg backdrop-blur-md"
+        style={{ borderColor: 'var(--border-primary)' }}
+        role="tablist"
+        aria-label="Feed filters"
+      >
+        {TABS.map((tab) => {
+          const selected = activeTab === tab;
+          return (
+            <button
+              key={tab}
+              type="button"
+              role="tab"
+              aria-selected={selected}
+              onClick={() => setActiveTab(tab)}
+              className="flex-1 py-4 text-[15px] font-medium transition-colors hover-overlay focus-visible:outline-none focus-ring"
+              style={{ color: selected ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+            >
+              <span className="relative inline-block">
+                {tab}
+                {selected && (
+                  <span className="absolute -bottom-[17px] left-0 right-0 h-[4px] rounded-full" style={{ backgroundColor: 'var(--accent)' }} aria-hidden="true" />
+                )}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       {showOnboard && (

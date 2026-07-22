@@ -86,6 +86,9 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
   /** Brand was just created and remains selected — stronger authorship notice. */
   const [brandJustCreated, setBrandJustCreated] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  /** Element that opened compose — restore focus when dialog closes. */
+  const composeTriggerRef = React.useRef<HTMLElement | null>(null);
+  const composeDialogRef = React.useRef<HTMLDivElement | null>(null);
 
   const remainingChars = COMPOSE_MAX_CHARS - composeText.length;
   const canPost = (composeText.trim().length > 0 || Boolean(imageFile)) && !isPosting;
@@ -136,6 +139,19 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
   const closeCompose = () => {
     setComposeOpen(false);
     resetCompose();
+    // Restore focus to the control that opened compose (if still mounted).
+    const trigger = composeTriggerRef.current;
+    composeTriggerRef.current = null;
+    if (trigger && typeof trigger.focus === "function") {
+      // Defer so dialog unmount completes before focus moves.
+      window.requestAnimationFrame(() => {
+        try {
+          trigger.focus();
+        } catch {
+          // ignore detached nodes
+        }
+      });
+    }
   };
 
   const applyPages = (pages: SocialPage[]) => {
@@ -152,6 +168,10 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
   };
 
   const openCompose = async () => {
+    // Capture focus origin for restore-on-close (Escape / dismiss).
+    if (typeof document !== "undefined" && document.activeElement instanceof HTMLElement) {
+      composeTriggerRef.current = document.activeElement;
+    }
     setComposeError(null);
 
     if (!authEnabled || !isSignedIn) {
@@ -293,6 +313,22 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     }
   };
 
+  const closeComposeRef = React.useRef(closeCompose);
+  closeComposeRef.current = closeCompose;
+
+  // Escape closes compose dialog (focus restored in closeCompose).
+  React.useEffect(() => {
+    if (!composeOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeComposeRef.current();
+      }
+    };
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [composeOpen]);
+
   const handleSubmitPost = async () => {
     if (!canPost || composeGate) return;
 
@@ -346,6 +382,10 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: "var(--bg-primary)" }}>
+      <a href="#main-content" className="skip-link">
+        Skip to main content
+      </a>
+
       <TopBar
         activeRoute={activeRoute}
         onNavigate={handleNavigate}
@@ -361,6 +401,8 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
         }
       >
         <main
+          id="main-content"
+          tabIndex={-1}
           className="w-full min-w-0"
           style={{
             borderLeft: isWideRoute ? "none" : "1px solid var(--border-primary)",
@@ -392,6 +434,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
           role="presentation"
         >
           <div
+            ref={composeDialogRef}
             className="w-full max-w-[600px] overflow-hidden rounded-2xl"
             style={{ backgroundColor: "var(--bg-primary)", border: "1px solid var(--border-primary)" }}
             onClick={(e) => e.stopPropagation()}
@@ -454,7 +497,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                       value={selectedPageId}
                       onChange={(e) => handleSelectPage(e.target.value)}
                       disabled={isPosting || isCheckingComposeAccess || creatingBrand}
-                      className="rounded-lg border px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)]"
+                      className="rounded-lg border px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] focus-ring"
                       style={{
                         borderColor: "var(--border-primary)",
                         backgroundColor: "var(--bg-elevated)",
@@ -575,8 +618,9 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                     isCheckingComposeAccess ? "Checking profile..." : "Share something with the network"
                   }
                   autoFocus
-                  className="w-full resize-none border-none bg-transparent text-xl outline-none placeholder:text-[var(--text-secondary)]"
+                  className="w-full resize-none border-none bg-transparent text-xl outline-none placeholder:text-[var(--text-secondary)] focus-ring"
                   style={{ color: "var(--text-primary)", minHeight: "144px" }}
+                  aria-label="Post body"
                   value={composeText}
                   onChange={(event) => {
                     setComposeText(event.target.value.slice(0, COMPOSE_MAX_CHARS));
@@ -625,7 +669,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                       value={selectedCommunityId}
                       onChange={(e) => setSelectedCommunityId(e.target.value)}
                       disabled={isPosting || isCheckingComposeAccess}
-                      className="rounded-lg border px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)]"
+                      className="rounded-lg border px-3 py-2 text-[14px] outline-none focus:border-[var(--accent)] focus-ring"
                       style={{
                         borderColor: "var(--border-primary)",
                         backgroundColor: "var(--bg-elevated)",

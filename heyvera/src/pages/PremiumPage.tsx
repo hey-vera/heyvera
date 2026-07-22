@@ -219,7 +219,11 @@ function UsageCreditsSection({
 }) {
   if (loading) {
     return (
-      <section className="mb-8 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-elevated)] p-6">
+      <section
+        className="mb-8 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-elevated)] p-6"
+        role="status"
+        aria-live="polite"
+      >
         <h2 className="text-[16px] font-bold text-[var(--text-primary)] mb-2">Usage &amp; credits</h2>
         <p className="text-[14px] text-[var(--text-secondary)]">Loading usage…</p>
       </section>
@@ -528,13 +532,20 @@ export function PremiumPage() {
         </div>
 
         {loadingStatus ? (
-          <div className="mb-8 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-elevated)] p-6 text-center text-[15px] text-[var(--text-secondary)]">
+          <div
+            className="mb-8 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-elevated)] p-6 text-center text-[15px] text-[var(--text-secondary)]"
+            role="status"
+            aria-live="polite"
+          >
             Checking subscription status...
           </div>
         ) : null}
 
         {portalError ? (
-          <div className="mb-6 rounded-xl border border-[var(--color-danger)] bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)] px-4 py-3 text-[14px] text-[var(--color-danger)]">
+          <div
+            className="mb-6 rounded-xl border border-[var(--color-danger)] bg-[color-mix(in_srgb,var(--color-danger)_8%,transparent)] px-4 py-3 text-[14px] text-[var(--color-danger)]"
+            role="alert"
+          >
             {portalError}
           </div>
         ) : null}

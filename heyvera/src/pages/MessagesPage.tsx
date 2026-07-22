@@ -754,7 +754,8 @@ export function MessagesPage() {
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search conversations"
-              className="w-full rounded-full border py-2 pl-9 pr-3 text-[14px] outline-none transition-colors focus:border-[var(--accent)]"
+              aria-label="Search conversations"
+              className="w-full rounded-full border py-2 pl-9 pr-3 text-[14px] outline-none transition-colors focus:border-[var(--accent)] focus-ring"
               style={{
                 borderColor: 'var(--border-primary)',
                 backgroundColor: 'var(--bg-elevated)',
@@ -794,23 +795,31 @@ export function MessagesPage() {
                   key={convo.id}
                   type="button"
                   onClick={() => selectConversation(convo.id)}
-                  className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover-overlay"
+                  className="flex w-full items-start gap-3 px-4 py-3 text-left transition-colors hover-overlay focus-visible:outline-none focus-ring"
                   style={{
                     backgroundColor: isActive ? 'var(--bg-elevated)' : undefined,
                   }}
+                  aria-current={isActive ? 'true' : undefined}
+                  aria-label={
+                    convo.unread_count > 0
+                      ? `${other.display_name}, ${convo.unread_count} unread`
+                      : other.display_name
+                  }
                 >
                   {/* Avatar */}
                   {other.avatar_url ? (
                     <img
                       src={other.avatar_url}
-                      alt={other.display_name}
+                      alt=""
                       className="h-10 w-10 flex-shrink-0 rounded-full object-cover"
                       style={{ backgroundColor: 'var(--border-primary)' }}
+                      aria-hidden="true"
                     />
                   ) : (
                     <div
                       className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-bold"
                       style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+                      aria-hidden="true"
                     >
                       {other.display_name.charAt(0).toUpperCase()}
                     </div>
@@ -822,6 +831,7 @@ export function MessagesPage() {
                       <span
                         className="truncate text-[15px] font-bold"
                         style={{ color: 'var(--text-primary)' }}
+                        aria-hidden="true"
                       >
                         {other.display_name}
                       </span>
@@ -1023,7 +1033,8 @@ export function MessagesPage() {
                   }}
                   onKeyDown={handleKeyDown}
                   placeholder="Start a new message"
-                  className="flex-1 rounded-full border px-4 py-2.5 text-[15px] outline-none transition-colors focus:border-[var(--accent)]"
+                  aria-label="Message composer"
+                  className="flex-1 rounded-full border px-4 py-2.5 text-[15px] outline-none transition-colors focus:border-[var(--accent)] focus-ring"
                   style={{
                     borderColor: 'var(--border-primary)',
                     backgroundColor: 'var(--bg-elevated)',
@@ -1034,11 +1045,11 @@ export function MessagesPage() {
                   type="button"
                   onClick={() => void handleSend()}
                   disabled={!composeText.trim() || sending}
-                  className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="flex h-10 w-10 items-center justify-center rounded-full transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-ring"
                   style={{ backgroundColor: 'var(--accent)', color: 'var(--bg-primary)' }}
                   aria-label="Send message"
                 >
-                  <Send className="h-5 w-5" />
+                  <Send className="h-5 w-5" aria-hidden="true" />
                 </button>
               </div>
             </div>

@@ -63,7 +63,7 @@ function JoinButton({
       <SignInButton mode="modal">
         <button
           type="button"
-          className="shrink-0 rounded-full px-5 py-1.5 text-[14px] font-bold transition-all hover:opacity-90"
+          className="shrink-0 rounded-full px-5 py-1.5 text-[14px] font-bold transition-all hover:opacity-90 focus-visible:outline-none focus-ring"
           style={style}
         >
           Join
@@ -79,8 +79,10 @@ function JoinButton({
       disabled={busy || !authEnabled}
       title={!authEnabled ? 'Sign-in is not configured' : joined ? 'Leave via the real leave API' : 'Join via the real join API'}
       onClick={() => onToggle(communityId)}
-      className="shrink-0 rounded-full px-5 py-1.5 text-[14px] font-bold transition-all hover:opacity-90 disabled:opacity-50"
+      className="shrink-0 rounded-full px-5 py-1.5 text-[14px] font-bold transition-all hover:opacity-90 disabled:opacity-50 focus-visible:outline-none focus-ring"
       style={style}
+      aria-busy={busy || undefined}
+      aria-pressed={joined || undefined}
     >
       {busy ? '…' : joined ? 'Leave' : 'Join'}
     </button>
@@ -343,23 +345,28 @@ export function CommunitiesPage() {
             ? ' Membership list API is not available yet; joined state may not persist across reloads.'
             : ' Your Communities reflects server memberships when available.'}
         </div>
-        <div className="flex">
-          {TABS.map((tab) => (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => setActiveTab(tab)}
-              className="flex-1 py-4 text-[15px] font-medium transition-colors hover-overlay"
-              style={{ color: activeTab === tab ? 'var(--text-primary)' : 'var(--text-secondary)' }}
-            >
-              <span className="relative inline-block">
-                {tab}
-                {activeTab === tab && (
-                  <span className="absolute -bottom-[17px] left-0 right-0 h-[4px] rounded-full" style={{ backgroundColor: 'var(--accent)' }} />
-                )}
-              </span>
-            </button>
-          ))}
+        <div className="flex" role="tablist" aria-label="Communities filters">
+          {TABS.map((tab) => {
+            const selected = activeTab === tab;
+            return (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                aria-selected={selected}
+                onClick={() => setActiveTab(tab)}
+                className="flex-1 py-4 text-[15px] font-medium transition-colors hover-overlay focus-visible:outline-none focus-ring"
+                style={{ color: selected ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+              >
+                <span className="relative inline-block">
+                  {tab}
+                  {selected && (
+                    <span className="absolute -bottom-[17px] left-0 right-0 h-[4px] rounded-full" style={{ backgroundColor: 'var(--accent)' }} aria-hidden="true" />
+                  )}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
@@ -381,10 +388,11 @@ export function CommunitiesPage() {
             <button
               type="button"
               onClick={() => setSelectedCommunityId(null)}
-              className="-ml-2 mb-3 flex h-9 items-center gap-2 rounded-full px-3 text-[15px] font-bold transition-colors hover-overlay"
+              className="-ml-2 mb-3 flex h-9 items-center gap-2 rounded-full px-3 text-[15px] font-bold transition-colors hover-overlay focus-visible:outline-none focus-ring"
               style={{ color: 'var(--text-primary)' }}
+              aria-label="Back to communities"
             >
-              <ArrowLeft size={18} strokeWidth={2.25} />
+              <ArrowLeft size={18} strokeWidth={2.25} aria-hidden="true" />
               Communities
             </button>
 
@@ -505,6 +513,7 @@ export function CommunitiesPage() {
                 key={community.id}
                 role="button"
                 tabIndex={0}
+                aria-label={`${community.name}${joined ? ', joined' : ''}${isPrivateGuild(community.visibility) ? ', private' : ''}`}
                 onClick={() => setSelectedCommunityId(community.id)}
                 onKeyDown={(event) => {
                   if (event.key === 'Enter' || event.key === ' ') {
@@ -512,7 +521,7 @@ export function CommunitiesPage() {
                     setSelectedCommunityId(community.id);
                   }
                 }}
-                className="cursor-pointer overflow-hidden rounded-2xl border transition-colors hover:bg-white/[0.03]"
+                className="cursor-pointer overflow-hidden rounded-2xl border transition-colors hover:bg-white/[0.03] focus-visible:outline-none focus-ring"
                 style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
               >
                 {(community as { banner_url?: string }).banner_url ? (
