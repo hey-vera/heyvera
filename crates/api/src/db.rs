@@ -456,6 +456,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 46 {
         migrate_v46(conn);
     }
+    if current < 47 {
+        migrate_v47(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -2218,6 +2221,26 @@ fn migrate_v46(conn: &Connection) {
     conn.execute_batch("UPDATE schema_version SET version = 46;")
         .expect("migration v46 failed setting schema version");
     tracing::info!("applied migration v46: social_community_memberships.role");
+}
+
+fn migrate_v47(conn: &Connection) {
+    // Wave 11b — Page-owned media shelves (empty containers only; no items yet).
+    // owner_profile_id = steward person Page (v1 profile_id).
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS social_media_shelves (
+            id TEXT PRIMARY KEY,
+            owner_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_media_shelves_owner
+            ON social_media_shelves(owner_profile_id, created_at DESC);
+
+        UPDATE schema_version SET version = 47;",
+    )
+    .expect("migration v47 failed creating social_media_shelves");
+    tracing::info!("applied migration v47: social_media_shelves (empty shelf foundation)");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -10507,6 +10530,79 @@ impl Database {
         .unwrap_or(false)
     }
 
+    // ─── Wave 11b: Page-owned media shelves (empty containers) ───────────────
+
+    /// Create an empty media shelf for the steward person Page (`owner_profile_id`).
+    /// Items/playlists contents are not wired yet — itemCount is always 0.
+    pub fn social_create_media_shelf(
+        &self,
+        owner_profile_id: &str,
+        title: &str,
+        description: &str,
+    ) -> Result<serde_json::Value, String> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err("title is required".into());
+        }
+        if title.len() > 120 {
+            return Err("title exceeds 120 characters".into());
+        }
+        let description = description.trim();
+        if description.len() > 500 {
+            return Err("description exceeds 500 characters".into());
+        }
+        let conn = self.conn.lock().unwrap();
+        let id = format!("shelf_{}", Uuid::new_v4());
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        conn.execute(
+            "INSERT INTO social_media_shelves (id, owner_profile_id, title, description, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![id, owner_profile_id, title, description, now],
+        )
+        .map_err(|e| format!("create shelf failed: {e}"))?;
+        Ok(serde_json::json!({
+            "id": id,
+            "ownerProfileId": owner_profile_id,
+            "title": title,
+            "description": description,
+            "itemCount": 0,
+            "createdAt": now,
+        }))
+    }
+
+    /// List shelves for a steward profile (person Page). Newest first.
+    /// Always returns empty shelves (itemCount = 0) — no fake video cards.
+    pub fn social_list_media_shelves(
+        &self,
+        owner_profile_id: &str,
+        limit: i64,
+    ) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let limit = limit.clamp(1, 100);
+        let mut stmt = match conn.prepare(
+            "SELECT id, owner_profile_id, title, description, created_at
+             FROM social_media_shelves
+             WHERE owner_profile_id = ?1
+             ORDER BY created_at DESC
+             LIMIT ?2",
+        ) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        stmt.query_map(params![owner_profile_id, limit], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "ownerProfileId": row.get::<_, String>(1)?,
+                "title": row.get::<_, String>(2)?,
+                "description": row.get::<_, String>(3)?,
+                "itemCount": 0,
+                "createdAt": row.get::<_, String>(4)?,
+            }))
+        })
+        .map(|rows| rows.filter_map(|r| r.ok()).collect())
+        .unwrap_or_default()
+    }
+
     /// Look up a linked agent by id (any owner); returns id, profile_id, names/slugs.
     pub fn social_find_linked_agent_by_id(&self, agent_id: &str) -> Option<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
@@ -17388,5 +17484,31 @@ mod tests {
             db.social_community_member_role(community_id, member_id).as_deref(),
             Some("member")
         );
+    }
+
+    #[test]
+    fn social_media_shelves_create_list_empty() {
+        let db = test_db();
+        let owner = db.social_create_profile("clerk_shelf_owner", "shelowner", "Shelf Owner", "");
+        let owner_id = owner["id"].as_str().unwrap();
+
+        let empty = db.social_list_media_shelves(owner_id, 20);
+        assert!(empty.is_empty(), "new steward has no shelves");
+
+        let shelf = db
+            .social_create_media_shelf(owner_id, "Deep cuts", "Foundation shelf")
+            .expect("create empty shelf");
+        assert_eq!(shelf["title"], "Deep cuts");
+        assert_eq!(shelf["description"], "Foundation shelf");
+        assert_eq!(shelf["itemCount"], 0);
+        assert_eq!(shelf["ownerProfileId"], owner_id);
+
+        let listed = db.social_list_media_shelves(owner_id, 20);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0]["id"], shelf["id"]);
+        assert_eq!(listed[0]["itemCount"], 0);
+
+        let err = db.social_create_media_shelf(owner_id, "  ", "");
+        assert!(err.is_err(), "blank title rejected");
     }
 }
