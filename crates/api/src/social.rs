@@ -1091,11 +1091,15 @@ pub async fn get_single_post(
                 obj.insert("media".into(), serde_json::json!(media));
             }
             // Full descendant list (flat) with replyToPostId for nested thread UI.
-            let mut replies = db(&state).social_get_thread_replies(&id, viewer_pid.as_deref());
+            // Cap 100 / max depth 8 — surface honesty when walk stopped early.
+            let (mut replies, replies_truncated) =
+                db(&state).social_get_thread_replies(&id, viewer_pid.as_deref());
             db(&state).social_enrich_feed_posts(&mut replies, viewer_pid.as_deref());
             ok(serde_json::json!({
                 "post": post,
                 "replies": replies,
+                "repliesTruncated": replies_truncated,
+                "repliesCap": 100,
             }))
         },
         None => not_found("Post not found"),

@@ -12,6 +12,10 @@ import {
   flattenTreeForRender,
   parentHandleFor,
 } from '../utils/threadTree';
+import {
+  shouldShowThreadCapNotice,
+  THREAD_CAP_NOTICE,
+} from '../utils/threadCapNotice';
 
 export function PostThreadPage() {
   const { id } = useParams<{ id: string }>();
@@ -19,6 +23,7 @@ export function PostThreadPage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const [post, setPost] = useState<Post | null>(null);
   const [replies, setReplies] = useState<Post[]>([]);
+  const [repliesTruncated, setRepliesTruncated] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
@@ -57,6 +62,7 @@ export function PostThreadPage() {
       if (!id) {
         setPost(null);
         setReplies([]);
+        setRepliesTruncated(false);
         setError(null);
         setLoading(false);
         return;
@@ -73,12 +79,14 @@ export function PostThreadPage() {
         if (!cancelled) {
           setPost(postResponse);
           setReplies(allReplies);
+          setRepliesTruncated(response.repliesTruncated === true);
           setReplyTargetId(null);
         }
       } catch (err) {
         if (!cancelled) {
           setPost(null);
           setReplies([]);
+          setRepliesTruncated(false);
           setError(err instanceof Error ? err.message : 'Unable to load post');
         }
       } finally {
@@ -189,6 +197,18 @@ export function PostThreadPage() {
             })
           ) : (
             <EmptyState title="No replies yet" detail="Replies to this post will appear here." />
+          )}
+          {/* Honest cap notice only — no fake Show more / pagination. */}
+          {shouldShowThreadCapNotice(repliesTruncated) && (
+            <div
+              role="status"
+              className="border-b px-4 py-4 text-center"
+              style={{ borderColor: 'var(--border-primary)' }}
+            >
+              <p className="text-[14px] leading-5" style={{ color: 'var(--text-secondary)' }}>
+                {THREAD_CAP_NOTICE}
+              </p>
+            </div>
           )}
         </section>
       )}
