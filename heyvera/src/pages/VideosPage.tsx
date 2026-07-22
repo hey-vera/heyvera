@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
   Archive,
   Clock,
   Film,
+  FileText,
   Play,
   Radio,
   Shuffle,
@@ -10,6 +11,10 @@ import {
   Tag,
   UserRound,
 } from 'lucide-react';
+import { SignInButton } from '@clerk/clerk-react';
+import { useAuth } from '../hooks/useAuth';
+import { createLongform, fetchLongform } from '../api/social';
+import type { LongformEntry } from '../api/social';
 
 type VideoItem = {
   id: string;
@@ -165,9 +170,209 @@ function VideoCard({ item, onSelect }: { item: VideoItem; onSelect: (item: Video
   );
 }
 
+function formatLongformLabel(formatType: string): string {
+  const map: Record<string, string> = {
+    essay: 'Essay',
+    broadcast: 'Broadcast',
+    research_log: 'Research Log',
+    journal: 'Journal',
+    thread: 'Thread',
+    note: 'Note',
+  };
+  return map[formatType] ?? formatType.replace(/_/g, ' ');
+}
+
+/** Minimal longform create form — API is live (POST /v1/social/longform). */
+function LongformCreateForm({
+  getToken,
+  onCreated,
+}: {
+  getToken: () => Promise<string | null>;
+  onCreated: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [title, setTitle] = useState('');
+  const [summary, setSummary] = useState('');
+  const [body, setBody] = useState('');
+  const [formatType, setFormatType] = useState('essay');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex h-10 items-center justify-center gap-2 rounded-full border px-4 text-[14px] font-bold"
+        style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+      >
+        <FileText className="h-4 w-4" aria-hidden="true" />
+        Write longform
+      </button>
+    );
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!title.trim() || !body.trim() || submitting) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setError('Sign in required');
+        return;
+      }
+      await createLongform(token, {
+        title: title.trim(),
+        summary: summary.trim() || undefined,
+        body: body.trim(),
+        formatType,
+      });
+      setTitle('');
+      setSummary('');
+      setBody('');
+      setFormatType('essay');
+      setOpen(false);
+      onCreated();
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Failed to publish longform');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <form
+      onSubmit={handleSubmit}
+      className="grid gap-3 rounded-2xl border p-4"
+      style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+    >
+      <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+        Longform essays ship now. Video upload / transcode remains Soon.
+      </p>
+      <input
+        type="text"
+        placeholder="Title"
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        maxLength={200}
+        required
+        disabled={submitting}
+        className="rounded-xl border px-3 py-2 text-[14px]"
+        style={{
+          borderColor: 'var(--border-primary)',
+          backgroundColor: 'var(--bg-primary)',
+          color: 'var(--text-primary)',
+        }}
+      />
+      <input
+        type="text"
+        placeholder="Summary (optional)"
+        value={summary}
+        onChange={(e) => setSummary(e.target.value)}
+        maxLength={500}
+        disabled={submitting}
+        className="rounded-xl border px-3 py-2 text-[14px]"
+        style={{
+          borderColor: 'var(--border-primary)',
+          backgroundColor: 'var(--bg-primary)',
+          color: 'var(--text-primary)',
+        }}
+      />
+      <textarea
+        placeholder="Write your essay, broadcast, or journal entry…"
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        rows={6}
+        maxLength={50000}
+        required
+        disabled={submitting}
+        className="rounded-xl border px-3 py-2 text-[14px]"
+        style={{
+          borderColor: 'var(--border-primary)',
+          backgroundColor: 'var(--bg-primary)',
+          color: 'var(--text-primary)',
+        }}
+      />
+      <div className="flex flex-wrap items-center gap-2">
+        <select
+          value={formatType}
+          onChange={(e) => setFormatType(e.target.value)}
+          disabled={submitting}
+          className="rounded-full border px-3 py-1.5 text-[13px] font-semibold"
+          style={{
+            borderColor: 'var(--border-primary)',
+            backgroundColor: 'var(--bg-primary)',
+            color: 'var(--text-primary)',
+          }}
+        >
+          <option value="essay">Essay</option>
+          <option value="broadcast">Broadcast</option>
+          <option value="research_log">Research Log</option>
+          <option value="journal">Journal</option>
+          <option value="thread">Thread</option>
+          <option value="note">Note</option>
+        </select>
+        <button
+          type="submit"
+          disabled={!title.trim() || !body.trim() || submitting}
+          className="rounded-full px-4 py-1.5 text-[13px] font-bold disabled:opacity-50"
+          style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+        >
+          {submitting ? 'Publishing…' : 'Publish'}
+        </button>
+        <button
+          type="button"
+          onClick={() => setOpen(false)}
+          disabled={submitting}
+          className="rounded-full border px-4 py-1.5 text-[13px] font-bold"
+          style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+        >
+          Cancel
+        </button>
+      </div>
+      {error && (
+        <p className="text-[13px]" style={{ color: 'var(--color-danger)' }} role="alert">
+          {error}
+        </p>
+      )}
+    </form>
+  );
+}
+
 export function VideosPage() {
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [selected, setSelected] = useState<VideoItem>(FEATURED);
   const [category, setCategory] = useState<(typeof CATEGORIES)[number]>('Featured');
+  const [longform, setLongform] = useState<LongformEntry[] | null>(null);
+  const [longformStatus, setLongformStatus] = useState<'loading' | 'live' | 'error'>('loading');
+  const [longformRefresh, setLongformRefresh] = useState(0);
+
+  const reloadLongform = useCallback(() => {
+    setLongformRefresh((n) => n + 1);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLongformStatus('loading');
+    fetchLongform(12)
+      .then((result) => {
+        if (!cancelled) {
+          setLongform(result.longform);
+          setLongformStatus('live');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setLongform(null);
+          setLongformStatus('error');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [longformRefresh]);
 
   return (
     <div className="min-h-screen px-3 pb-10 pt-4 sm:px-5" style={{ color: 'var(--text-primary)' }}>
@@ -179,8 +384,8 @@ export function VideosPage() {
           </div>
           <h1 className="text-[28px] font-black leading-tight sm:text-[34px]">Watch</h1>
           <p className="mt-1 max-w-2xl text-[15px]" style={{ color: 'var(--text-secondary)' }}>
-            Preview / Soon only — layout shell is ready; upload, transcode, and live ingest are not shipping yet.
-            Content will be scoped to the active Page (person profile today).
+            Media foundation for the active Page (person profile today). Video upload and live ingest are not shipping yet;
+            longform text is available via the social API.
           </p>
         </div>
         <button
@@ -191,16 +396,104 @@ export function VideosPage() {
           style={{ backgroundColor: 'var(--accent)', color: '#000' }}
         >
           <Film className="h-4 w-4" aria-hidden="true" />
-          Upload (coming soon)
+          Upload video (Soon)
         </button>
       </header>
+
+      {/* Wave 8f — honest page-owned media foundation banner */}
+      <div
+        className="mb-4 rounded-2xl border px-4 py-3"
+        style={{ borderColor: 'var(--accent)', backgroundColor: 'color-mix(in srgb, var(--accent) 10%, var(--bg-elevated))' }}
+        role="status"
+      >
+        <p className="text-[14px] font-bold" style={{ color: 'var(--text-primary)' }}>
+          Page-owned media foundation
+        </p>
+        <p className="mt-1 text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          Wave 8f lays out the surface only: shelves, archives, and longform attach to the active Page.
+          Image attach on posts is the live media path today; <code className="text-[12px]">mediaType: video</code> is
+          accepted by the API but video upload UI and transcode are not production. Live encoder ingest is separate
+          (see Live — Preview only, no fake LIVE).
+        </p>
+      </div>
+
       <p
         className="mb-4 rounded-2xl border px-4 py-3 text-[14px]"
         style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)', color: 'var(--text-secondary)' }}
         role="status"
       >
-        Preview data below is illustrative. Image attach on posts is the live media path today.
+        Preview video cards below are illustrative layout shells — not real uploads.
       </p>
+
+      {/* Real longform from API when available */}
+      <section className="mb-6" aria-label="Page longform and media">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="flex items-center gap-2 text-[18px] font-black">
+            <FileText className="h-5 w-5" style={{ color: 'var(--accent)' }} aria-hidden="true" />
+            Longform on this surface
+          </h2>
+          {authEnabled && isSignedIn ? (
+            <LongformCreateForm getToken={getToken} onCreated={reloadLongform} />
+          ) : authEnabled ? (
+            <SignInButton mode="modal">
+              <button
+                type="button"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-full border px-4 text-[14px] font-bold"
+                style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+              >
+                Sign in to write
+              </button>
+            </SignInButton>
+          ) : (
+            <span className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+              Auth not configured — create form unavailable
+            </span>
+          )}
+        </div>
+
+        {longformStatus === 'loading' && (
+          <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>
+            Loading longform…
+          </p>
+        )}
+        {longformStatus === 'error' && (
+          <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>
+            Longform API unreachable — list hidden. No fake entries invented.
+          </p>
+        )}
+        {longformStatus === 'live' && longform && longform.length === 0 && (
+          <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>
+            No longform entries yet. Publish one when signed in — this list is real API data, not preview shells.
+          </p>
+        )}
+        {longformStatus === 'live' && longform && longform.length > 0 && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {longform.map((entry) => (
+              <article
+                key={entry.id}
+                className="border p-4"
+                style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+              >
+                <div className="mb-2 flex flex-wrap items-center gap-2 text-[12px] font-bold uppercase tracking-wide" style={{ color: 'var(--accent)' }}>
+                  <span>{formatLongformLabel(entry.formatType)}</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>·</span>
+                  <span style={{ color: 'var(--text-secondary)' }}>@{entry.author?.handle ?? 'unknown'}</span>
+                </div>
+                <h3 className="text-[16px] font-black leading-snug">{entry.title}</h3>
+                {entry.summary ? (
+                  <p className="mt-2 line-clamp-3 text-[14px]" style={{ color: 'var(--text-secondary)' }}>
+                    {entry.summary}
+                  </p>
+                ) : (
+                  <p className="mt-2 line-clamp-3 text-[14px]" style={{ color: 'var(--text-secondary)' }}>
+                    {entry.body}
+                  </p>
+                )}
+              </article>
+            ))}
+          </div>
+        )}
+      </section>
 
       <section className="mb-5 flex gap-2 overflow-x-auto pb-1" aria-label="Video shelves">
         {CATEGORIES.map((item) => (
@@ -241,14 +534,14 @@ export function VideosPage() {
               </div>
               <p className="mt-3 text-[15px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>{selected.description}</p>
               <div className="mt-4 flex flex-wrap gap-2">
-                <button type="button" className="rounded-full border px-4 py-2 text-[14px] font-bold" style={{ borderColor: 'var(--border-primary)' }}>
-                  Save to shelf
+                <button type="button" disabled className="cursor-not-allowed rounded-full border px-4 py-2 text-[14px] font-bold opacity-50" style={{ borderColor: 'var(--border-primary)' }}>
+                  Save to shelf (Soon)
                 </button>
-                <button type="button" className="rounded-full border px-4 py-2 text-[14px] font-bold" style={{ borderColor: 'var(--border-primary)' }}>
-                  Add to playlist
+                <button type="button" disabled className="cursor-not-allowed rounded-full border px-4 py-2 text-[14px] font-bold opacity-50" style={{ borderColor: 'var(--border-primary)' }}>
+                  Add to playlist (Soon)
                 </button>
-                <button type="button" className="rounded-full border px-4 py-2 text-[14px] font-bold" style={{ borderColor: 'var(--border-primary)' }}>
-                  Share
+                <button type="button" disabled className="cursor-not-allowed rounded-full border px-4 py-2 text-[14px] font-bold opacity-50" style={{ borderColor: 'var(--border-primary)' }}>
+                  Share (Soon)
                 </button>
               </div>
             </div>
@@ -256,10 +549,10 @@ export function VideosPage() {
 
           <section className="mt-6">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <h2 className="text-[20px] font-black">Recently uploaded</h2>
+              <h2 className="text-[20px] font-black">Layout preview — not real uploads</h2>
               <span className="inline-flex items-center gap-2 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
                 <Clock className="h-4 w-4" aria-hidden="true" />
-                Chronological first
+                Chronological first (when live)
               </span>
             </div>
             <div className="grid gap-x-4 gap-y-6 sm:grid-cols-2 xl:grid-cols-3">
@@ -276,16 +569,19 @@ export function VideosPage() {
               <Radio className="h-5 w-5" style={{ color: 'var(--accent)' }} aria-hidden="true" />
               Live next
             </h2>
-            {['Creator studio open room', 'Agent-assisted broadcast test', 'Community watch room'].map((item, index) => (
-              <button key={item} type="button" className="flex w-full items-start gap-3 border-t py-3 text-left first:border-t-0" style={{ borderColor: 'var(--border-primary)' }}>
-                <span className="mt-1 h-2.5 w-2.5 rounded-full" style={{ backgroundColor: index === 0 ? 'var(--color-danger)' : 'var(--accent)' }} />
+            <p className="mb-2 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+              Placeholders only — no stream is live. See /live for encoder foundation notes.
+            </p>
+            {['Creator studio open room', 'Agent-assisted broadcast test', 'Community watch room'].map((item) => (
+              <div key={item} className="flex w-full items-start gap-3 border-t py-3 first:border-t-0" style={{ borderColor: 'var(--border-primary)' }}>
+                <span className="mt-1 h-2.5 w-2.5 rounded-full" style={{ backgroundColor: 'var(--border-primary)' }} />
                 <span>
                   <span className="block text-[14px] font-bold">{item}</span>
                   <span className="block text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-                    {index === 0 ? 'Live room placeholder' : 'Scheduled placeholder'}
+                    Preview · not scheduled
                   </span>
                 </span>
-              </button>
+              </div>
             ))}
           </section>
 

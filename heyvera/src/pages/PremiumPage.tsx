@@ -1,5 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
+import {
+  fetchBillingUsage,
+  resolveBillingPath,
+  type BillingUsageResponse,
+} from '../api/billing';
 
 /** Premium is credits for automation — not “unlimited projects”. */
 const FEATURES: { label: string; status: 'planned' | 'partial' | 'live' }[] = [
@@ -106,14 +111,6 @@ type BillingStatus = {
   access_state?: string;
 };
 
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
-
-function resolveBillingPath(path: string): string {
-  if (!API_BASE) return path;
-  if (API_BASE.endsWith('/v1')) return `${API_BASE.replace(/\/v1$/, '')}${path}`;
-  return `${API_BASE}${path}`;
-}
-
 async function fetchBillingStatus(token: string): Promise<BillingStatus | null> {
   try {
     const res = await fetch(resolveBillingPath('/api/billing/status'), {
@@ -136,7 +133,8 @@ async function fetchBillingStatus(token: string): Promise<BillingStatus | null> 
       raw.active === true ||
       access === 'active' ||
       access === 'premium' ||
-      access === 'trialing';
+      access === 'trialing' ||
+      access === 'trial_active';
     return {
       active,
       plan: planType,
@@ -158,8 +156,8 @@ async function openBillingPortal(token: string): Promise<string | null> {
       },
     });
     if (!res.ok) return null;
-    const data = (await res.json()) as { url?: string };
-    return data.url ?? null;
+    const data = (await res.json()) as { url?: string; portal_url?: string };
+    return data.url ?? data.portal_url ?? null;
   } catch {
     return null;
   }
@@ -192,6 +190,154 @@ async function startCheckout(
   } catch {
     return { url: null, error: 'Unable to reach billing service' };
   }
+}
+
+function formatCents(cents: number): string {
+  return `$${(cents / 100).toFixed(2)}`;
+}
+
+function formatPlanStatus(usage: BillingUsageResponse | null, status: BillingStatus | null): string {
+  if (usage?.active || status?.active) {
+    const plan =
+      usage?.plan?.plan_type ?? status?.plan ?? 'Premium';
+    const access = usage?.access_state ?? status?.access_state ?? 'active';
+    return `${plan} · ${access.replace(/_/g, ' ')}`;
+  }
+  const access = usage?.access_state ?? status?.access_state;
+  if (access) return access.replace(/_/g, ' ');
+  return 'No active subscription';
+}
+
+function UsageCreditsSection({
+  usage,
+  loading,
+  billingStatus,
+}: {
+  usage: BillingUsageResponse | null;
+  loading: boolean;
+  billingStatus: BillingStatus | null;
+}) {
+  if (loading) {
+    return (
+      <section className="mb-8 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-elevated)] p-6">
+        <h2 className="text-[16px] font-bold text-[var(--text-primary)] mb-2">Usage &amp; credits</h2>
+        <p className="text-[14px] text-[var(--text-secondary)]">Loading usage…</p>
+      </section>
+    );
+  }
+
+  const hasUsageData = usage !== null;
+  const u = usage?.usage;
+
+  return (
+    <section className="mb-8 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-elevated)] p-6">
+      <h2 className="text-[16px] font-bold text-[var(--text-primary)] mb-1">Usage &amp; credits</h2>
+      <p className="text-[13px] text-[var(--text-secondary)] mb-4">
+        Plan status and automation usage from the API. Credit balances are only shown when metered.
+      </p>
+
+      <dl className="space-y-3 text-[14px]">
+        <div className="flex justify-between gap-4">
+          <dt className="text-[var(--text-secondary)]">Plan status</dt>
+          <dd className="font-medium text-[var(--text-primary)] text-right">
+            {formatPlanStatus(usage, billingStatus)}
+          </dd>
+        </div>
+
+        <div className="flex justify-between gap-4">
+          <dt className="text-[var(--text-secondary)]">Credits balance</dt>
+          <dd className="font-medium text-[var(--text-primary)] text-right">
+            {usage && usage.creditsBalance !== null && usage.creditsBalance !== undefined ? (
+              <span>{usage.creditsBalance}</span>
+            ) : (
+              <span className="text-[var(--text-secondary)] font-normal">
+                Not metered yet
+                {usage?.note ? (
+                  <span className="block text-[12px] mt-0.5">{usage.note}</span>
+                ) : (
+                  <span className="block text-[12px] mt-0.5">ledger balance not metered yet</span>
+                )}
+              </span>
+            )}
+          </dd>
+        </div>
+
+        {hasUsageData && u ? (
+          <>
+            <div className="flex justify-between gap-4">
+              <dt className="text-[var(--text-secondary)]">Usage (24h)</dt>
+              <dd className="text-right text-[var(--text-primary)]">
+                {u.last_24h.step_count} steps · {u.last_24h.total_tokens_in + u.last_24h.total_tokens_out}{' '}
+                tokens
+                {u.last_24h.total_cost_estimate > 0
+                  ? ` · ~$${u.last_24h.total_cost_estimate.toFixed(4)}`
+                  : ''}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-[var(--text-secondary)]">Usage (30d)</dt>
+              <dd className="text-right text-[var(--text-primary)]">
+                {u.last_30d.step_count} steps · {u.last_30d.total_tokens_in + u.last_30d.total_tokens_out}{' '}
+                tokens
+                {u.last_30d.total_cost_estimate > 0
+                  ? ` · ~$${u.last_30d.total_cost_estimate.toFixed(4)}`
+                  : ''}
+              </dd>
+            </div>
+            <div className="flex justify-between gap-4">
+              <dt className="text-[var(--text-secondary)]">Today (est. cost / steps)</dt>
+              <dd className="text-right text-[var(--text-primary)]">
+                ~${u.daily_cost.toFixed(4)} · {u.daily_steps} steps
+              </dd>
+            </div>
+          </>
+        ) : (
+          <p className="text-[13px] text-[var(--text-secondary)]">
+            Usage summary unavailable (sign in required, or API not reachable).
+          </p>
+        )}
+      </dl>
+
+      {usage && usage.history.length > 0 ? (
+        <div className="mt-5 border-t border-[var(--border-primary)] pt-4">
+          <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">
+            Recent billing history
+          </h3>
+          <ul className="space-y-2">
+            {usage.history.slice(0, 10).map((entry, i) => (
+              <li
+                key={`${entry.date}-${entry.description}-${i}`}
+                className="flex items-start justify-between gap-3 text-[13px]"
+              >
+                <div>
+                  <div className="text-[var(--text-primary)]">{entry.description}</div>
+                  <div className="text-[var(--text-secondary)]">
+                    {entry.date
+                      ? (() => {
+                          const d = new Date(entry.date);
+                          return Number.isNaN(d.getTime())
+                            ? entry.date
+                            : d.toLocaleDateString();
+                        })()
+                      : '—'}
+                    {' · '}
+                    {entry.status}
+                  </div>
+                </div>
+                <div className="shrink-0 font-medium text-[var(--text-primary)]">
+                  {entry.amount_cents ? formatCents(entry.amount_cents) : '—'}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : hasUsageData ? (
+        <p className="mt-4 text-[13px] text-[var(--text-secondary)]">
+          No billing history events yet.
+        </p>
+      ) : null}
+    </section>
+  );
 }
 
 function PremiumMemberView({
@@ -233,9 +379,6 @@ function PremiumMemberView({
           <> Renews on {new Date(status.period_end).toLocaleDateString()}.</>
         ) : null}
       </p>
-      <p className="text-[13px] text-[var(--text-secondary)] mb-5">
-        Credits ledger (remaining automation balance) is not exposed in this environment yet — manage billing in the portal.
-      </p>
       <button
         type="button"
         disabled={managing}
@@ -252,7 +395,9 @@ export function PremiumPage() {
   const { isSignedIn, getToken } = useAuth();
 
   const [billingStatus, setBillingStatus] = useState<BillingStatus | null>(null);
+  const [billingUsage, setBillingUsage] = useState<BillingUsageResponse | null>(null);
   const [loadingStatus, setLoadingStatus] = useState(false);
+  const [loadingUsage, setLoadingUsage] = useState(false);
   const [managing, setManaging] = useState(false);
   const [checkoutBusy, setCheckoutBusy] = useState<'monthly' | 'annual' | null>(null);
   const [portalError, setPortalError] = useState<string | null>(null);
@@ -262,19 +407,26 @@ export function PremiumPage() {
     if (!isSignedIn) {
       setCheckoutAvailable(null);
       setBillingStatus(null);
+      setBillingUsage(null);
       return;
     }
 
     setLoadingStatus(true);
+    setLoadingUsage(true);
     void (async () => {
       try {
         const token = await getToken();
         if (!token) return;
-        const status = await fetchBillingStatus(token);
+
+        const [status, usage] = await Promise.all([
+          fetchBillingStatus(token),
+          fetchBillingUsage(token),
+        ]);
         setBillingStatus(status);
+        setBillingUsage(usage);
 
         // Probe checkout once so Unavailable shows before first click when Stripe is down.
-        // Using annual plan as a lightweight probe; no redirect unless user explicitly subscribes.
+        // Using monthly plan as a lightweight probe; no redirect unless user explicitly subscribes.
         const probe = await startCheckout(token, 'monthly');
         if (probe.url) {
           // Do not auto-redirect; session may be single-use. Mark available only.
@@ -295,6 +447,7 @@ export function PremiumPage() {
         }
       } finally {
         setLoadingStatus(false);
+        setLoadingUsage(false);
       }
     })();
   }, [isSignedIn, getToken]);
@@ -351,7 +504,9 @@ export function PremiumPage() {
     }
   };
 
-  const isPremium = billingStatus?.active === true;
+  const isPremium =
+    billingStatus?.active === true ||
+    billingUsage?.active === true;
   const subscribeDisabled = checkoutAvailable === false;
 
   return (
@@ -386,9 +541,24 @@ export function PremiumPage() {
 
         {!loadingStatus && isPremium ? (
           <PremiumMemberView
-            status={billingStatus!}
+            status={
+              billingStatus ?? {
+                active: true,
+                plan: billingUsage?.plan?.plan_type,
+                period_end: billingUsage?.plan?.billing_period_end,
+                access_state: billingUsage?.access_state,
+              }
+            }
             onManage={() => void handleManage()}
             managing={managing}
+          />
+        ) : null}
+
+        {isSignedIn ? (
+          <UsageCreditsSection
+            usage={billingUsage}
+            loading={loadingUsage}
+            billingStatus={billingStatus}
           />
         ) : null}
 

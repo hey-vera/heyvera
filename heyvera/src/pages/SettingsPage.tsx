@@ -33,13 +33,14 @@ import { useMyProfile } from '../hooks/useMyProfile';
 import {
   createBrandPage,
   fetchMyLinkedAgents,
+  fetchX402Status,
   linkAgent,
   listMyPages,
   rotateLinkedAgentKey,
   updateProfile,
   uploadMediaFile,
 } from '../api/social';
-import type { LinkedAgent, Profile, SocialPage } from '../api/social';
+import type { LinkedAgent, Profile, SocialPage, X402Status } from '../api/social';
 import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from '../utils/imageUpload';
 import { brandPagePath } from '../utils/guildVisibility';
 
@@ -1335,6 +1336,88 @@ function BrandPagesPanel({
   );
 }
 
+/**
+ * Wave 8g — honest x402 agent micropayments scaffold card.
+ * Reads GET /v1/social/x402/status; never claims live payments.
+ */
+function X402PaymentsCard() {
+  const [status, setStatus] = useState<X402Status | null>(null);
+  const [loadState, setLoadState] = useState<'loading' | 'live' | 'error'>('loading');
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoadState('loading');
+    fetchX402Status()
+      .then((s) => {
+        if (!cancelled) {
+          setStatus(s);
+          setLoadState('live');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setStatus(null);
+          setLoadState('error');
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const enabled = status?.enabled === true;
+
+  return (
+    <div className="border-b border-[var(--border-primary)] px-4 py-4">
+      <div className="flex gap-3">
+        <Zap className="mt-0.5 flex-shrink-0 text-[var(--text-secondary)]" size={20} />
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-[15px] font-bold">Agent payments (x402)</h3>
+            <span
+              className="rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+              style={{
+                borderColor: enabled ? 'var(--accent)' : 'var(--border-secondary)',
+                color: enabled ? 'var(--accent)' : 'var(--text-secondary)',
+              }}
+            >
+              {loadState === 'loading'
+                ? 'Checking…'
+                : loadState === 'error'
+                  ? 'Unavailable'
+                  : enabled
+                    ? 'Enabled (shape-only)'
+                    : 'Disabled'}
+            </span>
+          </div>
+          <p className="mt-1 text-[13px] leading-5 text-[var(--text-secondary)]">
+            Scaffold for agent micropayments. No live settlement, wallet, or facilitator is wired.
+            Status comes from the API; enable only with server env <code className="text-[12px]">X402_ENABLED=1</code>{' '}
+            (shape validation only — still not real payments).
+          </p>
+          {loadState === 'live' && status && (
+            <dl className="mt-3 grid gap-1 text-[13px]">
+              <div className="flex gap-2">
+                <dt className="font-semibold text-[var(--text-secondary)]">Network</dt>
+                <dd>{status.network}</dd>
+              </div>
+              <div className="flex gap-2">
+                <dt className="font-semibold text-[var(--text-secondary)]">Note</dt>
+                <dd className="text-[var(--text-secondary)]">{status.note}</dd>
+              </div>
+            </dl>
+          )}
+          {loadState === 'error' && (
+            <p className="mt-2 text-[13px] text-[var(--text-secondary)]">
+              Could not reach /v1/social/x402/status. Treating as not configured.
+            </p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const navigate = useNavigate();
   const { authEnabled, isSignedIn, getToken } = useAuth();
@@ -1465,6 +1548,9 @@ export function SettingsPage() {
               <BrandPagesPanel getToken={getToken} isSignedIn={isSignedIn} />
             ) : null}
             {currentSection.id === 'account' ? <AccountSummary /> : null}
+            {currentSection.id === 'billing' || currentSection.id === 'data' ? (
+              <X402PaymentsCard />
+            ) : null}
             {notice ? (
               <div className="border-b border-[var(--border-primary)] px-4 py-3 text-[13px] text-[var(--text-secondary)]">
                 {notice}

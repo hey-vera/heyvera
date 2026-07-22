@@ -49,6 +49,7 @@ mod user;
 mod validate;
 pub mod vera;
 mod ws;
+pub mod x402;
 
 pub use api_error::ApiError;
 
@@ -500,6 +501,7 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         .route("/api/billing/portal", post(billing::create_portal))
         .route("/api/billing/referral/validate", post(billing::validate_referral))
         .route("/api/billing/history", get(billing::get_billing_history))
+        .route("/api/billing/usage", get(billing::get_billing_usage))
         .route("/api/stripe/webhook", post(billing::stripe_webhook))
         .route("/api/clerk/webhooks", post(clerk_webhooks::clerk_webhook))
         .route("/api/usage", get(usage_api::get_usage))
@@ -520,6 +522,8 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/communities", get(social::get_communities).post(social::create_community))
         .route("/v1/social/communities/mine", get(social::list_my_communities))
         .route("/v1/social/longform", get(social::get_longform).post(social::create_longform))
+        .route("/v1/social/x402/status", get(x402::get_status))
+        .route("/v1/social/x402/verify", post(x402::verify))
         .route("/v1/social/profile/me", get(social::get_my_profile))
         .route("/v1/social/posts", post(social::create_post))
         .route("/v1/social/pages/mine", get(social::list_my_pages))
@@ -625,6 +629,8 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/communities", get(social::get_communities).post(social::create_community))
         .route("/v1/social/communities/mine", get(social::list_my_communities))
         .route("/v1/social/longform", get(social::get_longform).post(social::create_longform))
+        .route("/v1/social/x402/status", get(x402::get_status))
+        .route("/v1/social/x402/verify", post(x402::verify))
         .route("/v1/social/profile/me", get(social::get_my_profile))
         .route("/v1/social/profile", patch(social::update_me_profile))
         .route("/v1/social/linked-agents", get(social::list_my_linked_agents).post(social::create_linked_agent))
@@ -684,6 +690,8 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/api/billing/status", get(billing::get_billing_status))
         .route("/api/billing/checkout", post(billing::create_checkout))
         .route("/api/billing/portal", post(billing::create_portal))
+        .route("/api/billing/history", get(billing::get_billing_history))
+        .route("/api/billing/usage", get(billing::get_billing_usage))
         .route("/api/stripe/webhook", post(billing::stripe_webhook))
         .route("/api/clerk/webhooks", post(clerk_webhooks::clerk_webhook))
         .merge(admin_routes)
@@ -841,6 +849,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/communities", get(social::get_communities).post(social::create_community))
         .route("/v1/social/communities/mine", get(social::list_my_communities))
         .route("/v1/social/longform", get(social::get_longform).post(social::create_longform))
+        .route("/v1/social/x402/status", get(x402::get_status))
+        .route("/v1/social/x402/verify", post(x402::verify))
         .route("/v1/social/profile/me", get(social::get_my_profile))
         .route("/v1/social/linked-agents", get(social::list_my_linked_agents).post(social::create_linked_agent))
         .route("/v1/social/linked-agents/{id}/rotate-key", post(social::rotate_linked_agent_key))
@@ -965,6 +975,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/billing/portal", post(billing::create_portal))
         .route("/api/billing/referral/validate", post(billing::validate_referral))
         .route("/api/billing/history", get(billing::get_billing_history))
+        .route("/api/billing/usage", get(billing::get_billing_usage))
         // Stripe webhook (no auth — verified by signature)
         .route("/api/stripe/webhook", post(billing::stripe_webhook))
         // Clerk webhook (no auth — verified by svix signature)

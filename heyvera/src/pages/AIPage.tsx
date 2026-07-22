@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { RefreshCw, Send, Sparkles } from 'lucide-react';
+import { RefreshCw, Send, Sparkles, Zap } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import {
   listDrafts,
@@ -21,6 +22,8 @@ import type {
   PulseGoal,
   PulseSchedule,
 } from '../api/pulse';
+import { fetchX402Status } from '../api/social';
+import type { X402Status } from '../api/social';
 
 type Tab = 'drafts' | 'schedule' | 'goals' | 'helper';
 
@@ -42,6 +45,63 @@ type ChatMessage = {
 
 const VERA_GREETING =
   "Draft helper (beta): I create and manage Pulse drafts via tools. Without server LLM keys I use keyword tools (tools_v1); with keys, tools_v2. Not a general chat model — use Drafts / Schedule / Goals for the full workflow.";
+
+function X402AgentPaymentsCard() {
+  const [status, setStatus] = useState<X402Status | null>(null);
+  const [loadState, setLoadState] = useState<'loading' | 'live' | 'error'>('loading');
+
+  useEffect(() => {
+    let cancelled = false;
+    fetchX402Status()
+      .then((s) => {
+        if (!cancelled) {
+          setStatus(s);
+          setLoadState('live');
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setLoadState('error');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const enabled = status?.enabled === true;
+  const label =
+    loadState === 'loading'
+      ? 'Checking…'
+      : loadState === 'error'
+        ? 'Unavailable'
+        : enabled
+          ? 'Enabled (shape-only — not live payments)'
+          : 'Disabled';
+
+  return (
+    <div
+      className="mx-4 mt-4 rounded-2xl border px-4 py-3"
+      style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+      role="status"
+    >
+      <div className="flex items-start gap-2">
+        <Zap className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--accent)' }} aria-hidden="true" />
+        <div className="min-w-0">
+          <p className="text-[14px] font-bold">Agent payments (x402)</p>
+          <p className="mt-1 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+            Status: <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{label}</span>
+            {status?.note ? ` · ${status.note}` : ''}
+            {status?.network ? ` · network: ${status.network}` : ''}
+            . No live settlement. Details in{' '}
+            <Link to="/settings" className="underline" style={{ color: 'var(--accent)' }}>
+              Settings
+            </Link>
+            .
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 export function AIPage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
@@ -89,6 +149,8 @@ export function AIPage() {
           ))}
         </div>
       </div>
+
+      <X402AgentPaymentsCard />
 
       {activeTab === 'drafts' && (
         <DraftsTab authEnabled={authEnabled} isSignedIn={isSignedIn} getToken={getToken} />

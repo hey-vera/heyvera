@@ -954,6 +954,19 @@ export async function createLongform(
   return apiAuthFetch("/longform", { method: "POST", token, body: data });
 }
 
+// ─── x402 agent micropayments scaffold (Wave 8g) ─────────────────────────────
+
+export type X402Status = {
+  enabled: boolean;
+  network: string;
+  note: string;
+};
+
+/** GET /v1/social/x402/status — public scaffold status (no payments). */
+export async function fetchX402Status(): Promise<X402Status> {
+  return apiFetch("/x402/status");
+}
+
 // ─── Post interactions ──────────────────────────────────────────────────────
 
 export async function likePost(
@@ -1154,8 +1167,9 @@ export function feedPostToPost(fp: FeedPost): Post {
   };
 }
 
-// ─── Legacy-compatible public API (replaces client.ts) ──────────────────────
-// Paths are relative to API_BASE (/v1/social), same as modern helpers.
+// ─── Compatibility wrappers (single client base) ────────────────────────────
+// All paths are relative to API_BASE (/v1/social). Prefer modern helpers above
+// for new code; these remain for older page call sites.
 
 function legacyJsonHeaders(headers?: HeadersInit): Headers {
   const next = new Headers(headers);
