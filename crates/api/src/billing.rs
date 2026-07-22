@@ -770,6 +770,177 @@ pub struct BillingHistoryEntry {
     pub status: String,
 }
 
+/// Usage window aggregates from `usage_events` (honest zeros when empty).
+#[derive(Serialize)]
+pub struct BillingUsageWindow {
+    pub total_tokens_in: i64,
+    pub total_tokens_out: i64,
+    pub total_cost_estimate: f64,
+    pub step_count: i64,
+}
+
+/// Nested usage summary for the Premium usage/credits ledger MVP.
+#[derive(Serialize)]
+pub struct BillingUsageSummary {
+    pub last_24h: BillingUsageWindow,
+    pub last_30d: BillingUsageWindow,
+    pub daily_cost: f64,
+    pub daily_steps: i64,
+    pub monthly_cost: f64,
+}
+
+/// GET /api/billing/usage — subscription access + usage summary + billing history.
+///
+/// Credits balance is intentionally `null` until a real metered ledger is wired
+/// for HeyVera automation. `get_credit_balance` invents a default of 200 when no
+/// row exists — that must never be returned as a real balance.
+#[derive(Serialize)]
+pub struct BillingUsageResponse {
+    pub active: bool,
+    pub access_state: AccessState,
+    pub plan: Option<PlanInfo>,
+    /// Always null in this MVP — ledger is not metered for product automation yet.
+    #[serde(rename = "creditsBalance")]
+    pub credits_balance: Option<f64>,
+    pub usage: BillingUsageSummary,
+    pub history: Vec<BillingHistoryEntry>,
+    pub note: String,
+}
+
+fn usage_window_from_summary(summary: &cortex_core::usage::UsageSummary) -> BillingUsageWindow {
+    BillingUsageWindow {
+        total_tokens_in: summary.total_tokens_in,
+        total_tokens_out: summary.total_tokens_out,
+        total_cost_estimate: summary.total_cost_estimate,
+        step_count: summary.step_count,
+    }
+}
+
+/// GET /api/billing/usage — Clerk-authenticated usage + billing ledger MVP.
+pub async fn get_billing_usage(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+) -> Json<BillingUsageResponse> {
+    const NOTE: &str = "ledger balance not metered yet";
+
+    let empty_usage = BillingUsageSummary {
+        last_24h: BillingUsageWindow {
+            total_tokens_in: 0,
+            total_tokens_out: 0,
+            total_cost_estimate: 0.0,
+            step_count: 0,
+        },
+        last_30d: BillingUsageWindow {
+            total_tokens_in: 0,
+            total_tokens_out: 0,
+            total_cost_estimate: 0.0,
+            step_count: 0,
+        },
+        daily_cost: 0.0,
+        daily_steps: 0,
+        monthly_cost: 0.0,
+    };
+
+    let db = match &state.db {
+        Some(db) => db,
+        None => {
+            return Json(BillingUsageResponse {
+                active: false,
+                access_state: AccessState::NeedsCheckout,
+                plan: None,
+                credits_balance: None,
+                usage: empty_usage,
+                history: vec![],
+                note: NOTE.into(),
+            });
+        }
+    };
+
+    // Reuse the same access/plan derivation as GET /api/billing/status (no stub active).
+    let sub = db.get_subscription(&user.user_id);
+    let (access_state, plan) = match &sub {
+        Some(s) => {
+            let plan_type = if s.plan_type == "annual" {
+                PlanType::Annual
+            } else {
+                PlanType::Monthly
+            };
+            let sub_status = match s.status.as_str() {
+                "trialing" => SubStatus::Trialing,
+                "active" => SubStatus::Active,
+                "past_due" => SubStatus::PastDue,
+                "cancelled" | "canceled" => SubStatus::Cancelled,
+                "paused" => SubStatus::Paused,
+                _ => SubStatus::Active,
+            };
+            let access = match s.status.as_str() {
+                "trialing" => AccessState::TrialActive,
+                "active" => AccessState::Active,
+                "past_due" => AccessState::PaymentFailed,
+                "cancelled" | "canceled" => AccessState::Cancelled,
+                _ => AccessState::Active,
+            };
+            let plan_info = PlanInfo {
+                plan_type: plan_type.clone(),
+                status: sub_status,
+                billing_period_end: s.current_period_end.clone().unwrap_or_default(),
+                next_charge_amount_cents: Some(if plan_type == PlanType::Annual {
+                    6900
+                } else {
+                    699
+                }),
+                next_charge_date: s.current_period_end.clone(),
+                started_at: s.current_period_start.clone().unwrap_or_default(),
+            };
+            (access, Some(plan_info))
+        }
+        None => (AccessState::NeedsCheckout, None),
+    };
+
+    let active = matches!(
+        access_state,
+        AccessState::Active | AccessState::TrialActive
+    );
+
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let last_24h_ms = now_ms - 86_400_000;
+    let last_30d_ms = now_ms - (30 * 86_400_000);
+    let summary_24h = db.get_user_usage_summary(&user.user_id, last_24h_ms);
+    let summary_30d = db.get_user_usage_summary(&user.user_id, last_30d_ms);
+    let (daily_cost, daily_steps) = db.get_user_daily_cost(&user.user_id);
+    let monthly_cost = db.get_user_monthly_cost(&user.user_id);
+
+    let usage = BillingUsageSummary {
+        last_24h: usage_window_from_summary(&summary_24h),
+        last_30d: usage_window_from_summary(&summary_30d),
+        daily_cost,
+        daily_steps,
+        monthly_cost,
+    };
+
+    let history = db
+        .get_billing_history(&user.user_id, 50)
+        .into_iter()
+        .map(|r| BillingHistoryEntry {
+            date: r.created_at,
+            amount_cents: r.amount_cents,
+            description: r.description,
+            status: r.status,
+        })
+        .collect();
+
+    Json(BillingUsageResponse {
+        active,
+        access_state,
+        plan,
+        // Never invent balances from get_credit_balance defaults.
+        credits_balance: None,
+        usage,
+        history,
+        note: NOTE.into(),
+    })
+}
+
 // --- Stripe Webhook ---
 
 /// POST /api/stripe/webhook — Stripe event ingestion.
