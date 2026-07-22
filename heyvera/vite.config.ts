@@ -26,6 +26,8 @@ export default defineConfig({
       "/v1": {
         target: "http://localhost:3402",
         changeOrigin: true,
+        // Wave 8b: social DM WebSocket at /v1/social/ws
+        ws: true,
       },
     },
   },
