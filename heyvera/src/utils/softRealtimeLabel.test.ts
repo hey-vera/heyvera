@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import {
+  LIVE_WS_LABEL,
   SOFT_POLL_STATUS_LABEL,
   formatSoftPollAge,
   softPollTooltip,
+  softRealtimeLabel,
+  softRealtimeTooltip,
 } from './softRealtimeLabel';
 
 describe('softRealtimeLabel', () => {
@@ -11,8 +14,16 @@ describe('softRealtimeLabel', () => {
     expect(SOFT_POLL_STATUS_LABEL.toLowerCase()).not.toContain('websocket');
   });
 
-  it('tooltip states not websocket', () => {
+  it('exposes a Live websocket label when connected', () => {
+    expect(LIVE_WS_LABEL.toLowerCase()).toContain('websocket');
+    expect(softRealtimeLabel({ wsConnected: true })).toBe(LIVE_WS_LABEL);
+    expect(softRealtimeLabel({ wsConnected: false })).toBe(SOFT_POLL_STATUS_LABEL);
+  });
+
+  it('tooltip states not websocket for poll mode', () => {
     expect(softPollTooltip().toLowerCase()).toContain('not websocket');
+    expect(softRealtimeTooltip({ wsConnected: false }).toLowerCase()).toContain('not websocket');
+    expect(softRealtimeTooltip({ wsConnected: true }).toLowerCase()).toContain('websocket');
   });
 
   it('formats soft-poll age from real timestamps', () => {

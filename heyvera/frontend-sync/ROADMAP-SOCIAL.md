@@ -263,13 +263,27 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 3. Premium checkout probe + no ledger honesty — **done**
 4. Still **not** (Wave 8+): true WS DMs, live encoder, x402, ML related video, full credits ledger UI
 
-### Wave 8+ (from PW backlog, ordered) — deferred
-- Nested thread “show more” pagination · Private guilds/roles · Video shelves · Live ingest · x402 · Kill dual client · full credits ledger · true WS
+### Wave 8 — Remaining PW backlog *(active full-ship)*
 
-| ID | Item | Target wave |
-|----|------|-------------|
+Ship as sequential green PRs (8a–8g). Honesty: incomplete capability stays labeled, never fake LIVE/Available.
+
+| Slice | Scope |
+|-------|--------|
+| **8a** | Dual-shell/dual-client kill: orphan quarantine, single social API client path, router-only entry test |
+| **8b** | True WS for DMs (`GET /v1/social/ws?token=`; subscribe + broadcast on send); soft-poll remains fallback — **this PR** |
+| **8c** | Credits / usage ledger MVP on Premium (Stripe/billing when present) |
+| **8d** | Multi-Page marketplace polish: public brand Page profile route, follow UI |
+| **8e** | Private guilds + roles foundation (visibility + owner/mod role) |
+| **8f** | Video/Live foundation: upload path honesty + Page-scoped media metadata (not full encoder) |
+| **8g** | x402 agent payment scaffold (docs + gated endpoint stub) |
+
+| ID | Item | Target |
+|----|------|--------|
 | PW-1 | Nested threads | **Wave 5 done** |
-| PW-2 | Realtime DMs (WS) | **Wave 8+** (soft-poll is Wave 7) |
-| PW-14 | Views (honest, not vanity) | **Wave 5 done** (light) |
-| PW-17 | Multi-Page switcher foundation | **Wave 6 done** |
-| PW-3–PW-8, PW-12… | Live/x402/etc. | Wave 8+ |
+| PW-2 | Realtime DMs (WS) | **8b** (this PR: `/v1/social/ws` + MessagesPage; poll fallback) |
+| PW-12 | Kill dual client | **8a** |
+| PW-6 | Credits ledger | **8c** |
+| PW-17 | Multi-Page polish | **8d** |
+| PW-15 | Private guilds/roles | **8e** |
+| PW-3/4 | Live/video | **8f** (foundation) |
+| PW-7 | x402 | **8g** (scaffold) |
