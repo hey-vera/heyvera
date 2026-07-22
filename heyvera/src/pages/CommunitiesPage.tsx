@@ -26,6 +26,7 @@ import {
   isPrivateGuild,
   membershipRoleLabel,
   mergeCommunityLists,
+  privateGuildJoinCtaCopy,
 } from '../utils/guildVisibility';
 
 const TABS = ['Your Communities', 'Discover'] as const;
@@ -71,16 +72,17 @@ function JoinButton({
     );
   }
 
+  // Joined → Leave (real leave API). No Invite/Kick/Ban tools.
   return (
     <button
       type="button"
       disabled={busy || !authEnabled}
-      title={!authEnabled ? 'Sign-in is not configured' : undefined}
+      title={!authEnabled ? 'Sign-in is not configured' : joined ? 'Leave via the real leave API' : 'Join via the real join API'}
       onClick={() => onToggle(communityId)}
       className="shrink-0 rounded-full px-5 py-1.5 text-[14px] font-bold transition-all hover:opacity-90 disabled:opacity-50"
       style={style}
     >
-      {busy ? '…' : joined ? 'Joined' : 'Join'}
+      {busy ? '…' : joined ? 'Leave' : 'Join'}
     </button>
   );
 }
@@ -335,10 +337,11 @@ export function CommunitiesPage() {
           role="status"
         >
           Communities are early access — browse, feeds, and join/leave hit the real API.
-          Private guilds stay out of Discover unless you are a member; feeds require membership.
+          Private = unlisted from Discover (no invite system yet); feeds require membership.
+          Owner and Member roles show when the membership API returns them.
           {mineLoaded && !mineAvailable
             ? ' Membership list API is not available yet; joined state may not persist across reloads.'
-            : ' Your Communities reflects server memberships (and owner role) when available.'}
+            : ' Your Communities reflects server memberships when available.'}
         </div>
         <div className="flex">
           {TABS.map((tab) => (
@@ -433,6 +436,19 @@ export function CommunitiesPage() {
                   </p>
                 )}
                 <p className="mt-2 text-[15px] leading-5">{selectedCommunity.description}</p>
+                {isPrivateGuild(selectedCommunity.visibility) && (
+                  <p className="mt-2 text-[13px] leading-5" style={{ color: 'var(--text-secondary)' }} role="note">
+                    {privateGuildJoinCtaCopy(joinedIds.has(selectedCommunity.id))}
+                  </p>
+                )}
+                {selectedCommunity.slug && (
+                  <p className="mt-1 text-[12px]" style={{ color: 'var(--text-secondary)' }}>
+                    Slug: {selectedCommunity.slug}
+                    {isPrivateGuild(selectedCommunity.visibility)
+                      ? ' — share yourself if needed; no invite links yet.'
+                      : ''}
+                  </p>
+                )}
               </div>
 
               <JoinButton
