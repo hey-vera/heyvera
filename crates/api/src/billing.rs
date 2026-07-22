@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::body::Bytes;
-use axum::extract::{FromRef, FromRequestParts, State};
+use axum::extract::{FromRef, FromRequestParts, Query, State};
 use axum::http::request::Parts;
 use axum::http::{HeaderMap, StatusCode};
 use axum::Json;
@@ -241,11 +241,21 @@ fn free_tier_chat_blocked(state: &AppState, db: &Database, user_id: &str) -> boo
 #[derive(Debug, Clone, Serialize)]
 pub struct SubscriptionStatus {
     pub access_state: AccessState,
+    /// True only for `active` | `trial_active` (same rules as `/api/billing/usage`).
+    pub active: bool,
     pub plan: Option<PlanInfo>,
     pub trial: Option<TrialInfo>,
     pub delegation: DelegationStatus,
     pub payment_method: Option<PaymentMethodInfo>,
     pub referral: Option<ReferralInfo>,
+}
+
+/// Pure: paid or trial access matches usage rules.
+pub fn is_premium_access(access_state: &AccessState) -> bool {
+    matches!(
+        access_state,
+        AccessState::Active | AccessState::TrialActive
+    )
 }
 
 /// Exact state machine. Frontend switches on this — no guessing.
@@ -413,9 +423,11 @@ fn build_delegation_status(state: &AppState) -> DelegationStatus {
     })
 }
 
+/// No-DB / unavailable status — never invent Active/premium.
 fn stub_billing_status(state: &AppState) -> SubscriptionStatus {
     SubscriptionStatus {
-        access_state: AccessState::Active,
+        access_state: AccessState::NeedsCheckout,
+        active: false,
         plan: None,
         trial: None,
         delegation: build_delegation_status(state),
@@ -506,7 +518,8 @@ pub async fn get_billing_status(
     };
 
     Json(SubscriptionStatus {
-        access_state,
+        access_state: access_state.clone(),
+        active: is_premium_access(&access_state),
         plan,
         trial,
         delegation,
@@ -741,25 +754,44 @@ pub struct ReferralValidateResponse {
     pub error: Option<String>,
 }
 
-/// GET /api/billing/history — Purchase history.
-pub async fn get_billing_history(
-    State(state): State<Arc<AppState>>,
-    user: ClerkUser,
-) -> Json<Vec<BillingHistoryEntry>> {
-    let entries = state.db.as_ref()
-        .map(|db| {
-            db.get_billing_history(&user.user_id, 50)
-                .into_iter()
-                .map(|r| BillingHistoryEntry {
-                    date: r.created_at,
-                    amount_cents: r.amount_cents,
-                    description: r.description,
-                    status: r.status,
-                })
-                .collect()
-        })
-        .unwrap_or_default();
-    Json(entries)
+/// Default page size for billing history (capped separately).
+pub const BILLING_HISTORY_DEFAULT_LIMIT: i64 = 20;
+/// Hard max page size for billing history.
+pub const BILLING_HISTORY_MAX_LIMIT: i64 = 50;
+
+/// Pure: clamp limit query to [1, MAX], default DEFAULT.
+pub fn clamp_history_limit(limit: Option<i64>) -> i64 {
+    match limit {
+        None => BILLING_HISTORY_DEFAULT_LIMIT,
+        Some(n) if n < 1 => 1,
+        Some(n) if n > BILLING_HISTORY_MAX_LIMIT => BILLING_HISTORY_MAX_LIMIT,
+        Some(n) => n,
+    }
+}
+
+/// Pure: clamp offset query to >= 0, default 0.
+pub fn clamp_history_offset(offset: Option<i64>) -> i64 {
+    match offset {
+        None => 0,
+        Some(n) if n < 0 => 0,
+        Some(n) => n,
+    }
+}
+
+/// Pure: given fetch of `limit + 1` rows, return page size + has_more.
+pub fn history_page_meta(fetched_count: usize, limit: i64) -> (usize, bool) {
+    let limit_usize = limit.max(0) as usize;
+    if fetched_count > limit_usize {
+        (limit_usize, true)
+    } else {
+        (fetched_count, false)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+pub struct BillingHistoryQuery {
+    pub limit: Option<i64>,
+    pub offset: Option<i64>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -768,6 +800,62 @@ pub struct BillingHistoryEntry {
     pub amount_cents: i64,
     pub description: String,
     pub status: String,
+}
+
+/// Paginated purchase history page.
+#[derive(Serialize, Deserialize)]
+pub struct BillingHistoryPage {
+    pub items: Vec<BillingHistoryEntry>,
+    #[serde(rename = "hasMore")]
+    pub has_more: bool,
+    #[serde(rename = "nextOffset")]
+    pub next_offset: Option<i64>,
+    pub limit: i64,
+    pub offset: i64,
+}
+
+/// GET /api/billing/history — Purchase history with limit/offset pagination.
+/// Default limit 20, max 50. Returns items + hasMore + nextOffset.
+pub async fn get_billing_history(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    Query(query): Query<BillingHistoryQuery>,
+) -> Json<BillingHistoryPage> {
+    let limit = clamp_history_limit(query.limit);
+    let offset = clamp_history_offset(query.offset);
+
+    let raw = state
+        .db
+        .as_ref()
+        .map(|db| {
+            // Fetch one extra row to detect hasMore without a separate count query.
+            db.get_billing_history(&user.user_id, limit + 1, offset)
+                .into_iter()
+                .map(|r| BillingHistoryEntry {
+                    date: r.created_at,
+                    amount_cents: r.amount_cents,
+                    description: r.description,
+                    status: r.status,
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+
+    let (take, has_more) = history_page_meta(raw.len(), limit);
+    let items: Vec<BillingHistoryEntry> = raw.into_iter().take(take).collect();
+    let next_offset = if has_more {
+        Some(offset + limit)
+    } else {
+        None
+    };
+
+    Json(BillingHistoryPage {
+        items,
+        has_more,
+        next_offset,
+        limit,
+        offset,
+    })
 }
 
 /// Usage window aggregates from `usage_events` (honest zeros when empty).
@@ -912,10 +1000,7 @@ pub async fn get_billing_usage(
         None => (AccessState::NeedsCheckout, None),
     };
 
-    let active = matches!(
-        access_state,
-        AccessState::Active | AccessState::TrialActive
-    );
+    let active = is_premium_access(&access_state);
 
     let now_ms = chrono::Utc::now().timestamp_millis();
     let last_24h_ms = now_ms - 86_400_000;
@@ -933,8 +1018,9 @@ pub async fn get_billing_usage(
         monthly_cost,
     };
 
+    // Usage embeds a first page only; full pagination is GET /api/billing/history.
     let history = db
-        .get_billing_history(&user.user_id, 50)
+        .get_billing_history(&user.user_id, BILLING_HISTORY_DEFAULT_LIMIT, 0)
         .into_iter()
         .map(|r| BillingHistoryEntry {
             date: r.created_at,
@@ -991,6 +1077,53 @@ mod credit_balance_api_tests {
         };
         // Zero is a real metered balance — not "unmetered".
         assert_eq!(credit_balance_for_api(Some(&row)), Some(0.0));
+    }
+}
+
+#[cfg(test)]
+mod history_pagination_tests {
+    use super::{
+        clamp_history_limit, clamp_history_offset, history_page_meta, is_premium_access,
+        AccessState, BILLING_HISTORY_DEFAULT_LIMIT, BILLING_HISTORY_MAX_LIMIT,
+    };
+
+    #[test]
+    fn clamp_history_limit_defaults_and_caps() {
+        assert_eq!(clamp_history_limit(None), BILLING_HISTORY_DEFAULT_LIMIT);
+        assert_eq!(clamp_history_limit(Some(0)), 1);
+        assert_eq!(clamp_history_limit(Some(-5)), 1);
+        assert_eq!(clamp_history_limit(Some(20)), 20);
+        assert_eq!(clamp_history_limit(Some(50)), 50);
+        assert_eq!(
+            clamp_history_limit(Some(100)),
+            BILLING_HISTORY_MAX_LIMIT
+        );
+    }
+
+    #[test]
+    fn clamp_history_offset_non_negative() {
+        assert_eq!(clamp_history_offset(None), 0);
+        assert_eq!(clamp_history_offset(Some(-1)), 0);
+        assert_eq!(clamp_history_offset(Some(40)), 40);
+    }
+
+    #[test]
+    fn history_page_meta_detects_has_more_from_extra_row() {
+        assert_eq!(history_page_meta(21, 20), (20, true));
+        assert_eq!(history_page_meta(20, 20), (20, false));
+        assert_eq!(history_page_meta(0, 20), (0, false));
+        assert_eq!(history_page_meta(5, 20), (5, false));
+    }
+
+    #[test]
+    fn is_premium_access_only_active_or_trial() {
+        assert!(is_premium_access(&AccessState::Active));
+        assert!(is_premium_access(&AccessState::TrialActive));
+        assert!(!is_premium_access(&AccessState::NeedsCheckout));
+        assert!(!is_premium_access(&AccessState::PaymentFailed));
+        assert!(!is_premium_access(&AccessState::Cancelled));
+        assert!(!is_premium_access(&AccessState::SignedOut));
+        assert!(!is_premium_access(&AccessState::NeedsPhone));
     }
 }
 

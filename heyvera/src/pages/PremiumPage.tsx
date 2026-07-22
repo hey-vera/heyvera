@@ -1,10 +1,19 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import {
+  BILLING_HISTORY_DEFAULT_LIMIT,
+  fetchBillingHistory,
   fetchBillingUsage,
   resolveBillingPath,
+  type BillingHistoryEntry,
   type BillingUsageResponse,
 } from '../api/billing';
+import {
+  accessStateLabel,
+  formatAccessPlanLabel,
+  isPremiumAccess,
+  normalizeAccessState,
+} from '../utils/accessState';
 
 /** Premium is credits for automation — not “unlimited projects”. */
 const FEATURES: { label: string; status: 'planned' | 'partial' | 'live' }[] = [
@@ -120,7 +129,7 @@ async function fetchBillingStatus(token: string): Promise<BillingStatus | null> 
     const raw = (await res.json()) as {
       active?: boolean;
       access_state?: string;
-      plan?: { plan_type?: string } | string;
+      plan?: { plan_type?: string; billing_period_end?: string } | string;
       period_end?: string;
       plan_info?: { plan_type?: string; billing_period_end?: string };
     };
@@ -128,17 +137,18 @@ async function fetchBillingStatus(token: string): Promise<BillingStatus | null> 
       typeof raw.plan === 'string'
         ? raw.plan
         : raw.plan?.plan_type ?? raw.plan_info?.plan_type;
-    const access = raw.access_state ?? '';
+    const access = normalizeAccessState(raw.access_state);
+    // Prefer server `active` when present; else derive only from known access states.
     const active =
       raw.active === true ||
-      access === 'active' ||
-      access === 'premium' ||
-      access === 'trialing' ||
-      access === 'trial_active';
+      (raw.active !== false && isPremiumAccess(access));
     return {
       active,
       plan: planType,
-      period_end: raw.period_end ?? raw.plan_info?.billing_period_end,
+      period_end:
+        raw.period_end ??
+        (typeof raw.plan === 'object' ? raw.plan?.billing_period_end : undefined) ??
+        raw.plan_info?.billing_period_end,
       access_state: access,
     };
   } catch {
@@ -197,26 +207,105 @@ function formatCents(cents: number): string {
 }
 
 function formatPlanStatus(usage: BillingUsageResponse | null, status: BillingStatus | null): string {
-  if (usage?.active || status?.active) {
-    const plan =
-      usage?.plan?.plan_type ?? status?.plan ?? 'Premium';
-    const access = usage?.access_state ?? status?.access_state ?? 'active';
-    return `${plan} · ${access.replace(/_/g, ' ')}`;
-  }
-  const access = usage?.access_state ?? status?.access_state;
-  if (access) return access.replace(/_/g, ' ');
-  return 'No active subscription';
+  return formatAccessPlanLabel({
+    accessState: usage?.access_state ?? status?.access_state,
+    planType: usage?.plan?.plan_type ?? status?.plan,
+    active: usage?.active ?? status?.active,
+  });
 }
 
 function UsageCreditsSection({
   usage,
   loading,
   billingStatus,
+  getToken,
 }: {
   usage: BillingUsageResponse | null;
   loading: boolean;
   billingStatus: BillingStatus | null;
+  getToken: () => Promise<string | null>;
 }) {
+  const [historyItems, setHistoryItems] = useState<BillingHistoryEntry[]>([]);
+  const [hasMore, setHasMore] = useState(false);
+  const [nextOffset, setNextOffset] = useState<number | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const [historyReady, setHistoryReady] = useState(false);
+
+  // Initial history page from dedicated pagination API (not client-side slice).
+  useEffect(() => {
+    let cancelled = false;
+    setHistoryReady(false);
+    setHistoryItems([]);
+    setHasMore(false);
+    setNextOffset(null);
+    setHistoryError(null);
+
+    void (async () => {
+      setHistoryLoading(true);
+      try {
+        const token = await getToken();
+        if (!token || cancelled) return;
+        const page = await fetchBillingHistory(token, {
+          limit: BILLING_HISTORY_DEFAULT_LIMIT,
+          offset: 0,
+        });
+        if (cancelled) return;
+        if (!page) {
+          // Fall back to embedded usage history (first page only) without inventing more.
+          const fallback = usage?.history ?? [];
+          setHistoryItems(fallback);
+          setHasMore(false);
+          setNextOffset(null);
+          if (!usage) {
+            setHistoryError('Billing history unavailable.');
+          }
+          return;
+        }
+        setHistoryItems(page.items);
+        setHasMore(page.hasMore);
+        setNextOffset(page.nextOffset);
+      } finally {
+        if (!cancelled) {
+          setHistoryLoading(false);
+          setHistoryReady(true);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+    // Re-fetch when usage identity changes (sign-in / refresh).
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- getToken + usage load gate
+  }, [usage, getToken]);
+
+  const loadMoreHistory = useCallback(async () => {
+    if (!hasMore || nextOffset == null || historyLoading) return;
+    setHistoryLoading(true);
+    setHistoryError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setHistoryError('Sign in required to load more history.');
+        return;
+      }
+      const page = await fetchBillingHistory(token, {
+        limit: BILLING_HISTORY_DEFAULT_LIMIT,
+        offset: nextOffset,
+      });
+      if (!page) {
+        setHistoryError('Could not load more billing history.');
+        return;
+      }
+      setHistoryItems((prev) => [...prev, ...page.items]);
+      setHasMore(page.hasMore);
+      setNextOffset(page.nextOffset);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [getToken, hasMore, historyLoading, nextOffset]);
+
   if (loading) {
     return (
       <section
@@ -232,6 +321,7 @@ function UsageCreditsSection({
 
   const hasUsageData = usage !== null;
   const u = usage?.usage;
+  const access = normalizeAccessState(usage?.access_state ?? billingStatus?.access_state);
 
   return (
     <section className="mb-8 rounded-2xl border border-[var(--border-primary)] bg-[var(--bg-elevated)] p-6">
@@ -245,6 +335,17 @@ function UsageCreditsSection({
           <dt className="text-[var(--text-secondary)]">Plan status</dt>
           <dd className="font-medium text-[var(--text-primary)] text-right">
             {formatPlanStatus(usage, billingStatus)}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-4">
+          <dt className="text-[var(--text-secondary)]">Access</dt>
+          <dd className="font-medium text-[var(--text-primary)] text-right">
+            {accessStateLabel(access)}
+            <span className="block text-[12px] mt-0.5 text-[var(--text-secondary)] font-normal">
+              {access === 'unknown'
+                ? 'No access_state from API'
+                : `access_state: ${access}`}
+            </span>
           </dd>
         </div>
 
@@ -307,13 +408,13 @@ function UsageCreditsSection({
         )}
       </dl>
 
-      {usage && usage.history.length > 0 ? (
+      {historyReady && historyItems.length > 0 ? (
         <div className="mt-5 border-t border-[var(--border-primary)] pt-4">
           <h3 className="text-[14px] font-semibold text-[var(--text-primary)] mb-3">
-            Recent billing history
+            Billing history
           </h3>
           <ul className="space-y-2">
-            {usage.history.slice(0, 10).map((entry, i) => (
+            {historyItems.map((entry, i) => (
               <li
                 key={`${entry.date}-${entry.description}-${i}`}
                 className="flex items-start justify-between gap-3 text-[13px]"
@@ -339,10 +440,29 @@ function UsageCreditsSection({
               </li>
             ))}
           </ul>
+          {hasMore ? (
+            <button
+              type="button"
+              disabled={historyLoading}
+              onClick={() => void loadMoreHistory()}
+              className="mt-4 w-full rounded-full border border-[var(--border-primary)] py-2 text-[13px] font-semibold text-[var(--text-primary)] transition-opacity hover:opacity-80 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {historyLoading ? 'Loading…' : 'Load more'}
+            </button>
+          ) : null}
+          {historyError ? (
+            <p className="mt-2 text-[12px] text-[var(--color-danger)]" role="alert">
+              {historyError}
+            </p>
+          ) : null}
         </div>
-      ) : hasUsageData ? (
+      ) : historyReady && (hasUsageData || historyError) ? (
         <p className="mt-4 text-[13px] text-[var(--text-secondary)]">
-          No billing history events yet.
+          {historyError ?? 'No billing history events yet.'}
+        </p>
+      ) : historyLoading ? (
+        <p className="mt-4 text-[13px] text-[var(--text-secondary)]" role="status">
+          Loading billing history…
         </p>
       ) : null}
     </section>
@@ -358,6 +478,7 @@ function PremiumMemberView({
   onManage: () => void;
   managing: boolean;
 }) {
+  const access = normalizeAccessState(status.access_state);
   return (
     <div className="rounded-2xl border border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_8%,transparent)] p-6 mb-8">
       <div className="flex items-center gap-3 mb-3">
@@ -374,15 +495,21 @@ function PremiumMemberView({
         >
           <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2" />
         </svg>
-        <h2 className="text-[18px] font-bold text-[var(--accent)]">You're a Premium member</h2>
+        <h2 className="text-[18px] font-bold text-[var(--accent)]">
+          {access === 'trial_active' ? "You're on a Premium trial" : "You're a Premium member"}
+        </h2>
       </div>
       <p className="text-[15px] text-[var(--text-secondary)] mb-5">
         {status.plan ? (
           <>
-            You're on the <strong className="text-[var(--text-primary)]">{status.plan}</strong> plan.
+            You're on the <strong className="text-[var(--text-primary)]">{status.plan}</strong> plan
+            {' · '}
+            <span className="text-[var(--text-primary)]">{accessStateLabel(access)}</span>.
           </>
         ) : (
-          'Your subscription is active.'
+          <>
+            Access: <strong className="text-[var(--text-primary)]">{accessStateLabel(access)}</strong>.
+          </>
         )}
         {status.period_end ? (
           <> Renews on {new Date(status.period_end).toLocaleDateString()}.</>
@@ -513,9 +640,11 @@ export function PremiumPage() {
     }
   };
 
+  // Never invent premium — only server active flag or known access_state.
   const isPremium =
     billingStatus?.active === true ||
-    billingUsage?.active === true;
+    billingUsage?.active === true ||
+    isPremiumAccess(billingUsage?.access_state ?? billingStatus?.access_state);
   const subscribeDisabled = checkoutAvailable === false;
 
   return (
@@ -575,6 +704,7 @@ export function PremiumPage() {
             usage={billingUsage}
             loading={loadingUsage}
             billingStatus={billingStatus}
+            getToken={getToken}
           />
         ) : null}
 
