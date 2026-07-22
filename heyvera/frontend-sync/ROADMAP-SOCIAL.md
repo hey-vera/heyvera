@@ -1,10 +1,10 @@
 # HeyVera Social Roadmap (active)
 
-**Status:** Waves 0–8 + 9a shipped on main  
+**Status:** Waves 0–8 + 9a–9b shipped on main  
 **Grounded:** 2026-07-22  
 **Live entry:** `heyvera/src/main.tsx` → `router.tsx` → `AppShell` / `pages/*`  
 **Do not grow:** orphaned `App.tsx` / `VeraSocials` dual shell (quarantined under `src/orphan/`)  
-**Main tip note:** Wave 9a thread honesty (#359); next = Wave 9b–9e customer-ready polish
+**Main tip note:** Wave 9b DM reliability (#361); next = Wave 9c–9e customer-ready polish
 
 ---
 
@@ -188,6 +188,7 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-21 | #349 | Wave 6 Page multi-surface foundation **merged** |
 | 2026-07-21 | #350 | Wave 7 soft-poll honesty + Premium probe + Pulse empty-state **merged** |
 | 2026-07-22 | #359 | Wave 9a thread truncation honesty (`repliesTruncated`) **merged** |
+| 2026-07-22 | #361 | Wave 9b DM reconnect / offline banner / unread honesty **merged** |
 
 ### Waves 1–4 implemented (2026-07-21)
 
@@ -296,8 +297,8 @@ Goal: make shipped Social feel solid for real users — no new half-features.
 | Slice | Scope | Status |
 |-------|--------|--------|
 | **9a** | Thread UX: honest truncation when BE cap 100 / depth 8 stops walk; empty/error already pass; **no fake Show more** | **Done (#359)** — `repliesTruncated` + `repliesCap` on `GET /posts/{id}`; live `PostThreadPage` banner |
-| **9b** | DM reliability: reconnect, offline banner, WS vs poll label accuracy, unread badge | Next |
-| **9c** | Brand Page + Create polish: follow CTA, empty brand feed, active Page clarity | Pending |
+| **9b** | DM reliability: reconnect, offline banner, WS vs poll label accuracy, unread badge | **Done (#361)** — modes offline/reconnecting/poll/live; backoff reconnect; list unread + Inbox/Mail DM badge; Bell notifications-only |
+| **9c** | Brand Page + Create polish: follow CTA, empty brand feed, active Page clarity | Next |
 | **9d** | Private guild UX: invite/join honesty, role labels owner/member, no fake mod tools | Pending |
 | **9e** | Visual/a11y pass on core routes (Home, Profile, Messages, Guilds, Premium) | Pending |
 
