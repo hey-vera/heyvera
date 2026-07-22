@@ -1,10 +1,10 @@
 # HeyVera Social Roadmap (active)
 
-**Status:** Waves 0–8 + 9a–9b shipped on main  
+**Status:** Waves 0–9 shipped on main (9a–9e complete)  
 **Grounded:** 2026-07-22  
 **Live entry:** `heyvera/src/main.tsx` → `router.tsx` → `AppShell` / `pages/*`  
 **Do not grow:** orphaned `App.tsx` / `VeraSocials` dual shell (quarantined under `src/orphan/`)  
-**Main tip note:** Wave 9b DM reliability (#361); next = Wave 9c–9e customer-ready polish
+**Main tip note:** Wave 9 complete (#359–#365); next = Wave 10+ product depth (metering, media, agents)
 
 ---
 
@@ -189,6 +189,10 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-21 | #350 | Wave 7 soft-poll honesty + Premium probe + Pulse empty-state **merged** |
 | 2026-07-22 | #359 | Wave 9a thread truncation honesty (`repliesTruncated`) **merged** |
 | 2026-07-22 | #361 | Wave 9b DM reconnect / offline banner / unread honesty **merged** |
+| 2026-07-22 | #363 | Wave 9c brand empty feed + active Page create clarity **merged** |
+| 2026-07-22 | #364 | Wave 9d private guild role labels + join honesty **merged** |
+| 2026-07-22 | #365 | Wave 9e core route a11y + mineral focus rings **merged** |
+| 2026-07-22 | docs | Wave 9 complete on STATUS/ROADMAP |
 
 ### Waves 1–4 implemented (2026-07-21)
 
@@ -290,7 +294,7 @@ Shipped as sequential green PRs. Honesty: incomplete capability stays labeled, n
 | PW-3/4 | Live/video | **8f foundation done** |
 | PW-7 | x402 | **8g scaffold done** |
 
-### Wave 9 — Customer-ready Social polish (in progress)
+### Wave 9 — Customer-ready Social polish — **done (#359–#365)**
 
 Goal: make shipped Social feel solid for real users — no new half-features.
 
@@ -298,8 +302,8 @@ Goal: make shipped Social feel solid for real users — no new half-features.
 |-------|--------|--------|
 | **9a** | Thread UX: honest truncation when BE cap 100 / depth 8 stops walk; empty/error already pass; **no fake Show more** | **Done (#359)** — `repliesTruncated` + `repliesCap` on `GET /posts/{id}`; live `PostThreadPage` banner |
 | **9b** | DM reliability: reconnect, offline banner, WS vs poll label accuracy, unread badge | **Done (#361)** — modes offline/reconnecting/poll/live; backoff reconnect; list unread + Inbox/Mail DM badge; Bell notifications-only |
-| **9c** | Brand Page + Create polish: follow CTA, empty brand feed, active Page clarity | Next |
-| **9d** | Private guild UX: invite/join honesty, role labels owner/member, no fake mod tools | Pending |
-| **9e** | Visual/a11y pass on core routes (Home, Profile, Messages, Guilds, Premium) | Pending |
+| **9c** | Brand Page + Create polish: follow CTA, empty brand feed, active Page clarity | **Done (#363)** — Posts empty region; brand→person authorship clarity; listMyPages fail fallback |
+| **9d** | Private guild UX: invite/join honesty, role labels owner/member, no fake mod tools | **Done (#364)** — Owner/Member chips; private unlisted + no-invite copy; no Kick/Ban/Invite theater |
+| **9e** | Visual/a11y pass on core routes (Home, Profile, Messages, Guilds, Premium) | **Done (#365)** — skip link, mineral focus rings, tab/inbox a11y |
 
 Still later (Waves 10–12): metered credits, media depth, agent network — see passoff / extended backlog.
