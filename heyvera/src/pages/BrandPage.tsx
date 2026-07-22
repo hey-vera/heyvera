@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { SignInButton } from "@clerk/clerk-react";
 import { ArrowLeft, Building2 } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import {
   fetchBrandPage,
   followPage,
@@ -10,13 +10,21 @@ import {
 } from "../api/social";
 import { EmptyState, ErrorState, LoadingState } from "../components/shared/AsyncStates";
 import { useAuth } from "../hooks/useAuth";
+import {
+  BRAND_FOLLOW_SIGN_IN_HINT,
+  BRAND_OWNER_BADGE,
+  BRAND_POSTS_EMPTY_DETAIL,
+  BRAND_POSTS_EMPTY_TITLE,
+  BRAND_POSTS_REGION_TITLE,
+} from "../utils/activePageCopy";
 
 /**
- * Public brand Page view — Wave 8d multi-Page polish.
+ * Public brand Page view — Wave 8d multi-Page polish + Wave 9c empty Posts honesty.
  * Route: /page/:slug → GET /v1/social/pages/{slug}
  */
 export function BrandPage() {
   const { slug } = useParams<{ slug: string }>();
+  const navigate = useNavigate();
   const { authEnabled, isSignedIn, getToken } = useAuth();
 
   const [page, setPage] = useState<SocialPage | null>(null);
@@ -107,6 +115,15 @@ export function BrandPage() {
     }
   };
 
+  const handleBack = () => {
+    // Prefer browser history for public visitors; fall back to home.
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      navigate(-1);
+      return;
+    }
+    navigate("/home");
+  };
+
   const handle = page?.handle || page?.slug || slug || "";
   const following = Boolean(page?.isFollowing);
 
@@ -123,13 +140,14 @@ export function BrandPage() {
         }}
       >
         <div className="flex items-center gap-3 px-4 py-3">
-          <Link
-            to="/settings"
+          <button
+            type="button"
+            onClick={handleBack}
             className="-ml-2 flex h-9 w-9 items-center justify-center rounded-full transition-colors hover-overlay"
             aria-label="Back"
           >
             <ArrowLeft size={18} strokeWidth={2.25} />
-          </Link>
+          </button>
           <div className="min-w-0">
             <h1 className="truncate text-[18px] font-bold leading-5">
               {page?.displayName ?? "Brand Page"}
@@ -151,119 +169,157 @@ export function BrandPage() {
         <EmptyState title="Page not found" detail="This brand page does not exist." />
       )}
       {!loading && !error && page && (
-        <section className="px-4 py-6">
-          <div
-            className="flex flex-col gap-4 rounded-2xl border p-5 sm:flex-row sm:items-start sm:justify-between"
-            style={{
-              borderColor: "var(--border-primary)",
-              backgroundColor: "var(--bg-elevated)",
-            }}
-          >
-            <div className="flex min-w-0 items-start gap-4">
-              <div
-                className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl"
-                style={{ backgroundColor: "var(--border-primary)" }}
-              >
-                {page.avatarUrl ? (
-                  <img
-                    src={page.avatarUrl}
-                    alt=""
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <Building2 size={28} style={{ color: "var(--text-secondary)" }} />
-                )}
+        <>
+          <section className="px-4 py-6">
+            <div
+              className="flex flex-col gap-4 rounded-2xl border p-5 sm:flex-row sm:items-start sm:justify-between"
+              style={{
+                borderColor: "var(--border-primary)",
+                backgroundColor: "var(--bg-elevated)",
+              }}
+            >
+              <div className="flex min-w-0 items-start gap-4">
+                <div
+                  className="flex h-16 w-16 shrink-0 items-center justify-center overflow-hidden rounded-2xl"
+                  style={{ backgroundColor: "var(--border-primary)" }}
+                >
+                  {page.avatarUrl ? (
+                    <img
+                      src={page.avatarUrl}
+                      alt=""
+                      className="h-full w-full object-cover"
+                    />
+                  ) : (
+                    <Building2 size={28} style={{ color: "var(--text-secondary)" }} />
+                  )}
+                </div>
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-[22px] font-bold leading-7">{page.displayName}</h2>
+                    <span
+                      className="rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide"
+                      style={{
+                        backgroundColor: "color-mix(in srgb, var(--accent) 18%, transparent)",
+                        color: "var(--accent)",
+                      }}
+                    >
+                      Brand
+                    </span>
+                  </div>
+                  <p className="mt-0.5 text-[15px]" style={{ color: "var(--text-secondary)" }}>
+                    @{handle}
+                  </p>
+                  {page.description ? (
+                    <p className="mt-3 text-[15px] leading-5">{page.description}</p>
+                  ) : (
+                    <p
+                      className="mt-3 text-[14px] leading-5"
+                      style={{ color: "var(--text-secondary)" }}
+                    >
+                      No description yet.
+                    </p>
+                  )}
+                  {typeof page.followerCount === "number" && (
+                    <p className="mt-3 text-[13px]" style={{ color: "var(--text-secondary)" }}>
+                      <span className="font-bold" style={{ color: "var(--text-primary)" }}>
+                        {page.followerCount}
+                      </span>{" "}
+                      {page.followerCount === 1 ? "follower" : "followers"}
+                    </p>
+                  )}
+                  <p className="mt-2 text-[12px]" style={{ color: "var(--text-secondary)" }}>
+                    Brand Pages are early access — public profile + follow. Brand-as-author posts
+                    are not complete yet.
+                  </p>
+                </div>
               </div>
-              <div className="min-w-0">
-                <div className="flex flex-wrap items-center gap-2">
-                  <h2 className="text-[22px] font-bold leading-7">{page.displayName}</h2>
+
+              <div className="shrink-0">
+                {page.isOwner ? (
                   <span
-                    className="rounded-full px-2 py-0.5 text-[11px] font-bold uppercase tracking-wide"
+                    className="inline-block rounded-full border px-5 py-1.5 text-[14px] font-bold"
                     style={{
-                      backgroundColor: "color-mix(in srgb, var(--accent) 18%, transparent)",
-                      color: "var(--accent)",
+                      borderColor: "var(--border-primary)",
+                      color: "var(--text-secondary)",
                     }}
                   >
-                    Brand
+                    {BRAND_OWNER_BADGE}
                   </span>
-                </div>
-                <p className="mt-0.5 text-[15px]" style={{ color: "var(--text-secondary)" }}>
-                  @{handle}
-                </p>
-                {page.description ? (
-                  <p className="mt-3 text-[15px] leading-5">{page.description}</p>
+                ) : authEnabled && !isSignedIn ? (
+                  <div className="flex flex-col items-start gap-1.5 sm:items-end">
+                    <SignInButton mode="modal">
+                      <button
+                        type="button"
+                        className="rounded-full px-5 py-1.5 text-[14px] font-bold transition-all hover:opacity-90"
+                        style={{
+                          backgroundColor: "var(--accent)",
+                          color: "var(--bg-primary)",
+                        }}
+                      >
+                        Follow
+                      </button>
+                    </SignInButton>
+                    <p className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
+                      {BRAND_FOLLOW_SIGN_IN_HINT}
+                    </p>
+                  </div>
                 ) : (
-                  <p
-                    className="mt-3 text-[14px] leading-5"
-                    style={{ color: "var(--text-secondary)" }}
-                  >
-                    No description yet.
-                  </p>
-                )}
-                {typeof page.followerCount === "number" && (
-                  <p className="mt-3 text-[13px]" style={{ color: "var(--text-secondary)" }}>
-                    <span className="font-bold" style={{ color: "var(--text-primary)" }}>
-                      {page.followerCount}
-                    </span>{" "}
-                    {page.followerCount === 1 ? "follower" : "followers"}
-                  </p>
-                )}
-                <p className="mt-2 text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                  Brand Pages are early access — public profile + follow. Brand-as-author posts
-                  are not complete yet.
-                </p>
-              </div>
-            </div>
-
-            <div className="shrink-0">
-              {page.isOwner ? (
-                <span
-                  className="inline-block rounded-full border px-5 py-1.5 text-[14px] font-bold"
-                  style={{
-                    borderColor: "var(--border-primary)",
-                    color: "var(--text-secondary)",
-                  }}
-                >
-                  Your page
-                </span>
-              ) : authEnabled && !isSignedIn ? (
-                <SignInButton mode="modal">
                   <button
                     type="button"
-                    className="rounded-full px-5 py-1.5 text-[14px] font-bold transition-all hover:opacity-90"
+                    disabled={followBusy || !authEnabled}
+                    title={!authEnabled ? "Sign-in is not configured" : undefined}
+                    onClick={() => void toggleFollow()}
+                    className="rounded-full px-5 py-1.5 text-[14px] font-bold transition-all hover:opacity-90 disabled:opacity-50"
                     style={{
-                      backgroundColor: "var(--accent)",
-                      color: "var(--bg-primary)",
+                      border: following ? "1px solid var(--border-primary)" : undefined,
+                      backgroundColor: following ? "transparent" : "var(--accent)",
+                      color: following ? "var(--text-primary)" : "var(--bg-primary)",
                     }}
                   >
-                    Follow
+                    {followBusy ? "…" : following ? "Following" : "Follow"}
                   </button>
-                </SignInButton>
-              ) : (
-                <button
-                  type="button"
-                  disabled={followBusy || !authEnabled}
-                  title={!authEnabled ? "Sign-in is not configured" : undefined}
-                  onClick={() => void toggleFollow()}
-                  className="rounded-full px-5 py-1.5 text-[14px] font-bold transition-all hover:opacity-90 disabled:opacity-50"
-                  style={{
-                    border: following ? "1px solid var(--border-primary)" : undefined,
-                    backgroundColor: following ? "transparent" : "var(--accent)",
-                    color: following ? "var(--text-primary)" : "var(--bg-primary)",
-                  }}
-                >
-                  {followBusy ? "…" : following ? "Following" : "Follow"}
-                </button>
-              )}
+                )}
+              </div>
             </div>
-          </div>
 
-          {followError && (
-            <p className="mt-3 text-[13px]" style={{ color: "var(--danger, #f4212e)" }} role="alert">
-              {followError}
-            </p>
-          )}
-        </section>
+            {followError && (
+              <p className="mt-3 text-[13px]" style={{ color: "var(--danger, #f4212e)" }} role="alert">
+                {followError}
+              </p>
+            )}
+          </section>
+
+          {/* Posts region — honest empty; no fake feed API / placeholder cards */}
+          <section
+            className="border-t px-4 py-6"
+            style={{ borderColor: "var(--border-primary)" }}
+            aria-labelledby="brand-posts-heading"
+          >
+            <h3
+              id="brand-posts-heading"
+              className="mb-3 text-[17px] font-bold leading-5"
+            >
+              {BRAND_POSTS_REGION_TITLE}
+            </h3>
+            <div
+              className="rounded-2xl border px-4 py-8 text-center"
+              style={{
+                borderColor: "var(--border-primary)",
+                backgroundColor: "var(--bg-elevated)",
+              }}
+            >
+              <p className="text-[15px] font-semibold" style={{ color: "var(--text-primary)" }}>
+                {BRAND_POSTS_EMPTY_TITLE}
+              </p>
+              <p
+                className="mx-auto mt-2 max-w-md text-[13px] leading-5"
+                style={{ color: "var(--text-secondary)" }}
+              >
+                {BRAND_POSTS_EMPTY_DETAIL}
+              </p>
+            </div>
+          </section>
+        </>
       )}
     </div>
   );

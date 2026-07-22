@@ -15,6 +15,10 @@ import {
   type SocialPage,
 } from "../../api/social";
 import { useAuth } from "../../hooks/useAuth";
+import {
+  activePageAuthorshipNotice,
+  postButtonAuthorshipHint,
+} from "../../utils/activePageCopy";
 import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from "../../utils/imageUpload";
 import { RightRail } from "./RightRail";
 import { BottomBar } from "./BottomBar";
@@ -77,11 +81,25 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
   const [brandName, setBrandName] = React.useState("");
   const [brandSlug, setBrandSlug] = React.useState("");
   const [creatingBrand, setCreatingBrand] = React.useState(false);
+  /** listMyPages failed — show honest person fallback, never silent void. */
+  const [pagesLoadFailed, setPagesLoadFailed] = React.useState(false);
+  /** Brand was just created and remains selected — stronger authorship notice. */
+  const [brandJustCreated, setBrandJustCreated] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const remainingChars = COMPOSE_MAX_CHARS - composeText.length;
   const canPost = (composeText.trim().length > 0 || Boolean(imageFile)) && !isPosting;
   const selectedPage = myPages.find((p) => p.id === selectedPageId) ?? myPages[0] ?? null;
+  const authorshipNotice = activePageAuthorshipNotice({
+    pagesLoadFailed,
+    pageKind: selectedPage?.kind,
+    brandJustCreated,
+  });
+  const postHint = postButtonAuthorshipHint({
+    pagesLoadFailed,
+    pageKind: selectedPage?.kind,
+    brandJustCreated,
+  });
 
   const handleNavigate = (route: string) => {
     navigate(route);
@@ -110,6 +128,8 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     setBrandName("");
     setBrandSlug("");
     setCreatingBrand(false);
+    setPagesLoadFailed(false);
+    setBrandJustCreated(false);
     clearImage();
   };
 
@@ -163,10 +183,15 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
       // Page selector — person + agents + brands.
       try {
         const pagesRes = await listMyPages(token);
+        setPagesLoadFailed(false);
+        setBrandJustCreated(false);
         applyPages(pagesRes.pages ?? []);
       } catch {
+        // Honest fallback: still compose as person; never leave active Page silent.
         setMyPages([]);
         setSelectedPageId("");
+        setPagesLoadFailed(true);
+        setBrandJustCreated(false);
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "";
@@ -225,6 +250,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     setSelectedPageId(pageId);
     writeStoredPageId(pageId);
     setShowNewBrand(false);
+    setBrandJustCreated(false);
   };
 
   const handleCreateBrand = async () => {
@@ -252,8 +278,11 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
         return order[a.kind] - order[b.kind];
       });
       setMyPages(nextPages);
+      // Keep brand selected but surface strong honesty: posts still as person.
       setSelectedPageId(page.id);
       writeStoredPageId(page.id);
+      setBrandJustCreated(true);
+      setPagesLoadFailed(false);
       setShowNewBrand(false);
       setBrandName("");
       setBrandSlug("");
@@ -383,15 +412,26 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
               >
                 <X className="h-5 w-5" aria-hidden="true" />
               </button>
-              <button
-                className="rounded-full px-5 py-1.5 text-sm font-bold transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
-                style={{ backgroundColor: "var(--accent)", color: "var(--bg-primary)" }}
-                disabled={!canPost || Boolean(composeGate)}
-                onClick={() => void handleSubmitPost()}
-                type="button"
-              >
-                {isPosting ? "Posting" : "Post"}
-              </button>
+              <div className="flex max-w-[70%] flex-col items-end gap-0.5">
+                {postHint && !composeGate && (
+                  <span
+                    className="text-right text-[11px] leading-snug"
+                    style={{ color: "var(--text-secondary)" }}
+                  >
+                    {postHint}
+                  </span>
+                )}
+                <button
+                  className="rounded-full px-5 py-1.5 text-sm font-bold transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ backgroundColor: "var(--accent)", color: "var(--bg-primary)" }}
+                  disabled={!canPost || Boolean(composeGate)}
+                  onClick={() => void handleSubmitPost()}
+                  type="button"
+                  title={postHint ?? undefined}
+                >
+                  {isPosting ? "Posting" : "Post"}
+                </button>
+              </div>
             </div>
             {composeGate ? (
               <ComposeGate
@@ -429,13 +469,26 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                       ))}
                       <option value="__new_brand__">+ New brand page…</option>
                     </select>
-                    {selectedPage?.kind === "brand" && (
-                      <span className="text-[12px]" style={{ color: "var(--text-secondary)" }}>
-                        Brand Pages are foundation-only: posts still publish as your person identity
-                        for now.
+                    {authorshipNotice && (
+                      <span
+                        className="text-[12px] leading-snug"
+                        style={{ color: "var(--text-secondary)" }}
+                        role="status"
+                      >
+                        {authorshipNotice}
                       </span>
                     )}
                   </label>
+                )}
+
+                {myPages.length === 0 && pagesLoadFailed && authorshipNotice && (
+                  <p
+                    className="mb-3 text-[12px] leading-snug"
+                    style={{ color: "var(--text-secondary)" }}
+                    role="status"
+                  >
+                    {authorshipNotice}
+                  </p>
                 )}
 
                 {showNewBrand && (
