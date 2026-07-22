@@ -1,10 +1,10 @@
 # HeyVera Social Roadmap (active)
 
-**Status:** Waves 0–8 shipped on main  
-**Grounded:** 2026-07-21  
+**Status:** Waves 0–8 + 9a shipped on main  
+**Grounded:** 2026-07-22  
 **Live entry:** `heyvera/src/main.tsx` → `router.tsx` → `AppShell` / `pages/*`  
 **Do not grow:** orphaned `App.tsx` / `VeraSocials` dual shell (quarantined under `src/orphan/`)  
-**Main tip note:** Wave 8 complete (#353–#357); next = product depth from extended backlog
+**Main tip note:** Wave 9a thread honesty (#359); next = Wave 9b–9e customer-ready polish
 
 ---
 
@@ -187,6 +187,7 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-21 | #348 | Wave 5 nested threads + views + DM dedupe **merged** |
 | 2026-07-21 | #349 | Wave 6 Page multi-surface foundation **merged** |
 | 2026-07-21 | #350 | Wave 7 soft-poll honesty + Premium probe + Pulse empty-state **merged** |
+| 2026-07-22 | #359 | Wave 9a thread truncation honesty (`repliesTruncated`) **merged** |
 
 ### Waves 1–4 implemented (2026-07-21)
 
@@ -287,3 +288,17 @@ Shipped as sequential green PRs. Honesty: incomplete capability stays labeled, n
 | PW-15 | Private guilds/roles | **8e foundation done** |
 | PW-3/4 | Live/video | **8f foundation done** |
 | PW-7 | x402 | **8g scaffold done** |
+
+### Wave 9 — Customer-ready Social polish (in progress)
+
+Goal: make shipped Social feel solid for real users — no new half-features.
+
+| Slice | Scope | Status |
+|-------|--------|--------|
+| **9a** | Thread UX: honest truncation when BE cap 100 / depth 8 stops walk; empty/error already pass; **no fake Show more** | **Done (#359)** — `repliesTruncated` + `repliesCap` on `GET /posts/{id}`; live `PostThreadPage` banner |
+| **9b** | DM reliability: reconnect, offline banner, WS vs poll label accuracy, unread badge | Next |
+| **9c** | Brand Page + Create polish: follow CTA, empty brand feed, active Page clarity | Pending |
+| **9d** | Private guild UX: invite/join honesty, role labels owner/member, no fake mod tools | Pending |
+| **9e** | Visual/a11y pass on core routes (Home, Profile, Messages, Guilds, Premium) | Pending |
+
+Still later (Waves 10–12): metered credits, media depth, agent network — see passoff / extended backlog.
