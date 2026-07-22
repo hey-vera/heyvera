@@ -1,5 +1,9 @@
 import { useState } from "react";
 import { createCommunity } from "../../api/social";
+import {
+  PRIVATE_GUILD_CREATE_HINT,
+  privateGuildShareHint,
+} from "../../utils/guildVisibility";
 
 type CreateCommunityFormProps = {
   getToken: () => Promise<string | null>;
@@ -9,6 +13,7 @@ type CreateCommunityFormProps = {
 /**
  * Small inline form for creating a community.
  * Toggles open/closed via a button.
+ * Private option uses honest Discover/invite copy (Wave 9d).
  */
 export function CreateCommunityForm({
   getToken,
@@ -21,16 +26,38 @@ export function CreateCommunityForm({
   const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** After private create: slug/id for manual share (no invite links). */
+  const [shareNotice, setShareNotice] = useState<string | null>(null);
 
   if (!open) {
     return (
-      <button
-        type="button"
-        className="create-community-toggle"
-        onClick={() => setOpen(true)}
-      >
-        + Create Community
-      </button>
+      <div className="create-community-wrap">
+        {shareNotice && (
+          <p
+            className="create-community-share-notice"
+            role="status"
+            style={{
+              marginBottom: 8,
+              maxWidth: 360,
+              fontSize: 12,
+              lineHeight: 1.4,
+              color: "var(--text-secondary)",
+            }}
+          >
+            {shareNotice}
+          </p>
+        )}
+        <button
+          type="button"
+          className="create-community-toggle"
+          onClick={() => {
+            setShareNotice(null);
+            setOpen(true);
+          }}
+        >
+          + Create Community
+        </button>
+      </div>
     );
   }
 
@@ -40,6 +67,10 @@ export function CreateCommunityForm({
 
     setSubmitting(true);
     setError(null);
+    setShareNotice(null);
+
+    const submittedSlug = slug.trim().toLowerCase();
+    const submittedVisibility = visibility;
 
     try {
       const token = await getToken();
@@ -48,11 +79,11 @@ export function CreateCommunityForm({
         return;
       }
 
-      await createCommunity(token, {
-        slug: slug.trim().toLowerCase(),
+      const result = await createCommunity(token, {
+        slug: submittedSlug,
         name: name.trim(),
         description: description.trim() || undefined,
-        visibility,
+        visibility: submittedVisibility,
       });
 
       setName("");
@@ -60,6 +91,17 @@ export function CreateCommunityForm({
       setDescription("");
       setVisibility("public");
       setOpen(false);
+
+      if (submittedVisibility === "private") {
+        const created = result?.community;
+        setShareNotice(
+          privateGuildShareHint(
+            created?.slug ?? submittedSlug,
+            created?.id ?? null,
+          ),
+        );
+      }
+
       onCommunityCreated?.();
     } catch (err: unknown) {
       setError(
@@ -113,9 +155,24 @@ export function CreateCommunityForm({
           aria-label="Community visibility"
         >
           <option value="public">Public</option>
-          <option value="private">Private</option>
+          <option value="private">Private (unlisted from Discover)</option>
         </select>
       </label>
+
+      {visibility === "private" && (
+        <p
+          className="create-community-private-hint"
+          role="note"
+          style={{
+            margin: "0.25rem 0 0",
+            fontSize: 12,
+            lineHeight: 1.4,
+            color: "var(--text-secondary)",
+          }}
+        >
+          {PRIVATE_GUILD_CREATE_HINT}
+        </p>
+      )}
 
       <div className="create-community-actions">
         <button

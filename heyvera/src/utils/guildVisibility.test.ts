@@ -2,10 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   brandPagePath,
   canAccessGuildFeed,
+  communitiesListPath,
   filterDiscoverGuilds,
   isPrivateGuild,
   membershipRoleLabel,
   mergeCommunityLists,
+  PRIVATE_GUILD_CREATE_HINT,
+  privateGuildJoinCtaCopy,
+  privateGuildShareHint,
 } from "./guildVisibility";
 
 describe("isPrivateGuild", () => {
@@ -57,9 +61,38 @@ describe("membershipRoleLabel", () => {
     expect(membershipRoleLabel("OWNER")).toBe("Owner");
   });
 
-  it("returns null for member / empty", () => {
-    expect(membershipRoleLabel("member")).toBeNull();
+  it("labels members", () => {
+    expect(membershipRoleLabel("member")).toBe("Member");
+    expect(membershipRoleLabel("Member")).toBe("Member");
+  });
+
+  it("returns null for empty / unknown roles", () => {
     expect(membershipRoleLabel(undefined)).toBeNull();
+    expect(membershipRoleLabel(null)).toBeNull();
+    expect(membershipRoleLabel("mod")).toBeNull();
+  });
+});
+
+describe("private guild honesty copy", () => {
+  it("create hint is honest about Discover and invites", () => {
+    expect(PRIVATE_GUILD_CREATE_HINT.toLowerCase()).toContain("discover");
+    expect(PRIVATE_GUILD_CREATE_HINT.toLowerCase()).toContain("no invite");
+    expect(PRIVATE_GUILD_CREATE_HINT.toLowerCase()).not.toContain("discord");
+  });
+
+  it("share hint surfaces slug and optional id without invite pretence", () => {
+    expect(privateGuildShareHint("builders")).toContain("Slug: builders");
+    expect(privateGuildShareHint("builders").toLowerCase()).toContain("no invite");
+    expect(privateGuildShareHint("builders", "gid_1")).toContain("id: gid_1");
+  });
+
+  it("join CTA distinguishes member vs non-member", () => {
+    const member = privateGuildJoinCtaCopy(true);
+    const outsider = privateGuildJoinCtaCopy(false);
+    expect(member.toLowerCase()).toContain("leave");
+    expect(member.toLowerCase()).toContain("no invite");
+    expect(outsider.toLowerCase()).toContain("join");
+    expect(outsider.toLowerCase()).toContain("discover");
   });
 });
 
@@ -81,5 +114,11 @@ describe("brandPagePath", () => {
   it("builds /page/:slug", () => {
     expect(brandPagePath("acme")).toBe("/page/acme");
     expect(brandPagePath("a b")).toBe("/page/a%20b");
+  });
+});
+
+describe("communitiesListPath", () => {
+  it("points at live communities surface", () => {
+    expect(communitiesListPath()).toBe("/communities");
   });
 });

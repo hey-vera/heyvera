@@ -145,13 +145,14 @@ export function SearchPage({ shellState }: SearchPageProps) {
               </div>
               <a
                 className="search-result-link"
-                href={`/community/${community.slug}`}
+                href="/communities"
                 onClick={(event) => {
                   event.preventDefault();
-                  navigate(`/community/${community.slug}`);
+                  // Live app has /communities only — no /community/:slug route.
+                  navigate("/communities");
                 }}
               >
-                View community
+                View communities
               </a>
             </div>
           );
