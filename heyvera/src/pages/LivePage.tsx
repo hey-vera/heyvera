@@ -4,19 +4,19 @@ const LIVE_ROOMS = [
   {
     title: 'Creator studio open room',
     channel: 'HeyVera Founding Channel',
-    state: 'Ready for first broadcast',
-    time: 'Live setup placeholder',
+    state: 'Layout placeholder — not broadcasting',
+    time: 'Preview only',
   },
   {
     title: 'Community watch room',
     channel: 'Social / Communities',
-    state: 'Scheduled',
-    time: 'Tonight',
+    state: 'Not scheduled — no ingest',
+    time: 'Soon',
   },
   {
     title: 'Agent-assisted broadcast',
     channel: 'Vera Agents',
-    state: 'Planned',
+    state: 'Planned after encoder foundation',
     time: 'Later',
   },
 ];
@@ -24,8 +24,8 @@ const LIVE_ROOMS = [
 const SETUP_STEPS = [
   'Verify Clerk account and HeyVera profile',
   'Create channel identity and stream title',
-  'Choose webcam/browser or encoder ingest',
-  'Open live room with comments and moderation',
+  'Choose webcam/browser or encoder ingest (not wired yet)',
+  'Open live room with comments and moderation (future)',
 ];
 
 export function LivePage() {
@@ -40,8 +40,7 @@ export function LivePage() {
           <div>
             <h1 className="text-[28px] font-black leading-tight sm:text-[34px]">Live</h1>
             <p className="mt-1 max-w-2xl text-[15px]" style={{ color: 'var(--text-secondary)' }}>
-              Preview / Soon only — Page-owned live rooms and stream archives when ingest ships. Nothing is
-              broadcasting here yet.
+              Preview only — no streams are live. Encoder ingest is Wave 8f foundation documentation only.
             </p>
           </div>
           <button
@@ -57,6 +56,22 @@ export function LivePage() {
         </div>
       </header>
 
+      {/* Wave 8f foundation honesty */}
+      <div
+        className="mb-5 rounded-2xl border px-4 py-3"
+        style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+        role="status"
+      >
+        <p className="text-[14px] font-bold" style={{ color: 'var(--text-primary)' }}>
+          Wave 8f — encoder ingest foundation only
+        </p>
+        <p className="mt-1 text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          This page documents the future live path (channel identity → room → archive). There is no RTMP/WHIP ingest,
+          no session service, and no LIVE badge on real streams. UI never claims a room is broadcasting. When ingest
+          ships, Preview becomes a real player attached to the creator Page.
+        </p>
+      </div>
+
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_340px]">
         <main className="min-w-0">
           <section className="border" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
@@ -68,6 +83,7 @@ export function LivePage() {
                 <h2 className="text-[24px] font-black text-white">Live room preview</h2>
                 <p className="mt-2 max-w-md text-[14px] text-white/70">
                   Playback will attach here once stream ingest and live sessions are wired to HeyVera profiles.
+                  Nothing is broadcasting here.
                 </p>
               </div>
               <span
@@ -94,9 +110,9 @@ export function LivePage() {
               <div className="border p-3" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-primary)' }}>
                 <h3 className="mb-2 flex items-center gap-2 text-[15px] font-black">
                   <MessageSquare className="h-4 w-4" aria-hidden="true" />
-                  Live comments
+                  Live comments (placeholder)
                 </h3>
-                {['Welcome to the room.', 'Comments should be live, moderated, and archivable.', 'Agent summaries can happen later.'].map((message) => (
+                {['No live session — sample copy only.', 'Comments will be moderated and archivable.', 'Agent summaries can happen later.'].map((message) => (
                   <p key={message} className="border-t py-2 text-[13px] first:border-t-0" style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
                     {message}
                   </p>
@@ -106,11 +122,14 @@ export function LivePage() {
           </section>
 
           <section className="mt-6">
-            <h2 className="mb-3 text-[20px] font-black">Broadcast schedule</h2>
+            <h2 className="mb-3 text-[20px] font-black">Broadcast schedule (foundation)</h2>
+            <p className="mb-3 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+              Illustrative room cards — not real schedules and not LIVE.
+            </p>
             <div className="grid gap-3 md:grid-cols-3">
               {LIVE_ROOMS.map((room) => (
                 <article key={room.title} className="border p-4" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
-                  <span className="mb-3 inline-flex items-center gap-2 text-[13px] font-bold" style={{ color: 'var(--accent)' }}>
+                  <span className="mb-3 inline-flex items-center gap-2 text-[13px] font-bold" style={{ color: 'var(--text-secondary)' }}>
                     <CalendarClock className="h-4 w-4" aria-hidden="true" />
                     {room.time}
                   </span>
@@ -127,7 +146,7 @@ export function LivePage() {
           <section className="border p-4" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
             <h2 className="mb-3 flex items-center gap-2 text-[17px] font-black">
               <Settings className="h-5 w-5" style={{ color: 'var(--accent)' }} aria-hidden="true" />
-              Creator setup
+              Creator setup (future)
             </h2>
             <ol className="grid gap-3">
               {SETUP_STEPS.map((step, index) => (
@@ -147,7 +166,7 @@ export function LivePage() {
               Account routing
             </h2>
             <p className="text-[14px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-              Live creation should require a signed-in Clerk user with a HeyVera profile. Public viewers can watch; creators manage streams through their channel identity.
+              Live creation should require a signed-in Clerk user with a HeyVera profile. Public viewers can watch; creators manage streams through their channel identity. Not available until ingest ships.
             </p>
           </section>
         </aside>
