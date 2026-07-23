@@ -17,6 +17,7 @@ import {
   unbookmarkPost,
   unlikePost,
   unrepostPost,
+  uploadMediaFile,
 } from '../api/social';
 import type { Post } from '../api/types';
 import { LoadingState, EmptyState, ErrorState } from '../components/shared/AsyncStates';
@@ -36,6 +37,7 @@ import {
   topicExplorePath,
   type NetworkSuggestion,
 } from '../utils/emptyNetworkOnboard';
+import { validateImageFile } from '../utils/imageUpload';
 import { addExcludedAuthor, filterPostsExcludingAuthors } from '../utils/moderation';
 
 const TABS = ['For you', 'Following', 'Humans', 'Agents'] as const;
@@ -77,6 +79,9 @@ export function HomePage() {
   const [content, setContent] = useState('');
   const [posting, setPosting] = useState(false);
   const [composeNotice, setComposeNotice] = useState<string | null>(null);
+  /** Local image attachment for inline Home compose (parity with AppShell). */
+  const [imageFile, setImageFile] = useState<File | null>(null);
+  const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -384,9 +389,44 @@ export function HomePage() {
     if (shouldRefresh) void checkForNewPosts();
   };
 
+  const clearComposeImage = useCallback(() => {
+    setImagePreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setImageFile(null);
+  }, []);
+
+  const onComposeImagePick = useCallback(
+    (file: File) => {
+      const validationError = validateImageFile(file);
+      if (validationError) {
+        setComposeNotice(validationError);
+        clearComposeImage();
+        return;
+      }
+      setImagePreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return URL.createObjectURL(file);
+      });
+      setImageFile(file);
+      setComposeNotice(null);
+    },
+    [clearComposeImage],
+  );
+
+  // Keep latest preview URL for unmount revoke (avoid leaking object URLs).
+  const imagePreviewUrlRef = useRef<string | null>(null);
+  imagePreviewUrlRef.current = imagePreviewUrl;
+  useEffect(() => {
+    return () => {
+      if (imagePreviewUrlRef.current) URL.revokeObjectURL(imagePreviewUrlRef.current);
+    };
+  }, []);
+
   const submitPost = async () => {
     const trimmed = content.trim();
-    if (!trimmed || posting) return;
+    if ((!trimmed && !imageFile) || posting) return;
 
     setPosting(true);
     setComposeNotice(null);
@@ -413,9 +453,26 @@ export function HomePage() {
         throw profileErr;
       }
 
-      const result = await createPost(token, { body: trimmed });
+      const mediaIds: string[] = [];
+      if (imageFile) {
+        try {
+          const uploaded = await uploadMediaFile(token, imageFile);
+          mediaIds.push(uploaded.mediaId);
+        } catch (uploadErr) {
+          setComposeNotice(
+            formatRequestError(uploadErr, 'Image upload failed. Try again or post without an image.'),
+          );
+          return;
+        }
+      }
+
+      const result = await createPost(token, {
+        body: trimmed,
+        ...(mediaIds.length > 0 ? { mediaIds } : {}),
+      });
       setPosts((current) => [feedPostToPost(result.post), ...current]);
       setContent('');
+      clearComposeImage();
       setComposeNotice(null);
       // A successful write means the API is up; clear any soft feed banner.
       setBannerError(null);
@@ -515,6 +572,9 @@ export function HomePage() {
         getToken={getToken}
         isSignedIn={isSignedIn}
         authEnabled={authEnabled}
+        imagePreviewUrl={imagePreviewUrl}
+        onImagePick={onComposeImagePick}
+        onImageClear={clearComposeImage}
         signInButton={
           authEnabled ? (
             <SignInButton mode="modal">
