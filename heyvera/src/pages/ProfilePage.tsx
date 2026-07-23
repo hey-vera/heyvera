@@ -35,6 +35,12 @@ import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
 import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from '../utils/imageUpload';
 import { mapReportToApiBody } from '../utils/moderation';
+import {
+  mapBookmarkInPosts,
+  mapLikeInPosts,
+  mapRepostInPosts,
+  withOptimisticPostMutation,
+} from '../utils/optimisticPostMutation';
 import { renderRichText } from '../utils/richText';
 
 const TABS = ['Posts', 'Replies', 'Media', 'Likes'] as const;
@@ -378,40 +384,51 @@ export function ProfilePage() {
   };
 
   const handleLike = (id: string, liked: boolean, token: string) => {
-    setPosts((currentPosts) =>
-      currentPosts.map((post) =>
-        post.id === id
-          ? {
-              ...post,
-              liked,
-              like_count: Math.max(0, post.like_count + (liked ? 1 : -1)),
-            }
-          : post,
-      ),
-    );
-    void (liked ? likePost(token, id) : unlikePost(token, id));
+    let snapshot: Post[] | null = null;
+    return withOptimisticPostMutation({
+      apply: () => {
+        setPosts((current) => {
+          snapshot = current;
+          return mapLikeInPosts(current, id, liked);
+        });
+      },
+      mutate: () => (liked ? likePost(token, id) : unlikePost(token, id)),
+      revert: () => {
+        if (snapshot) setPosts(snapshot);
+      },
+    });
   };
 
   const handleRepost = (id: string, reposted: boolean, token: string) => {
-    setPosts((currentPosts) =>
-      currentPosts.map((post) =>
-        post.id === id
-          ? {
-              ...post,
-              reposted,
-              repost_count: Math.max(0, post.repost_count + (reposted ? 1 : -1)),
-            }
-          : post,
-      ),
-    );
-    void (reposted ? repostPost : unrepostPost)(token, id);
+    let snapshot: Post[] | null = null;
+    return withOptimisticPostMutation({
+      apply: () => {
+        setPosts((current) => {
+          snapshot = current;
+          return mapRepostInPosts(current, id, reposted);
+        });
+      },
+      mutate: () => (reposted ? repostPost : unrepostPost)(token, id),
+      revert: () => {
+        if (snapshot) setPosts(snapshot);
+      },
+    });
   };
 
   const handleBookmark = (id: string, bookmarked: boolean, token: string) => {
-    setPosts((currentPosts) =>
-      currentPosts.map((post) => (post.id === id ? { ...post, bookmarked } : post)),
-    );
-    void (bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id));
+    let snapshot: Post[] | null = null;
+    return withOptimisticPostMutation({
+      apply: () => {
+        setPosts((current) => {
+          snapshot = current;
+          return mapBookmarkInPosts(current, id, bookmarked);
+        });
+      },
+      mutate: () => (bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id)),
+      revert: () => {
+        if (snapshot) setPosts(snapshot);
+      },
+    });
   };
 
   if (loading) {
