@@ -60,9 +60,9 @@ Systems are **real** — prefs persist, moderation E2E, credits on checkout, hey
 
 | Slice | Scope | Status |
 |-------|--------|--------|
-| **14a** | Related posts (heuristic: shared tags + same author + recency) + thread “Related” UI | **Next** |
-| **14b** | Trending quality (tag extract, min count, stable explore) | Pending |
-| **14c** | Explore tag → posts click-through + cold-start polish | Pending |
+| **14a** | Related posts (heuristic: shared tags + same author + recency) + thread “Related” UI | **Done (#391)** |
+| **14b** | Trending quality (tag extract, min count, stable explore) | **Done (#392)** |
+| **14c** | Explore tag → posts click-through + cold-start polish | **Done (#392)** (with 14b) |
 | **14d** | Engagement-aware feed sort option (honest “Top” not “ML”) | Pending |
 | **14e** | Embeddings-related discovery (real NN) — after 14a–d prove value | Later |
 
@@ -70,26 +70,26 @@ Systems are **real** — prefs persist, moderation E2E, credits on checkout, hey
 
 | Slice | Scope | Status |
 |-------|--------|--------|
-| **14f** | Progressive video attach/play on posts (mp4/webm via existing media API; no fake transcode claims) | **Next** |
-| **14g** | Watch library lists real Page videos; enable upload when playback ready | Pending |
+| **14f** | Progressive video attach/play on posts (mp4/webm via existing media API; no fake transcode claims) | **Done (#389)** |
+| **14g** | Watch library lists real Page videos; upload enabled for progressive path | **Done (#389)** |
 | **14h** | Shelf membership (add video/post to shelf) | Pending |
 
 ### Track L — Live encoder / ingest
 
 | Slice | Scope | Status |
 |-------|--------|--------|
-| **14i** | LiveSession model (BE): create/start/end, phase `preview\|live\|ended`, Page-owned | Pending |
-| **14j** | FE LivePage binds to real sessions; LIVE badge only when phase=live | Pending |
-| **14k** | Managed ingest (CF Stream / Mux / WHIP) + viewer playback URL | Pending |
+| **14i** | LiveSession model (BE): create/start/end, phase `preview\|live\|ended`, Page-owned | **Done (#390)** |
+| **14j** | FE LivePage binds to real sessions; LIVE badge only when phase=live | **Done (#390)** |
+| **14k** | Managed ingest (CF Stream / Mux / WHIP) + viewer playback URL | **Next** |
 | **14l** | Live chat (session-scoped or post thread) + end→optional VOD | Pending |
 
 ### Track X — x402 production path
 
 | Slice | Scope | Status |
 |-------|--------|--------|
-| **14m** | Facilitator design + env contract (`X402_*` keys, network, recipient) | Pending |
-| **14n** | Real verify (crypto/facilitator) + durable payment receipts | Pending |
-| **14o** | One Social product gate (e.g. paid agent action or unlock) fail-closed | Pending |
+| **14m** | Facilitator design + env contract (`X402_*` keys, network, recipient) | **Done (#393)** |
+| **14n** | Real verify (facilitator HTTP) + durable payment receipts | **Done (#393)** |
+| **14o** | One Social product gate (e.g. paid agent action or unlock) fail-closed | **Next** |
 
 **Honest MVPs:**  
 - Discovery: heuristics first; embeddings = 14e later.  
