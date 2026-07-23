@@ -1069,7 +1069,39 @@ export async function unrepostPost(
   return apiAuthFetch(`/posts/${postId}/repost`, { method: "DELETE", token });
 }
 
+// ─── Privacy prefs (Batch B1) ──────────────────────────────────────────────
+
+export type SocialPrefsResponse = {
+  profileId?: string;
+  dmPolicy: string;
+  discoverableByContact: boolean;
+  showInSearch: boolean;
+  protectedPosts: boolean;
+  profileVisibility: string;
+  allowAgentDms: boolean;
+  allowAgentMentions: boolean;
+};
+
+export async function fetchMyPrefs(token: string): Promise<SocialPrefsResponse> {
+  return apiAuthFetch("/me/prefs", { method: "GET", token });
+}
+
+export async function updateMyPrefs(
+  token: string,
+  patch: Record<string, unknown>,
+): Promise<SocialPrefsResponse> {
+  return apiAuthFetch("/me/prefs", { method: "PATCH", token, body: patch });
+}
+
 // ─── Moderation ────────────────────────────────────────────────────────────
+
+export type ModerationListEntry = {
+  id: string;
+  handle: string;
+  displayName: string;
+  avatarUrl: string | null;
+  createdAt?: string;
+};
 
 export async function blockUser(
   token: string,
@@ -1102,8 +1134,20 @@ export async function unmuteUser(
 export async function reportContent(
   token: string,
   data: { targetType: string; targetId: string; reason: string },
-): Promise<{ ok: true }> {
+): Promise<{ ok: true } | Record<string, unknown>> {
   return apiAuthFetch("/report", { method: "POST", token, body: data });
+}
+
+export async function fetchMyBlocks(
+  token: string,
+): Promise<{ blocks: ModerationListEntry[] }> {
+  return apiAuthFetch("/me/blocks", { method: "GET", token });
+}
+
+export async function fetchMyMutes(
+  token: string,
+): Promise<{ mutes: ModerationListEntry[] }> {
+  return apiAuthFetch("/me/mutes", { method: "GET", token });
 }
 
 // ─── Linked agents ─────────────────────────────────────────────────────────

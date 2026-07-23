@@ -616,7 +616,13 @@ pub async fn create_checkout(
     let _ = coupon_percent_off;
 
     let session = stripe
-        .create_checkout_session(&customer_id, price_id, trial_days, None)
+        .create_checkout_session(
+            &customer_id,
+            price_id,
+            trial_days,
+            None,
+            Some(&user.user_id),
+        )
         .await
         .map_err(|e| (
             StatusCode::BAD_GATEWAY,
@@ -903,6 +909,15 @@ pub fn credit_balance_for_api(
     row.map(|r| r.subscription_remaining + r.pack_remaining)
 }
 
+/// Default subscription allotment when a paid subscription checkout completes.
+pub const DEFAULT_SUBSCRIPTION_CREDITS: f64 = 200.0;
+
+/// Pure decision: whether checkout.session.completed should init a credit ledger row.
+/// Only subscription mode (not one-time payment packs).
+pub fn should_init_credits_on_checkout(mode: &str) -> bool {
+    mode.eq_ignore_ascii_case("subscription")
+}
+
 /// Honest note for billing/usage responses.
 pub fn billing_usage_note(has_metered_balance: bool) -> &'static str {
     if has_metered_balance {
@@ -1048,7 +1063,19 @@ pub async fn get_billing_usage(
 
 #[cfg(test)]
 mod credit_balance_api_tests {
-    use super::{billing_usage_note, credit_balance_for_api};
+    use super::{
+        billing_usage_note, credit_balance_for_api, should_init_credits_on_checkout,
+        DEFAULT_SUBSCRIPTION_CREDITS,
+    };
+
+    #[test]
+    fn should_init_credits_only_for_subscription_mode() {
+        assert!(should_init_credits_on_checkout("subscription"));
+        assert!(should_init_credits_on_checkout("Subscription"));
+        assert!(!should_init_credits_on_checkout("payment"));
+        assert!(!should_init_credits_on_checkout(""));
+        assert_eq!(DEFAULT_SUBSCRIPTION_CREDITS, 200.0);
+    }
     use crate::db::CreditBalanceRecord;
 
     #[test]
@@ -1177,7 +1204,7 @@ pub async fn stripe_webhook(
             let mode = obj["mode"].as_str().unwrap_or("");
 
             if let (Some(user_id), Some(cust_id)) = (clerk_user_id, customer_id) {
-                if mode == "subscription" {
+                if should_init_credits_on_checkout(mode) {
                     let sub = crate::db::SubscriptionRecord {
                         clerk_user_id: user_id.to_string(),
                         stripe_customer_id: cust_id.to_string(),
@@ -1189,8 +1216,10 @@ pub async fn stripe_webhook(
                         current_period_end: None,
                     };
                     db.upsert_subscription(&sub);
+                    // Batch B3 — meter paid subscribers; free/unmetered stays null until row exists.
+                    db.init_credit_balance(user_id, DEFAULT_SUBSCRIPTION_CREDITS);
                     db.record_billing_event(user_id, event_id, 0, "Subscription created", "completed");
-                    tracing::info!("subscription created for user {user_id}");
+                    tracing::info!("subscription created + credits init for user {user_id}");
                 }
             }
         }

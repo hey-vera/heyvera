@@ -561,6 +561,9 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
                 .route("/v1/social/posts/{id}", get(social::get_single_post).delete(social::delete_post))
                 .route("/v1/social/feed/following", get(social::get_following_feed))
                 .route("/v1/social/me/profile", get(social::get_me_profile).post(social::create_me_profile).patch(social::update_me_profile))
+                .route("/v1/social/me/prefs", get(social::get_me_prefs).patch(social::patch_me_prefs))
+                .route("/v1/social/me/blocks", get(moderation::list_my_blocks))
+                .route("/v1/social/me/mutes", get(moderation::list_my_mutes))
                 .route("/v1/social/notifications", get(notifications::get_notifications))
                 .route("/v1/social/notifications/read", post(notifications::mark_notifications_read))
                 .route("/v1/social/communities/{id}/feed", get(social::get_community_feed))
@@ -678,6 +681,9 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/posts/{id}", get(social::get_single_post).delete(social::delete_post))
         .route("/v1/social/feed/following", get(social::get_following_feed))
         .route("/v1/social/me/profile", get(social::get_me_profile).post(social::create_me_profile).patch(social::update_me_profile))
+        .route("/v1/social/me/prefs", get(social::get_me_prefs).patch(social::patch_me_prefs))
+        .route("/v1/social/me/blocks", get(moderation::list_my_blocks))
+        .route("/v1/social/me/mutes", get(moderation::list_my_mutes))
         .route("/v1/social/notifications", get(notifications::get_notifications))
         .route("/v1/social/notifications/read", post(notifications::mark_notifications_read))
         .route("/v1/social/communities/{id}/feed", get(social::get_community_feed))
@@ -906,6 +912,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/feed/following", get(social::get_following_feed))
         // Task #33: /me/profile CRUD
         .route("/v1/social/me/profile", get(social::get_me_profile).post(social::create_me_profile).patch(social::update_me_profile))
+        // Batch B1/B2: privacy prefs + moderation lists
+        .route("/v1/social/me/prefs", get(social::get_me_prefs).patch(social::patch_me_prefs))
+        .route("/v1/social/me/blocks", get(moderation::list_my_blocks))
+        .route("/v1/social/me/mutes", get(moderation::list_my_mutes))
         // Task #34: Notifications
         .route("/v1/social/notifications", get(notifications::get_notifications))
         .route("/v1/social/notifications/read", post(notifications::mark_notifications_read))

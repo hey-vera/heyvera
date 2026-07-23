@@ -1311,6 +1311,100 @@ pub async fn update_me_profile(
     }
 }
 
+// ─── Batch B1: /me/prefs privacy preferences ────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+pub struct UpdatePrefsRequest {
+    #[serde(default, rename = "dmPolicy", alias = "dm_policy")]
+    pub dm_policy: Option<String>,
+    #[serde(default, rename = "discoverableByContact", alias = "discoverable_by_contact")]
+    pub discoverable_by_contact: Option<bool>,
+    #[serde(default, rename = "showInSearch", alias = "show_in_search")]
+    pub show_in_search: Option<bool>,
+    #[serde(default, rename = "protectedPosts", alias = "protected_posts")]
+    pub protected_posts: Option<bool>,
+    #[serde(default, rename = "profileVisibility", alias = "profile_visibility")]
+    pub profile_visibility: Option<String>,
+    #[serde(default, rename = "allowAgentDms", alias = "allow_agent_dms")]
+    pub allow_agent_dms: Option<bool>,
+    #[serde(default, rename = "allowAgentMentions", alias = "allow_agent_mentions")]
+    pub allow_agent_mentions: Option<bool>,
+}
+
+fn normalize_dm_policy(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "everyone" | "all" | "open" => Some("everyone"),
+        "verified" | "verified_users" => Some("verified"),
+        "following" | "people_you_follow" | "followers" => Some("following"),
+        _ => None,
+    }
+}
+
+fn normalize_profile_visibility(raw: &str) -> Option<&'static str> {
+    match raw.trim().to_ascii_lowercase().replace('-', "_").as_str() {
+        "public" => Some("public"),
+        "signed_in" | "signedin" | "signed_in_users" => Some("signed_in"),
+        "followers" | "followers_only" => Some("followers"),
+        _ => None,
+    }
+}
+
+/// GET /v1/social/me/prefs — lazy-create defaults on first read.
+pub async fn get_me_prefs(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(p) => p,
+        None => return not_found("No profile found — create a profile first"),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+    let prefs = db(&state).social_get_or_create_profile_prefs(profile_id);
+    ok(prefs)
+}
+
+/// PATCH /v1/social/me/prefs — partial update; camelCase preferred.
+pub async fn patch_me_prefs(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<UpdatePrefsRequest>,
+) -> impl IntoResponse {
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(p) => p,
+        None => return not_found("No profile found — create a profile first"),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+
+    let dm_policy = match &req.dm_policy {
+        None => None,
+        Some(s) => match normalize_dm_policy(s) {
+            Some(v) => Some(v),
+            None => return bad_request("dmPolicy must be everyone, verified, or following"),
+        },
+    };
+    let profile_visibility = match &req.profile_visibility {
+        None => None,
+        Some(s) => match normalize_profile_visibility(s) {
+            Some(v) => Some(v),
+            None => {
+                return bad_request("profileVisibility must be public, signed_in, or followers")
+            }
+        },
+    };
+
+    let prefs = db(&state).social_update_profile_prefs(
+        profile_id,
+        dm_policy,
+        req.discoverable_by_contact,
+        req.show_in_search,
+        req.protected_posts,
+        profile_visibility,
+        req.allow_agent_dms,
+        req.allow_agent_mentions,
+    );
+    ok(prefs)
+}
+
 // ─── Soft-delete post ──────────────────────────────────────────────────────
 
 pub async fn delete_post(

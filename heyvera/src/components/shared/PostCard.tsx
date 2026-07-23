@@ -26,6 +26,7 @@ import { useAuth } from '../../hooks/useAuth';
 import { LinkedAgentChip } from './LinkedAgentChip';
 import { QuoteCompose } from './QuoteCompose';
 import { ReplyCompose } from './ReplyCompose';
+import { mapReportToApiBody } from '../../utils/moderation';
 import { extractFirstUrl, LinkPreviewCard, renderRichText } from '../../utils/richText';
 
 interface PostCardProps {
@@ -34,6 +35,8 @@ interface PostCardProps {
   onRepost?: (id: string, reposted: boolean, token: string) => void;
   onBookmark?: (id: string, bookmarked: boolean, token: string) => void;
   onReply?: () => void;
+  /** Called after successful block/mute so parents can hide this author's posts. */
+  onHideAuthor?: (authorId: string, reason: 'block' | 'mute') => void;
 }
 
 type AuthPrompt = 'signin' | 'profile' | 'unconfigured' | 'error' | null;
@@ -59,7 +62,7 @@ function formatCount(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-export function PostCard({ post, onLike, onRepost, onBookmark, onReply }: PostCardProps) {
+export function PostCard({ post, onLike, onRepost, onBookmark, onReply, onHideAuthor }: PostCardProps) {
   const navigate = useNavigate();
   const { authEnabled, isSignedIn, getToken, userId } = useAuth();
   const [liked, setLiked] = useState(post.liked);
@@ -75,12 +78,26 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply }: PostCa
   const [hasProfile, setHasProfile] = useState<boolean | null>(null);
   const [replyOpen, setReplyOpen] = useState(false);
   const [quoteOpen, setQuoteOpen] = useState(false);
+  const [actionNotice, setActionNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
+  const [moderationBusy, setModerationBusy] = useState(false);
   const likeTimerRef = useRef<number | null>(null);
+  const noticeTimerRef = useRef<number | null>(null);
+
+  const showNotice = (kind: 'ok' | 'err', text: string) => {
+    setActionNotice({ kind, text });
+    if (noticeTimerRef.current != null) {
+      window.clearTimeout(noticeTimerRef.current);
+    }
+    noticeTimerRef.current = window.setTimeout(() => setActionNotice(null), 3200);
+  };
 
   useEffect(() => {
     return () => {
       if (likeTimerRef.current != null) {
         window.clearTimeout(likeTimerRef.current);
+      }
+      if (noticeTimerRef.current != null) {
+        window.clearTimeout(noticeTimerRef.current);
       }
     };
   }, []);
@@ -207,23 +224,58 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply }: PostCa
 
   const handleBlock = async () => {
     setOpenMenu(null);
+    if (moderationBusy) return;
     const token = await ensureCanMutate();
     if (!token) return;
-    void blockUser(token, post.author.id);
+    setModerationBusy(true);
+    // Optimistic hide — revert on failure.
+    onHideAuthor?.(post.author.id, 'block');
+    try {
+      await blockUser(token, post.author.id);
+      showNotice('ok', `Blocked @${post.author.handle}`);
+    } catch (err) {
+      showNotice('err', err instanceof Error ? err.message : 'Could not block user');
+    } finally {
+      setModerationBusy(false);
+    }
   };
 
   const handleMute = async () => {
     setOpenMenu(null);
+    if (moderationBusy) return;
     const token = await ensureCanMutate();
     if (!token) return;
-    void muteUser(token, post.author.id);
+    setModerationBusy(true);
+    onHideAuthor?.(post.author.id, 'mute');
+    try {
+      await muteUser(token, post.author.id);
+      showNotice('ok', `Muted @${post.author.handle}`);
+    } catch (err) {
+      showNotice('err', err instanceof Error ? err.message : 'Could not mute user');
+    } finally {
+      setModerationBusy(false);
+    }
   };
 
   const handleReport = async () => {
     setOpenMenu(null);
+    if (moderationBusy) return;
     const token = await ensureCanMutate();
     if (!token) return;
-    void reportContent(token, { targetType: 'post', targetId: post.id, reason: 'user_reported' });
+    setModerationBusy(true);
+    try {
+      const body = mapReportToApiBody({
+        targetType: 'post',
+        targetId: post.id,
+        reason: 'user_reported',
+      });
+      await reportContent(token, body);
+      showNotice('ok', 'Report submitted');
+    } catch (err) {
+      showNotice('err', err instanceof Error ? err.message : 'Could not submit report');
+    } finally {
+      setModerationBusy(false);
+    }
   };
 
   return (
@@ -420,6 +472,20 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply }: PostCa
           checking={checkingAuth}
           onClose={() => setAuthPrompt(null)}
         />
+      )}
+
+      {actionNotice && (
+        <div
+          className="mt-2 rounded-xl border px-3 py-2 text-[13px]"
+          role="status"
+          style={{
+            borderColor: actionNotice.kind === 'err' ? 'var(--color-danger, #f4212e)' : 'var(--border-primary)',
+            color: actionNotice.kind === 'err' ? 'var(--color-danger, #f4212e)' : 'var(--text-secondary)',
+            backgroundColor: 'var(--bg-elevated)',
+          }}
+        >
+          {actionNotice.text}
+        </div>
       )}
 
       {replyOpen && (
