@@ -118,22 +118,27 @@ export function RightRail() {
           </p>
         )}
 
-        {trending.map((item, i) => (
+        {trending.map((item, i) => {
+          const tagLabel = item.tag.startsWith('#') ? item.tag : `#${item.tag}`;
+          return (
           <button
             key={i}
             className="w-full flex flex-col items-start px-4 py-3 transition-colors hover-overlay text-left"
-            aria-label={`Trending: ${item.tag}`}
-            onClick={() => navigate(`/explore?q=${encodeURIComponent(item.tag)}`)}
+            aria-label={`Trending: ${tagLabel}`}
+            onClick={() =>
+              navigate(`/explore?q=${encodeURIComponent(tagLabel)}&filter=posts`)
+            }
           >
             <span className="text-xs" style={{ color: 'var(--text-secondary)' }}>Trending</span>
             <span className="text-sm font-bold mt-0.5" style={{ color: 'var(--text-primary)' }}>
-              {item.tag}
+              {tagLabel}
             </span>
             <span className="text-xs mt-0.5" style={{ color: 'var(--text-secondary)' }}>
               {formatCount(item.postCount)}
             </span>
           </button>
-        ))}
+          );
+        })}
 
         {trending.length > 0 && (
           <button

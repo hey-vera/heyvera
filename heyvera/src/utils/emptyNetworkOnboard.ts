@@ -138,8 +138,9 @@ export function emptyFollowingDetail(): string {
   return "Follow people and join public communities to fill Following. Suggestions below come from live profiles, communities, and trending APIs — not invented accounts.";
 }
 
-/** Explore path for a trending tag. */
+/** Explore path for a trending tag — posts search with `#tag` query. */
 export function topicExplorePath(tag: string): string {
   const clean = tag.replace(/^#/, "").trim();
-  return `/explore?q=${encodeURIComponent(clean)}&filter=trending`;
+  if (!clean) return "/explore";
+  return `/explore?q=${encodeURIComponent(`#${clean}`)}&filter=posts`;
 }

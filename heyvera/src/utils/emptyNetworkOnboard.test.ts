@@ -98,7 +98,12 @@ describe("empty following copy", () => {
 });
 
 describe("topicExplorePath", () => {
-  it("builds explore query", () => {
-    expect(topicExplorePath("#rust")).toBe("/explore?q=rust&filter=trending");
+  it("builds explore posts search with hashtag query", () => {
+    expect(topicExplorePath("#rust")).toBe(
+      `/explore?q=${encodeURIComponent("#rust")}&filter=posts`,
+    );
+    expect(topicExplorePath("heyvera")).toBe(
+      `/explore?q=${encodeURIComponent("#heyvera")}&filter=posts`,
+    );
   });
 });
