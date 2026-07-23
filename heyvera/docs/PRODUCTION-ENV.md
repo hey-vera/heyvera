@@ -97,6 +97,21 @@ Without this cron (or manual self-call), scheduled drafts remain in `scheduled` 
 
 Stripe keys as already used by shared billing routes if Premium is enabled.
 
+## x402 agent micropayments (Social, optional)
+
+Default is **off**. Enable only when you intend shape-only validation or a real facilitator.
+
+| Variable | Purpose |
+|----------|---------|
+| `X402_ENABLED=1` | Enable verify path (exactly `1`; anything else = disabled) |
+| `X402_NETWORK` | Chain id, e.g. `base-sepolia` or `base` (default `base-sepolia` when enabled) |
+| `X402_FACILITATOR_URL` | Optional HTTP facilitator base; when set → mode `facilitator` |
+| `X402_PAY_TO` | Public recipient address for status UI (never a private key) |
+
+**Never** put private keys in env for this surface. Details: `heyvera/docs/X402.md`.
+
+Modes: `disabled` | `shape_only` (enabled, no facilitator) | `facilitator` (enabled + URL).
+
 ## Smoke gate
 
 ```bash

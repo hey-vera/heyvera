@@ -81,14 +81,17 @@ function X402AgentPaymentsCard() {
   }, []);
 
   const enabled = status?.enabled === true;
+  const mode = status?.mode ?? (enabled ? 'shape_only' : 'disabled');
   const label =
     loadState === 'loading'
       ? 'Checking…'
       : loadState === 'error'
         ? 'Unavailable'
-        : enabled
-          ? 'Enabled (shape-only — not live payments)'
-          : 'Disabled';
+        : mode === 'facilitator'
+          ? 'Facilitator'
+          : mode === 'shape_only'
+            ? 'Shape-only'
+            : 'Disabled';
 
   return (
     <div
@@ -102,9 +105,11 @@ function X402AgentPaymentsCard() {
           <p className="text-[14px] font-bold">Agent payments (x402)</p>
           <p className="mt-1 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
             Status: <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{label}</span>
-            {status?.note ? ` · ${status.note}` : ''}
             {status?.network ? ` · network: ${status.network}` : ''}
-            . No live settlement. Details in{' '}
+            {status?.mode ? ` · mode: ${status.mode}` : ''}
+            {status?.payTo ? ` · payTo: ${status.payTo}` : ''}
+            {status?.note ? ` · ${status.note}` : ''}
+            . Details in{' '}
             <Link to="/settings" className="underline" style={{ color: 'var(--accent)' }}>
               Settings
             </Link>
