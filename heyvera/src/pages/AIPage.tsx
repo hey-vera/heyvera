@@ -22,8 +22,8 @@ import type {
   PulseGoal,
   PulseSchedule,
 } from '../api/pulse';
-import { fetchX402Status } from '../api/social';
-import type { X402Status } from '../api/social';
+import { fetchX402Status, postX402PaidPing } from '../api/social';
+import type { X402PaidPingResult, X402Status } from '../api/social';
 import { PulseApiError } from '../api/pulse';
 import { pulseCreditErrorMessage } from '../utils/pulseCreditError';
 import {
@@ -37,6 +37,10 @@ import {
   PULSE_SCHEDULE_PROCESSOR_NOTE,
   pulseScheduleProcessorStatusLabel,
 } from '../utils/pulseScheduleHonesty';
+import {
+  formatX402PaidPingResult,
+  showX402PaidAction,
+} from '../utils/x402Enabled';
 
 type Tab = 'drafts' | 'schedule' | 'goals' | 'helper';
 
@@ -59,9 +63,17 @@ type ChatMessage = {
 const VERA_GREETING =
   "Draft helper (beta): I create and manage Pulse drafts via tools. Without server LLM keys I use keyword tools (tools_v1); with keys, tools_v2. Not a general chat model — use Drafts / Schedule / Goals for the full workflow.";
 
-function X402AgentPaymentsCard() {
+function X402AgentPaymentsCard({
+  isSignedIn,
+  getToken,
+}: {
+  isSignedIn: boolean;
+  getToken: () => Promise<string | null>;
+}) {
   const [status, setStatus] = useState<X402Status | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'live' | 'error'>('loading');
+  const [pingBusy, setPingBusy] = useState(false);
+  const [pingResult, setPingResult] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -92,6 +104,35 @@ function X402AgentPaymentsCard() {
           : mode === 'shape_only'
             ? 'Shape-only'
             : 'Disabled';
+  const showPaidAction = showX402PaidAction(status);
+
+  async function runPaidPing() {
+    setPingBusy(true);
+    setPingResult(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setPingResult('Sign in required to test the paid action.');
+        return;
+      }
+      const result: X402PaidPingResult = await postX402PaidPing(token, {
+        amount: '0.01',
+        network: status?.network,
+        payload: { x402Version: 1, source: 'ai-page-test-paid-action' },
+        idempotencyKey: `ui-ai-${Date.now()}`,
+      });
+      setPingResult(formatX402PaidPingResult(result));
+    } catch (e) {
+      const err = e as Error & { body?: X402PaidPingResult };
+      if (err.body) {
+        setPingResult(formatX402PaidPingResult(err.body));
+      } else {
+        setPingResult(e instanceof Error ? e.message : 'Paid action failed');
+      }
+    } finally {
+      setPingBusy(false);
+    }
+  }
 
   return (
     <div
@@ -101,7 +142,7 @@ function X402AgentPaymentsCard() {
     >
       <div className="flex items-start gap-2">
         <Zap className="mt-0.5 h-4 w-4 shrink-0" style={{ color: 'var(--accent)' }} aria-hidden="true" />
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           <p className="text-[14px] font-bold">Agent payments (x402)</p>
           <p className="mt-1 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
             Status: <span className="font-semibold" style={{ color: 'var(--text-primary)' }}>{label}</span>
@@ -115,6 +156,24 @@ function X402AgentPaymentsCard() {
             </Link>
             .
           </p>
+          {showPaidAction && isSignedIn ? (
+            <div className="mt-2 flex flex-col gap-1.5">
+              <button
+                type="button"
+                disabled={pingBusy}
+                onClick={() => void runPaidPing()}
+                className="self-start rounded-full border px-3 py-1 text-[12px] font-semibold transition-opacity disabled:opacity-50"
+                style={{ borderColor: 'var(--accent)', color: 'var(--accent)' }}
+              >
+                {pingBusy ? 'Testing…' : 'Test paid action'}
+              </button>
+              {pingResult ? (
+                <p className="text-[12px] font-mono" style={{ color: 'var(--text-primary)' }}>
+                  {pingResult}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
       </div>
     </div>
@@ -168,7 +227,7 @@ export function AIPage() {
         </div>
       </div>
 
-      <X402AgentPaymentsCard />
+      <X402AgentPaymentsCard isSignedIn={Boolean(isSignedIn)} getToken={getToken} />
 
       {activeTab === 'drafts' && (
         <DraftsTab authEnabled={authEnabled} isSignedIn={isSignedIn} getToken={getToken} />

@@ -3,7 +3,9 @@ import {
   X402_DISABLED_NOTE,
   X402_FACILITATOR_NOTE,
   X402_SHAPE_ONLY_NOTE,
+  formatX402PaidPingResult,
   isX402Enabled,
+  showX402PaidAction,
   x402ModeLabel,
 } from './x402Enabled';
 
@@ -41,5 +43,42 @@ describe('isX402Enabled (12c/14m)', () => {
     expect(x402ModeLabel({ enabled: true, mode: 'facilitator' })).toBe('Facilitator');
     expect(x402ModeLabel({ enabled: true })).toBe('Enabled (shape-only)');
     expect(x402ModeLabel(null)).toBe('Unknown');
+  });
+});
+
+describe('Wave 14o paid action UI helpers', () => {
+  it('showX402PaidAction only when enabled', () => {
+    expect(showX402PaidAction(null)).toBe(false);
+    expect(showX402PaidAction({ enabled: false, mode: 'disabled' })).toBe(false);
+    expect(showX402PaidAction({ enabled: true, mode: 'shape_only' })).toBe(true);
+    expect(showX402PaidAction({ enabled: true, mode: 'facilitator' })).toBe(true);
+    expect(showX402PaidAction({ mode: 'shape_only' })).toBe(true);
+    expect(showX402PaidAction({ mode: 'disabled' })).toBe(false);
+  });
+
+  it('formatX402PaidPingResult is honest about settlement', () => {
+    expect(
+      formatX402PaidPingResult({
+        ok: true,
+        settled: false,
+        mode: 'shape_only',
+        receiptId: 'x402_1',
+      }),
+    ).toMatch(/not settled \(shape_only\)/);
+    expect(
+      formatX402PaidPingResult({
+        ok: true,
+        settled: true,
+        mode: 'facilitator',
+        receiptId: 'x402_2',
+      }),
+    ).toMatch(/settled/);
+    expect(
+      formatX402PaidPingResult({
+        ok: false,
+        reason: 'payment not verified',
+        mode: 'facilitator',
+      }),
+    ).toMatch(/Failed: payment not verified/);
   });
 });
