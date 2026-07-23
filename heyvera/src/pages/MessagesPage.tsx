@@ -3,7 +3,7 @@ import { SignInButton } from '@clerk/clerk-react';
 import { ArrowLeft, MessageCircle, Search, Send } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import type { Conversation, Message } from '../api/types';
-import { getConversations, getMessages } from '../api/social';
+import { getConversations, getMessages, sendMessage } from '../api/social';
 import { LoadingState, EmptyState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';
 import { useAuthContext } from '../hooks/useAuthContext';
@@ -24,12 +24,6 @@ import {
   subscribePayload,
 } from '../utils/socialDmWs';
 
-/* ─── API helper for sending a message ──────────────────────────────────────── */
-
-const API_BASE = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/v1/social`
-  : '/v1/social';
-
 /** Soft-realtime: messages while a thread is open (honest intermediate before WS). */
 const MESSAGES_POLL_MS = 6_000;
 /** Soft-realtime: conversation list refresh. */
@@ -38,26 +32,6 @@ const CONVERSATIONS_POLL_MS = 20_000;
 const WS_PING_MS = 30_000;
 /** When getToken is null, wait before retrying connect (avoid silent spin). */
 const TOKEN_RETRY_MS = 15_000;
-
-async function sendMessage(
-  token: string,
-  conversationId: string,
-  content: string,
-): Promise<Message> {
-  const res = await fetch(`${API_BASE}/conversations/${conversationId}/messages`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-    },
-    body: JSON.stringify({ content }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error((err as { error?: string }).error ?? `API error ${res.status}`);
-  }
-  return res.json() as Promise<Message>;
-}
 
 /* ─── Helpers ───────────────────────────────────────────────────────────────── */
 

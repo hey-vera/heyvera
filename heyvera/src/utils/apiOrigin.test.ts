@@ -19,10 +19,15 @@ describe('resolveSocialApiBase', () => {
   it('defaults to same-origin relative path when empty', () => {
     expect(resolveSocialApiBase('')).toBe('/v1/social');
     expect(resolveSocialApiBase(undefined)).toBe('/v1/social');
+    expect(resolveSocialApiBase(null)).toBe('/v1/social');
+    expect(resolveSocialApiBase('   ')).toBe('/v1/social');
   });
 
   it('appends /v1/social to bare origin', () => {
     expect(resolveSocialApiBase('https://api.heyvera.org')).toBe(
+      'https://api.heyvera.org/v1/social',
+    );
+    expect(resolveSocialApiBase('https://api.heyvera.org/')).toBe(
       'https://api.heyvera.org/v1/social',
     );
   });
@@ -31,10 +36,33 @@ describe('resolveSocialApiBase', () => {
     expect(resolveSocialApiBase('https://api.heyvera.org/v1')).toBe(
       'https://api.heyvera.org/v1/social',
     );
+    expect(resolveSocialApiBase('https://api.heyvera.org/v1/')).toBe(
+      'https://api.heyvera.org/v1/social',
+    );
     expect(resolveSocialApiBase('https://api.heyvera.org/v1/social')).toBe(
       'https://api.heyvera.org/v1/social',
     );
+    expect(resolveSocialApiBase('https://api.heyvera.org/v1/social/')).toBe(
+      'https://api.heyvera.org/v1/social',
+    );
     expect(resolveSocialApiBase('/v1')).toBe('/v1/social');
+  });
+
+  it('never double-appends /v1/social (DM send anti-pattern regression)', () => {
+    // Ad-hoc `${VITE_API_URL}/v1/social` breaks when env already includes /v1 or /v1/social.
+    const shapes = [
+      '',
+      'https://api.heyvera.org',
+      'https://api.heyvera.org/v1',
+      'https://api.heyvera.org/v1/social',
+      '/v1',
+    ];
+    for (const shape of shapes) {
+      const base = resolveSocialApiBase(shape);
+      expect(base.endsWith('/v1/social')).toBe(true);
+      expect(base).not.toMatch(/\/v1\/social\/v1\/social/);
+      expect(base).not.toMatch(/\/v1\/v1\//);
+    }
   });
 });
 

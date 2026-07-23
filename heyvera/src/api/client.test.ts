@@ -173,6 +173,35 @@ describe('api social (legacy-compatible functions)', () => {
     );
   });
 
+  it('sendMessage POSTs to /v1/social conversations path (shared API base)', async () => {
+    vi.stubEnv('VITE_API_URL', '/v1');
+    const fetchMock = mockFetch();
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        id: 'msg_1',
+        content: 'hello',
+        author: { id: 'p1', handle: 'a', display_name: 'A', avatar_url: null },
+        created_at: '2026-01-01T00:00:00Z',
+      }),
+    });
+
+    const { sendMessage } = await import('./social');
+    const msg = await sendMessage('token-dm', 'conv_1', 'hello');
+    expect(msg.id).toBe('msg_1');
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/v1/social/conversations/conv_1/messages',
+      expect.objectContaining({
+        method: 'POST',
+        body: JSON.stringify({ content: 'hello' }),
+        headers: expect.objectContaining({ Authorization: 'Bearer token-dm' }),
+      }),
+    );
+  });
+
   it('createCommunity and joinCommunity hit real guild routes', async () => {
     vi.stubEnv('VITE_API_URL', '/v1');
     const fetchMock = mockFetch();
