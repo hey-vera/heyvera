@@ -13,6 +13,8 @@ use serde::Deserialize;
 use crate::agent_auth::{generate_agent_api_key, SocialWriteAuth};
 use crate::clerk::ClerkUser;
 use crate::state::AppState;
+use rand::RngCore;
+use sha2::{Digest, Sha256};
 
 type ApiResponse = (StatusCode, Json<serde_json::Value>);
 
@@ -127,6 +129,17 @@ pub struct CreateCommunityRequest {
     pub slug: String,
     pub description: Option<String>,
     pub visibility: Option<String>,
+}
+
+/// Owner-create invite for a community (private guilds primarily).
+#[derive(Debug, Deserialize)]
+pub struct CreateCommunityInviteRequest {
+    /// Optional max redemptions. Omit / null = unlimited.
+    #[serde(default, rename = "maxUses", alias = "max_uses")]
+    pub max_uses: Option<i64>,
+    /// Optional TTL in hours from now. Omit / null = no expiry.
+    #[serde(default, rename = "expiresInHours", alias = "expires_in_hours")]
+    pub expires_in_hours: Option<i64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -1558,6 +1571,22 @@ pub async fn get_community_feed(
 
 // ─── Community Membership ─────────────────────────────────────────────────────
 
+/// SHA-256 hex of a community invite token (plaintext never stored).
+fn hash_community_invite_token(token: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(token.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// Generate invite token: `hvinv_` + 24 CSPRNG bytes base64url. Returns (plaintext, hash).
+fn generate_community_invite_token() -> (String, String) {
+    let mut bytes = [0u8; 24];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    let secret = format!("hvinv_{}", URL_SAFE_NO_PAD.encode(bytes));
+    let hash = hash_community_invite_token(&secret);
+    (secret, hash)
+}
+
 pub async fn join_community(
     user: ClerkUser,
     Path(community_id): Path<String>,
@@ -1571,6 +1600,25 @@ pub async fn join_community(
         Ok(id) => id,
         Err(e) => return e,
     };
+
+    // Private guilds: open join is closed — redeem an invite instead (Batch C).
+    let community = match db(&state).social_get_community_by_id(&community_id) {
+        Some(c) => c,
+        None => return not_found("Community not found"),
+    };
+    let visibility = community["visibility"].as_str().unwrap_or("public");
+    if visibility == "private" {
+        // Already a member: treat as no-op success (leave still works).
+        if db(&state).social_is_community_member(&community_id, &profile_id) {
+            return ok(serde_json::json!({
+                "ok": true,
+                "joined": false,
+                "message": "already a member"
+            }));
+        }
+        return forbidden("Private community — invite required");
+    }
+
     let joined = db(&state).social_join_community(&community_id, &profile_id);
     if joined {
         ok(serde_json::json!({ "ok": true, "joined": true }))
@@ -1603,12 +1651,31 @@ pub async fn leave_community(
 pub async fn list_community_members(
     Path(community_id): Path<String>,
     Query(params): Query<FeedQuery>,
+    headers: HeaderMap,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let community_id = match resolve_community_path(&state, &community_id) {
         Ok(id) => id,
         Err(e) => return e,
     };
+
+    // Private guilds: members list requires membership (Batch C ACL).
+    let community = match db(&state).social_get_community_by_id(&community_id) {
+        Some(c) => c,
+        None => return not_found("Community not found"),
+    };
+    let visibility = community["visibility"].as_str().unwrap_or("public");
+    if visibility == "private" {
+        let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
+        let is_member = viewer_pid
+            .as_deref()
+            .map(|pid| db(&state).social_is_community_member(&community_id, pid))
+            .unwrap_or(false);
+        if !is_member {
+            return forbidden("Private community — membership required to view members");
+        }
+    }
+
     let limit = params.limit.unwrap_or(50).min(200);
     let members = db(&state).social_list_community_members(&community_id, limit);
     let count = members.len();
@@ -1616,6 +1683,167 @@ pub async fn list_community_members(
         "members": members,
         "count": count,
     }))
+}
+
+// ─── Community invites (Batch C) ─────────────────────────────────────────────
+
+/// POST /v1/social/communities/{id}/invites — owner creates an invite (token once).
+pub async fn create_community_invite(
+    user: ClerkUser,
+    Path(community_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateCommunityInviteRequest>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let community_id = match resolve_community_path(&state, &community_id) {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+
+    let role = db(&state).social_community_member_role(&community_id, &profile_id);
+    if role.as_deref() != Some("owner") {
+        return forbidden("Only the community owner can create invites");
+    }
+
+    if let Some(max) = req.max_uses {
+        if max < 1 || max > 10_000 {
+            return bad_request("maxUses must be between 1 and 10000");
+        }
+    }
+    if let Some(hours) = req.expires_in_hours {
+        if hours < 1 || hours > 24 * 365 {
+            return bad_request("expiresInHours must be between 1 and 8760");
+        }
+    }
+
+    let expires_at = req.expires_in_hours.map(|h| {
+        // SQLite-friendly datetime relative to now.
+        format!(
+            "{}",
+            chrono::Utc::now()
+                .checked_add_signed(chrono::Duration::hours(h))
+                .unwrap_or_else(chrono::Utc::now)
+                .format("%Y-%m-%d %H:%M:%S")
+        )
+    });
+
+    let (token, token_hash) = generate_community_invite_token();
+    match db(&state).social_create_community_invite(
+        &community_id,
+        &profile_id,
+        &token_hash,
+        req.max_uses,
+        expires_at.as_deref(),
+    ) {
+        Ok(mut invite) => {
+            // Plaintext token returned once — never stored.
+            if let Some(obj) = invite.as_object_mut() {
+                obj.insert("token".into(), serde_json::Value::String(token));
+            }
+            ok(serde_json::json!({ "ok": true, "invite": invite }))
+        }
+        Err(msg) => internal_error(&msg),
+    }
+}
+
+/// GET /v1/social/communities/{id}/invites — owner lists invites (no tokens).
+pub async fn list_community_invites(
+    user: ClerkUser,
+    Path(community_id): Path<String>,
+    Query(params): Query<FeedQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let community_id = match resolve_community_path(&state, &community_id) {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+
+    let role = db(&state).social_community_member_role(&community_id, &profile_id);
+    if role.as_deref() != Some("owner") {
+        return forbidden("Only the community owner can list invites");
+    }
+
+    let limit = params.limit.unwrap_or(50).min(200);
+    let invites = db(&state).social_list_community_invites(&community_id, limit);
+    ok(serde_json::json!({ "invites": invites, "count": invites.len() }))
+}
+
+/// DELETE /v1/social/communities/{id}/invites/{inviteId} — owner revokes.
+pub async fn revoke_community_invite(
+    user: ClerkUser,
+    Path((community_id, invite_id)): Path<(String, String)>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let community_id = match resolve_community_path(&state, &community_id) {
+        Ok(id) => id,
+        Err(e) => return e,
+    };
+
+    let role = db(&state).social_community_member_role(&community_id, &profile_id);
+    if role.as_deref() != Some("owner") {
+        return forbidden("Only the community owner can revoke invites");
+    }
+
+    let revoked = db(&state).social_revoke_community_invite(&community_id, &invite_id);
+    if revoked {
+        ok(serde_json::json!({ "ok": true, "revoked": true }))
+    } else {
+        not_found("Invite not found or already revoked")
+    }
+}
+
+/// POST /v1/social/invites/{token}/redeem — join via invite (auth required).
+pub async fn redeem_community_invite(
+    user: ClerkUser,
+    Path(token): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+
+    let token = token.trim();
+    if token.is_empty() || token.len() > 200 {
+        return bad_request("invalid invite token");
+    }
+    if !token.starts_with("hvinv_") {
+        return bad_request("invalid invite token");
+    }
+
+    let token_hash = hash_community_invite_token(token);
+    match db(&state).social_redeem_community_invite(&token_hash, &profile_id) {
+        Ok((community_id, joined)) => {
+            let community = db(&state).social_get_community_by_id(&community_id);
+            ok(serde_json::json!({
+                "ok": true,
+                "joined": joined,
+                "communityId": community_id,
+                "community": community,
+                "message": if joined { "joined" } else { "already a member" },
+            }))
+        }
+        Err(msg) if msg.to_lowercase().contains("not found") => not_found(&msg),
+        Err(msg)
+            if msg.to_lowercase().contains("revoked")
+                || msg.to_lowercase().contains("expired")
+                || msg.to_lowercase().contains("limit") =>
+        {
+            forbidden(&msg)
+        }
+        Err(msg) => bad_request(&msg),
+    }
 }
 
 // ─── Wave 6 / 8d: Page multi-surface ─────────────────────────────────────────

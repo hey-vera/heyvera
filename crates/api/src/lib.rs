@@ -570,6 +570,15 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
                 .route("/v1/social/communities/{id}/join", post(social::join_community))
                 .route("/v1/social/communities/{id}/leave", delete(social::leave_community))
                 .route("/v1/social/communities/{id}/members", get(social::list_community_members))
+                .route(
+                    "/v1/social/communities/{id}/invites",
+                    get(social::list_community_invites).post(social::create_community_invite),
+                )
+                .route(
+                    "/v1/social/communities/{id}/invites/{inviteId}",
+                    delete(social::revoke_community_invite),
+                )
+                .route("/v1/social/invites/{token}/redeem", post(social::redeem_community_invite))
                 .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
                 .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))
                 .route("/v1/social/ws", get(messaging::social_ws_handler))
@@ -690,6 +699,15 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/communities/{id}/join", post(social::join_community))
         .route("/v1/social/communities/{id}/leave", delete(social::leave_community))
         .route("/v1/social/communities/{id}/members", get(social::list_community_members))
+        .route(
+            "/v1/social/communities/{id}/invites",
+            get(social::list_community_invites).post(social::create_community_invite),
+        )
+        .route(
+            "/v1/social/communities/{id}/invites/{inviteId}",
+            delete(social::revoke_community_invite),
+        )
+        .route("/v1/social/invites/{token}/redeem", post(social::redeem_community_invite))
         .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
         .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))
         .route("/v1/social/ws", get(messaging::social_ws_handler))
@@ -925,6 +943,16 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/communities/{id}/join", post(social::join_community))
         .route("/v1/social/communities/{id}/leave", delete(social::leave_community))
         .route("/v1/social/communities/{id}/members", get(social::list_community_members))
+        // Batch C: private guild invites
+        .route(
+            "/v1/social/communities/{id}/invites",
+            get(social::list_community_invites).post(social::create_community_invite),
+        )
+        .route(
+            "/v1/social/communities/{id}/invites/{inviteId}",
+            delete(social::revoke_community_invite),
+        )
+        .route("/v1/social/invites/{token}/redeem", post(social::redeem_community_invite))
         // Task #35: Conversations & Messages
         .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
         .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))

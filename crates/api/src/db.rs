@@ -465,6 +465,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 49 {
         migrate_v49(conn);
     }
+    if current < 50 {
+        migrate_v50(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -2308,6 +2311,31 @@ fn migrate_v49(conn: &Connection) {
     )
     .expect("migration v49 failed creating social_profile_prefs");
     tracing::info!("applied migration v49: social_profile_prefs (privacy/trust preferences)");
+}
+
+fn migrate_v50(conn: &Connection) {
+    // Batch C — private guild invites (token_hash only; plaintext returned once on create).
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS social_community_invites (
+            id TEXT PRIMARY KEY,
+            community_id TEXT NOT NULL REFERENCES social_communities(id) ON DELETE CASCADE,
+            created_by_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            token_hash TEXT NOT NULL UNIQUE,
+            max_uses INTEGER,
+            use_count INTEGER NOT NULL DEFAULT 0,
+            expires_at TEXT,
+            revoked_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_community_invites_community
+            ON social_community_invites(community_id, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_social_community_invites_token_hash
+            ON social_community_invites(token_hash);
+
+        UPDATE schema_version SET version = 50;",
+    )
+    .expect("migration v50 failed creating social_community_invites");
+    tracing::info!("applied migration v50: social_community_invites (private guild invites)");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -13557,6 +13585,227 @@ impl Database {
         ).is_ok()
     }
 
+    // --- Community invites (Batch C) ---
+
+    /// Create a private-guild invite. Stores `token_hash` only (plaintext is caller-held once).
+    /// `max_uses`: None = unlimited. `expires_at`: ISO-ish SQLite datetime string or None.
+    pub fn social_create_community_invite(
+        &self,
+        community_id: &str,
+        created_by_profile_id: &str,
+        token_hash: &str,
+        max_uses: Option<i64>,
+        expires_at: Option<&str>,
+    ) -> Result<serde_json::Value, String> {
+        let conn = self.conn.lock().unwrap();
+        let id = format!("cinv_{}", Uuid::new_v4());
+        conn.execute(
+            "INSERT INTO social_community_invites
+             (id, community_id, created_by_profile_id, token_hash, max_uses, use_count, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, 0, ?6)",
+            params![
+                id,
+                community_id,
+                created_by_profile_id,
+                token_hash,
+                max_uses,
+                expires_at
+            ],
+        )
+        .map_err(|e| format!("create invite failed: {e}"))?;
+        drop(conn);
+        self.social_get_community_invite_by_id(&id)
+            .ok_or_else(|| "invite created but not found".into())
+    }
+
+    pub fn social_get_community_invite_by_id(&self, invite_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, community_id, created_by_profile_id, max_uses, use_count,
+                    expires_at, revoked_at, created_at
+             FROM social_community_invites WHERE id = ?1",
+            [invite_id],
+            |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "communityId": row.get::<_, String>(1)?,
+                    "createdByProfileId": row.get::<_, String>(2)?,
+                    "maxUses": row.get::<_, Option<i64>>(3)?,
+                    "useCount": row.get::<_, i64>(4)?,
+                    "expiresAt": row.get::<_, Option<String>>(5)?,
+                    "revokedAt": row.get::<_, Option<String>>(6)?,
+                    "createdAt": row.get::<_, String>(7)?,
+                }))
+            },
+        )
+        .ok()
+    }
+
+    /// Lookup invite by SHA-256 hex token hash (never stores plaintext).
+    pub fn social_get_community_invite_by_token_hash(
+        &self,
+        token_hash: &str,
+    ) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT id, community_id, created_by_profile_id, max_uses, use_count,
+                    expires_at, revoked_at, created_at
+             FROM social_community_invites WHERE token_hash = ?1",
+            [token_hash],
+            |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "communityId": row.get::<_, String>(1)?,
+                    "createdByProfileId": row.get::<_, String>(2)?,
+                    "maxUses": row.get::<_, Option<i64>>(3)?,
+                    "useCount": row.get::<_, i64>(4)?,
+                    "expiresAt": row.get::<_, Option<String>>(5)?,
+                    "revokedAt": row.get::<_, Option<String>>(6)?,
+                    "createdAt": row.get::<_, String>(7)?,
+                }))
+            },
+        )
+        .ok()
+    }
+
+    pub fn social_list_community_invites(
+        &self,
+        community_id: &str,
+        limit: i64,
+    ) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, community_id, created_by_profile_id, max_uses, use_count,
+                        expires_at, revoked_at, created_at
+                 FROM social_community_invites
+                 WHERE community_id = ?1
+                 ORDER BY created_at DESC
+                 LIMIT ?2",
+            )
+            .unwrap();
+        stmt.query_map(params![community_id, limit], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "communityId": row.get::<_, String>(1)?,
+                "createdByProfileId": row.get::<_, String>(2)?,
+                "maxUses": row.get::<_, Option<i64>>(3)?,
+                "useCount": row.get::<_, i64>(4)?,
+                "expiresAt": row.get::<_, Option<String>>(5)?,
+                "revokedAt": row.get::<_, Option<String>>(6)?,
+                "createdAt": row.get::<_, String>(7)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    /// Soft-revoke an invite. Returns true if a row was updated.
+    pub fn social_revoke_community_invite(
+        &self,
+        community_id: &str,
+        invite_id: &str,
+    ) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let n = conn
+            .execute(
+                "UPDATE social_community_invites
+                 SET revoked_at = datetime('now')
+                 WHERE id = ?1 AND community_id = ?2 AND revoked_at IS NULL",
+                params![invite_id, community_id],
+            )
+            .unwrap_or(0);
+        n > 0
+    }
+
+    /// Atomically redeem: validate invite row and increment use_count when still redeemable.
+    /// Returns Ok(community_id) on success, Err(reason) for business-rule failures.
+    pub fn social_redeem_community_invite(
+        &self,
+        token_hash: &str,
+        profile_id: &str,
+    ) -> Result<(String, bool), String> {
+        let conn = self.conn.lock().unwrap();
+        let invite = conn
+            .query_row(
+                "SELECT id, community_id, max_uses, use_count, expires_at, revoked_at
+                 FROM social_community_invites WHERE token_hash = ?1",
+                [token_hash],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<i64>>(2)?,
+                        row.get::<_, i64>(3)?,
+                        row.get::<_, Option<String>>(4)?,
+                        row.get::<_, Option<String>>(5)?,
+                    ))
+                },
+            )
+            .map_err(|_| "Invite not found".to_string())?;
+
+        let (invite_id, community_id, max_uses, use_count, expires_at, revoked_at) = invite;
+
+        if revoked_at.is_some() {
+            return Err("Invite has been revoked".into());
+        }
+        if let Some(ref exp) = expires_at {
+            // SQLite datetime('now') comparison — expire when expires_at <= now.
+            let expired: i64 = conn
+                .query_row(
+                    "SELECT CASE WHEN datetime(?1) <= datetime('now') THEN 1 ELSE 0 END",
+                    [exp.as_str()],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0);
+            if expired == 1 {
+                return Err("Invite has expired".into());
+            }
+        }
+        if let Some(max) = max_uses {
+            if use_count >= max {
+                return Err("Invite has reached its use limit".into());
+            }
+        }
+
+        // Join (member role). Idempotent if already a member.
+        let mem_id = format!("cmem_{}", Uuid::new_v4());
+        let joined = conn
+            .execute(
+                "INSERT OR IGNORE INTO social_community_memberships (id, community_id, profile_id, role)
+                 VALUES (?1, ?2, ?3, 'member')",
+                params![mem_id, community_id, profile_id],
+            )
+            .unwrap_or(0)
+            > 0;
+
+        // Count a use only when this redeem newly joined (re-redeem as member is free no-op).
+        if joined {
+            let updated = conn
+                .execute(
+                    "UPDATE social_community_invites
+                     SET use_count = use_count + 1
+                     WHERE id = ?1
+                       AND revoked_at IS NULL
+                       AND (max_uses IS NULL OR use_count < max_uses)",
+                    params![invite_id],
+                )
+                .unwrap_or(0);
+            if updated == 0 {
+                // Race: max uses hit between check and update — roll back membership we just added.
+                let _ = conn.execute(
+                    "DELETE FROM social_community_memberships
+                     WHERE community_id = ?1 AND profile_id = ?2 AND id = ?3",
+                    params![community_id, profile_id, mem_id],
+                );
+                return Err("Invite has reached its use limit".into());
+            }
+        }
+
+        Ok((community_id, joined))
+    }
+
     // --- Webhook events (idempotency) ---
 
     /// Check if a webhook event has already been processed.
@@ -17867,5 +18116,62 @@ mod tests {
 
         let err = db.social_create_media_shelf(owner_id, "  ", "");
         assert!(err.is_err(), "blank title rejected");
+    }
+
+    #[test]
+    fn social_community_invites_create_list_revoke_redeem() {
+        let db = test_db();
+        let owner = db.social_create_profile("clerk_inv_owner", "invowner", "Inv Owner", "");
+        let owner_id = owner["id"].as_str().unwrap();
+        let community = db
+            .social_create_community(owner_id, "invite-guild", "Invite Guild", "secret", "private")
+            .expect("create private guild");
+        let community_id = community["id"].as_str().unwrap();
+
+        let token_hash = "abc123hash_for_test_only";
+        let invite = db
+            .social_create_community_invite(community_id, owner_id, token_hash, Some(2), None)
+            .expect("create invite");
+        assert_eq!(invite["communityId"], community_id);
+        assert_eq!(invite["maxUses"], 2);
+        assert_eq!(invite["useCount"], 0);
+        assert!(invite["revokedAt"].is_null());
+
+        let listed = db.social_list_community_invites(community_id, 20);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0]["id"], invite["id"]);
+
+        let member = db.social_create_profile("clerk_inv_member", "invmember", "Inv Member", "");
+        let member_id = member["id"].as_str().unwrap();
+        let (joined_cid, newly) = db
+            .social_redeem_community_invite(token_hash, member_id)
+            .expect("redeem");
+        assert_eq!(joined_cid, community_id);
+        assert!(newly);
+        assert!(db.social_is_community_member(community_id, member_id));
+        assert_eq!(
+            db.social_get_community_invite_by_id(invite["id"].as_str().unwrap())
+                .unwrap()["useCount"],
+            1
+        );
+
+        // Re-redeem as same member: no extra use, not newly joined.
+        let (_, again) = db
+            .social_redeem_community_invite(token_hash, member_id)
+            .expect("re-redeem");
+        assert!(!again);
+        assert_eq!(
+            db.social_get_community_invite_by_id(invite["id"].as_str().unwrap())
+                .unwrap()["useCount"],
+            1
+        );
+
+        let invite_id = invite["id"].as_str().unwrap();
+        assert!(db.social_revoke_community_invite(community_id, invite_id));
+        let member2 = db.social_create_profile("clerk_inv_m2", "invmember2", "M2", "");
+        let member2_id = member2["id"].as_str().unwrap();
+        let err = db.social_redeem_community_invite(token_hash, member2_id);
+        assert!(err.is_err());
+        assert!(err.unwrap_err().to_lowercase().contains("revoked"));
     }
 }
