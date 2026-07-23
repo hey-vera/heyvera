@@ -1194,15 +1194,22 @@ export async function endLiveSession(
   });
 }
 
-// ─── x402 agent micropayments scaffold (Wave 8g) ─────────────────────────────
+// ─── x402 agent micropayments (Wave 14m/n production path foundation) ───────
+
+/** Server mode: disabled | shape_only | facilitator */
+export type X402Mode = "disabled" | "shape_only" | "facilitator" | string;
 
 export type X402Status = {
   enabled: boolean;
   network: string;
+  /** Present on Wave 14m+ status; older servers may omit. */
+  mode?: X402Mode;
+  /** Public recipient address only (never a private key). */
+  payTo?: string | null;
   note: string;
 };
 
-/** GET /v1/social/x402/status — public scaffold status (no payments). */
+/** GET /v1/social/x402/status — public config honesty (no private keys). */
 export async function fetchX402Status(): Promise<X402Status> {
   return apiFetch("/x402/status");
 }

@@ -478,6 +478,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 51 {
         migrate_v51(conn);
     }
+    if current < 52 {
+        migrate_v52(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -2378,6 +2381,36 @@ fn migrate_v51(conn: &Connection) {
     .expect("migration v51 failed creating social_live_sessions");
     tracing::info!(
         "applied migration v51: social_live_sessions (LiveSession model foundation; no provider)"
+    );
+}
+
+fn migrate_v52(conn: &Connection) {
+    // Wave 14m/n — x402 verify receipts (Social only; idempotent by key).
+    // status: pending | verified | failed
+    // Never store private keys — raw_response is facilitator JSON / notes only.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS social_x402_receipts (
+            id TEXT PRIMARY KEY,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            payload_hash TEXT NOT NULL,
+            amount TEXT,
+            network TEXT NOT NULL,
+            status TEXT NOT NULL,
+            mode TEXT NOT NULL DEFAULT 'shape_only',
+            note TEXT,
+            raw_response TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_x402_receipts_status
+            ON social_x402_receipts(status, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_social_x402_receipts_hash
+            ON social_x402_receipts(payload_hash);
+
+        UPDATE schema_version SET version = 52;",
+    )
+    .expect("migration v52 failed creating social_x402_receipts");
+    tracing::info!(
+        "applied migration v52: social_x402_receipts (x402 verify receipts; pending|verified|failed)"
     );
 }
 
@@ -10958,6 +10991,88 @@ impl Database {
             .ok_or_else(|| "NOT_FOUND".into())
     }
 
+    // ─── x402 receipts (Wave 14m/n) ───────────────────────────────────────────
+
+    fn map_x402_receipt_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<serde_json::Value> {
+        Ok(serde_json::json!({
+            "id": row.get::<_, String>(0)?,
+            "idempotencyKey": row.get::<_, String>(1)?,
+            "payloadHash": row.get::<_, String>(2)?,
+            "amount": row.get::<_, Option<String>>(3)?,
+            "network": row.get::<_, String>(4)?,
+            "status": row.get::<_, String>(5)?,
+            "mode": row.get::<_, String>(6)?,
+            "note": row.get::<_, Option<String>>(7)?,
+            "rawResponse": row.get::<_, Option<String>>(8)?,
+            "createdAt": row.get::<_, String>(9)?,
+        }))
+    }
+
+    /// Insert a verify receipt. `idempotency_key` is UNIQUE — caller should check first.
+    /// Never stores private keys; `raw_response` is facilitator JSON / audit notes only.
+    pub fn social_x402_insert_receipt(
+        &self,
+        idempotency_key: &str,
+        payload_hash: &str,
+        amount: Option<&str>,
+        network: &str,
+        status: &str,
+        raw_response: Option<&str>,
+        mode: &str,
+        note: &str,
+    ) -> Result<serde_json::Value, String> {
+        let id = format!("x402_{}", Uuid::new_v4());
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO social_x402_receipts
+             (id, idempotency_key, payload_hash, amount, network, status, mode, note, raw_response, created_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+            params![
+                id,
+                idempotency_key,
+                payload_hash,
+                amount,
+                network,
+                status,
+                mode,
+                note,
+                raw_response,
+                now
+            ],
+        )
+        .map_err(|e| format!("x402 receipt insert failed: {e}"))?;
+        drop(conn);
+        self.social_x402_get_receipt_by_id(&id)
+            .ok_or_else(|| "x402 receipt not found after insert".into())
+    }
+
+    pub fn social_x402_get_receipt_by_id(&self, id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, idempotency_key, payload_hash, amount, network, status, mode, note, raw_response, created_at
+                 FROM social_x402_receipts WHERE id = ?1",
+            )
+            .ok()?;
+        stmt.query_row([id], Self::map_x402_receipt_row).ok()
+    }
+
+    pub fn social_x402_get_receipt_by_idempotency(
+        &self,
+        idempotency_key: &str,
+    ) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, idempotency_key, payload_hash, amount, network, status, mode, note, raw_response, created_at
+                 FROM social_x402_receipts WHERE idempotency_key = ?1",
+            )
+            .ok()?;
+        stmt.query_row([idempotency_key], Self::map_x402_receipt_row)
+            .ok()
+    }
+
     /// Look up a linked agent by id (any owner); returns id, profile_id, names/slugs.
     pub fn social_find_linked_agent_by_id(&self, agent_id: &str) -> Option<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
@@ -19187,5 +19302,50 @@ mod tests {
             db.social_get_related_posts("missing-post-id", 5, None),
             None
         );
+    }
+
+    #[test]
+    fn social_x402_receipt_insert_and_idempotent_lookup() {
+        let db = test_db();
+        let row = db
+            .social_x402_insert_receipt(
+                "idem-1",
+                "abc123hash",
+                Some("0.01"),
+                "base-sepolia",
+                "pending",
+                None,
+                "shape_only",
+                "shape only test",
+            )
+            .expect("insert receipt");
+        assert_eq!(row["idempotencyKey"], "idem-1");
+        assert_eq!(row["status"], "pending");
+        assert_eq!(row["mode"], "shape_only");
+        assert_eq!(row["network"], "base-sepolia");
+        assert_eq!(row["amount"], "0.01");
+
+        let by_key = db
+            .social_x402_get_receipt_by_idempotency("idem-1")
+            .expect("lookup by key");
+        assert_eq!(by_key["id"], row["id"]);
+
+        let by_id = db
+            .social_x402_get_receipt_by_id(row["id"].as_str().unwrap())
+            .expect("lookup by id");
+        assert_eq!(by_id["payloadHash"], "abc123hash");
+
+        // Unique constraint on idempotency_key
+        let dup = db.social_x402_insert_receipt(
+            "idem-1",
+            "other",
+            None,
+            "base",
+            "verified",
+            Some("{}"),
+            "facilitator",
+            "dup",
+        );
+        assert!(dup.is_err());
     }
 }

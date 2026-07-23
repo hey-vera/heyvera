@@ -1515,8 +1515,8 @@ function BrandPagesPanel({
 }
 
 /**
- * Wave 8g — honest x402 agent micropayments scaffold card.
- * Reads GET /v1/social/x402/status; never claims live payments.
+ * Wave 14m/n — honest x402 status card (network, mode, payTo).
+ * Reads GET /v1/social/x402/status; no fake pay wallet UI.
  */
 function X402PaymentsCard() {
   const [status, setStatus] = useState<X402Status | null>(null);
@@ -1544,6 +1544,17 @@ function X402PaymentsCard() {
   }, []);
 
   const enabled = status?.enabled === true;
+  const mode = status?.mode ?? (enabled ? 'shape_only' : 'disabled');
+  const modeLabel =
+    loadState === 'loading'
+      ? 'Checking…'
+      : loadState === 'error'
+        ? 'Unavailable'
+        : mode === 'facilitator'
+          ? 'Facilitator'
+          : mode === 'shape_only'
+            ? 'Shape-only'
+            : 'Disabled';
 
   return (
     <div className="border-b border-[var(--border-primary)] px-4 py-4">
@@ -1559,19 +1570,13 @@ function X402PaymentsCard() {
                 color: enabled ? 'var(--accent)' : 'var(--text-secondary)',
               }}
             >
-              {loadState === 'loading'
-                ? 'Checking…'
-                : loadState === 'error'
-                  ? 'Unavailable'
-                  : enabled
-                    ? 'Enabled (shape-only)'
-                    : 'Disabled'}
+              {modeLabel}
             </span>
           </div>
           <p className="mt-1 text-[13px] leading-5 text-[var(--text-secondary)]">
-            Scaffold for agent micropayments. No live settlement, wallet, or facilitator is wired.
-            Status comes from the API; enable only with server env <code className="text-[12px]">X402_ENABLED=1</code>{' '}
-            (shape validation only — still not real payments).
+            Agent micropayments foundation for Social. Status is server truth (
+            <code className="text-[12px]">X402_ENABLED</code>, network, optional facilitator).
+            Private keys are never handled in this UI or the status API.
           </p>
           {loadState === 'live' && status && (
             <dl className="mt-3 grid gap-1 text-[13px]">
@@ -1579,6 +1584,20 @@ function X402PaymentsCard() {
                 <dt className="font-semibold text-[var(--text-secondary)]">Network</dt>
                 <dd>{status.network}</dd>
               </div>
+              <div className="flex gap-2">
+                <dt className="font-semibold text-[var(--text-secondary)]">Mode</dt>
+                <dd>
+                  <code className="text-[12px]">{mode}</code>
+                </dd>
+              </div>
+              {status.payTo ? (
+                <div className="flex min-w-0 gap-2">
+                  <dt className="font-semibold text-[var(--text-secondary)]">Pay to</dt>
+                  <dd className="truncate font-mono text-[12px]" title={status.payTo}>
+                    {status.payTo}
+                  </dd>
+                </div>
+              ) : null}
               <div className="flex gap-2">
                 <dt className="font-semibold text-[var(--text-secondary)]">Note</dt>
                 <dd className="text-[var(--text-secondary)]">{status.note}</dd>

@@ -1,9 +1,10 @@
 /**
- * Wave 12c — pure x402 gate helper (FE mirror of BE X402_ENABLED).
+ * Wave 12c / 14m — pure x402 gate helper (FE mirror of BE X402_ENABLED).
  *
- * Production facilitator is not implemented. Default remains off.
- * Prefer server GET /v1/social/x402/status for runtime truth; this helper
- * is for local/env honesty and unit tests.
+ * Prefer server GET /v1/social/x402/status for runtime truth (mode, network, payTo).
+ * This helper is for local/env honesty and unit tests.
+ *
+ * Modes: disabled | shape_only | facilitator (see heyvera/docs/X402.md).
  */
 
 /**
@@ -20,8 +21,25 @@ export function isX402Enabled(
 
 /** Honest UI copy when payments are disabled (default). */
 export const X402_DISABLED_NOTE =
-  'x402 agent micropayments scaffold is off unless X402_ENABLED=1. No live settlement or facilitator.';
+  'x402 agent micropayments are off unless X402_ENABLED=1. No settlement or facilitator.';
 
-/** Honest UI copy when shape-only mode is on. */
+/** Honest UI copy when shape-only mode is on (no facilitator URL). */
 export const X402_SHAPE_ONLY_NOTE =
-  'x402 shape-only scaffold enabled — still not real payments (no facilitator settlement).';
+  'x402 shape_only: payload shape + receipt pending — not facilitator settlement.';
+
+/** Honest UI copy when facilitator mode is configured. */
+export const X402_FACILITATOR_NOTE =
+  'x402 facilitator mode: verify posts to X402_FACILITATOR_URL; private keys never handled by this API.';
+
+/** Badge label from status.mode (falls back for older servers). */
+export function x402ModeLabel(
+  status: { enabled?: boolean; mode?: string | null } | null | undefined,
+): string {
+  if (!status) return 'Unknown';
+  const mode = status.mode;
+  if (mode === 'facilitator') return 'Facilitator';
+  if (mode === 'shape_only') return 'Shape-only';
+  if (mode === 'disabled') return 'Disabled';
+  if (status.enabled) return 'Enabled (shape-only)';
+  return 'Disabled';
+}
