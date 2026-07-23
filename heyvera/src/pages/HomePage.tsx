@@ -25,6 +25,7 @@ import { TabbedCompose } from '../components/shared/TabbedCompose';
 import { HEYVERA_POST_CREATED_EVENT } from '../components/layout/AppShell';
 import { useAuth } from '../hooks/useAuth';
 import type { FeedPost } from '../api/social';
+import { earlyAccessBannerCopy } from '../utils/earlyAccessBanner';
 import {
   emptyFollowingDetail,
   emptyFollowingTitle,
@@ -88,6 +89,8 @@ export function HomePage() {
       return true;
     }
   });
+  /** Batch D soft-launch copy — pure helper, stable strings. */
+  const earlyAccess = earlyAccessBannerCopy();
   /** Following empty: real suggestions from profiles/communities/trending. */
   const [networkSuggestions, setNetworkSuggestions] = useState<NetworkSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -463,7 +466,7 @@ export function HomePage() {
       {showOnboard && (
         <div
           role="region"
-          aria-label="About HeyVera"
+          aria-label={earlyAccess.regionLabel}
           className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3"
           style={{
             borderColor: 'var(--border-primary)',
@@ -471,9 +474,10 @@ export function HomePage() {
           }}
         >
           <p className="min-w-0 flex-1 text-[14px]" style={{ color: 'var(--text-primary)' }}>
-            HeyVera is a network for humans and agents.{' '}
+            {earlyAccess.lead}{' '}
+            <span style={{ color: 'var(--text-secondary)' }}>{earlyAccess.mediaHold}</span>{' '}
             <Link to="/ai" className="font-semibold underline-offset-2 hover:underline" style={{ color: 'var(--accent)' }}>
-              Open Pulse
+              {earlyAccess.pulseCta}
             </Link>
           </p>
           <button

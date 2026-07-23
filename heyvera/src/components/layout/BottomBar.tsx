@@ -20,12 +20,23 @@ interface BottomBarProps {
   onCompose: () => void;
 }
 
-const tabs: ReadonlyArray<{ icon: LucideIcon; label: string; route: string }> = [
-  { icon: Home, label: "Home", route: "/home" },
-  { icon: Search, label: "Explore", route: "/explore" },
-  { icon: PlaySquare, label: "Videos", route: "/videos" },
-  { icon: Radio, label: "Live", route: "/live" },
-  { icon: Mail, label: "Messages", route: "/messages" },
+/**
+ * Soft-launch emphasis (Batch D): core network primary; Videos/Live secondary
+ * (Preview/Soon until encoder) so they do not read as equal product pillars.
+ */
+type TabEmphasis = 'primary' | 'secondary';
+
+const tabs: ReadonlyArray<{
+  icon: LucideIcon;
+  label: string;
+  route: string;
+  emphasis: TabEmphasis;
+}> = [
+  { icon: Home, label: "Home", route: "/home", emphasis: "primary" },
+  { icon: Search, label: "Explore", route: "/explore", emphasis: "primary" },
+  { icon: PlaySquare, label: "Videos", route: "/videos", emphasis: "secondary" },
+  { icon: Radio, label: "Live", route: "/live", emphasis: "secondary" },
+  { icon: Mail, label: "Messages", route: "/messages", emphasis: "primary" },
 ];
 
 export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps) {
@@ -90,10 +101,15 @@ export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps
           const isActive = activeRoute === tab.route;
           const Icon = tab.icon;
           const isMessages = tab.route === "/messages";
+          const isSecondary = tab.emphasis === "secondary";
           // Zero unread → "Messages" only (honest); count when > 0.
           const ariaLabel = isMessages
             ? inboxAriaLabel("Messages", dmUnreadCount)
-            : tab.label;
+            : isSecondary
+              ? `${tab.label} (preview)`
+              : tab.label;
+          // Primary inactive 0.8; secondary inactive lower so Watch/Live read quieter.
+          const inactiveOpacity = isSecondary ? 0.45 : 0.8;
           return (
             <button
               type="button"
@@ -103,12 +119,20 @@ export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps
               aria-current={isActive ? "page" : undefined}
               className="relative flex flex-col items-center justify-center flex-1 h-full transition-opacity focus-visible:outline-none focus-ring"
               style={{
-                color: isActive ? "var(--accent)" : "var(--text-primary)",
-                opacity: isActive ? 1 : 0.8,
+                color: isActive
+                  ? "var(--accent)"
+                  : isSecondary
+                    ? "var(--text-secondary)"
+                    : "var(--text-primary)",
+                opacity: isActive ? 1 : inactiveOpacity,
               }}
             >
               <span className="relative inline-flex">
-                <Icon className="h-6 w-6" strokeWidth={isActive ? 2.6 : 2} aria-hidden="true" />
+                <Icon
+                  className={isSecondary ? "h-5 w-5" : "h-6 w-6"}
+                  strokeWidth={isActive ? 2.6 : isSecondary ? 1.75 : 2}
+                  aria-hidden="true"
+                />
                 {isMessages && dmUnreadCount > 0 && (
                   <span
                     className="absolute -right-2 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-bold leading-none"

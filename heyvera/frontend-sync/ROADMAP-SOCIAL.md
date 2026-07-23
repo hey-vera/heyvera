@@ -1,10 +1,10 @@
 # HeyVera Social Roadmap (active)
 
-**Status:** Waves 0–12 shipped on main  
+**Status:** Waves 0–12 + multi-user readiness A–D  
 **Grounded:** 2026-07-22  
 **Live entry:** `heyvera/src/main.tsx` → `router.tsx` → `AppShell` / `pages/*`  
 **Do not grow:** orphaned `App.tsx` / `VeraSocials` dual shell (quarantined under `src/orphan/`)  
-**Main tip note:** Waves 10–12 complete (#367–#372); extended backlog only (no open product wave table)
+**Main tip note:** Waves 10–12 complete (#367–#372); multi-user A–B on main (#374–#375); C #376; D soft-launch/docs
 
 ---
 
@@ -199,6 +199,10 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-22 | #371 | Wave 11 media depth honesty + shelves **merged** |
 | 2026-07-22 | #372 | Wave 12 agent policy + switcher + x402 hold **merged** |
 | 2026-07-22 | docs | Waves 10–12 complete on STATUS/ROADMAP |
+| 2026-07-22 | #374 | Multi-user **Batch A** ops: heyvera-server owns Social+Pulse + prod media gate **merged** |
+| 2026-07-22 | #375 | Multi-user **Batch B** trust: prefs persist, moderation E2E, credits on checkout **merged** |
+| 2026-07-22 | #376 | Multi-user **Batch C** guild invites/members/empty-network onboard (PR open at D base) |
+| 2026-07-22 | Batch D | Soft-launch polish + STATUS/ROADMAP multi-user close-out |
 
 ### Waves 1–4 implemented (2026-07-21)
 
@@ -335,3 +339,29 @@ Goal: make shipped Social feel solid for real users — no new half-features.
 | **12c** x402 remains off unless `X402_ENABLED`; no fake payments | **Done (#372)** |
 
 Extended backlog still open: full encoder (PW-3), ML discovery (PW-5), production x402 facilitator, mod depth (PW-16), bookmark folders (PW-9), markets (PW-11) — out of Waves 0–12.
+
+---
+
+## Multi-user readiness (post–Wave 12) — **A–D**
+
+Goal: make multi-user Social **real** for soft launch — ops owner correct, prefs/moderation/credits live, guild invites + members + empty-network onboard, light soft-launch honesty. Not “strip theater”; ship working systems.
+
+| Batch | Scope | Status |
+|-------|--------|--------|
+| **A** | heyvera-server owns Social+Pulse in prod; Caddy/deploy/smoke; prod media gate (no mock upload URLs) | **Done (#374)** |
+| **B** | Prefs persist (`/me/prefs`); moderation E2E (block/mute/report + lists); credits init on Stripe checkout | **Done (#375)** |
+| **C** | Private guild invites (create/list/revoke/redeem); members list; Home Following empty-network suggestions | **#376** (open at D base — restack D after merge if needed) |
+| **D** | STATUS/ROADMAP close-out; soft-launch nav de-emphasis (Videos/Live); Home early-access copy helper | **This PR** |
+
+### Product truth (what is real)
+
+- **Ops:** production Social+Pulse traffic → **heyvera-server :3002** (not cortex-server as owner). See `heyvera/docs/OPS-TOPOLOGY.md`.
+- **Prefs:** Settings Privacy/Account read/write real rows; search/DM respect light policy flags.
+- **Moderation:** block/mute/report hit API; blocked peers cannot DM; Settings lists unblock/unmute.
+- **Credits:** checkout completion can seed ledger; unmetered balance remains honest `null`.
+- **Guilds (C):** private invite redeem is the join path; members show Owner/Member; no kick/ban theater.
+- **Soft-launch (D):** core network is live; Watch/Live stay de-emphasized Preview/Soon until encoder (out of scope).
+
+### Still out of scope after A–D
+
+Encoder ingest, ML related discovery, production x402 facilitator, large redesigns.
