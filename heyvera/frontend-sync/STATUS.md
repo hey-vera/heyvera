@@ -2,9 +2,9 @@
 
 ## Current track
 
-- **Active:** Multi-user readiness A–D complete (post–Wave 12)
+- **Active:** Soft-launch integrity closeout (post multi-user A–D)
 - **Live surface:** `router.tsx` + `AppShell` + `pages/*` only
-- **Shipped through:** Waves 0–12 + multi-user Batches A–D on main
+- **Shipped through:** Waves 0–12 + multi-user Batches A–D + soft-launch integrity closeout (**#379**)
 
 ## Wave progress
 
@@ -29,6 +29,7 @@ Systems are **real** — prefs persist, moderation E2E, credits on checkout, hey
 | **B** | Prefs persist, moderation E2E, credits on checkout | **Done (#375)** |
 | **C** | Private guild invites, members list, empty-network onboard | **Done (#376)** |
 | **D** | Soft-launch polish + STATUS/ROADMAP close-out | **Done (#377)** |
+| **Integrity** | Soft-launch integrity closeout: apex/Vite API path → :3002, deploy-vera SPA+API, Settings honesty, schedule cron label | **Done (#379)** |
 
 ## Active truth
 
@@ -41,6 +42,7 @@ Systems are **real** — prefs persist, moderation E2E, credits on checkout, hey
 - **Guilds (#376):** private invites (token once), members list, private open-join closed.
 - **Onboard (#376):** Following empty shows real profile/community/trending suggestions.
 - Soft-launch nav de-emphasizes Videos/Live slightly (#377); early-access banner on Home.
+- **Integrity closeout:** Caddy apex + Vite proxy route social/pulse/health → heyvera-server :3002; `deploy-vera.sh` builds SPA + both APIs; Settings non-account controls labeled device/none; Pulse schedule UI requires cron honesty (no magic auto-publish).
 - Media: shelves foundation; Watch/Live honesty — no fake LIVE encoder.
 - Agents: policy flags foundation; switcher Agents = WIP; x402 off unless `X402_ENABLED`.
 - **Out of multi-user readiness:** full encoder, ML discovery, production x402 facilitator.

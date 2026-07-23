@@ -31,6 +31,12 @@ import {
   pulseDraftActionLabel,
   pulseTransitionErrorMessage,
 } from '../utils/pulseDraftActions';
+import {
+  PULSE_SCHEDULE_EMPTY_DETAIL,
+  PULSE_SCHEDULE_PROCESS_ENDPOINT_HINT,
+  PULSE_SCHEDULE_PROCESSOR_NOTE,
+  pulseScheduleProcessorStatusLabel,
+} from '../utils/pulseScheduleHonesty';
 
 type Tab = 'drafts' | 'schedule' | 'goals' | 'helper';
 
@@ -614,7 +620,7 @@ function DraftsTab({ authEnabled, isSignedIn, getToken }: { authEnabled: boolean
             ))}
           </ul>
           <p className="mt-2 text-[11px]" style={{ color: 'var(--text-tertiary)' }}>
-            Due posts publish when POST /v1/pulse/schedules/process runs (cron). See PRODUCTION-ENV.md.
+            {PULSE_SCHEDULE_PROCESS_ENDPOINT_HINT} {PULSE_SCHEDULE_PROCESSOR_NOTE}
           </p>
         </div>
       )}
@@ -865,7 +871,10 @@ function ScheduleTab({
         <div>
           <h2 className="text-[17px] font-bold">Scheduled posts</h2>
           <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-            Due drafts publish when the Pulse schedule worker runs (cron). Schedule from Drafts after approve.
+            {PULSE_SCHEDULE_PROCESSOR_NOTE}
+          </p>
+          <p className="mt-1 text-[12px]" style={{ color: 'var(--text-tertiary)' }}>
+            {pulseScheduleProcessorStatusLabel()} · Schedule from Drafts after approve.
           </p>
         </div>
         <button
@@ -898,8 +907,7 @@ function ScheduleTab({
             No scheduled posts
           </p>
           <p className="mt-1 max-w-sm text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-            Approve a draft in Drafts, pick a publish time, then it will show here. This is not a calendar UI yet —
-            honest empty state until more schedule tooling ships.
+            {PULSE_SCHEDULE_EMPTY_DETAIL}
           </p>
         </div>
       ) : (

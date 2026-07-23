@@ -11,7 +11,9 @@ Use this before claiming a production deploy is ready.
 | other `/v1/*` (legacy) | Node product API | **3402** | `claw-net-node` (if used) |
 
 Install HeyVera unit once: `sudo bash scripts/heyvera-install-service.sh`  
-Deploy both binaries: `./scripts/deploy-vera.sh`
+
+**Single deploy procedure (API owner + SPA):** `./scripts/deploy-vera.sh`  
+Builds cortex-server (:3001), heyvera-server (:3002), and `heyvera/` SPA → `HEYVERA_WWW` (default `/home/guardian/www/heyvera`). Reloads Caddy so **apex heyvera.org** and **api.heyvera.org** route `/v1/social/*`, `/v1/pulse/*`, health/ready → :3002.
 
 ## Required (auth)
 
@@ -30,7 +32,7 @@ Never deploy HeyVera social with empty `CLERK_SECRET_KEY` and production env uns
 | Variable | Purpose |
 |----------|---------|
 | `CORTEX_ALLOWED_ORIGINS` | Comma-separated browser origins (not `*`) — **required in production** |
-| `VITE_API_URL` | Frontend API base (e.g. `https://api.heyvera.org`) |
+| `VITE_API_URL` | Frontend API base for production builds: `https://api.heyvera.org`. Local: leave empty (Vite dual proxy → :3002 social/pulse, :3001 `/api`) |
 
 ## Database
 

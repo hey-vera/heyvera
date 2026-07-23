@@ -8,25 +8,30 @@ set -euo pipefail
 # Builds and installs:
 #   - cortex-server  (:3001) — Cortex product API
 #   - heyvera-server (:3002) — Social + Pulse owner process
-# Reloads Caddy so api.heyvera.org routes social/pulse/health to :3002.
+#   - heyvera/ SPA   → HEYVERA_WWW (default /home/guardian/www/heyvera)
+# Reloads Caddy so heyvera.org + api.heyvera.org route social/pulse/health to :3002.
 
 VPS_HOST="${VPS_HOST:-guardian@clawguard}"
 REPO_DIR="/home/guardian/claw-net"
 BRANCH="${BRANCH:-$(git rev-parse --abbrev-ref HEAD)}"
 CORTEX_WWW="/var/www/cortex"
 DASHBOARD_WWW="/var/www/claw-net-dashboard"
+# Match scripts/deploy.sh default SPA path for apex heyvera.org
+HEYVERA_WWW="${HEYVERA_WWW:-/home/guardian/www/heyvera}"
 
 echo "=== HeyVera Deploy ==="
 echo "    VPS: $VPS_HOST"
 echo "    Branch: $BRANCH"
+echo "    SPA: $HEYVERA_WWW"
 echo ""
 
-ssh "$VPS_HOST" bash -s "$BRANCH" "$REPO_DIR" "$CORTEX_WWW" "$DASHBOARD_WWW" <<'REMOTE'
+ssh "$VPS_HOST" bash -s "$BRANCH" "$REPO_DIR" "$CORTEX_WWW" "$DASHBOARD_WWW" "$HEYVERA_WWW" <<'REMOTE'
 set -euo pipefail
 BRANCH="$1"
 REPO_DIR="$2"
 CORTEX_WWW="$3"
 DASHBOARD_WWW="$4"
+HEYVERA_WWW="$5"
 
 cd "$REPO_DIR"
 
@@ -78,6 +83,26 @@ sudo mkdir -p "$CORTEX_WWW"
 sudo rsync -a --delete "$REPO_DIR/cortex/dist/" "$CORTEX_WWW/"
 echo "[vite] Deployed to $CORTEX_WWW"
 
+# HeyVera SPA (apex heyvera.org static root)
+if [ -f "$REPO_DIR/heyvera/package.json" ]; then
+  echo "[heyvera] Building heyvera SPA..."
+  cd "$REPO_DIR/heyvera"
+  npm ci --silent 2>&1 | tail -1
+  # Prefer production API origin when building for VPS static host
+  export VITE_API_URL="${VITE_API_URL:-https://api.heyvera.org}"
+  npm run build 2>&1 | tail -5
+  cd "$REPO_DIR"
+  sudo mkdir -p "$HEYVERA_WWW"
+  if command -v rsync >/dev/null 2>&1; then
+    sudo rsync -a --delete "$REPO_DIR/heyvera/dist/" "$HEYVERA_WWW/"
+  else
+    sudo cp -r "$REPO_DIR/heyvera/dist/." "$HEYVERA_WWW/"
+  fi
+  echo "[heyvera] SPA deployed to $HEYVERA_WWW"
+else
+  echo "[heyvera] No heyvera/package.json — skipping SPA build"
+fi
+
 # Dashboard (if present)
 if [ -f "$REPO_DIR/dashboard/package.json" ]; then
   echo "[dash] Building dashboard..."
@@ -90,7 +115,7 @@ if [ -f "$REPO_DIR/dashboard/package.json" ]; then
   echo "[dash] Deployed to $DASHBOARD_WWW"
 fi
 
-# Caddy (api.heyvera.org → social/pulse/health on :3002)
+# Caddy (heyvera.org + api.heyvera.org → social/pulse/health on :3002)
 if [ -f "$REPO_DIR/Caddyfile" ]; then
   sudo cp "$REPO_DIR/Caddyfile" /etc/caddy/Caddyfile
   sudo systemctl reload caddy
@@ -124,14 +149,25 @@ if curl -sf http://localhost:3002/v1/health >/dev/null 2>&1; then
   HEYVERA_OK=true
 fi
 
+SPA_OK=false
+if [ -f "$HEYVERA_WWW/index.html" ]; then
+  SPA_OK=true
+fi
+
 echo ""
 if $CORTEX_OK && $HEYVERA_OK; then
   echo "=== Deploy complete — $BRANCH @ $COMMIT ==="
   echo "    cortex-server  :3001 OK"
   echo "    heyvera-server :3002 OK (Social + Pulse owner)"
+  if $SPA_OK; then
+    echo "    heyvera SPA    $HEYVERA_WWW OK"
+  else
+    echo "    [warn] heyvera SPA index.html missing at $HEYVERA_WWW"
+  fi
 else
   $CORTEX_OK || echo "[warn] cortex health failed — sudo journalctl -u cortex -n 20"
   $HEYVERA_OK || echo "[warn] heyvera health failed — sudo journalctl -u heyvera-api -n 20"
+  $SPA_OK || echo "[warn] heyvera SPA index.html missing at $HEYVERA_WWW"
   echo "=== Deploy finished with warnings — $BRANCH @ $COMMIT ==="
 fi
 REMOTE
