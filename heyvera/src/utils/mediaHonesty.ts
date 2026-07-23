@@ -1,6 +1,6 @@
 /**
- * Wave 11 — pure honesty helpers for Watch / Live / shelves.
- * No fake LIVE chrome, no invented video cards, no claim that video processing works.
+ * Wave 11/14 — pure honesty helpers for Watch / Live / shelves / progressive video.
+ * No fake LIVE chrome, no invented video cards, no claim that adaptive transcode works.
  */
 
 // ─── Live stream labels (11c) ───────────────────────────────────────────────
@@ -42,27 +42,31 @@ export const LIVE_DEFAULT_PHASE: LiveStreamPhase = 'preview';
 export const LIVE_INGEST_FOUNDATION_DETAIL =
   'Encoder ingest is not production. This surface is Preview only — no RTMP/WHIP session, no LIVE badge on real streams.';
 
-// ─── Video upload honesty (11a) ─────────────────────────────────────────────
+// ─── Video upload honesty (11a → 14f progressive MVP) ───────────────────────
 
-/** Disabled upload control label. */
-export const VIDEO_UPLOAD_CTA_LABEL = 'Upload video (not production)';
+/** Upload control label when progressive path is wired. */
+export const VIDEO_UPLOAD_CTA_LABEL = 'Upload video';
 
 /**
- * Why video upload is disabled in the UI.
- * Image media (presign → finalize → attach) remains the live path.
+ * Honest limitation copy for progressive MVP (native playback, no adaptive path).
+ * Used as title/tooltip context when explaining what works vs what does not.
  */
 export const VIDEO_UPLOAD_DISABLED_REASON =
-  'Video upload pipeline is not production — no transcode or processing yet. Image attach on posts is the live media path today.';
+  'Progressive video MVP: attach MP4/WebM on posts with native playback. No adaptive HLS/transcode pipeline yet. Live encoder remains separate and not production.';
 
 /** Title for empty video library (no fake cards). */
 export const VIDEO_LIBRARY_EMPTY_TITLE = 'No videos on this Page yet';
 
 export const VIDEO_LIBRARY_EMPTY_DETAIL =
-  'There is no production video library API yet. Longform text is live via the social API; video cards will appear here only when real uploads exist.';
+  'There is no dedicated video-library API. Progressive clips appear here only from real posts that attach MP4/WebM media. Native playback only — no adaptive transcode.';
 
 /** Banner for the Watch page foundation. */
 export const VIDEO_PAGE_FOUNDATION_BANNER =
-  'Page-owned media foundation: longform is real; video upload and live ingest are not production. No invented player shelves.';
+  'Progressive video on posts works now (native player, no HLS/transcode). Longform text is real. Encoder ingest remains not production. No invented player shelves.';
+
+/** Short note for progressive-only playback honesty. */
+export const VIDEO_PROGRESSIVE_MVP_NOTE =
+  'Native progressive playback only — no adaptive transcode / HLS yet.';
 
 // ─── Shelves / playlists foundation (11b) ───────────────────────────────────
 
@@ -89,8 +93,9 @@ export function shelfListSubtitle(itemCount: number | null | undefined): string 
 
 /**
  * Whether video upload UI may enable a real upload path.
- * Wave 11: always false until BE video processing is production.
+ * Wave 14f: progressive attach + native player is production-ready for the FE path
+ * (BE already accepts video/mp4 and video/webm via presign/finalize). Adaptive transcode is not.
  */
 export function isVideoUploadProductionReady(): boolean {
-  return false;
+  return true;
 }

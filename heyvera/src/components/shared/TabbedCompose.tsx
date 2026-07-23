@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ImagePlus, RefreshCw, Sparkles, X } from 'lucide-react';
+import { Film, ImagePlus, RefreshCw, Sparkles, X } from 'lucide-react';
 import { listDrafts, approveDraft, rejectDraft, publishDraft } from '../../api/pulse';
 import type { PulseDraft } from '../../api/pulse';
-import { ALLOWED_IMAGE_ACCEPT } from '../../utils/imageUpload';
+import { ALLOWED_COMPOSE_MEDIA_ACCEPT } from '../../utils/imageUpload';
 
 type ComposeTab = 'post' | 'agent-assist';
 
@@ -34,11 +34,13 @@ interface TabbedComposeProps {
   signInButton?: React.ReactNode;
   /** Profile link element for "create profile" notice */
   profileLink?: React.ReactNode;
-  /** Object URL for the selected image preview (parent owns File + upload) */
+  /** Object URL for the selected media preview (parent owns File + upload) */
   imagePreviewUrl?: string | null;
+  /** True when preview is progressive video (mp4/webm) rather than image */
+  mediaIsVideo?: boolean;
   /** Parent validates + stores the picked file; called with a single File */
   onImagePick?: (file: File) => void;
-  /** Clear selected image (revoke preview URL in parent) */
+  /** Clear selected media (revoke preview URL in parent) */
   onImageClear?: () => void;
 }
 
@@ -54,6 +56,7 @@ export function TabbedCompose({
   signInButton,
   profileLink,
   imagePreviewUrl = null,
+  mediaIsVideo = false,
   onImagePick,
   onImageClear,
 }: TabbedComposeProps) {
@@ -96,6 +99,7 @@ export function TabbedCompose({
             signInButton={signInButton}
             profileLink={profileLink}
             imagePreviewUrl={imagePreviewUrl}
+            mediaIsVideo={mediaIsVideo}
             onImagePick={onImagePick}
             onImageClear={onImageClear}
           />
@@ -112,7 +116,7 @@ export function TabbedCompose({
   );
 }
 
-/* ─── Tab 1: Post (existing compose behavior + one image attach) ────────────── */
+/* ─── Tab 1: Post (one image OR one progressive video attach) ──────────────── */
 
 function PostTab({
   content,
@@ -123,6 +127,7 @@ function PostTab({
   signInButton,
   profileLink,
   imagePreviewUrl,
+  mediaIsVideo,
   onImagePick,
   onImageClear,
 }: {
@@ -134,13 +139,14 @@ function PostTab({
   signInButton?: React.ReactNode;
   profileLink?: React.ReactNode;
   imagePreviewUrl: string | null;
+  mediaIsVideo: boolean;
   onImagePick?: (file: File) => void;
   onImageClear?: () => void;
 }) {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const hasImage = Boolean(imagePreviewUrl);
-  const canPost = (content.trim().length > 0 || hasImage) && !posting;
-  const imageAttachEnabled = typeof onImagePick === 'function';
+  const hasMedia = Boolean(imagePreviewUrl);
+  const canPost = (content.trim().length > 0 || hasMedia) && !posting;
+  const mediaAttachEnabled = typeof onImagePick === 'function';
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
@@ -172,11 +178,22 @@ function PostTab({
             className="relative mt-3 overflow-hidden rounded-2xl border"
             style={{ borderColor: 'var(--border-primary)' }}
           >
-            <img
-              src={imagePreviewUrl}
-              alt="Selected attachment"
-              className="max-h-[240px] w-full object-cover"
-            />
+            {mediaIsVideo ? (
+              <video
+                src={imagePreviewUrl}
+                controls
+                playsInline
+                preload="metadata"
+                className="max-h-[240px] w-full"
+                aria-label="Selected video attachment"
+              />
+            ) : (
+              <img
+                src={imagePreviewUrl}
+                alt="Selected attachment"
+                className="max-h-[240px] w-full object-cover"
+              />
+            )}
             {onImageClear && (
               <button
                 type="button"
@@ -187,7 +204,7 @@ function PostTab({
                   backgroundColor: 'color-mix(in srgb, var(--bg-primary) 80%, transparent)',
                   color: 'var(--text-primary)',
                 }}
-                aria-label="Remove image"
+                aria-label={mediaIsVideo ? 'Remove video' : 'Remove image'}
               >
                 <X className="h-4 w-4" />
               </button>
@@ -200,12 +217,12 @@ function PostTab({
           style={{ borderColor: 'var(--border-primary)' }}
         >
           <div className="flex items-center gap-2">
-            {imageAttachEnabled && (
+            {mediaAttachEnabled && (
               <>
                 <input
                   ref={fileInputRef}
                   type="file"
-                  accept={ALLOWED_IMAGE_ACCEPT}
+                  accept={ALLOWED_COMPOSE_MEDIA_ACCEPT}
                   className="hidden"
                   onChange={handleFileChange}
                   disabled={posting}
@@ -216,10 +233,15 @@ function PostTab({
                   disabled={posting}
                   className="flex items-center gap-1.5 rounded-full px-2 py-1 text-[13px] font-medium transition-colors hover-overlay disabled:opacity-50"
                   style={{ color: 'var(--accent)' }}
-                  aria-label="Add image"
+                  aria-label="Add image or video"
+                  title="One image (≤10MB) or progressive video MP4/WebM (≤50MB)"
                 >
-                  <ImagePlus className="h-4 w-4" aria-hidden="true" />
-                  Image
+                  {mediaIsVideo ? (
+                    <Film className="h-4 w-4" aria-hidden="true" />
+                  ) : (
+                    <ImagePlus className="h-4 w-4" aria-hidden="true" />
+                  )}
+                  Media
                 </button>
               </>
             )}

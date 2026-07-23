@@ -1,16 +1,24 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Archive, Film, FileText, Library, Radio } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import {
   createLongform,
+  createPost,
   createShelf,
+  feedPostToPost,
   fetchLongform,
+  fetchMyProfile,
   fetchMyShelves,
+  fetchProfileFeed,
+  uploadMediaFile,
+  type FeedPost,
   type LongformEntry,
   type MediaShelf,
 } from '../api/social';
+import type { Post } from '../api/types';
+import { ALLOWED_VIDEO_ACCEPT, validateVideoFile } from '../utils/imageUpload';
 import {
   SHELF_CREATE_CTA,
   SHELF_CREATE_HINT,
@@ -20,11 +28,19 @@ import {
   VIDEO_LIBRARY_EMPTY_DETAIL,
   VIDEO_LIBRARY_EMPTY_TITLE,
   VIDEO_PAGE_FOUNDATION_BANNER,
+  VIDEO_PROGRESSIVE_MVP_NOTE,
   VIDEO_UPLOAD_CTA_LABEL,
   VIDEO_UPLOAD_DISABLED_REASON,
   isVideoUploadProductionReady,
   shelfListSubtitle,
 } from '../utils/mediaHonesty';
+
+/** Posts whose attached media includes progressive video (from real profile feed). */
+function postsWithVideoMedia(feed: FeedPost[]): Post[] {
+  return feed
+    .map(feedPostToPost)
+    .filter((p) => p.media?.some((m) => m.type === 'video'));
+}
 
 function formatLongformLabel(formatType: string): string {
   const map: Record<string, string> = {
@@ -105,7 +121,8 @@ function LongformCreateForm({
       style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
     >
       <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-        Longform essays ship now. Video upload / transcode remains not production.
+        Longform essays ship now. Progressive video attaches on posts (native playback); adaptive
+        transcode / live encoder remain not production.
       </p>
       <input
         type="text"
@@ -320,6 +337,7 @@ function ShelfCreateForm({
 export function VideosPage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const uploadReady = isVideoUploadProductionReady();
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
 
   const [longform, setLongform] = useState<LongformEntry[] | null>(null);
   const [longformStatus, setLongformStatus] = useState<'loading' | 'live' | 'error'>('loading');
@@ -331,12 +349,25 @@ export function VideosPage() {
   );
   const [shelvesRefresh, setShelvesRefresh] = useState(0);
 
+  /** Real posts with progressive video media from the signed-in profile feed. */
+  const [videoPosts, setVideoPosts] = useState<Post[] | null>(null);
+  const [videoListStatus, setVideoListStatus] = useState<
+    'idle' | 'loading' | 'live' | 'error' | 'signed_out'
+  >('idle');
+  const [videoListRefresh, setVideoListRefresh] = useState(0);
+  const [uploading, setUploading] = useState(false);
+  const [uploadNotice, setUploadNotice] = useState<string | null>(null);
+
   const reloadLongform = useCallback(() => {
     setLongformRefresh((n) => n + 1);
   }, []);
 
   const reloadShelves = useCallback(() => {
     setShelvesRefresh((n) => n + 1);
+  }, []);
+
+  const reloadVideoList = useCallback(() => {
+    setVideoListRefresh((n) => n + 1);
   }, []);
 
   useEffect(() => {
@@ -395,6 +426,95 @@ export function VideosPage() {
     };
   }, [authEnabled, isSignedIn, getToken, shelvesRefresh]);
 
+  // List progressive video posts from the signed-in user's profile (no fake library API).
+  useEffect(() => {
+    if (!authEnabled || !isSignedIn) {
+      setVideoPosts(null);
+      setVideoListStatus(authEnabled ? 'signed_out' : 'idle');
+      return;
+    }
+    let cancelled = false;
+    setVideoListStatus('loading');
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token) {
+          if (!cancelled) {
+            setVideoPosts(null);
+            setVideoListStatus('signed_out');
+          }
+          return;
+        }
+        const { profile } = await fetchMyProfile(token);
+        const handle = profile.handle;
+        if (!handle) {
+          if (!cancelled) {
+            setVideoPosts([]);
+            setVideoListStatus('live');
+          }
+          return;
+        }
+        const result = await fetchProfileFeed(handle, 40, null, token);
+        if (!cancelled) {
+          setVideoPosts(postsWithVideoMedia(result.feed ?? []));
+          setVideoListStatus('live');
+        }
+      } catch {
+        if (!cancelled) {
+          setVideoPosts(null);
+          setVideoListStatus('error');
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authEnabled, isSignedIn, getToken, videoListRefresh]);
+
+  const handleVideoFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0] ?? null;
+    event.target.value = '';
+    if (!file || !uploadReady || uploading) return;
+
+    const validationError = validateVideoFile(file);
+    if (validationError) {
+      setUploadNotice(validationError);
+      return;
+    }
+
+    setUploading(true);
+    setUploadNotice(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setUploadNotice('Sign in to upload progressive video.');
+        return;
+      }
+      try {
+        await fetchMyProfile(token);
+      } catch (profileErr: unknown) {
+        const msg = profileErr instanceof Error ? profileErr.message.toLowerCase() : '';
+        if (msg.includes('404') || msg.includes('not found')) {
+          setUploadNotice('Create your profile before uploading video.');
+          return;
+        }
+        throw profileErr;
+      }
+
+      const uploaded = await uploadMediaFile(token, file);
+      await createPost(token, {
+        body: '',
+        mediaIds: [uploaded.mediaId],
+      });
+      setUploadNotice('Video posted with progressive (native) playback — no adaptive transcode.');
+      reloadVideoList();
+    } catch (err: unknown) {
+      setUploadNotice(err instanceof Error ? err.message : 'Video upload failed. Try again.');
+    } finally {
+      setUploading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen px-3 pb-10 pt-4 sm:px-5" style={{ color: 'var(--text-primary)' }}>
       <header
@@ -411,20 +531,60 @@ export function VideosPage() {
           </div>
           <h1 className="text-[28px] font-black leading-tight sm:text-[34px]">Watch</h1>
           <p className="mt-1 max-w-2xl text-[15px]" style={{ color: 'var(--text-secondary)' }}>
-            Media under the active Page (person profile today). Longform text is live; video upload and
-            live ingest are not production.
+            Media under the active Page (person profile today). Progressive video on posts works now;
+            adaptive transcode and encoder ingest are not production.
           </p>
         </div>
-        <button
-          type="button"
-          disabled={!uploadReady}
-          title={VIDEO_UPLOAD_DISABLED_REASON}
-          className="inline-flex h-10 cursor-not-allowed items-center justify-center gap-2 rounded-full px-4 text-[14px] font-bold opacity-50"
-          style={{ backgroundColor: 'var(--accent)', color: '#000' }}
-        >
-          <Film className="h-4 w-4" aria-hidden="true" />
-          {VIDEO_UPLOAD_CTA_LABEL}
-        </button>
+        <div className="flex flex-col items-stretch gap-2 sm:items-end">
+          <input
+            ref={videoInputRef}
+            type="file"
+            accept={ALLOWED_VIDEO_ACCEPT}
+            className="hidden"
+            onChange={(e) => void handleVideoFile(e)}
+            disabled={!uploadReady || uploading || !authEnabled || !isSignedIn}
+          />
+          {authEnabled && isSignedIn ? (
+            <button
+              type="button"
+              disabled={!uploadReady || uploading}
+              title={VIDEO_UPLOAD_DISABLED_REASON}
+              onClick={() => videoInputRef.current?.click()}
+              className="inline-flex h-10 items-center justify-center gap-2 rounded-full px-4 text-[14px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
+              style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+            >
+              <Film className="h-4 w-4" aria-hidden="true" />
+              {uploading ? 'Uploading…' : VIDEO_UPLOAD_CTA_LABEL}
+            </button>
+          ) : authEnabled ? (
+            <SignInButton mode="modal">
+              <button
+                type="button"
+                className="inline-flex h-10 items-center justify-center gap-2 rounded-full px-4 text-[14px] font-bold"
+                style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+              >
+                <Film className="h-4 w-4" aria-hidden="true" />
+                Sign in to upload
+              </button>
+            </SignInButton>
+          ) : (
+            <button
+              type="button"
+              disabled
+              title="Auth not configured"
+              className="inline-flex h-10 cursor-not-allowed items-center justify-center gap-2 rounded-full px-4 text-[14px] font-bold opacity-50"
+              style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+            >
+              <Film className="h-4 w-4" aria-hidden="true" />
+              {VIDEO_UPLOAD_CTA_LABEL}
+            </button>
+          )}
+          {uploadNotice && (
+            <p className="max-w-xs text-right text-[12px]" style={{ color: 'var(--text-secondary)' }} role="status">
+              {uploadNotice}
+            </p>
+          )}
+        </div>
       </header>
 
       <div
@@ -436,17 +596,16 @@ export function VideosPage() {
         role="status"
       >
         <p className="text-[14px] font-bold" style={{ color: 'var(--text-primary)' }}>
-          Page-owned media foundation
+          Progressive video MVP
         </p>
         <p className="mt-1 text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          {VIDEO_PAGE_FOUNDATION_BANNER} Image attach on posts is the live media path (
-          <code className="text-[12px]">mediaType: image</code>).{' '}
-          <code className="text-[12px]">mediaType: video</code> is accepted by upload-url but processing
-          is not production — UI stays disabled with reason.
+          {VIDEO_PAGE_FOUNDATION_BANNER}{' '}
+          <code className="text-[12px]">mediaType: video</code> attaches via the same presign → finalize
+          path as images. {VIDEO_PROGRESSIVE_MVP_NOTE}
         </p>
       </div>
 
-      {/* 11a — Video library honesty (no fake cards) */}
+      {/* Video list from real profile posts (no dedicated library API / no fake cards) */}
       <section
         className="mb-6 border p-5"
         style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
@@ -456,15 +615,81 @@ export function VideosPage() {
           <Film className="h-5 w-5" style={{ color: 'var(--accent)' }} aria-hidden="true" />
           Video library
         </h2>
-        <p className="text-[15px] font-bold" style={{ color: 'var(--text-primary)' }}>
-          {VIDEO_LIBRARY_EMPTY_TITLE}
+        <p className="mb-3 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+          {VIDEO_PROGRESSIVE_MVP_NOTE} Listed from your profile posts with video media — not a separate
+          library product API.
         </p>
-        <p className="mt-2 text-[14px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-          {VIDEO_LIBRARY_EMPTY_DETAIL}
-        </p>
-        <p className="mt-3 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
-          {VIDEO_UPLOAD_DISABLED_REASON}
-        </p>
+
+        {videoListStatus === 'signed_out' && (
+          <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>
+            Sign in to see progressive videos on your Page posts.
+          </p>
+        )}
+        {videoListStatus === 'idle' && (
+          <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>
+            Auth not configured — video list unavailable.
+          </p>
+        )}
+        {videoListStatus === 'loading' && (
+          <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>
+            Loading posts with video…
+          </p>
+        )}
+        {videoListStatus === 'error' && (
+          <p className="text-[14px]" style={{ color: 'var(--text-secondary)' }}>
+            Could not load profile posts for video media. No fake cards invented.
+          </p>
+        )}
+        {videoListStatus === 'live' && videoPosts && videoPosts.length === 0 && (
+          <>
+            <p className="text-[15px] font-bold" style={{ color: 'var(--text-primary)' }}>
+              {VIDEO_LIBRARY_EMPTY_TITLE}
+            </p>
+            <p className="mt-2 text-[14px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+              {VIDEO_LIBRARY_EMPTY_DETAIL}
+            </p>
+          </>
+        )}
+        {videoListStatus === 'live' && videoPosts && videoPosts.length > 0 && (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {videoPosts.map((post) => {
+              const video = post.media?.find((m) => m.type === 'video');
+              if (!video) return null;
+              return (
+                <article
+                  key={post.id}
+                  className="overflow-hidden rounded-2xl border"
+                  style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-primary)' }}
+                >
+                  <video
+                    src={video.url}
+                    controls
+                    playsInline
+                    preload="metadata"
+                    poster={video.thumbnail_url || undefined}
+                    className="max-h-[280px] w-full"
+                    style={{ backgroundColor: 'var(--bg-elevated)' }}
+                    aria-label={video.alt_text || 'Progressive video'}
+                  >
+                    Progressive video playback is not supported in this browser.
+                  </video>
+                  <div className="p-3">
+                    <p className="line-clamp-2 text-[14px]" style={{ color: 'var(--text-primary)' }}>
+                      {post.content.trim() || 'Video post'}
+                    </p>
+                    <Link
+                      to={`/post/${post.id}`}
+                      className="mt-2 inline-block text-[13px] font-bold"
+                      style={{ color: 'var(--accent)' }}
+                    >
+                      Open post
+                    </Link>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
       </section>
 
       {/* Real longform from API */}
@@ -645,8 +870,8 @@ export function VideosPage() {
             Channel archive
           </h2>
           <p className="text-[14px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
-            Uploads and stream archives will attach to Page identity when video processing is production.
-            No invented archive cards here.
+            Progressive clips live on posts today. Adaptive archives / stream VOD attach later — no
+            invented archive cards here.
           </p>
         </section>
       </div>
