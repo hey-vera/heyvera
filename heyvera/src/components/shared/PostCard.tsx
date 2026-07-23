@@ -14,19 +14,25 @@ import {
   Repeat2,
   Share,
   ShieldOff,
+  Trash2,
   UserRound,
   VolumeX,
   X,
 } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
 import { useNavigate } from 'react-router-dom';
-import { blockUser, fetchMyProfile, muteUser, reportContent } from '../../api/social';
+import { blockUser, deletePost, fetchMyProfile, muteUser, reportContent } from '../../api/social';
 import type { Post } from '../../api/types';
 import { useAuth } from '../../hooks/useAuth';
+import { useAuthContext } from '../../hooks/useAuthContext';
 import { LinkedAgentChip } from './LinkedAgentChip';
 import { QuoteCompose } from './QuoteCompose';
 import { ReplyCompose } from './ReplyCompose';
-import { mapReportToApiBody } from '../../utils/moderation';
+import {
+  mapReportToApiBody,
+  REPORT_REASON_CHOICES,
+  type UiReportReason,
+} from '../../utils/moderation';
 import { mutationErrorMessage } from '../../utils/optimisticPostMutation';
 import { extractFirstUrl, LinkPreviewCard, renderRichText } from '../../utils/richText';
 
@@ -39,6 +45,8 @@ interface PostCardProps {
   onReply?: () => void;
   /** Called after successful block/mute so parents can hide this author's posts. */
   onHideAuthor?: (authorId: string, reason: 'block' | 'mute') => void;
+  /** Called after successful soft-delete so parents can remove the post from lists. */
+  onDelete?: (id: string) => void;
 }
 
 type AuthPrompt = 'signin' | 'profile' | 'unconfigured' | 'error' | null;
@@ -64,9 +72,18 @@ function formatCount(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-export function PostCard({ post, onLike, onRepost, onBookmark, onReply, onHideAuthor }: PostCardProps) {
+export function PostCard({
+  post,
+  onLike,
+  onRepost,
+  onBookmark,
+  onReply,
+  onHideAuthor,
+  onDelete,
+}: PostCardProps) {
   const navigate = useNavigate();
   const { authEnabled, isSignedIn, getToken, userId } = useAuth();
+  const { myProfile } = useAuthContext();
   const [liked, setLiked] = useState(post.liked);
   const [reposted, setReposted] = useState(post.reposted);
   const [bookmarked, setBookmarked] = useState(post.bookmarked);
@@ -82,8 +99,13 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply, onHideAu
   const [quoteOpen, setQuoteOpen] = useState(false);
   const [actionNotice, setActionNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [moderationBusy, setModerationBusy] = useState(false);
+  const [reportPickerOpen, setReportPickerOpen] = useState(false);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const likeTimerRef = useRef<number | null>(null);
   const noticeTimerRef = useRef<number | null>(null);
+
+  const viewerProfileId = myProfile?.profile?.id ?? null;
+  const isAuthor = Boolean(viewerProfileId) && viewerProfileId === post.author.id;
 
   const showNotice = (kind: 'ok' | 'err', text: string) => {
     setActionNotice({ kind, text });
@@ -282,24 +304,58 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply, onHideAu
     }
   };
 
-  const handleReport = async () => {
+  const openReportPicker = async () => {
     setOpenMenu(null);
-    if (moderationBusy) return;
+    if (moderationBusy || isAuthor) return;
     const token = await ensureCanMutate();
     if (!token) return;
+    setReportPickerOpen(true);
+  };
+
+  const handleReportWithReason = async (reason: UiReportReason) => {
+    if (moderationBusy) return;
+    const token = await ensureCanMutate();
+    if (!token) {
+      setReportPickerOpen(false);
+      return;
+    }
     setModerationBusy(true);
     try {
       const body = mapReportToApiBody({
         targetType: 'post',
         targetId: post.id,
-        reason: 'user_reported',
+        reason,
       });
       await reportContent(token, body);
+      setReportPickerOpen(false);
       showNotice('ok', 'Report submitted');
     } catch (err) {
+      // Keep picker open on failure so the user can retry without silent success.
       showNotice('err', err instanceof Error ? err.message : 'Could not submit report');
     } finally {
       setModerationBusy(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    setOpenMenu(null);
+    if (deleteBusy || !isAuthor) return;
+    const confirmed =
+      typeof window !== 'undefined'
+        ? window.confirm('Delete this post? It will be removed from feeds.')
+        : false;
+    if (!confirmed) return;
+    const token = await ensureCanMutate();
+    if (!token) return;
+    setDeleteBusy(true);
+    try {
+      await deletePost(token, post.id);
+      onDelete?.(post.id);
+      showNotice('ok', 'Post deleted');
+    } catch (err) {
+      showNotice('err', mutationErrorMessage(err, 'Could not delete post'));
+    } finally {
+      setDeleteBusy(false);
     }
   };
 
@@ -374,9 +430,24 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply, onHideAu
               onToggle={() => setOpenMenu((m) => (m === 'more' ? null : 'more'))}
               onClose={() => setOpenMenu(null)}
             >
-              <MenuItem icon={VolumeX} label={`Mute @${post.author.handle}`} onClick={handleMute} />
-              <MenuItem icon={ShieldOff} label={`Block @${post.author.handle}`} onClick={handleBlock} />
-              <MenuItem icon={Flag} label="Report post" onClick={handleReport} />
+              {isAuthor ? (
+                <MenuItem
+                  icon={Trash2}
+                  label={deleteBusy ? 'Deleting…' : 'Delete'}
+                  onClick={() => void handleDelete()}
+                  danger
+                />
+              ) : (
+                <>
+                  <MenuItem icon={VolumeX} label={`Mute @${post.author.handle}`} onClick={handleMute} />
+                  <MenuItem icon={ShieldOff} label={`Block @${post.author.handle}`} onClick={handleBlock} />
+                  <MenuItem
+                    icon={Flag}
+                    label="Report post"
+                    onClick={() => void openReportPicker()}
+                  />
+                </>
+              )}
             </DropdownAction>
           </div>
         </div>
@@ -511,6 +582,14 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply, onHideAu
         >
           {actionNotice.text}
         </div>
+      )}
+
+      {reportPickerOpen && (
+        <ReportReasonPicker
+          busy={moderationBusy}
+          onSelect={(reason) => void handleReportWithReason(reason)}
+          onClose={() => setReportPickerOpen(false)}
+        />
       )}
 
       {replyOpen && (
@@ -757,10 +836,12 @@ function MenuItem({
   icon,
   label,
   onClick,
+  danger,
 }: {
   icon: LucideIcon;
   label: string;
   onClick: () => void;
+  danger?: boolean;
 }) {
   const Icon = icon;
 
@@ -769,6 +850,7 @@ function MenuItem({
       type="button"
       role="menuitem"
       className="flex w-full items-center gap-3 px-4 py-2 text-left text-[15px] transition-colors duration-150 hover-overlay focus-visible:bg-[var(--bg-hover)] focus-visible:outline-none focus-ring"
+      style={danger ? { color: 'var(--color-danger, #f4212e)' } : undefined}
       onClick={(e) => {
         e.stopPropagation();
         onClick();
@@ -777,5 +859,67 @@ function MenuItem({
       <Icon size={18} strokeWidth={2} aria-hidden="true" />
       <span>{label}</span>
     </button>
+  );
+}
+
+function ReportReasonPicker({
+  busy,
+  onSelect,
+  onClose,
+}: {
+  busy: boolean;
+  onSelect: (reason: UiReportReason) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      className="fixed inset-x-3 bottom-20 z-30 rounded-2xl border p-4 shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-auto sm:right-3 sm:top-12 sm:w-[min(18rem,calc(100%-1.5rem))]"
+      style={{
+        backgroundColor: 'var(--bg-elevated)',
+        borderColor: 'var(--border-primary)',
+        color: 'var(--text-primary)',
+      }}
+      onClick={(e) => e.stopPropagation()}
+      role="dialog"
+      aria-modal="false"
+      aria-label="Report reason"
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2 className="text-[15px] font-bold leading-5">Report post</h2>
+          <p className="mt-1 text-[13px] leading-5" style={{ color: 'var(--text-secondary)' }}>
+            Why are you reporting this?
+          </p>
+        </div>
+        <button
+          type="button"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full transition-colors hover-overlay focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--accent)]"
+          aria-label="Close report"
+          onClick={onClose}
+          disabled={busy}
+        >
+          <X size={16} />
+        </button>
+      </div>
+      <div className="mt-3 flex flex-col gap-2">
+        {REPORT_REASON_CHOICES.map((choice) => (
+          <button
+            key={choice.id}
+            type="button"
+            disabled={busy}
+            className="rounded-full border px-4 py-2 text-left text-[13px] font-bold transition-colors hover-overlay disabled:opacity-50"
+            style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+            onClick={() => onSelect(choice.id)}
+          >
+            {choice.label}
+          </button>
+        ))}
+      </div>
+      {busy && (
+        <p className="mt-2 text-[12px]" style={{ color: 'var(--text-secondary)' }} role="status">
+          Submitting report…
+        </p>
+      )}
+    </div>
   );
 }

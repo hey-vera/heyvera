@@ -143,6 +143,10 @@ export function PostThreadPage() {
             post={post}
             hasConnector={replies.length > 0}
             onReplyPosted={softRefreshCounts}
+            onDelete={() => {
+              // Root deleted — leave the thread view.
+              navigate(-1);
+            }}
           />
           {/* Root-level compose always available (targets root post). */}
           <InlineReplyCompose
@@ -178,6 +182,10 @@ export function PostThreadPage() {
                     onFocusInlineReply={() =>
                       setReplyTargetId((cur) => (cur === item.post.id ? null : item.post.id))
                     }
+                    onDelete={(deletedId) => {
+                      setReplies((current) => current.filter((r) => r.id !== deletedId));
+                      setReplyTargetId((cur) => (cur === deletedId ? null : cur));
+                    }}
                   />
                   {replyTargetId === item.post.id && (
                     <div style={{ paddingLeft: `${Math.min(item.visualDepth + 1, 4) * 12}px` }}>
@@ -222,6 +230,7 @@ interface ThreadPostProps {
   post: Post;
   hasConnector: boolean;
   onReplyPosted: () => void;
+  onDelete?: (id: string) => void;
 }
 
 interface ThreadReplyProps {
@@ -231,9 +240,10 @@ interface ThreadReplyProps {
   replyingToHandle: string | null;
   onReplyPosted: () => void;
   onFocusInlineReply: () => void;
+  onDelete?: (id: string) => void;
 }
 
-function ThreadPost({ post, hasConnector, onReplyPosted }: ThreadPostProps) {
+function ThreadPost({ post, hasConnector, onReplyPosted, onDelete }: ThreadPostProps) {
   return (
     <div className="relative">
       {hasConnector && <ConnectorLine className="top-16 bottom-0" />}
@@ -243,6 +253,7 @@ function ThreadPost({ post, hasConnector, onReplyPosted }: ThreadPostProps) {
         onRepost={handleRepost}
         onBookmark={handleBookmark}
         onReply={onReplyPosted}
+        onDelete={onDelete}
       />
     </div>
   );
@@ -255,6 +266,7 @@ function ThreadReply({
   replyingToHandle,
   onReplyPosted,
   onFocusInlineReply,
+  onDelete,
 }: ThreadReplyProps) {
   const pad = visualDepth * 12;
   return (
@@ -287,6 +299,7 @@ function ThreadReply({
         onRepost={handleRepost}
         onBookmark={handleBookmark}
         onReply={onReplyPosted}
+        onDelete={onDelete}
       />
     </div>
   );

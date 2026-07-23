@@ -1177,6 +1177,14 @@ export async function unrepostPost(
   return apiAuthFetch(`/posts/${postId}/repost`, { method: "DELETE", token });
 }
 
+/** Soft-delete own post (DELETE /v1/social/posts/{id}). Author-only on the server. */
+export async function deletePost(
+  token: string,
+  postId: string,
+): Promise<{ ok: true }> {
+  return apiAuthFetch(`/posts/${postId}`, { method: "DELETE", token });
+}
+
 // ─── Privacy prefs (Batch B1) ──────────────────────────────────────────────
 
 export type SocialPrefsResponse = {

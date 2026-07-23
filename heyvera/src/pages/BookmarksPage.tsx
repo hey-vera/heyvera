@@ -290,6 +290,9 @@ export function BookmarksPage() {
           onLike={handleLike}
           onRepost={handleRepost}
           onBookmark={handleBookmark}
+          onDelete={(id) => {
+            setPosts((current) => current.filter((p) => p.id !== id));
+          }}
         />
       ))}
 
