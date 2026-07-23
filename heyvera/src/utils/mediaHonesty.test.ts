@@ -8,6 +8,8 @@ import {
   SHELVES_EMPTY_TITLE,
   VIDEO_LIBRARY_EMPTY_DETAIL,
   VIDEO_LIBRARY_EMPTY_TITLE,
+  VIDEO_PAGE_FOUNDATION_BANNER,
+  VIDEO_PROGRESSIVE_MVP_NOTE,
   VIDEO_UPLOAD_DISABLED_REASON,
   VIDEO_UPLOAD_CTA_LABEL,
   isLiveChromeAllowed,
@@ -52,19 +54,36 @@ describe('liveStreamBadgeLabel (11c)', () => {
   });
 });
 
-describe('video upload honesty (11a)', () => {
-  it('upload is not production-ready', () => {
-    expect(isVideoUploadProductionReady()).toBe(false);
+describe('video upload honesty (11a → 14f progressive)', () => {
+  it('upload is production-ready for progressive attach path', () => {
+    expect(isVideoUploadProductionReady()).toBe(true);
   });
 
-  it('disabled reason is honest about pipeline', () => {
-    expect(VIDEO_UPLOAD_DISABLED_REASON.toLowerCase()).toMatch(/not production|transcode|processing/);
-    expect(VIDEO_UPLOAD_CTA_LABEL.toLowerCase()).toMatch(/not production|soon|upload/);
+  it('CTA label enables real upload wording', () => {
+    expect(VIDEO_UPLOAD_CTA_LABEL.toLowerCase()).toContain('upload');
+    expect(VIDEO_UPLOAD_CTA_LABEL.toLowerCase()).not.toMatch(/not production/);
+  });
+
+  it('limitation copy is honest about progressive-only (no HLS/transcode)', () => {
+    const reason = VIDEO_UPLOAD_DISABLED_REASON.toLowerCase();
+    expect(reason).toMatch(/progressive|native/);
+    expect(reason).toMatch(/no adaptive|no.*hls|transcode/);
+    expect(VIDEO_PROGRESSIVE_MVP_NOTE.toLowerCase()).toMatch(/native|progressive/);
+    expect(VIDEO_PROGRESSIVE_MVP_NOTE.toLowerCase()).toMatch(/no adaptive|transcode|hls/);
+  });
+
+  it('foundation banner does not claim LIVE/encoder broadcasting', () => {
+    const banner = VIDEO_PAGE_FOUNDATION_BANNER.toLowerCase();
+    expect(banner).toMatch(/progressive|native/);
+    expect(banner).toMatch(/not production/);
+    expect(banner).not.toMatch(/\blive now\b|\bgoing live\b|encoder ready|\blive badge\b/);
+    // "Live encoder" phrase is ok as a product surface name only if paired with not production.
+    expect(banner).toMatch(/encoder.*not production|not production.*encoder/);
   });
 
   it('empty library copy does not invent cards', () => {
     expect(VIDEO_LIBRARY_EMPTY_TITLE.toLowerCase()).toContain('no videos');
-    expect(VIDEO_LIBRARY_EMPTY_DETAIL.toLowerCase()).toMatch(/no production|longform|real/);
+    expect(VIDEO_LIBRARY_EMPTY_DETAIL.toLowerCase()).toMatch(/no dedicated|progressive|real posts/);
     expect(VIDEO_LIBRARY_EMPTY_DETAIL.toLowerCase()).not.toContain('featured upload');
   });
 });

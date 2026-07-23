@@ -475,18 +475,34 @@ export function PostCard({
           return url ? <LinkPreviewCard url={url} /> : null;
         })()}
 
-        {/* Media */}
+        {/* Media — progressive video uses native <video> (no adaptive/HLS claim) */}
         {post.media && post.media.length > 0 && (
           <div className="mt-3 overflow-hidden rounded-2xl border" style={{ borderColor: 'var(--border-primary)' }}>
-            {post.media.map((m) => (
-              <img
-                key={m.id}
-                src={m.url}
-                alt={m.alt_text ?? ''}
-                className="max-h-[500px] w-full object-cover"
-                style={{ backgroundColor: 'var(--bg-elevated)' }}
-              />
-            ))}
+            {post.media.map((m) =>
+              m.type === 'video' ? (
+                <video
+                  key={m.id}
+                  src={m.url}
+                  controls
+                  playsInline
+                  preload="metadata"
+                  poster={m.thumbnail_url || undefined}
+                  className="max-h-[500px] w-full"
+                  style={{ backgroundColor: 'var(--bg-elevated)' }}
+                  aria-label={m.alt_text || 'Video attachment'}
+                >
+                  Progressive video playback is not supported in this browser.
+                </video>
+              ) : (
+                <img
+                  key={m.id}
+                  src={m.url}
+                  alt={m.alt_text ?? ''}
+                  className="max-h-[500px] w-full object-cover"
+                  style={{ backgroundColor: 'var(--bg-elevated)' }}
+                />
+              ),
+            )}
           </div>
         )}
 

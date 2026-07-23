@@ -1,5 +1,5 @@
 import React from "react";
-import { ImagePlus, X } from "lucide-react";
+import { Film, ImagePlus, X } from "lucide-react";
 import { SignInButton } from "@clerk/clerk-react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -19,7 +19,11 @@ import {
   activePageAuthorshipNotice,
   postButtonAuthorshipHint,
 } from "../../utils/activePageCopy";
-import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from "../../utils/imageUpload";
+import {
+  ALLOWED_COMPOSE_MEDIA_ACCEPT,
+  isVideoFile,
+  validateComposeMediaFile,
+} from "../../utils/imageUpload";
 import { RightRail } from "./RightRail";
 import { BottomBar } from "./BottomBar";
 import { TopBar, type CreateAction } from "./TopBar";
@@ -71,8 +75,9 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
   const [isCheckingComposeAccess, setIsCheckingComposeAccess] = React.useState(false);
   const [composeGate, setComposeGate] = React.useState<"signed_out" | "profile_required" | null>(null);
   const [composeError, setComposeError] = React.useState<string | null>(null);
-  const [imageFile, setImageFile] = React.useState<File | null>(null);
-  const [imagePreviewUrl, setImagePreviewUrl] = React.useState<string | null>(null);
+  /** Single compose attachment: one image OR one progressive video. */
+  const [mediaFile, setMediaFile] = React.useState<File | null>(null);
+  const [mediaPreviewUrl, setMediaPreviewUrl] = React.useState<string | null>(null);
   const [myCommunities, setMyCommunities] = React.useState<CommunityMembership[]>([]);
   const [selectedCommunityId, setSelectedCommunityId] = React.useState<string>("");
   const [myPages, setMyPages] = React.useState<SocialPage[]>([]);
@@ -91,7 +96,8 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
   const composeDialogRef = React.useRef<HTMLDivElement | null>(null);
 
   const remainingChars = COMPOSE_MAX_CHARS - composeText.length;
-  const canPost = (composeText.trim().length > 0 || Boolean(imageFile)) && !isPosting;
+  const mediaIsVideo = Boolean(mediaFile && isVideoFile(mediaFile));
+  const canPost = (composeText.trim().length > 0 || Boolean(mediaFile)) && !isPosting;
   const selectedPage = myPages.find((p) => p.id === selectedPageId) ?? myPages[0] ?? null;
   const authorshipNotice = activePageAuthorshipNotice({
     pagesLoadFailed,
@@ -108,12 +114,12 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     navigate(route);
   };
 
-  const clearImage = () => {
-    if (imagePreviewUrl) {
-      URL.revokeObjectURL(imagePreviewUrl);
+  const clearMedia = () => {
+    if (mediaPreviewUrl) {
+      URL.revokeObjectURL(mediaPreviewUrl);
     }
-    setImageFile(null);
-    setImagePreviewUrl(null);
+    setMediaFile(null);
+    setMediaPreviewUrl(null);
     if (fileInputRef.current) {
       fileInputRef.current.value = "";
     }
@@ -133,7 +139,7 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     setCreatingBrand(false);
     setPagesLoadFailed(false);
     setBrandJustCreated(false);
-    clearImage();
+    clearMedia();
   };
 
   const closeCompose = () => {
@@ -230,22 +236,22 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
     }
   };
 
-  const onPickImage = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const onPickMedia = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0] ?? null;
     if (!file) return;
 
-    const validationError = validateImageFile(file);
+    const validationError = validateComposeMediaFile(file);
     if (validationError) {
       setComposeError(validationError);
-      clearImage();
+      clearMedia();
       return;
     }
 
-    if (imagePreviewUrl) {
-      URL.revokeObjectURL(imagePreviewUrl);
+    if (mediaPreviewUrl) {
+      URL.revokeObjectURL(mediaPreviewUrl);
     }
-    setImageFile(file);
-    setImagePreviewUrl(URL.createObjectURL(file));
+    setMediaFile(file);
+    setMediaPreviewUrl(URL.createObjectURL(file));
     setComposeError(null);
   };
 
@@ -339,8 +345,8 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
       const token = composeToken!;
       const mediaIds: string[] = [];
 
-      if (imageFile) {
-        const uploaded = await uploadMediaFile(token, imageFile);
+      if (mediaFile) {
+        const uploaded = await uploadMediaFile(token, mediaFile);
         mediaIds.push(uploaded.mediaId);
       }
 
@@ -630,26 +636,37 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                   disabled={isPosting || isCheckingComposeAccess}
                 />
 
-                {imagePreviewUrl && (
+                {mediaPreviewUrl && (
                   <div
                     className="relative mt-3 overflow-hidden rounded-2xl border"
                     style={{ borderColor: "var(--border-primary)" }}
                   >
-                    <img
-                      src={imagePreviewUrl}
-                      alt="Selected attachment"
-                      className="max-h-[280px] w-full object-cover"
-                    />
+                    {mediaIsVideo ? (
+                      <video
+                        src={mediaPreviewUrl}
+                        controls
+                        playsInline
+                        preload="metadata"
+                        className="max-h-[280px] w-full"
+                        aria-label="Selected video attachment"
+                      />
+                    ) : (
+                      <img
+                        src={mediaPreviewUrl}
+                        alt="Selected attachment"
+                        className="max-h-[280px] w-full object-cover"
+                      />
+                    )}
                     <button
                       type="button"
-                      onClick={clearImage}
+                      onClick={clearMedia}
                       disabled={isPosting}
                       className="absolute right-2 top-2 rounded-full p-1.5"
                       style={{
                         backgroundColor: "color-mix(in srgb, var(--bg-primary) 80%, transparent)",
                         color: "var(--text-primary)",
                       }}
-                      aria-label="Remove image"
+                      aria-label={mediaIsVideo ? "Remove video" : "Remove image"}
                     >
                       <X className="h-4 w-4" />
                     </button>
@@ -695,9 +712,9 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                     <input
                       ref={fileInputRef}
                       type="file"
-                      accept={ALLOWED_IMAGE_ACCEPT}
+                      accept={ALLOWED_COMPOSE_MEDIA_ACCEPT}
                       className="hidden"
-                      onChange={onPickImage}
+                      onChange={onPickMedia}
                       disabled={isPosting || isCheckingComposeAccess}
                     />
                     <button
@@ -706,10 +723,15 @@ export function AppShell({ children, activeRoute }: AppShellProps) {
                       disabled={isPosting || isCheckingComposeAccess}
                       className="flex items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors hover-overlay disabled:opacity-50"
                       style={{ color: "var(--accent)" }}
-                      aria-label="Add image"
+                      aria-label="Add image or video"
+                      title="One image (JPEG/PNG/GIF/WebP ≤10MB) or progressive video (MP4/WebM ≤50MB)"
                     >
-                      <ImagePlus className="h-4 w-4" aria-hidden="true" />
-                      Image
+                      {mediaIsVideo ? (
+                        <Film className="h-4 w-4" aria-hidden="true" />
+                      ) : (
+                        <ImagePlus className="h-4 w-4" aria-hidden="true" />
+                      )}
+                      Media
                     </button>
                   </div>
                   <span

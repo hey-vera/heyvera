@@ -37,7 +37,7 @@ import {
   topicExplorePath,
   type NetworkSuggestion,
 } from '../utils/emptyNetworkOnboard';
-import { validateImageFile } from '../utils/imageUpload';
+import { isVideoFile, validateComposeMediaFile } from '../utils/imageUpload';
 import { addExcludedAuthor, filterPostsExcludingAuthors } from '../utils/moderation';
 
 const TABS = ['For you', 'Following', 'Humans', 'Agents'] as const;
@@ -79,9 +79,10 @@ export function HomePage() {
   const [content, setContent] = useState('');
   const [posting, setPosting] = useState(false);
   const [composeNotice, setComposeNotice] = useState<string | null>(null);
-  /** Local image attachment for inline Home compose (parity with AppShell). */
+  /** Local media attachment for inline Home compose: one image OR progressive video. */
   const [imageFile, setImageFile] = useState<File | null>(null);
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
+  const mediaIsVideo = Boolean(imageFile && isVideoFile(imageFile));
   const [reloadKey, setReloadKey] = useState(0);
   const [refreshing, setRefreshing] = useState(false);
   const [pullDistance, setPullDistance] = useState(0);
@@ -399,7 +400,7 @@ export function HomePage() {
 
   const onComposeImagePick = useCallback(
     (file: File) => {
-      const validationError = validateImageFile(file);
+      const validationError = validateComposeMediaFile(file);
       if (validationError) {
         setComposeNotice(validationError);
         clearComposeImage();
@@ -460,7 +461,10 @@ export function HomePage() {
           mediaIds.push(uploaded.mediaId);
         } catch (uploadErr) {
           setComposeNotice(
-            formatRequestError(uploadErr, 'Image upload failed. Try again or post without an image.'),
+            formatRequestError(
+              uploadErr,
+              'Media upload failed. Try again or post without an attachment.',
+            ),
           );
           return;
         }
@@ -573,6 +577,7 @@ export function HomePage() {
         isSignedIn={isSignedIn}
         authEnabled={authEnabled}
         imagePreviewUrl={imagePreviewUrl}
+        mediaIsVideo={mediaIsVideo}
         onImagePick={onComposeImagePick}
         onImageClear={clearComposeImage}
         signInButton={
