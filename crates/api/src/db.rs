@@ -12325,6 +12325,22 @@ impl Database {
             m.insert("bookmarked".into(), serde_json::json!(bookmarked));
             m.insert("reposted".into(), serde_json::json!(reposted));
         }
+
+        // Nest quoted post when present (same shape as feed enrich `quotePost`).
+        if let Some(qid) = post
+            .get("quotePostId")
+            .and_then(|v| v.as_str())
+            .filter(|s| !s.is_empty())
+            .map(|s| s.to_string())
+        {
+            let quote_map = Self::social_load_quote_posts_by_ids(&conn, &[qid.clone()]);
+            if let Some(quoted) = quote_map.get(&qid) {
+                if let Some(m) = post.as_object_mut() {
+                    m.insert("quotePost".into(), quoted.clone());
+                }
+            }
+        }
+
         tracing::info!(method = "social_get_post_by_id", duration_ms = _t.elapsed().as_millis(), "db query");
         Some(post)
     }
@@ -12675,6 +12691,108 @@ impl Database {
                 m.insert("media".into(), serde_json::json!(media_list));
             }
         }
+
+        // Nested quoted posts (one level): batch-load unique quote targets to avoid N+1.
+        // Only attach real backend rows — never invent a quote shell when the target is gone.
+        Self::social_attach_nested_quote_posts(&conn, posts);
+    }
+
+    /// Collect `quotePostId`s from posts and attach nested `quotePost` objects (batch IN query).
+    fn social_attach_nested_quote_posts(
+        conn: &rusqlite::Connection,
+        posts: &mut [serde_json::Value],
+    ) {
+        let mut quote_ids: Vec<String> = Vec::new();
+        let mut seen: HashSet<String> = HashSet::new();
+        for post in posts.iter() {
+            if let Some(qid) = post.get("quotePostId").and_then(|v| v.as_str()) {
+                if !qid.is_empty() && seen.insert(qid.to_string()) {
+                    quote_ids.push(qid.to_string());
+                }
+            }
+        }
+        if quote_ids.is_empty() {
+            return;
+        }
+
+        let quote_map = Self::social_load_quote_posts_by_ids(conn, &quote_ids);
+        for post in posts.iter_mut() {
+            let qid = match post.get("quotePostId").and_then(|v| v.as_str()) {
+                Some(id) if !id.is_empty() => id.to_string(),
+                _ => continue,
+            };
+            if let Some(quoted) = quote_map.get(&qid) {
+                if let Some(m) = post.as_object_mut() {
+                    m.insert("quotePost".into(), quoted.clone());
+                }
+            }
+        }
+    }
+
+    /// Load quote-target posts by id (deleted omitted). Shape matches a light FeedPost.
+    fn social_load_quote_posts_by_ids(
+        conn: &rusqlite::Connection,
+        quote_ids: &[String],
+    ) -> HashMap<String, serde_json::Value> {
+        let mut out: HashMap<String, serde_json::Value> = HashMap::new();
+        if quote_ids.is_empty() {
+            return out;
+        }
+
+        let placeholders: Vec<String> = (1..=quote_ids.len()).map(|i| format!("?{i}")).collect();
+        let sql = format!(
+            "SELECT sp.id, sp.body, sp.visibility, sp.proof_state, sp.author_mode,
+                    sp.reply_to_post_id, sp.quote_post_id, sp.created_at, sp.updated_at,
+                    p.id, p.handle, p.display_name, p.avatar_url
+             FROM social_posts sp
+             JOIN social_profiles p ON p.id = sp.profile_id
+             WHERE sp.deleted_at IS NULL AND sp.id IN ({})",
+            placeholders.join(", ")
+        );
+
+        let mut stmt = match conn.prepare(&sql) {
+            Ok(s) => s,
+            Err(_) => return out,
+        };
+
+        let params_ref: Vec<&dyn rusqlite::types::ToSql> = quote_ids
+            .iter()
+            .map(|id| id as &dyn rusqlite::types::ToSql)
+            .collect();
+
+        let rows = match stmt.query_map(params_ref.as_slice(), |row| {
+            let id: String = row.get(0)?;
+            let avatar: Option<String> = row.get(12)?;
+            Ok((
+                id.clone(),
+                serde_json::json!({
+                    "id": id,
+                    "body": row.get::<_, String>(1)?,
+                    "visibility": row.get::<_, String>(2)?,
+                    "proofState": row.get::<_, String>(3)?,
+                    "authorMode": row.get::<_, String>(4)?,
+                    "replyToPostId": row.get::<_, Option<String>>(5)?,
+                    "quotePostId": row.get::<_, Option<String>>(6)?,
+                    "createdAt": row.get::<_, String>(7)?,
+                    "updatedAt": row.get::<_, String>(8)?,
+                    "author": {
+                        "profileId": row.get::<_, String>(9)?,
+                        "handle": row.get::<_, String>(10)?,
+                        "displayName": row.get::<_, String>(11)?,
+                        "avatar_url": avatar,
+                    },
+                    "linkedAgent": serde_json::Value::Null,
+                }),
+            ))
+        }) {
+            Ok(r) => r,
+            Err(_) => return out,
+        };
+
+        for row in rows.flatten() {
+            out.insert(row.0, row.1);
+        }
+        out
     }
 
     /// Following feed with keyset pagination on (created_at, id).
@@ -17865,6 +17983,68 @@ mod tests {
             .pulse_update_draft_status(draft_id, profile_id, "approved")
             .expect("approve");
         assert_eq!(approved["status"], "approved");
+    }
+
+    /// Quote fidelity: enrich nests quoted post body/author for feed cards.
+    #[test]
+    fn social_enrich_feed_posts_nests_quote_post() {
+        let db = test_db();
+        let alice = db.social_create_profile("clerk_quote_a", "quotealice", "Alice", "");
+        let bob = db.social_create_profile("clerk_quote_b", "quotebob", "Bob", "");
+        let alice_id = alice["id"].as_str().unwrap();
+        let bob_id = bob["id"].as_str().unwrap();
+
+        let original = db.social_create_post(
+            alice_id,
+            "Original quotable body",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        let original_id = original["id"].as_str().unwrap().to_string();
+
+        let quote = db.social_create_post(
+            bob_id,
+            "Quoting you",
+            "public",
+            "person",
+            None,
+            None,
+            Some(&original_id),
+            None,
+        );
+        let quote_id = quote["id"].as_str().unwrap().to_string();
+        assert_eq!(quote["quotePostId"].as_str(), Some(original_id.as_str()));
+
+        let mut feed = db.social_list_feed_posts_keyset(20, None, None, None, &[], &[]);
+        db.social_enrich_feed_posts(&mut feed, Some(bob_id));
+
+        let quoted_row = feed
+            .iter()
+            .find(|p| p["id"] == quote_id)
+            .expect("quote post in feed");
+        assert_eq!(quoted_row["quotePostId"].as_str(), Some(original_id.as_str()));
+        let nested = quoted_row
+            .get("quotePost")
+            .expect("enrich must nest quotePost");
+        assert_eq!(nested["id"].as_str(), Some(original_id.as_str()));
+        assert_eq!(nested["body"], "Original quotable body");
+        assert_eq!(nested["author"]["handle"], "quotealice");
+        assert_eq!(nested["author"]["displayName"], "Alice");
+        assert!(nested["author"]["profileId"].as_str().is_some());
+
+        // Single-post path also nests quotePost (thread root).
+        let single = db
+            .social_get_post_by_id(&quote_id, Some(bob_id))
+            .expect("quote post by id");
+        assert_eq!(
+            single["quotePost"]["id"].as_str(),
+            Some(original_id.as_str())
+        );
+        assert_eq!(single["quotePost"]["body"], "Original quotable body");
     }
 
     #[test]

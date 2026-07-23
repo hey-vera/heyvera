@@ -176,4 +176,62 @@ describe('feedPostToPost', () => {
       agent_slug: 'vera-bot',
     });
   });
+
+  it('maps nested quotePost → quote_post for PostCard', () => {
+    const post = feedPostToPost(
+      makeFeedPost({
+        id: 'quote_1',
+        body: 'My commentary',
+        quotePostId: 'orig_1',
+        quotePost: makeFeedPost({
+          id: 'orig_1',
+          body: 'Original body being quoted',
+          quotePostId: null,
+          author: {
+            profileId: 'profile_orig',
+            handle: 'alice',
+            displayName: 'Alice',
+            avatar_url: 'https://cdn.example/alice.png',
+          },
+          likeCount: 0,
+          repostCount: 0,
+          replyCount: 0,
+          liked: false,
+          bookmarked: false,
+          reposted: false,
+        }),
+      }),
+    );
+
+    expect(post.quote_post).toBeDefined();
+    expect(post.quote_post?.id).toBe('orig_1');
+    expect(post.quote_post?.content).toBe('Original body being quoted');
+    expect(post.quote_post?.author).toEqual({
+      id: 'profile_orig',
+      display_name: 'Alice',
+      handle: 'alice',
+      avatar_url: 'https://cdn.example/alice.png',
+      verified: false,
+    });
+  });
+
+  it('omits quote_post when BE only sends quotePostId without nested payload', () => {
+    const post = feedPostToPost(
+      makeFeedPost({
+        quotePostId: 'missing_orig',
+        quotePost: undefined,
+      }),
+    );
+    expect(post.quote_post).toBeUndefined();
+  });
+
+  it('omits quote_post when quotePost is null (deleted/missing target)', () => {
+    const post = feedPostToPost(
+      makeFeedPost({
+        quotePostId: 'gone',
+        quotePost: null,
+      }),
+    );
+    expect(post.quote_post).toBeUndefined();
+  });
 });

@@ -571,7 +571,10 @@ pub async fn create_post(
         }
         result["media"] = serde_json::json!(media_list);
     }
-    result["post"] = post_out;
+    // Enrich so create response includes nested quotePost (and counts/media) for FE adapters.
+    let mut enriched = vec![post_out];
+    db(&state).social_enrich_feed_posts(&mut enriched, Some(&profile_id));
+    result["post"] = enriched.remove(0);
     ok(result)
 }
 
