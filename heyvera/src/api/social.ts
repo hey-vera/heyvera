@@ -234,6 +234,35 @@ export type MediaShelf = {
   createdAt: string;
 };
 
+/**
+ * Wave 14i LiveSession — real DB phase; provider URLs deferred (Wave 14k).
+ * - phase "live" is real server state (not FE theater).
+ * - ingestUrl / playbackUrl may be null even when phase is live.
+ * - LIVE badge only when phase === "live"; prefer playbackUrl when present for player.
+ */
+export type LiveSessionPhase = "preview" | "scheduled" | "live" | "ended";
+
+export type LiveSession = {
+  id: string;
+  ownerProfileId: string;
+  title: string;
+  description: string;
+  phase: LiveSessionPhase;
+  ingestUrl: string | null;
+  playbackUrl: string | null;
+  provider: string;
+  startedAt: string | null;
+  endedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  owner?: {
+    profileId: string;
+    handle: string;
+    displayName: string;
+  };
+  notes?: string;
+};
+
 export type CommunityMembership = Community & {
   joinedAt: string;
   role?: string;
@@ -1095,6 +1124,61 @@ export async function createShelf(
   data: { title: string; description?: string },
 ): Promise<{ ok: true; shelf: MediaShelf }> {
   return apiAuthFetch("/shelves", { method: "POST", token, body: data });
+}
+
+// ─── Wave 14i: LiveSession model (real phase; no provider yet) ────────────────
+
+/**
+ * GET /v1/social/live/sessions — public phase=live sessions.
+ * Pass mine=true + token to also include the caller's preview/ended sessions.
+ */
+export async function fetchLiveSessions(
+  opts: { limit?: number; mine?: boolean; token?: string | null } = {},
+): Promise<{ sessions: LiveSession[]; notes?: string }> {
+  const limit = opts.limit ?? 20;
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (opts.mine) qs.set("mine", "1");
+  return apiFetch(`/live/sessions?${qs}`, opts.token);
+}
+
+/** GET /v1/social/live/sessions/{id} */
+export async function fetchLiveSession(
+  id: string,
+): Promise<{ session: LiveSession }> {
+  return apiFetch(`/live/sessions/${encodeURIComponent(id)}`);
+}
+
+/** POST /v1/social/live/sessions — create preview session (auth). */
+export async function createLiveSession(
+  token: string,
+  data: { title: string; description?: string },
+): Promise<{ ok: true; session: LiveSession }> {
+  return apiAuthFetch("/live/sessions", { method: "POST", token, body: data });
+}
+
+/**
+ * POST /v1/social/live/sessions/{id}/go-live — owner only.
+ * Sets phase=live even when playbackUrl is still null (provider deferred).
+ */
+export async function goLiveSession(
+  token: string,
+  id: string,
+): Promise<{ ok: true; session: LiveSession; notes?: string }> {
+  return apiAuthFetch(`/live/sessions/${encodeURIComponent(id)}/go-live`, {
+    method: "POST",
+    token,
+  });
+}
+
+/** POST /v1/social/live/sessions/{id}/end — owner only. */
+export async function endLiveSession(
+  token: string,
+  id: string,
+): Promise<{ ok: true; session: LiveSession }> {
+  return apiAuthFetch(`/live/sessions/${encodeURIComponent(id)}/end`, {
+    method: "POST",
+    token,
+  });
 }
 
 // ─── x402 agent micropayments scaffold (Wave 8g) ─────────────────────────────

@@ -163,6 +163,21 @@ pub struct CreateShelfRequest {
     pub description: Option<String>,
 }
 
+/// Wave 14i — create a LiveSession in preview phase (no ingest provider yet).
+#[derive(Debug, Deserialize)]
+pub struct CreateLiveSessionRequest {
+    pub title: String,
+    pub description: Option<String>,
+}
+
+/// Wave 14i — list live sessions (public live + optional mine).
+#[derive(Debug, Deserialize)]
+pub struct LiveSessionsQuery {
+    pub limit: Option<i64>,
+    /// When true and authenticated, include the caller's non-live sessions too.
+    pub mine: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct UpdateProfileRequest {
     /// Accept camelCase (FE) and snake_case (legacy clients).
@@ -2129,6 +2144,108 @@ pub async fn create_shelf(
     let description = req.description.unwrap_or_default();
     match db(&state).social_create_media_shelf(&profile_id, &req.title, &description) {
         Ok(shelf) => ok(serde_json::json!({ "ok": true, "shelf": shelf })),
+        Err(msg) => bad_request(&msg),
+    }
+}
+
+// ─── Wave 14i: LiveSession model (real phase; provider URLs deferred) ─────────
+//
+// API notes (honesty):
+// - `phase` is real DB state: preview | scheduled | live | ended.
+// - POST go-live is allowed without ingest_url/playback_url. Those stay null until a
+//   stream provider (Cloudflare/Mux/etc.) is wired in Wave 14k. Clients must not invent
+//   playback; show offline/soon chrome when playbackUrl is null even if phase=live.
+// - LIVE badge / chrome should only use phase === "live" (prefer playbackUrl when present).
+
+/// POST /v1/social/live/sessions — create as preview; owner = active profile (person Page).
+pub async fn create_live_session(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CreateLiveSessionRequest>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let description = req.description.unwrap_or_default();
+    match db(&state).social_create_live_session(&profile_id, &req.title, &description) {
+        Ok(session) => ok(serde_json::json!({ "ok": true, "session": session })),
+        Err(msg) => bad_request(&msg),
+    }
+}
+
+/// GET /v1/social/live/sessions — public phase=live sessions; with mine=1 + auth, include mine.
+pub async fn list_live_sessions(
+    Query(params): Query<LiveSessionsQuery>,
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let limit = params.limit.unwrap_or(20).clamp(1, 100);
+    let want_mine = matches!(
+        params.mine.as_deref().map(|s| s.to_ascii_lowercase()).as_deref(),
+        Some("1") | Some("true") | Some("yes")
+    );
+    let viewer = if want_mine {
+        optional_viewer_profile_id(&headers, &state).await
+    } else {
+        None
+    };
+    let include_mine = want_mine && viewer.is_some();
+    let sessions =
+        db(&state).social_list_live_sessions(limit, viewer.as_deref(), include_mine);
+    ok(serde_json::json!({
+        "sessions": sessions,
+        "notes": "phase=live is real DB state. playbackUrl/ingestUrl are null until a stream provider is wired (Wave 14k). Go-live does not require provider URLs.",
+    }))
+}
+
+/// GET /v1/social/live/sessions/{id}
+pub async fn get_live_session(
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    match db(&state).social_get_live_session(&id) {
+        Some(session) => ok(serde_json::json!({ "session": session })),
+        None => not_found("Live session not found"),
+    }
+}
+
+/// POST /v1/social/live/sessions/{id}/go-live — owner only; phase→live (URLs may stay null).
+pub async fn go_live_session(
+    user: ClerkUser,
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    match db(&state).social_go_live_session(&id, &profile_id) {
+        Ok(session) => ok(serde_json::json!({
+            "ok": true,
+            "session": session,
+            "notes": "Session is phase=live in DB. ingestUrl/playbackUrl may still be null until provider integration (Wave 14k).",
+        })),
+        Err(msg) if msg == "NOT_FOUND" => not_found("Live session not found"),
+        Err(msg) if msg == "FORBIDDEN" => forbidden("Only the session owner can go live"),
+        Err(msg) => bad_request(&msg),
+    }
+}
+
+/// POST /v1/social/live/sessions/{id}/end — owner only; phase→ended.
+pub async fn end_live_session(
+    user: ClerkUser,
+    Path(id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    match db(&state).social_end_live_session(&id, &profile_id) {
+        Ok(session) => ok(serde_json::json!({ "ok": true, "session": session })),
+        Err(msg) if msg == "NOT_FOUND" => not_found("Live session not found"),
+        Err(msg) if msg == "FORBIDDEN" => forbidden("Only the session owner can end this session"),
         Err(msg) => bad_request(&msg),
     }
 }

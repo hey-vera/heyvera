@@ -8,9 +8,9 @@
 /**
  * Broadcast UI phases.
  * - preview / soon / scheduled / offline: honest non-live chrome
- * - live: only when a real ingest session is known live (not used until encoder ships)
+ * - live: only when LiveSession.phase === 'live' from the real API
  */
-export type LiveStreamPhase = 'preview' | 'soon' | 'scheduled' | 'offline' | 'live';
+export type LiveStreamPhase = 'preview' | 'soon' | 'scheduled' | 'offline' | 'live' | 'ended';
 
 /** Badge text for stream chrome. Never invent LIVE without phase === 'live'. */
 export function liveStreamBadgeLabel(phase: LiveStreamPhase): string {
@@ -21,6 +21,7 @@ export function liveStreamBadgeLabel(phase: LiveStreamPhase): string {
     case 'scheduled':
       return 'Soon';
     case 'offline':
+    case 'ended':
       return 'Offline';
     case 'preview':
     default:
@@ -30,17 +31,53 @@ export function liveStreamBadgeLabel(phase: LiveStreamPhase): string {
 
 /**
  * True only when real live chrome is allowed.
- * Wave 11 hold: encoder ingest is not production — callers pass 'preview' / 'soon' only.
+ * Wave 14i: phase must be 'live' from LiveSession API (DB state).
+ * Prefer playback when present for the player; badge still only for phase live.
  */
 export function isLiveChromeAllowed(phase: LiveStreamPhase): boolean {
   return phase === 'live';
 }
 
-/** Default phase until real session API exists. */
+/**
+ * Map a LiveSession API row to UI chrome phase.
+ * - LIVE badge only when phase === 'live'
+ * - When phase is live but playbackUrl is missing, keep badge phase 'live' but
+ *   callers should show offline/soon player chrome (no invented stream).
+ */
+export function liveSessionToUiPhase(
+  session: { phase: string; playbackUrl?: string | null } | null | undefined,
+): LiveStreamPhase {
+  if (!session) return LIVE_DEFAULT_PHASE;
+  switch (session.phase) {
+    case 'live':
+      return 'live';
+    case 'scheduled':
+      return 'scheduled';
+    case 'ended':
+      return 'ended';
+    case 'preview':
+    default:
+      return 'preview';
+  }
+}
+
+/** True when a live session has a usable playback URL (provider wired). */
+export function hasLivePlayback(
+  session: { phase: string; playbackUrl?: string | null } | null | undefined,
+): boolean {
+  return (
+    !!session &&
+    session.phase === 'live' &&
+    typeof session.playbackUrl === 'string' &&
+    session.playbackUrl.trim().length > 0
+  );
+}
+
+/** Default phase when no session is selected. */
 export const LIVE_DEFAULT_PHASE: LiveStreamPhase = 'preview';
 
 export const LIVE_INGEST_FOUNDATION_DETAIL =
-  'Encoder ingest is not production. This surface is Preview only — no RTMP/WHIP session, no LIVE badge on real streams.';
+  'LiveSession phase is real DB state. Encoder ingest / playback URLs are not production yet — go-live may leave playbackUrl null; no invented stream.';
 
 // ─── Video upload honesty (11a) ─────────────────────────────────────────────
 
