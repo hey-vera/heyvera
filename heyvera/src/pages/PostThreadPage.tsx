@@ -1,7 +1,19 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { bookmarkPost, createPost, feedPostToPost, fetchMyProfile, fetchSinglePost, likePost, repostPost, unbookmarkPost, unlikePost, unrepostPost } from '../api/social';
+import {
+  bookmarkPost,
+  createPost,
+  feedPostToPost,
+  fetchMyProfile,
+  fetchRelatedPosts,
+  fetchSinglePost,
+  likePost,
+  repostPost,
+  unbookmarkPost,
+  unlikePost,
+  unrepostPost,
+} from '../api/social';
 import type { FeedPost } from '../api/social';
 import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
@@ -28,6 +40,10 @@ export function PostThreadPage() {
   const [error, setError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [replyTargetId, setReplyTargetId] = useState<string | null>(null);
+  const [relatedPosts, setRelatedPosts] = useState<Post[]>([]);
+  const [relatedLoading, setRelatedLoading] = useState(false);
+  const [relatedError, setRelatedError] = useState<string | null>(null);
+  const [relatedReloadKey, setRelatedReloadKey] = useState(0);
 
   const softRefreshCounts = () => setReloadKey((key) => key + 1);
 
@@ -65,6 +81,9 @@ export function PostThreadPage() {
         setRepliesTruncated(false);
         setError(null);
         setLoading(false);
+        setRelatedPosts([]);
+        setRelatedError(null);
+        setRelatedLoading(false);
         return;
       }
 
@@ -88,6 +107,9 @@ export function PostThreadPage() {
           setReplies([]);
           setRepliesTruncated(false);
           setError(err instanceof Error ? err.message : 'Unable to load post');
+          setRelatedPosts([]);
+          setRelatedError(null);
+          setRelatedLoading(false);
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -99,6 +121,43 @@ export function PostThreadPage() {
       cancelled = true;
     };
   }, [id, reloadKey]);
+
+  // Related discovery loads after the thread is available (honest heuristic, not ML).
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadRelated() {
+      if (!id || !post) {
+        setRelatedPosts([]);
+        setRelatedError(null);
+        setRelatedLoading(false);
+        return;
+      }
+
+      setRelatedLoading(true);
+      setRelatedError(null);
+      try {
+        const response = await fetchRelatedPosts(id, 8);
+        if (!cancelled) {
+          setRelatedPosts((response.posts ?? []).map(feedPostToPost));
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setRelatedPosts([]);
+          setRelatedError(
+            err instanceof Error ? err.message : 'Unable to load related posts',
+          );
+        }
+      } finally {
+        if (!cancelled) setRelatedLoading(false);
+      }
+    }
+
+    void loadRelated();
+    return () => {
+      cancelled = true;
+    };
+  }, [id, post?.id, relatedReloadKey]);
 
   const repliesById = useMemo(() => {
     const map = new Map<string, Post>();
@@ -218,6 +277,47 @@ export function PostThreadPage() {
               </p>
             </div>
           )}
+
+          {/* Related: shared hashtags + same author + recency (not AI/ML). */}
+          <section
+            aria-label="Related posts"
+            className="border-t"
+            style={{ borderColor: 'var(--border-primary)' }}
+          >
+            <div className="px-4 py-3">
+              <h2 className="text-[17px] font-bold leading-5" style={{ color: 'var(--text-primary)' }}>
+                Related
+              </h2>
+              <p className="mt-1 text-[13px] leading-4" style={{ color: 'var(--text-secondary)' }}>
+                Similar posts by shared tags and the same author.
+              </p>
+            </div>
+            {relatedLoading && <LoadingState label="Loading related posts" />}
+            {!relatedLoading && relatedError && (
+              <ErrorState
+                title="Related posts unavailable"
+                detail={relatedError}
+                onRetry={() => setRelatedReloadKey((key) => key + 1)}
+              />
+            )}
+            {!relatedLoading && !relatedError && relatedPosts.length === 0 && (
+              <EmptyState
+                title="No related posts yet"
+                detail="When more posts share tags or come from this author, they will show up here."
+              />
+            )}
+            {!relatedLoading &&
+              !relatedError &&
+              relatedPosts.map((related) => (
+                <PostCard
+                  key={related.id}
+                  post={related}
+                  onLike={handleLike}
+                  onRepost={handleRepost}
+                  onBookmark={handleBookmark}
+                />
+              ))}
+          </section>
         </section>
       )}
     </div>

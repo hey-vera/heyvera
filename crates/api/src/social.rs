@@ -1235,6 +1235,33 @@ pub async fn get_single_post(
     }
 }
 
+/// Wave 14a: related posts via shared hashtags + same author + recency (not ML).
+#[derive(Debug, Deserialize)]
+pub struct RelatedPostsQuery {
+    pub limit: Option<i64>,
+}
+
+pub async fn get_related_posts(
+    Path(id): Path<String>,
+    Query(params): Query<RelatedPostsQuery>,
+    headers: HeaderMap,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
+    // Default 8; hard cap 20 (enforced again in db).
+    let limit = params.limit.unwrap_or(8).clamp(1, 20);
+    match db(&state).social_get_related_posts(&id, limit, viewer_pid.as_deref()) {
+        Some(mut posts) => {
+            db(&state).social_enrich_feed_posts(&mut posts, viewer_pid.as_deref());
+            ok(serde_json::json!({
+                "posts": posts,
+                "sourcePostId": id,
+            }))
+        }
+        None => not_found("Post not found"),
+    }
+}
+
 pub async fn get_following_feed(
     user: ClerkUser,
     Query(params): Query<FeedQuery>,

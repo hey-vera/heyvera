@@ -955,6 +955,19 @@ export async function fetchSinglePost(postId: string): Promise<{
   return apiFetch(`/posts/${postId}`);
 }
 
+/**
+ * Related posts for a thread (Wave 14a).
+ * Heuristic: shared hashtags + same author + recency — not AI/ML.
+ * Default limit 8; server hard-caps at 20.
+ */
+export async function fetchRelatedPosts(
+  postId: string,
+  limit = 8,
+): Promise<{ posts: FeedPost[]; sourcePostId?: string }> {
+  const capped = Math.min(Math.max(1, limit), 20);
+  return apiFetch(`/posts/${encodeURIComponent(postId)}/related?limit=${capped}`);
+}
+
 export async function fetchFollowStatus(
   token: string,
   handle: string,
