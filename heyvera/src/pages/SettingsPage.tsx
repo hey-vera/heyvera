@@ -32,16 +32,22 @@ import { useAuth } from '../hooks/useAuth';
 import { useMyProfile } from '../hooks/useMyProfile';
 import {
   createBrandPage,
+  fetchMyBlocks,
   fetchMyLinkedAgents,
+  fetchMyMutes,
+  fetchMyPrefs,
   fetchX402Status,
   linkAgent,
   listMyPages,
   rotateLinkedAgentKey,
+  unblockUser,
+  unmuteUser,
   updateLinkedAgentPolicies,
+  updateMyPrefs,
   updateProfile,
   uploadMediaFile,
 } from '../api/social';
-import type { LinkedAgent, Profile, SocialPage, X402Status } from '../api/social';
+import type { LinkedAgent, ModerationListEntry, Profile, SocialPage, X402Status } from '../api/social';
 import {
   AGENT_POLICY_FOUNDATION_DETAIL,
   AGENT_POLICY_NOT_LIVE_BADGE,
@@ -50,6 +56,13 @@ import {
 } from '../utils/agentPolicy';
 import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from '../utils/imageUpload';
 import { brandPagePath } from '../utils/guildVisibility';
+import {
+  normalizeSocialPrefs,
+  prefsPatchToApiBody,
+  prefsToChoiceState,
+  prefsToToggleState,
+  settingsControlToPrefsPatch,
+} from '../utils/privacyPrefs';
 
 type Section =
   | 'profile'
@@ -197,6 +210,30 @@ const SECTIONS: SectionMeta[] = [
         label: 'Find me by email or phone',
         description: 'Allow people with your contact info to discover your account.',
         Icon: Smartphone,
+        enabled: false,
+      },
+      {
+        id: 'show-in-search',
+        kind: 'toggle',
+        label: 'Show in search',
+        description: 'Allow your profile to appear in HeyVera profile search results.',
+        Icon: Sparkles,
+        enabled: true,
+      },
+      {
+        id: 'allow-agent-dms',
+        kind: 'toggle',
+        label: 'Allow agent DMs',
+        description: 'Let linked agents message you. Preference is saved; agent runtime is limited.',
+        Icon: Bot,
+        enabled: false,
+      },
+      {
+        id: 'allow-agent-mentions',
+        kind: 'toggle',
+        label: 'Allow agent mentions',
+        description: 'Let agents @mention you in posts. Preference is saved for future enforcement.',
+        Icon: Bot,
         enabled: false,
       },
     ],
@@ -1538,6 +1575,158 @@ function X402PaymentsCard() {
   );
 }
 
+function ModerationListsPanel({
+  getToken,
+  isSignedIn,
+}: {
+  getToken: () => Promise<string | null>;
+  isSignedIn: boolean;
+}) {
+  const [blocks, setBlocks] = useState<ModerationListEntry[]>([]);
+  const [mutes, setMutes] = useState<ModerationListEntry[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isSignedIn) {
+      setBlocks([]);
+      setMutes([]);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const token = await getToken();
+        if (!token) throw new Error('Sign in to manage blocks and mutes.');
+        const [b, m] = await Promise.all([fetchMyBlocks(token), fetchMyMutes(token)]);
+        if (cancelled) return;
+        setBlocks(b.blocks ?? []);
+        setMutes(m.mutes ?? []);
+      } catch (err) {
+        if (!cancelled) {
+          setError(err instanceof Error ? err.message : 'Could not load lists.');
+        }
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken, isSignedIn]);
+
+  const handleUnblock = async (id: string) => {
+    setBusyId(id);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again.');
+      await unblockUser(token, id);
+      setBlocks((current) => current.filter((entry) => entry.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unblock failed.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const handleUnmute = async (id: string) => {
+    setBusyId(id);
+    setError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again.');
+      await unmuteUser(token, id);
+      setMutes((current) => current.filter((entry) => entry.id !== id));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Unmute failed.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  if (!isSignedIn) {
+    return (
+      <div className="px-4 py-4 text-[13px] text-[var(--text-secondary)]">
+        Sign in to manage blocked and muted accounts.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4 border-b border-[var(--border-primary)] px-4 py-4">
+      <div>
+        <h3 className="text-[15px] font-bold">Blocked accounts</h3>
+        <p className="mt-1 text-[13px] text-[var(--text-secondary)]">
+          People you blocked cannot message you or appear in your feed.
+        </p>
+        {loading ? (
+          <p className="mt-2 text-[13px] text-[var(--text-secondary)]">Loading…</p>
+        ) : blocks.length === 0 ? (
+          <p className="mt-2 text-[13px] text-[var(--text-secondary)]">No blocked accounts.</p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {blocks.map((entry) => (
+              <li key={entry.id} className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="block truncate text-[14px] font-bold">{entry.displayName}</span>
+                  <span className="block truncate text-[13px] text-[var(--text-secondary)]">
+                    @{entry.handle}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={busyId === entry.id}
+                  onClick={() => void handleUnblock(entry.id)}
+                  className="rounded-full border border-[var(--border-primary)] px-3 py-1 text-[13px] font-bold hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                >
+                  {busyId === entry.id ? '…' : 'Unblock'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      <div>
+        <h3 className="text-[15px] font-bold">Muted accounts</h3>
+        <p className="mt-1 text-[13px] text-[var(--text-secondary)]">
+          Muted accounts are hidden from your feed without notifying them.
+        </p>
+        {loading ? (
+          <p className="mt-2 text-[13px] text-[var(--text-secondary)]">Loading…</p>
+        ) : mutes.length === 0 ? (
+          <p className="mt-2 text-[13px] text-[var(--text-secondary)]">No muted accounts.</p>
+        ) : (
+          <ul className="mt-3 space-y-2">
+            {mutes.map((entry) => (
+              <li key={entry.id} className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="block truncate text-[14px] font-bold">{entry.displayName}</span>
+                  <span className="block truncate text-[13px] text-[var(--text-secondary)]">
+                    @{entry.handle}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  disabled={busyId === entry.id}
+                  onClick={() => void handleUnmute(entry.id)}
+                  className="rounded-full border border-[var(--border-primary)] px-3 py-1 text-[13px] font-bold hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                >
+                  {busyId === entry.id ? '…' : 'Unmute'}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+      {error ? <p className="text-[13px] text-[var(--color-danger,#f4212e)]">{error}</p> : null}
+    </div>
+  );
+}
+
 export function SettingsPage() {
   const navigate = useNavigate();
   const { authEnabled, isSignedIn, getToken } = useAuth();
@@ -1546,8 +1735,68 @@ export function SettingsPage() {
   const [toggles, setToggles] = useState<Record<string, boolean>>(INITIAL_TOGGLES);
   const [choices, setChoices] = useState<Record<string, string>>(INITIAL_CHOICES);
   const [notice, setNotice] = useState<string | null>(null);
+  const [prefsHydrated, setPrefsHydrated] = useState(false);
+  const [prefsSaving, setPrefsSaving] = useState(false);
 
   const currentSection = SECTIONS.find((section) => section.id === activeSection) ?? SECTIONS[0];
+
+  // Hydrate privacy/account prefs from backend when signed in.
+  useEffect(() => {
+    if (!isSignedIn || !authEnabled) {
+      setPrefsHydrated(false);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const token = await getToken();
+        if (!token || cancelled) return;
+        const raw = await fetchMyPrefs(token);
+        if (cancelled) return;
+        const prefs = normalizeSocialPrefs(raw as unknown as Record<string, unknown>);
+        setToggles((current) => ({ ...current, ...prefsToToggleState(prefs) }));
+        setChoices((current) => ({ ...current, ...prefsToChoiceState(prefs) }));
+        setPrefsHydrated(true);
+      } catch {
+        // Leave local defaults; user can still try saves.
+        if (!cancelled) setPrefsHydrated(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authEnabled, getToken, isSignedIn]);
+
+  const persistPrefsControl = async (
+    controlId: string,
+    value: boolean | string,
+    rollback: () => void,
+  ) => {
+    const patch = settingsControlToPrefsPatch(controlId, value);
+    if (!patch) return;
+    if (!isSignedIn || !authEnabled) {
+      setNotice('Sign in to save privacy preferences.');
+      rollback();
+      return;
+    }
+    setPrefsSaving(true);
+    setNotice(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again to save preferences.');
+      const saved = await updateMyPrefs(token, prefsPatchToApiBody(patch));
+      const prefs = normalizeSocialPrefs(saved as unknown as Record<string, unknown>);
+      setToggles((current) => ({ ...current, ...prefsToToggleState(prefs) }));
+      setChoices((current) => ({ ...current, ...prefsToChoiceState(prefs) }));
+      setNotice('Preferences saved.');
+      setPrefsHydrated(true);
+    } catch (err) {
+      rollback();
+      setNotice(err instanceof Error ? err.message : 'Could not save preferences.');
+    } finally {
+      setPrefsSaving(false);
+    }
+  };
 
   const selectSection = (section: Section) => {
     setActiveSection(section);
@@ -1668,12 +1917,21 @@ export function SettingsPage() {
               <BrandPagesPanel getToken={getToken} isSignedIn={isSignedIn} />
             ) : null}
             {currentSection.id === 'account' ? <AccountSummary /> : null}
+            {currentSection.id === 'privacy' ? (
+              <ModerationListsPanel getToken={getToken} isSignedIn={Boolean(isSignedIn)} />
+            ) : null}
             {currentSection.id === 'billing' || currentSection.id === 'data' ? (
               <X402PaymentsCard />
             ) : null}
             {notice ? (
               <div className="border-b border-[var(--border-primary)] px-4 py-3 text-[13px] text-[var(--text-secondary)]">
                 {notice}
+                {prefsSaving ? ' Saving…' : null}
+              </div>
+            ) : null}
+            {!notice && prefsHydrated && (currentSection.id === 'privacy' || currentSection.id === 'account') ? (
+              <div className="border-b border-[var(--border-primary)] px-4 py-2 text-[12px] text-[var(--text-secondary)]">
+                Privacy preferences synced with your account.
               </div>
             ) : null}
             {currentSection.controls.map((control) => {
@@ -1681,13 +1939,23 @@ export function SettingsPage() {
 
               if (control.kind === 'toggle') {
                 const checked = toggles[control.id] ?? false;
+                const isPrefsControl = settingsControlToPrefsPatch(control.id, checked) != null;
 
                 return (
                   <button
                     key={control.id}
                     type="button"
-                    onClick={() => setToggles((current) => ({ ...current, [control.id]: !checked }))}
-                    className="flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-[var(--bg-hover)]"
+                    disabled={isPrefsControl && prefsSaving}
+                    onClick={() => {
+                      const next = !checked;
+                      setToggles((current) => ({ ...current, [control.id]: next }));
+                      if (isPrefsControl) {
+                        void persistPrefsControl(control.id, next, () => {
+                          setToggles((current) => ({ ...current, [control.id]: checked }));
+                        });
+                      }
+                    }}
+                    className="flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-60"
                     aria-pressed={checked}
                   >
                     <Icon className="mt-0.5 flex-shrink-0 text-[var(--text-secondary)]" size={20} />
@@ -1704,6 +1972,7 @@ export function SettingsPage() {
 
               if (control.kind === 'choice') {
                 const selected = choices[control.id] ?? control.selected;
+                const isPrefsControl = settingsControlToPrefsPatch(control.id, selected) != null;
 
                 return (
                   <div key={control.id} className="px-4 py-4">
@@ -1720,8 +1989,20 @@ export function SettingsPage() {
                               <button
                                 key={option}
                                 type="button"
-                                onClick={() => setChoices((current) => ({ ...current, [control.id]: option }))}
-                                className={`min-h-9 rounded-full border px-3 text-[13px] font-bold transition-colors ${
+                                disabled={isPrefsControl && prefsSaving}
+                                onClick={() => {
+                                  if (option === selected) return;
+                                  setChoices((current) => ({ ...current, [control.id]: option }));
+                                  if (isPrefsControl) {
+                                    void persistPrefsControl(control.id, option, () => {
+                                      setChoices((current) => ({
+                                        ...current,
+                                        [control.id]: selected,
+                                      }));
+                                    });
+                                  }
+                                }}
+                                className={`min-h-9 rounded-full border px-3 text-[13px] font-bold transition-colors disabled:opacity-60 ${
                                   isSelected
                                     ? 'border-[var(--accent)] bg-[color-mix(in_srgb,var(--accent)_14%,transparent)] text-[var(--accent)]'
                                     : 'border-[var(--border-secondary)] text-[var(--text-primary)] hover:bg-[var(--bg-elevated)]'

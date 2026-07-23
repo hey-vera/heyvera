@@ -159,6 +159,7 @@ impl StripeClient {
         price_id: &str,
         trial_days: Option<u32>,
         coupon_id: Option<&str>,
+        clerk_user_id: Option<&str>,
     ) -> Result<CheckoutSessionResponse, StripeError> {
         let mut params = HashMap::new();
         params.insert("customer", customer_id.to_string());
@@ -180,6 +181,11 @@ impl StripeClient {
         }
         if let Some(coupon) = coupon_id {
             params.insert("discounts[0][coupon]", coupon.to_string());
+        }
+        // Batch B3 — wire clerk user id so checkout.session.completed can init credits.
+        if let Some(uid) = clerk_user_id {
+            params.insert("client_reference_id", uid.to_string());
+            params.insert("metadata[clerk_user_id]", uid.to_string());
         }
 
         self.post_form("/v1/checkout/sessions", &params).await

@@ -50,6 +50,19 @@ pub async fn unblock_user(
     Json(serde_json::json!({ "ok": true }))
 }
 
+/// GET /v1/social/me/blocks — list profiles the viewer has blocked.
+pub async fn list_my_blocks(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let blocks = db(&state).social_list_blocks(&profile_id);
+    Json(serde_json::json!({ "blocks": blocks }))
+}
+
 // ─── Mute endpoints ─────────────────────────────────────────────────────────
 
 pub async fn mute_user(
@@ -77,11 +90,27 @@ pub async fn unmute_user(
     Json(serde_json::json!({ "ok": true }))
 }
 
+/// GET /v1/social/me/mutes — list profiles the viewer has muted.
+pub async fn list_my_mutes(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
+    let mutes = db(&state).social_list_mutes(&profile_id);
+    Json(serde_json::json!({ "mutes": mutes }))
+}
+
 // ─── Report endpoint ────────────────────────────────────────────────────────
 
+/// Accepts camelCase (FE) and snake_case aliases for report body fields.
 #[derive(Debug, Deserialize)]
 pub struct CreateReportRequest {
+    #[serde(alias = "targetType")]
     pub target_type: String,
+    #[serde(alias = "targetId")]
     pub target_id: String,
     pub reason: String,
 }
@@ -118,4 +147,26 @@ pub async fn list_reports(
     }
     let reports = db(&state).social_list_reports();
     (StatusCode::OK, Json(serde_json::json!({ "reports": reports })))
+}
+
+#[cfg(test)]
+mod report_request_tests {
+    use super::CreateReportRequest;
+
+    #[test]
+    fn accepts_camel_case_report_body() {
+        let raw = r#"{"targetType":"post","targetId":"p1","reason":"spam"}"#;
+        let req: CreateReportRequest = serde_json::from_str(raw).expect("camelCase");
+        assert_eq!(req.target_type, "post");
+        assert_eq!(req.target_id, "p1");
+        assert_eq!(req.reason, "spam");
+    }
+
+    #[test]
+    fn accepts_snake_case_report_body() {
+        let raw = r#"{"target_type":"user","target_id":"u1","reason":"abuse"}"#;
+        let req: CreateReportRequest = serde_json::from_str(raw).expect("snake_case");
+        assert_eq!(req.target_type, "user");
+        assert_eq!(req.target_id, "u1");
+    }
 }

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
-import { ArrowLeft, CalendarDays, ImagePlus, Link as LinkIcon, MapPin, MessageCircle, X } from 'lucide-react';
+import { ArrowLeft, CalendarDays, Flag, ImagePlus, Link as LinkIcon, MapPin, MessageCircle, ShieldOff, VolumeX, X } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
+  blockUser,
   bookmarkPost,
   createConversation,
   createProfile,
@@ -17,6 +18,8 @@ import {
   followProfile,
   getConversations,
   likePost,
+  muteUser,
+  reportContent,
   repostPost,
   unbookmarkPost,
   unfollowProfile,
@@ -31,6 +34,7 @@ import { EmptyState, ErrorState, LoadingState } from '../components/shared/Async
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
 import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from '../utils/imageUpload';
+import { mapReportToApiBody } from '../utils/moderation';
 import { renderRichText } from '../utils/richText';
 
 const TABS = ['Posts', 'Replies', 'Media', 'Likes'] as const;
@@ -87,6 +91,8 @@ export function ProfilePage() {
   const [followError, setFollowError] = useState<string | null>(null);
   const [messageBusy, setMessageBusy] = useState(false);
   const [messageError, setMessageError] = useState<string | null>(null);
+  const [moderationBusy, setModerationBusy] = useState(false);
+  const [moderationNotice, setModerationNotice] = useState<string | null>(null);
   const [followListMode, setFollowListMode] = useState<FollowListMode>(null);
   const [followList, setFollowList] = useState<ProfileSummary[]>([]);
   const [followListLoading, setFollowListLoading] = useState(false);
@@ -232,6 +238,42 @@ export function ProfilePage() {
       setEditError(err instanceof Error ? err.message : 'Unable to update profile');
     } finally {
       setSavingEdit(false);
+    }
+  };
+
+  const runModeration = async (kind: 'block' | 'mute' | 'report') => {
+    if (!profile || moderationBusy || ownProfile) return;
+    setModerationNotice(null);
+    setModerationBusy(true);
+    try {
+      if (!authEnabled || !isSignedIn) {
+        throw new Error(authEnabled ? 'Sign in to moderate.' : 'Sign-in is not configured.');
+      }
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again.');
+      if (kind === 'block') {
+        await blockUser(token, profile.id);
+        setModerationNotice(`Blocked @${profile.handle}`);
+        setPosts([]);
+      } else if (kind === 'mute') {
+        await muteUser(token, profile.id);
+        setModerationNotice(`Muted @${profile.handle}`);
+        setPosts([]);
+      } else {
+        await reportContent(
+          token,
+          mapReportToApiBody({
+            targetType: 'user',
+            targetId: profile.id,
+            reason: 'user_reported',
+          }),
+        );
+        setModerationNotice('Report submitted');
+      }
+    } catch (err) {
+      setModerationNotice(err instanceof Error ? err.message : 'Action failed.');
+    } finally {
+      setModerationBusy(false);
     }
   };
 
@@ -444,23 +486,58 @@ export function ProfilePage() {
           )}
         </div>
 
-        <div className="absolute bottom-3 right-4 flex items-center gap-2">
+        <div className="absolute bottom-3 right-4 flex flex-wrap items-center justify-end gap-2">
           {!ownProfile && (
-            <button
-              type="button"
-              onClick={() => void startMessage()}
-              disabled={messageBusy}
-              className="flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-[14px] font-bold transition-colors hover:opacity-90 disabled:opacity-50"
-              style={{
-                borderColor: 'var(--border-primary)',
-                backgroundColor: 'transparent',
-                color: 'var(--text-primary)',
-              }}
-              aria-label={`Message @${profile.handle}`}
-            >
-              <MessageCircle className="h-4 w-4" aria-hidden="true" />
-              {messageBusy ? 'Opening…' : 'Message'}
-            </button>
+            <>
+              <button
+                type="button"
+                onClick={() => void startMessage()}
+                disabled={messageBusy}
+                className="flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-[14px] font-bold transition-colors hover:opacity-90 disabled:opacity-50"
+                style={{
+                  borderColor: 'var(--border-primary)',
+                  backgroundColor: 'transparent',
+                  color: 'var(--text-primary)',
+                }}
+                aria-label={`Message @${profile.handle}`}
+              >
+                <MessageCircle className="h-4 w-4" aria-hidden="true" />
+                {messageBusy ? 'Opening…' : 'Message'}
+              </button>
+              <button
+                type="button"
+                onClick={() => void runModeration('mute')}
+                disabled={moderationBusy}
+                className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-[13px] font-bold transition-colors hover:opacity-90 disabled:opacity-50"
+                style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+                aria-label={`Mute @${profile.handle}`}
+              >
+                <VolumeX className="h-4 w-4" aria-hidden="true" />
+                Mute
+              </button>
+              <button
+                type="button"
+                onClick={() => void runModeration('block')}
+                disabled={moderationBusy}
+                className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-[13px] font-bold transition-colors hover:opacity-90 disabled:opacity-50"
+                style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+                aria-label={`Block @${profile.handle}`}
+              >
+                <ShieldOff className="h-4 w-4" aria-hidden="true" />
+                Block
+              </button>
+              <button
+                type="button"
+                onClick={() => void runModeration('report')}
+                disabled={moderationBusy}
+                className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-[13px] font-bold transition-colors hover:opacity-90 disabled:opacity-50"
+                style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+                aria-label={`Report @${profile.handle}`}
+              >
+                <Flag className="h-4 w-4" aria-hidden="true" />
+                Report
+              </button>
+            </>
           )}
           <button
             type="button"
@@ -533,6 +610,11 @@ export function ProfilePage() {
         {messageError && (
           <p className="mt-3 text-[14px]" style={{ color: 'var(--color-danger)' }}>
             {messageError}
+          </p>
+        )}
+        {moderationNotice && (
+          <p className="mt-3 text-[14px]" style={{ color: 'var(--text-secondary)' }} role="status">
+            {moderationNotice}
           </p>
         )}
       </section>
