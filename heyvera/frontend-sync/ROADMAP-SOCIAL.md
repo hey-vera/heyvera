@@ -1,10 +1,10 @@
 # HeyVera Social Roadmap (active)
 
-**Status:** Waves 0–12 + multi-user A–D + integrity **Done**; **Wave 13 Soft-Launch Seal in progress**  
+**Status:** Waves 0–13g **Done**; **13h live cert pending** before user tour  
 **Grounded:** 2026-07-23  
 **Live entry:** `heyvera/src/main.tsx` → `router.tsx` → `AppShell` / `pages/*`  
 **Do not grow:** orphaned `App.tsx` / `VeraSocials` dual shell (quarantined under `src/orphan/`)  
-**Main tip note:** Soft-launch integrity **Done (#379)**. Next program: **Wave 13 Soft-Launch Seal** — mutation integrity, quote fidelity, delete post, API base consistency, list pagination, report UX, compose media parity, then live cert (not encoder/ML/x402).
+**Main tip note:** Soft-Launch Seal **code Done (#380–#386)**. Next: **13h live cert** (ops) or next product program after cert — not encoder/ML/x402 unless chosen.
 
 ---
 
@@ -204,11 +204,19 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-22 | #376 | Multi-user **Batch C** guild invites/members/empty-network onboard **merged** |
 | 2026-07-22 | #377 | Multi-user **Batch D** soft-launch polish + STATUS/ROADMAP close-out **merged** |
 | 2026-07-23 | #379 | Soft-launch integrity closeout: API path, deploy unity, Settings honesty, schedule label |
-| 2026-07-23 | Wave 13 | **Soft-Launch Seal** program opened (mutation integrity, quote fidelity, delete, API base, pagination, report UX, compose media, live cert) |
+| 2026-07-23 | Wave 13 | **Soft-Launch Seal** program opened |
+| 2026-07-23 | #380 | STATUS/ROADMAP Wave 13 program open **merged** |
+| 2026-07-23 | #381 | 13b DM API base consistency **merged** |
+| 2026-07-23 | #382 | 13a optimistic mutation rollback **merged** |
+| 2026-07-23 | #383 | 13e notifications + bookmarks load-more **merged** |
+| 2026-07-23 | #384 | 13c quote fidelity E2E **merged** |
+| 2026-07-23 | #385 | 13g Home compose image parity **merged** |
+| 2026-07-23 | #386 | 13d/f own-post delete + report reasons **merged** |
 
 ### Wave 13 — Soft-Launch Seal (2026-07-23)
 
-See `STATUS.md` for slice table (13a–13h). Goal: golden social loop trustworthy for cohort live test. **Not** encoder/ML/x402/markets.
+**Code slices 13a–13g Done (#381–#386).** Goal: golden social loop trustworthy for cohort live test.  
+**13h remaining:** live cert (Clerk QA + smoke + STORAGE/CORS/Caddy) before user tour. **Not** encoder/ML/x402/markets.
 
 ### Waves 1–4 implemented (2026-07-21)
 
