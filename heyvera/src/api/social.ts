@@ -1494,6 +1494,19 @@ export async function getMessages(conversationId: string, token?: string): Promi
   return res.messages ?? [];
 }
 
+/** POST a DM message. Uses shared social API base (resolveSocialApiBase). */
+export async function sendMessage(
+  token: string,
+  conversationId: string,
+  content: string,
+): Promise<Message> {
+  return apiAuthFetch<Message>(`/conversations/${conversationId}/messages`, {
+    method: 'POST',
+    token,
+    body: { content },
+  });
+}
+
 /** Full-text search across posts, users, and communities */
 export async function searchAll(query: string, token?: string): Promise<SearchResults> {
 
