@@ -650,20 +650,26 @@ function mapNotification(raw: BeNotification): SocialNotification {
   };
 }
 
-export async function fetchNotifications(token: string): Promise<{
+/** Authenticated notification list. Opaque keyset cursor — never Number-coerced. */
+export async function fetchNotifications(
+  token: string,
+  limit = 20,
+  cursor?: string | null,
+): Promise<{
   notifications: SocialNotification[];
   cursor: string | null;
   has_more: boolean;
 }> {
+  const qs = feedQueryParams(limit, cursor);
   const raw = await apiAuthFetch<{
     notifications?: BeNotification[];
     cursor?: string | null;
     has_more?: boolean;
-  }>("/notifications", { method: "GET", token });
+  }>(`/notifications?${qs}`, { method: "GET", token });
   return {
     notifications: (raw.notifications ?? []).map(mapNotification),
     cursor: raw.cursor ?? null,
-    has_more: raw.has_more ?? false,
+    has_more: raw.has_more ?? Boolean(raw.cursor),
   };
 }
 
@@ -1129,7 +1135,7 @@ export async function unbookmarkPost(
   return apiAuthFetch(`/posts/${postId}/bookmark`, { method: "DELETE", token });
 }
 
-/** Authenticated list of posts bookmarked by the viewer. */
+/** Authenticated list of posts bookmarked by the viewer. Opaque keyset cursor. */
 export async function fetchBookmarks(
   token: string,
   limit = 20,
@@ -1139,9 +1145,17 @@ export async function fetchBookmarks(
   cursor: string | null;
   has_more: boolean;
 }> {
-  const params = new URLSearchParams({ limit: String(limit) });
-  if (cursor) params.set("cursor", cursor);
-  return apiAuthFetch(`/bookmarks?${params.toString()}`, { method: "GET", token });
+  const qs = feedQueryParams(limit, cursor);
+  const raw = await apiAuthFetch<{
+    posts?: FeedPost[];
+    cursor?: string | null;
+    has_more?: boolean;
+  }>(`/bookmarks?${qs}`, { method: "GET", token });
+  return {
+    posts: raw.posts ?? [],
+    cursor: raw.cursor ?? null,
+    has_more: raw.has_more ?? Boolean(raw.cursor),
+  };
 }
 
 export async function repostPost(

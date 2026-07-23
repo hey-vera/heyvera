@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import { AtSign, Heart, MessageCircle, Repeat2, UserPlus } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
@@ -18,6 +18,7 @@ type FilterTab = typeof FILTER_TABS[number];
 
 /** Soft-realtime poll interval while page is visible (honest intermediate before WS). */
 const NOTIFICATIONS_POLL_MS = 15_000;
+const PAGE_SIZE = 20;
 
 const notificationIcons: Record<NotificationType, { icon: LucideIcon; color: string }> = {
   like: { icon: Heart, color: 'var(--color-like)' },
@@ -55,24 +56,50 @@ function networkishErrorMessage(err: unknown): string {
   return msg || 'Unable to load notifications';
 }
 
+function appendUniqueNotifications(
+  current: ApiNotification[],
+  incoming: ApiNotification[],
+): ApiNotification[] {
+  const existingIds = new Set(current.map((n) => n.id));
+  const next = incoming.filter((n) => !existingIds.has(n.id));
+  return next.length === 0 ? current : [...current, ...next];
+}
+
+/** Soft poll: refresh the first page at the top without dropping already-loaded pages. */
+function mergeFirstPage(
+  current: ApiNotification[],
+  firstPage: ApiNotification[],
+): ApiNotification[] {
+  if (current.length === 0) return firstPage;
+  const firstIds = new Set(firstPage.map((n) => n.id));
+  const rest = current.filter((n) => !firstIds.has(n.id));
+  return [...firstPage, ...rest];
+}
+
 export function NotificationsPage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<ApiNotification[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Soft failure while the list remains visible (load-more only). */
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [activeFilter, setActiveFilter] = useState<FilterTab>('All');
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
-  /** Quiet background refresh — never toggles full-page LoadingState. */
+  /** Quiet background refresh — never toggles full-page LoadingState or wipes paginated rows. */
   const pollNotifications = useCallback(async () => {
     if (!isSignedIn) return;
     try {
       const token = await getToken();
       if (!token) return;
-      const result = await fetchNotifications(token);
-      setNotifications(result.notifications);
+      const result = await fetchNotifications(token, PAGE_SIZE);
+      setNotifications((current) => mergeFirstPage(current, result.notifications));
       setError(null);
       setLastUpdatedAt(Date.now());
     } catch {
@@ -87,6 +114,9 @@ export function NotificationsPage() {
     async function loadNotifications() {
       setLoading(true);
       setError(null);
+      setLoadMoreError(null);
+      setCursor(null);
+      setHasMore(false);
       try {
         if (authEnabled && !isSignedIn) {
           if (!cancelled) setNotifications([]);
@@ -105,9 +135,11 @@ export function NotificationsPage() {
           if (!cancelled) setNotifications([]);
           return;
         }
-        const result = await fetchNotifications(token);
+        const result = await fetchNotifications(token, PAGE_SIZE);
         if (!cancelled) {
           setNotifications(result.notifications);
+          setCursor(result.cursor);
+          setHasMore(result.has_more && result.cursor != null);
           setError(null);
           setLastUpdatedAt(Date.now());
         }
@@ -118,6 +150,8 @@ export function NotificationsPage() {
       } catch (err) {
         if (!cancelled) {
           setNotifications([]);
+          setCursor(null);
+          setHasMore(false);
           setError(networkishErrorMessage(err));
         }
       } finally {
@@ -135,6 +169,46 @@ export function NotificationsPage() {
   useVisibilityPoll(pollNotifications, NOTIFICATIONS_POLL_MS, Boolean(isSignedIn), {
     runOnVisible: true,
   });
+
+  const loadMoreNotifications = useCallback(async () => {
+    if (loading || loadingMore || !hasMore || cursor == null || error) return;
+
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setLoadMoreError('Unable to verify your session. Sign in again to load more.');
+        return;
+      }
+      const result = await fetchNotifications(token, PAGE_SIZE, cursor);
+      setNotifications((current) => appendUniqueNotifications(current, result.notifications));
+      setCursor(result.cursor);
+      setHasMore(result.has_more && result.cursor != null);
+    } catch (err) {
+      // Keep existing list; surface a soft error under the list.
+      setLoadMoreError(networkishErrorMessage(err));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [cursor, error, getToken, hasMore, loading, loadingMore]);
+
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target) return undefined;
+    // After a soft failure, stop IntersectionObserver spam until the user retries.
+    if (loadMoreError) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMoreNotifications();
+      },
+      { rootMargin: '360px 0px' },
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [loadMoreError, loadMoreNotifications]);
 
   const filtered = activeFilter === 'All'
     ? notifications
@@ -252,6 +326,43 @@ export function NotificationsPage() {
           </article>
         );
       })}
+
+      {!loading && !(authEnabled && !isSignedIn) && !error && notifications.length > 0 && (
+        <div ref={loadMoreRef} className="min-h-12">
+          {loadingMore && <LoadingState label="Loading more notifications" />}
+          {!loadingMore && loadMoreError && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3"
+              style={{ borderColor: 'var(--border-primary)' }}
+            >
+              <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                {loadMoreError}
+              </p>
+              <button
+                type="button"
+                onClick={() => void loadMoreNotifications()}
+                className="shrink-0 rounded-full border px-3 py-1.5 text-[13px] font-semibold transition-opacity hover:opacity-80"
+                style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {!loadingMore && !loadMoreError && hasMore && cursor != null && (
+            <div className="px-4 py-4 text-center">
+              <button
+                type="button"
+                onClick={() => void loadMoreNotifications()}
+                className="rounded-full border px-4 py-2 text-[13px] font-semibold transition-opacity hover:opacity-80"
+                style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+              >
+                Load more
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

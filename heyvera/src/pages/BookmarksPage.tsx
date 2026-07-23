@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import { Bookmark, Search } from 'lucide-react';
 import {
@@ -22,6 +22,8 @@ import {
   withOptimisticPostMutation,
 } from '../utils/optimisticPostMutation';
 
+const PAGE_SIZE = 50;
+
 function filterPostsByQuery(posts: Post[], query: string): Post[] {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) return posts;
@@ -37,13 +39,33 @@ function filterPostsByQuery(posts: Post[], query: string): Post[] {
   });
 }
 
+function appendUniquePosts(current: Post[], incoming: Post[]): Post[] {
+  const existingIds = new Set(current.map((post) => post.id));
+  const next = incoming.filter((post) => !existingIds.has(post.id));
+  return next.length === 0 ? current : [...current, ...next];
+}
+
+function networkishErrorMessage(err: unknown, fallback: string): string {
+  const msg = err instanceof Error ? err.message : '';
+  if (/failed to fetch|networkerror|network request failed|load failed|fetch failed/i.test(msg)) {
+    return 'Unable to reach the server. Check your connection and try again.';
+  }
+  return msg || fallback;
+}
+
 export function BookmarksPage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const [posts, setPosts] = useState<Post[]>([]);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [hasMore, setHasMore] = useState(false);
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** Soft failure while bookmarks remain visible (load-more only). */
+  const [loadMoreError, setLoadMoreError] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -51,6 +73,9 @@ export function BookmarksPage() {
     async function loadBookmarks() {
       setLoading(true);
       setError(null);
+      setLoadMoreError(null);
+      setCursor(null);
+      setHasMore(false);
 
       try {
         if (authEnabled && !isSignedIn) {
@@ -64,13 +89,18 @@ export function BookmarksPage() {
           return;
         }
 
-        const response = await fetchBookmarks(token, 50);
+        const response = await fetchBookmarks(token, PAGE_SIZE);
         if (!cancelled) {
           setPosts(response.posts.map(feedPostToPost));
+          setCursor(response.cursor);
+          setHasMore(response.has_more && response.cursor != null);
         }
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : 'Unable to load bookmarks');
+          setPosts([]);
+          setCursor(null);
+          setHasMore(false);
+          setError(networkishErrorMessage(err, 'Unable to load bookmarks'));
         }
       } finally {
         if (!cancelled) setLoading(false);
@@ -83,6 +113,46 @@ export function BookmarksPage() {
       cancelled = true;
     };
   }, [authEnabled, isSignedIn, getToken, reloadKey]);
+
+  const loadMoreBookmarks = useCallback(async () => {
+    if (loading || loadingMore || !hasMore || cursor == null || error) return;
+
+    setLoadingMore(true);
+    setLoadMoreError(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setLoadMoreError('Unable to verify your session. Sign in again to load more.');
+        return;
+      }
+      const response = await fetchBookmarks(token, PAGE_SIZE, cursor);
+      setPosts((current) => appendUniquePosts(current, response.posts.map(feedPostToPost)));
+      setCursor(response.cursor);
+      setHasMore(response.has_more && response.cursor != null);
+    } catch (err) {
+      // Keep existing list; surface a soft error under the list.
+      setLoadMoreError(networkishErrorMessage(err, 'Unable to load more bookmarks'));
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [cursor, error, getToken, hasMore, loading, loadingMore]);
+
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target) return undefined;
+    // After a soft failure, stop IntersectionObserver spam until the user retries.
+    if (loadMoreError) return undefined;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) void loadMoreBookmarks();
+      },
+      { rootMargin: '360px 0px' },
+    );
+
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [loadMoreBookmarks, loadMoreError]);
 
   const filteredPosts = useMemo(() => filterPostsByQuery(posts, query), [posts, query]);
   const trimmedQuery = query.trim();
@@ -222,6 +292,43 @@ export function BookmarksPage() {
           onBookmark={handleBookmark}
         />
       ))}
+
+      {!loading && !(authEnabled && !isSignedIn) && !error && posts.length > 0 && (
+        <div ref={loadMoreRef} className="min-h-12">
+          {loadingMore && <LoadingState label="Loading more bookmarks" />}
+          {!loadingMore && loadMoreError && (
+            <div
+              role="alert"
+              className="flex flex-wrap items-center justify-between gap-3 border-b px-4 py-3"
+              style={{ borderColor: 'var(--border-primary)' }}
+            >
+              <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                {loadMoreError}
+              </p>
+              <button
+                type="button"
+                onClick={() => void loadMoreBookmarks()}
+                className="shrink-0 rounded-full border px-3 py-1.5 text-[13px] font-semibold transition-opacity hover:opacity-80"
+                style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          {!loadingMore && !loadMoreError && hasMore && cursor != null && (
+            <div className="px-4 py-4 text-center">
+              <button
+                type="button"
+                onClick={() => void loadMoreBookmarks()}
+                className="rounded-full border px-4 py-2 text-[13px] font-semibold transition-opacity hover:opacity-80"
+                style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+              >
+                Load more
+              </button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }
