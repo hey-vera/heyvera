@@ -13,6 +13,13 @@ pub struct Database {
     pub(crate) conn: Mutex<Connection>,
 }
 
+/// Minimum hashtag body length (excluding `#`). Shared by extract / related / trending.
+const SOCIAL_HASHTAG_MIN_LEN: usize = 2;
+/// Cap bodies scanned for trending (most recent first) so cost stays bounded.
+const TRENDING_HASHTAG_SCAN_CAP: i64 = 2000;
+/// Prefer tags seen in at least this many posts when any such tags exist.
+const TRENDING_HASHTAG_MIN_POSTS: i64 = 2;
+
 // --- Conversation types (existing) ---
 
 #[derive(Debug, Serialize, Clone)]
@@ -11347,33 +11354,59 @@ impl Database {
         }).unwrap().filter_map(|r| r.ok()).collect()
     }
 
+    /// Trending hashtags from recent public posts (honest frequency counts — not ML).
+    ///
+    /// - Uses shared [`Self::social_extract_hashtags`] (lowercase, strip punctuation, min length)
+    /// - Scans at most [`TRENDING_HASHTAG_SCAN_CAP`] most recent public non-deleted posts (7 days)
+    /// - Counts each tag at most once per post (`postCount`)
+    /// - Prefers tags with `postCount >= TRENDING_HASHTAG_MIN_POSTS` when any qualify; otherwise
+    ///   keeps singles for cold-start honesty
+    /// - Stable order: count desc, then tag asc
+    /// - `tag` values omit the leading `#` (FE may re-prefix for display/search)
     pub fn social_get_trending_hashtags(&self, limit: usize) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
-        let mut stmt = conn.prepare(
-            "SELECT body FROM social_posts WHERE visibility = 'public' AND created_at >= datetime('now', '-7 days')"
-        ).unwrap();
-        let bodies: Vec<String> = stmt.query_map([], |row| row.get(0))
-            .unwrap().filter_map(|r| r.ok()).collect();
+        let limit = limit.clamp(1, 50);
+        let bodies: Vec<String> = {
+            let conn = self.conn.lock().unwrap();
+            let mut stmt = conn
+                .prepare(
+                    "SELECT body FROM social_posts
+                     WHERE visibility = 'public'
+                       AND deleted_at IS NULL
+                       AND created_at >= datetime('now', '-7 days')
+                     ORDER BY created_at DESC
+                     LIMIT ?1",
+                )
+                .unwrap();
+            stmt.query_map(params![TRENDING_HASHTAG_SCAN_CAP], |row| row.get(0))
+                .unwrap()
+                .filter_map(|r| r.ok())
+                .collect()
+        };
 
+        // Count posts containing each tag (once per post).
         let mut counts: HashMap<String, i64> = HashMap::new();
         for body in &bodies {
-            for word in body.split_whitespace() {
-                if word.starts_with('#') && word.len() > 1 {
-                    let tag: String = word.chars()
-                        .take_while(|c| c.is_alphanumeric() || *c == '_' || *c == '#')
-                        .collect::<String>()
-                        .to_lowercase();
-                    if tag.len() > 1 {
-                        *counts.entry(tag).or_insert(0) += 1;
-                    }
-                }
+            for tag in Self::social_extract_hashtags(body) {
+                *counts.entry(tag).or_insert(0) += 1;
             }
         }
 
-        let mut tags: Vec<_> = counts.into_iter().collect();
-        tags.sort_by(|a, b| b.1.cmp(&a.1));
+        let mut tags: Vec<(String, i64)> = counts.into_iter().collect();
+        let with_min: Vec<(String, i64)> = tags
+            .iter()
+            .filter(|(_, c)| *c >= TRENDING_HASHTAG_MIN_POSTS)
+            .cloned()
+            .collect();
+        // Prefer min-count tags when any exist; fall back to all when sparse (cold start).
+        if !with_min.is_empty() {
+            tags = with_min;
+        }
+
+        tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         tags.truncate(limit);
-        tags.into_iter().map(|(tag, count)| serde_json::json!({ "tag": tag, "postCount": count })).collect()
+        tags.into_iter()
+            .map(|(tag, count)| serde_json::json!({ "tag": tag, "postCount": count }))
+            .collect()
     }
 
     pub fn social_list_communities(&self, limit: i64) -> Vec<serde_json::Value> {
@@ -12594,11 +12627,21 @@ impl Database {
         Some(post)
     }
 
-    /// Extract hashtags from post body (`#tag` tokens, case-insensitive).
-    /// Returns tags without the leading `#`. Shared by related-post heuristics.
+    /// Extract hashtags from post body (`#tag` tokens).
+    ///
+    /// Shared by related-post heuristics and trending. Rules:
+    /// - Leading `#` (optional leading punctuation before `#`, e.g. `(#rust)`)
+    /// - Body: alphanumeric + underscore only; trailing punctuation stripped
+    /// - Lowercase normalize
+    /// - Minimum length [`SOCIAL_HASHTAG_MIN_LEN`] (after strip; excludes noise like `#a`)
+    /// - Returns tags **without** the leading `#`
     pub fn social_extract_hashtags(body: &str) -> HashSet<String> {
         let mut tags = HashSet::new();
-        for word in body.split_whitespace() {
+        for raw in body.split_whitespace() {
+            // Allow light leading punctuation so "(#rust)" / "\"#hey\"" still extract.
+            let word = raw.trim_start_matches(|c: char| {
+                !c.is_alphanumeric() && c != '#' && c != '_'
+            });
             let Some(rest) = word.strip_prefix('#') else {
                 continue;
             };
@@ -12611,7 +12654,7 @@ impl Database {
                 .take_while(|c| c.is_alphanumeric() || *c == '_')
                 .collect::<String>()
                 .to_lowercase();
-            if !tag.is_empty() {
+            if tag.len() >= SOCIAL_HASHTAG_MIN_LEN {
                 tags.insert(tag);
             }
         }
@@ -18908,6 +18951,131 @@ mod tests {
         assert!(tags.contains("ai"));
         assert!(!tags.contains("#rust"));
         assert!(Database::social_extract_hashtags("no tags here").is_empty());
+    }
+
+    /// Wave 14b: min length, leading punct, lowercase, no single-char noise.
+    #[test]
+    fn social_extract_hashtags_min_length_and_leading_punct() {
+        let tags = Database::social_extract_hashtags("see (#Rust), \"#hey_vera\" and #a #OK #z.");
+        assert!(tags.contains("rust"));
+        assert!(tags.contains("hey_vera"));
+        assert!(tags.contains("ok"));
+        // Single-char tags rejected (min length 2).
+        assert!(!tags.contains("a"));
+        assert!(!tags.contains("z"));
+        // No leading # in stored form.
+        assert!(!tags.iter().any(|t| t.starts_with('#')));
+    }
+
+    /// Wave 14b: trending uses shared extract, orders by count, min threshold, stable ties.
+    #[test]
+    fn social_get_trending_hashtags_orders_and_min_count() {
+        let db = test_db();
+        let alice = db.social_create_profile("clerk_trend_a", "trendalice", "Alice", "");
+        let bob = db.social_create_profile("clerk_trend_b", "trendbob", "Bob", "");
+        let alice_id = alice["id"].as_str().unwrap();
+        let bob_id = bob["id"].as_str().unwrap();
+
+        // #rust in 3 posts → top
+        for body in [
+            "Learning #Rust today",
+            "More #rust! and notes",
+            "#Rust forever (#heyvera)",
+        ] {
+            db.social_create_post(alice_id, body, "public", "person", None, None, None, None);
+        }
+        // #heyvera in 2 posts
+        db.social_create_post(
+            bob_id,
+            "Shipped on #HeyVera platform",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        // #lonely only once — dropped when any tag meets min count
+        db.social_create_post(
+            bob_id,
+            "Just #lonely once",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        // Private / deleted must not count
+        db.social_create_post(
+            alice_id,
+            "Secret #rust #privateonly",
+            "private",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        let doomed = db.social_create_post(
+            alice_id,
+            "Soon gone #deletedtag #rust",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        db.social_soft_delete_post(doomed["id"].as_str().unwrap());
+
+        let topics = db.social_get_trending_hashtags(10);
+        let tags: Vec<&str> = topics
+            .iter()
+            .map(|t| t["tag"].as_str().unwrap())
+            .collect();
+        let counts: HashMap<&str, i64> = topics
+            .iter()
+            .map(|t| {
+                (
+                    t["tag"].as_str().unwrap(),
+                    t["postCount"].as_i64().unwrap(),
+                )
+            })
+            .collect();
+
+        assert_eq!(tags[0], "rust", "highest count first: {:?}", tags);
+        assert_eq!(counts["rust"], 3, "deleted/private not counted");
+        assert!(tags.contains(&"heyvera"), "min-count tag present: {:?}", tags);
+        assert_eq!(counts["heyvera"], 2);
+        assert!(
+            !tags.contains(&"lonely"),
+            "single-post tag dropped when others meet min: {:?}",
+            tags
+        );
+        assert!(!tags.contains(&"deletedtag"));
+        assert!(!tags.contains(&"privateonly"));
+        // Tags stored without leading #
+        assert!(tags.iter().all(|t| !t.starts_with('#')));
+    }
+
+    /// Wave 14b: cold-start keeps single-count tags when nothing meets the min.
+    #[test]
+    fn social_get_trending_hashtags_cold_start_keeps_singles() {
+        let db = test_db();
+        let u = db.social_create_profile("clerk_trend_c", "trendcold", "Cold", "");
+        let uid = u["id"].as_str().unwrap();
+        db.social_create_post(uid, "Only #alpha here", "public", "person", None, None, None, None);
+        db.social_create_post(uid, "And #beta once", "public", "person", None, None, None, None);
+
+        let topics = db.social_get_trending_hashtags(10);
+        let tags: Vec<&str> = topics
+            .iter()
+            .map(|t| t["tag"].as_str().unwrap())
+            .collect();
+        // Stable alphabetical tie-break when counts equal
+        assert_eq!(tags, vec!["alpha", "beta"]);
+        assert!(topics.iter().all(|t| t["postCount"] == 1));
     }
 
     /// Wave 14a: shared tags rank above same-author-only; source excluded; deleted ignored.

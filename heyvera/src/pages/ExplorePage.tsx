@@ -176,22 +176,26 @@ export function ExplorePage() {
         <section className="mx-4 mt-4 overflow-hidden rounded-2xl border" style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}>
           <h2 className="px-4 pb-2 pt-4 text-[20px] font-bold">Trending</h2>
           {trending.length === 0 && <EmptyState title="No trends yet" />}
-          {trending.map((item, index) => (
+          {trending.map((item, index) => {
+            const tagLabel = item.tag.startsWith('#') ? item.tag : `#${item.tag}`;
+            return (
             <button
               key={item.tag}
               type="button"
               className="w-full px-4 py-3 text-left transition-colors hover:bg-[color:color-mix(in_srgb,var(--text-primary)_5%,transparent)]"
               style={{ borderBottom: index < trending.length - 1 ? '1px solid var(--border-primary)' : undefined }}
               onClick={() => {
-                setActiveFilter('all');
-                setQuery(item.tag);
+                // Filter posts by hashtag query (honest search, not a fake tag index).
+                setActiveFilter('posts');
+                setQuery(tagLabel);
               }}
             >
               <p className="mb-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>Trending</p>
-              <p className="text-[15px] font-bold leading-tight">{item.tag}</p>
+              <p className="text-[15px] font-bold leading-tight">{tagLabel}</p>
               <p className="mt-0.5 text-[13px]" style={{ color: 'var(--text-secondary)' }}>{formatCount(item.postCount)}</p>
             </button>
-          ))}
+            );
+          })}
         </section>
       )}
 
