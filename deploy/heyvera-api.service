@@ -1,0 +1,42 @@
+[Unit]
+Description=HeyVera API Server - Social + Pulse (port 3002)
+After=network.target
+Wants=network-online.target
+StartLimitIntervalSec=0
+
+[Service]
+Type=exec
+User=cortex
+Group=cortex
+WorkingDirectory=/opt/heyvera
+ExecStart=/opt/heyvera/bin/heyvera-server
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+
+# Environment variables
+EnvironmentFile=-/opt/heyvera/.env
+EnvironmentFile=-/etc/heyvera/heyvera.env
+Environment=HEYVERA_PORT=3002
+Environment=HEYVERA_WORKSPACE=/opt/heyvera/workspace
+Environment=HEYVERA_LEDGER_PATH=/opt/heyvera/data/ledger.jsonl
+Environment=HEYVERA_ENV=production
+Environment=RUST_LOG=info
+
+# Resource limits
+LimitNOFILE=65536
+LimitNPROC=4096
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/heyvera/data /opt/heyvera/workspace /opt/heyvera/.heyvera
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=heyvera-api
+
+[Install]
+WantedBy=multi-user.target
