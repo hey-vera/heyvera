@@ -152,6 +152,11 @@ export type FeedPost = {
   authorMode: "person" | "agent" | "linked_pair";
   replyToPostId: string | null;
   quotePostId: string | null;
+  /**
+   * Nested quoted post when BE enrich attaches it (feed / thread / create).
+   * Absent when the target is missing/deleted — do not invent a shell client-side.
+   */
+  quotePost?: FeedPost | null;
   createdAt: string;
   updatedAt: string;
   author: {
@@ -1354,6 +1359,9 @@ export function feedPostToPost(fp: FeedPost): Post {
       }
     : undefined;
 
+  // Nested quote from BE enrich only — never fabricate a card without backend data.
+  const quote_post = fp.quotePost ? feedPostToPost(fp.quotePost) : undefined;
+
   return {
     id: fp.id,
     author: {
@@ -1366,6 +1374,7 @@ export function feedPostToPost(fp: FeedPost): Post {
     content: fp.body,
     ...(media ? { media } : {}),
     ...(linkedAgent ? { linked_agent: linkedAgent } : {}),
+    ...(quote_post ? { quote_post } : {}),
     created_at: fp.createdAt,
     reply_count: fp.replyCount ?? 0,
     repost_count: fp.repostCount ?? 0,

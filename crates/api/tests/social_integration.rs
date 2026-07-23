@@ -302,6 +302,10 @@ async fn test_quote_post() {
     assert_eq!(quote_resp.status(), StatusCode::OK);
     let json = body_json(quote_resp).await;
     assert_eq!(json["post"]["quotePostId"], post_id);
+    // Create response must nest quotePost so FE can render without a second fetch.
+    assert_eq!(json["post"]["quotePost"]["id"], post_id);
+    assert_eq!(json["post"]["quotePost"]["body"], "Quotable post");
+    assert_eq!(json["post"]["quotePost"]["author"]["handle"], "quoter");
 }
 
 /// Repost a post and then unrepost it.
