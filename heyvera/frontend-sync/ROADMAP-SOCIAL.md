@@ -1,10 +1,10 @@
 # HeyVera Social Roadmap (active)
 
-**Status:** Waves 0–12 + multi-user readiness A–D  
-**Grounded:** 2026-07-22  
+**Status:** Waves 0–12 + multi-user A–D + integrity **Done**; **Wave 13 Soft-Launch Seal in progress**  
+**Grounded:** 2026-07-23  
 **Live entry:** `heyvera/src/main.tsx` → `router.tsx` → `AppShell` / `pages/*`  
 **Do not grow:** orphaned `App.tsx` / `VeraSocials` dual shell (quarantined under `src/orphan/`)  
-**Main tip note:** Waves 10–12 complete (#367–#372); multi-user readiness A–D **Done** (#374–#377); soft-launch integrity closeout **Done** (#379)
+**Main tip note:** Soft-launch integrity **Done (#379)**. Next program: **Wave 13 Soft-Launch Seal** — mutation integrity, quote fidelity, delete post, API base consistency, list pagination, report UX, compose media parity, then live cert (not encoder/ML/x402).
 
 ---
 
@@ -204,6 +204,11 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-22 | #376 | Multi-user **Batch C** guild invites/members/empty-network onboard **merged** |
 | 2026-07-22 | #377 | Multi-user **Batch D** soft-launch polish + STATUS/ROADMAP close-out **merged** |
 | 2026-07-23 | #379 | Soft-launch integrity closeout: API path, deploy unity, Settings honesty, schedule label |
+| 2026-07-23 | Wave 13 | **Soft-Launch Seal** program opened (mutation integrity, quote fidelity, delete, API base, pagination, report UX, compose media, live cert) |
+
+### Wave 13 — Soft-Launch Seal (2026-07-23)
+
+See `STATUS.md` for slice table (13a–13h). Goal: golden social loop trustworthy for cohort live test. **Not** encoder/ML/x402/markets.
 
 ### Waves 1–4 implemented (2026-07-21)
 
