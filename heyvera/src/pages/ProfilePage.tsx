@@ -34,7 +34,11 @@ import { EmptyState, ErrorState, LoadingState } from '../components/shared/Async
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
 import { ALLOWED_IMAGE_ACCEPT, validateImageFile } from '../utils/imageUpload';
-import { mapReportToApiBody } from '../utils/moderation';
+import {
+  mapReportToApiBody,
+  REPORT_REASON_CHOICES,
+  type UiReportReason,
+} from '../utils/moderation';
 import {
   mapBookmarkInPosts,
   mapLikeInPosts,
@@ -99,6 +103,7 @@ export function ProfilePage() {
   const [messageError, setMessageError] = useState<string | null>(null);
   const [moderationBusy, setModerationBusy] = useState(false);
   const [moderationNotice, setModerationNotice] = useState<string | null>(null);
+  const [reportPickerOpen, setReportPickerOpen] = useState(false);
   const [followListMode, setFollowListMode] = useState<FollowListMode>(null);
   const [followList, setFollowList] = useState<ProfileSummary[]>([]);
   const [followListLoading, setFollowListLoading] = useState(false);
@@ -247,7 +252,7 @@ export function ProfilePage() {
     }
   };
 
-  const runModeration = async (kind: 'block' | 'mute' | 'report') => {
+  const runModeration = async (kind: 'block' | 'mute') => {
     if (!profile || moderationBusy || ownProfile) return;
     setModerationNotice(null);
     setModerationBusy(true);
@@ -261,23 +266,51 @@ export function ProfilePage() {
         await blockUser(token, profile.id);
         setModerationNotice(`Blocked @${profile.handle}`);
         setPosts([]);
-      } else if (kind === 'mute') {
+      } else {
         await muteUser(token, profile.id);
         setModerationNotice(`Muted @${profile.handle}`);
         setPosts([]);
-      } else {
-        await reportContent(
-          token,
-          mapReportToApiBody({
-            targetType: 'user',
-            targetId: profile.id,
-            reason: 'user_reported',
-          }),
-        );
-        setModerationNotice('Report submitted');
       }
     } catch (err) {
       setModerationNotice(err instanceof Error ? err.message : 'Action failed.');
+    } finally {
+      setModerationBusy(false);
+    }
+  };
+
+  const openReportPicker = () => {
+    if (!profile || moderationBusy || ownProfile) return;
+    setModerationNotice(null);
+    if (!authEnabled || !isSignedIn) {
+      setModerationNotice(authEnabled ? 'Sign in to report.' : 'Sign-in is not configured.');
+      return;
+    }
+    setReportPickerOpen(true);
+  };
+
+  const submitReport = async (reason: UiReportReason) => {
+    if (!profile || moderationBusy || ownProfile) return;
+    setModerationNotice(null);
+    setModerationBusy(true);
+    try {
+      if (!authEnabled || !isSignedIn) {
+        throw new Error(authEnabled ? 'Sign in to report.' : 'Sign-in is not configured.');
+      }
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again.');
+      await reportContent(
+        token,
+        mapReportToApiBody({
+          targetType: 'user',
+          targetId: profile.id,
+          reason,
+        }),
+      );
+      setReportPickerOpen(false);
+      setModerationNotice('Report submitted');
+    } catch (err) {
+      // Keep picker open on failure — no silent fake success.
+      setModerationNotice(err instanceof Error ? err.message : 'Could not submit report.');
     } finally {
       setModerationBusy(false);
     }
@@ -545,7 +578,7 @@ export function ProfilePage() {
               </button>
               <button
                 type="button"
-                onClick={() => void runModeration('report')}
+                onClick={openReportPicker}
                 disabled={moderationBusy}
                 className="flex items-center gap-1 rounded-full border px-3 py-1.5 text-[13px] font-bold transition-colors hover:opacity-90 disabled:opacity-50"
                 style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
@@ -634,6 +667,51 @@ export function ProfilePage() {
             {moderationNotice}
           </p>
         )}
+        {reportPickerOpen && !ownProfile && (
+          <div
+            className="mt-3 rounded-2xl border p-4"
+            style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+            role="dialog"
+            aria-label="Report reason"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <p className="text-[15px] font-bold">Report @{profile.handle}</p>
+                <p className="mt-1 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                  Why are you reporting this profile?
+                </p>
+              </div>
+              <button
+                type="button"
+                className="rounded-full px-2 py-1 text-[13px] font-bold transition-colors hover-overlay"
+                style={{ color: 'var(--text-secondary)' }}
+                onClick={() => setReportPickerOpen(false)}
+                disabled={moderationBusy}
+              >
+                Cancel
+              </button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+              {REPORT_REASON_CHOICES.map((choice) => (
+                <button
+                  key={choice.id}
+                  type="button"
+                  disabled={moderationBusy}
+                  onClick={() => void submitReport(choice.id)}
+                  className="rounded-full border px-4 py-1.5 text-[13px] font-bold transition-colors hover-overlay disabled:opacity-50"
+                  style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+                >
+                  {choice.label}
+                </button>
+              ))}
+            </div>
+            {moderationBusy && (
+              <p className="mt-2 text-[12px]" style={{ color: 'var(--text-secondary)' }} role="status">
+                Submitting report…
+              </p>
+            )}
+          </div>
+        )}
       </section>
 
       {followListMode && (
@@ -693,6 +771,9 @@ export function ProfilePage() {
             onLike={handleLike}
             onRepost={handleRepost}
             onBookmark={handleBookmark}
+            onDelete={(id) => {
+              setPosts((current) => current.filter((p) => p.id !== id));
+            }}
           />
         ))
       )}

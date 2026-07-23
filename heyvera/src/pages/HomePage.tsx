@@ -740,6 +740,9 @@ export function HomePage() {
           onHideAuthor={(authorId) => {
             setHiddenAuthorIds((current) => addExcludedAuthor(current, authorId));
           }}
+          onDelete={(id) => {
+            setPosts((current) => current.filter((p) => p.id !== id));
+          }}
         />
       ))}
       {!loading && !error && (

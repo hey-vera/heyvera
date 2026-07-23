@@ -221,6 +221,16 @@ export function ExplorePage() {
                   onBookmark={(id, bookmarked, token) =>
                     bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id)
                   }
+                  onDelete={(id) => {
+                    setSearchResults((current) =>
+                      current
+                        ? {
+                            ...current,
+                            posts: current.posts.filter((p) => p.id !== id),
+                          }
+                        : current,
+                    );
+                  }}
                 />
               ))}
             </section>

@@ -841,6 +841,9 @@ export function CommunitiesPage() {
               onBookmark={(id, bookmarked, token) =>
                 bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id)
               }
+              onDelete={(id) => {
+                setFeedPosts((current) => current.filter((p) => p.id !== id));
+              }}
             />
           ))}
         </section>

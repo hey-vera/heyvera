@@ -3,6 +3,8 @@ import {
   addExcludedAuthor,
   filterPostsExcludingAuthors,
   mapReportToApiBody,
+  normalizeReportReason,
+  REPORT_REASON_CHOICES,
 } from './moderation';
 
 describe('filterPostsExcludingAuthors', () => {
@@ -29,6 +31,28 @@ describe('filterPostsExcludingAuthors', () => {
   });
 });
 
+describe('normalizeReportReason', () => {
+  it('maps UI choices spam/abuse/other', () => {
+    expect(normalizeReportReason('spam')).toBe('spam');
+    expect(normalizeReportReason('Abuse')).toBe('abuse');
+    expect(normalizeReportReason(' OTHER ')).toBe('other');
+  });
+
+  it('defaults empty to user_reported', () => {
+    expect(normalizeReportReason('')).toBe('user_reported');
+    expect(normalizeReportReason(null)).toBe('user_reported');
+    expect(normalizeReportReason(undefined)).toBe('user_reported');
+  });
+
+  it('passes through free-text reasons lowercased', () => {
+    expect(normalizeReportReason('Custom Reason')).toBe('custom reason');
+  });
+
+  it('exposes three short UI choices', () => {
+    expect(REPORT_REASON_CHOICES.map((c) => c.id)).toEqual(['spam', 'abuse', 'other']);
+  });
+});
+
 describe('mapReportToApiBody', () => {
   it('maps camelCase', () => {
     expect(
@@ -47,6 +71,23 @@ describe('mapReportToApiBody', () => {
         target_id: 'u1',
       }),
     ).toEqual({ targetType: 'user', targetId: 'u1', reason: 'user_reported' });
+  });
+
+  it('normalizes abuse/other UI reasons', () => {
+    expect(
+      mapReportToApiBody({
+        targetType: 'user',
+        targetId: 'u2',
+        reason: 'Abuse',
+      }),
+    ).toEqual({ targetType: 'user', targetId: 'u2', reason: 'abuse' });
+    expect(
+      mapReportToApiBody({
+        targetType: 'post',
+        targetId: 'p2',
+        reason: 'other',
+      }).reason,
+    ).toBe('other');
   });
 
   it('coerces unknown target type to post', () => {
