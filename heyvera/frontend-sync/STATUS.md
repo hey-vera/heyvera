@@ -2,10 +2,11 @@
 
 ## Current track
 
-- **Active:** Soft-Launch Seal **code slices Done** (#380–#386); **13h live cert** still required before user tour
+- **Active:** **Wave 14 — Social Completeness** (Discovery · Media/Live · x402). Markets/crypto product regions are **out of scope**.
 - **Live surface:** `router.tsx` + `AppShell` + `pages/*` only
-- **Shipped through:** Waves 0–13g + multi-user A–D + integrity (**#379**–**#386**)
-- **Gate before live tour:** 13h — Clerk QA + smoke + STORAGE/CORS/Caddy on real deploy (ops, not more product waves)
+- **Shipped through:** Waves 0–13g + multi-user A–D + integrity (**#379**–**#387**)
+- **Why encoder/ML/x402 were “deferred” in Wave 13:** Wave 13 was a **trust seal** (mutation integrity, quotes, delete, API base) so core verbs do not lie. That was sequencing, **not** a product decision to drop them. They are now **first-class Wave 14 tracks**.
+- **13h live cert** remains an ops gate before a full user tour; product work proceeds in parallel.
 
 ## Wave progress
 
@@ -19,7 +20,8 @@
 | 10c Pulse transition CAS | **Done** (#369) |
 | 11 Media depth honesty + shelves | **Done** (#371) |
 | 12 Agent policy + switcher + x402 hold | **Done** (#372) |
-| **13 Soft-Launch Seal** | **Code Done** (#380–#386); **13h cert pending** |
+| **13 Soft-Launch Seal** | **Code Done** (#380–#386); **13h cert pending (ops)** |
+| **14 Social Completeness** | **In progress** (Discovery · Video · Live · x402) |
 
 ## Multi-user readiness (post–Wave 12)
 
@@ -48,7 +50,52 @@ Systems are **real** — prefs persist, moderation E2E, credits on checkout, hey
 | **13g** | Home compose image parity with AppShell create | **Done (#385)** |
 | **13h** | Live cert gate (Clerk QA + smoke + STORAGE/CORS/Caddy) — before user tour | **Pending (ops)** |
 
-**Defer hard:** live encoder, ML discovery, production x402, bookmark folders, full guild mod suite, Agents product, dual-shell growth.
+**Wave 13 intentionally excluded** encoder/ML/x402 so trust work finished first. Those are **Wave 14**, not cancelled.
+
+## Wave 14 — Social Completeness (Discovery · Media/Live · x402)
+
+**In scope:** Social product only. **Out of scope:** Markets/crypto pages, dual-shell growth, Agents full product shell.
+
+### Track D — Discovery (usable ranking without fake “AI” claims)
+
+| Slice | Scope | Status |
+|-------|--------|--------|
+| **14a** | Related posts (heuristic: shared tags + same author + recency) + thread “Related” UI | **Next** |
+| **14b** | Trending quality (tag extract, min count, stable explore) | Pending |
+| **14c** | Explore tag → posts click-through + cold-start polish | Pending |
+| **14d** | Engagement-aware feed sort option (honest “Top” not “ML”) | Pending |
+| **14e** | Embeddings-related discovery (real NN) — after 14a–d prove value | Later |
+
+### Track V — Video (Watch path)
+
+| Slice | Scope | Status |
+|-------|--------|--------|
+| **14f** | Progressive video attach/play on posts (mp4/webm via existing media API; no fake transcode claims) | **Next** |
+| **14g** | Watch library lists real Page videos; enable upload when playback ready | Pending |
+| **14h** | Shelf membership (add video/post to shelf) | Pending |
+
+### Track L — Live encoder / ingest
+
+| Slice | Scope | Status |
+|-------|--------|--------|
+| **14i** | LiveSession model (BE): create/start/end, phase `preview\|live\|ended`, Page-owned | Pending |
+| **14j** | FE LivePage binds to real sessions; LIVE badge only when phase=live | Pending |
+| **14k** | Managed ingest (CF Stream / Mux / WHIP) + viewer playback URL | Pending |
+| **14l** | Live chat (session-scoped or post thread) + end→optional VOD | Pending |
+
+### Track X — x402 production path
+
+| Slice | Scope | Status |
+|-------|--------|--------|
+| **14m** | Facilitator design + env contract (`X402_*` keys, network, recipient) | Pending |
+| **14n** | Real verify (crypto/facilitator) + durable payment receipts | Pending |
+| **14o** | One Social product gate (e.g. paid agent action or unlock) fail-closed | Pending |
+
+**Honest MVPs:**  
+- Discovery: heuristics first; embeddings = 14e later.  
+- Video: native progressive play; not HLS adaptive.  
+- Live: managed ingest provider, not self-built RTMP farm.  
+- x402: real settlement receipt, not shape-only stub.
 
 ## Active truth
 
@@ -62,8 +109,9 @@ Systems are **real** — prefs persist, moderation E2E, credits on checkout, hey
 - **Onboard (#376):** Following empty shows real profile/community/trending suggestions.
 - Soft-launch nav de-emphasizes Videos/Live slightly (#377); early-access banner on Home.
 - **Integrity closeout:** Caddy apex + Vite proxy route social/pulse/health → heyvera-server :3002; `deploy-vera.sh` builds SPA + both APIs; Settings non-account controls labeled device/none; Pulse schedule UI requires cron honesty (no magic auto-publish).
-- Media: shelves foundation; Watch/Live honesty — no fake LIVE encoder.
-- Agents: policy flags foundation; switcher Agents = WIP; x402 off unless `X402_ENABLED`.
-- **Wave 13 code sealed on main (#381–#386):** mutation rollback, DM API base, quote nest, post delete, notif/bookmark pagination, report reasons, Home image compose.
-- **Still before cohort live tour:** 13h ops cert (STORAGE_*, Clerk, CORS, Caddy → :3002, smoke).
-- **Out of multi-user readiness / Seal:** full encoder, ML discovery, production x402 facilitator.
+- Media: shelves foundation; image attach live; video MIME accepted on API — **Wave 14 enables progressive video + Live sessions**.
+- Agents: policy flags foundation; switcher Agents = WIP.
+- x402: scaffold only until Wave 14m–o (facilitator + receipts + one product gate).
+- **Wave 13 code sealed (#381–#386).** **Wave 14 active** — Discovery / Video / Live / x402 for Social completeness.
+- **Still before cohort live tour:** 13h ops cert (STORAGE_*, Clerk, CORS, Caddy → :3002, smoke) — parallel to Wave 14.
+- **Out of Social Completeness:** Markets/crypto pages, bookmark folders (later), full guild mod suite, dual-shell growth.

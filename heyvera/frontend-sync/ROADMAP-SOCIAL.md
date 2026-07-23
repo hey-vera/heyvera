@@ -1,10 +1,10 @@
 # HeyVera Social Roadmap (active)
 
-**Status:** Waves 0–13g **Done**; **13h live cert pending** before user tour  
+**Status:** Waves 0–13g **Done**; **Wave 14 Social Completeness in progress** (Discovery · Video · Live · x402)  
 **Grounded:** 2026-07-23  
 **Live entry:** `heyvera/src/main.tsx` → `router.tsx` → `AppShell` / `pages/*`  
 **Do not grow:** orphaned `App.tsx` / `VeraSocials` dual shell (quarantined under `src/orphan/`)  
-**Main tip note:** Soft-Launch Seal **code Done (#380–#386)**. Next: **13h live cert** (ops) or next product program after cert — not encoder/ML/x402 unless chosen.
+**Main tip note:** Wave 13 trust seal **Done**. Wave 13 “deferred” encoder/ML/x402 only so core verbs stopped lying — **not cancelled**. **Wave 14** ships them for Social. Markets/crypto remain later.
 
 ---
 
@@ -216,7 +216,17 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 ### Wave 13 — Soft-Launch Seal (2026-07-23)
 
 **Code slices 13a–13g Done (#381–#386).** Goal: golden social loop trustworthy for cohort live test.  
-**13h remaining:** live cert (Clerk QA + smoke + STORAGE/CORS/Caddy) before user tour. **Not** encoder/ML/x402/markets.
+**13h remaining:** live cert (ops). Wave 13 excluded encoder/ML/x402 **only as sequencing** for the trust seal.
+
+### Wave 14 — Social Completeness (2026-07-23)
+
+**Active.** Tracks (see STATUS):  
+- **D** Discovery (related, trending, explore, honest Top; embeddings later)  
+- **V** Progressive video attach/play + Watch library + shelves  
+- **L** LiveSession model → managed ingest → LIVE chrome only when real  
+- **X** x402 facilitator + receipts + one Social product gate  
+
+**Out of scope:** Markets/crypto product pages.
 
 ### Waves 1–4 implemented (2026-07-21)
 
