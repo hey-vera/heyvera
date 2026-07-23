@@ -12345,6 +12345,229 @@ impl Database {
         Some(post)
     }
 
+    /// Extract hashtags from post body (`#tag` tokens, case-insensitive).
+    /// Returns tags without the leading `#`. Shared by related-post heuristics.
+    pub fn social_extract_hashtags(body: &str) -> HashSet<String> {
+        let mut tags = HashSet::new();
+        for word in body.split_whitespace() {
+            let Some(rest) = word.strip_prefix('#') else {
+                continue;
+            };
+            if rest.is_empty() {
+                continue;
+            }
+            // Allow alphanumeric + underscore; stop at punctuation (e.g. #rust, #hey_vera!).
+            let tag: String = rest
+                .chars()
+                .take_while(|c| c.is_alphanumeric() || *c == '_')
+                .collect::<String>()
+                .to_lowercase();
+            if !tag.is_empty() {
+                tags.insert(tag);
+            }
+        }
+        tags
+    }
+
+    /// Related posts for a source thread: shared hashtags + same author + recency.
+    ///
+    /// Honest heuristic (not embeddings/ML). Returns feed-shaped posts (camelCase)
+    /// ready for `social_enrich_feed_posts`. Candidates are public + non-deleted only.
+    ///
+    /// Source post must exist and not be soft-deleted. Non-public sources are only
+    /// visible when `viewer_profile_id` is the author; related results stay public.
+    ///
+    /// Returns `None` when the source is missing / not visible; `Some(vec)` otherwise
+    /// (possibly empty).
+    pub fn social_get_related_posts(
+        &self,
+        post_id: &str,
+        limit: i64,
+        viewer_profile_id: Option<&str>,
+    ) -> Option<Vec<serde_json::Value>> {
+        let _t = std::time::Instant::now();
+        let limit = limit.clamp(1, 20);
+        // Over-fetch candidates so scoring can re-rank by shared tags.
+        let candidate_cap: i64 = (limit * 20).clamp(40, 200);
+
+        let conn = self.conn.lock().unwrap();
+
+        // Load source post metadata.
+        let source: Option<(String, String, String, Option<String>)> = conn
+            .query_row(
+                "SELECT id, profile_id, body, visibility
+                 FROM social_posts
+                 WHERE id = ?1 AND deleted_at IS NULL",
+                [post_id],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, String>(2)?,
+                        row.get::<_, Option<String>>(3)?,
+                    ))
+                },
+            )
+            .ok();
+
+        let Some((_id, author_id, body, visibility)) = source else {
+            return None;
+        };
+
+        let visibility = visibility.unwrap_or_else(|| "public".to_string());
+        if visibility != "public" {
+            let is_author = viewer_profile_id == Some(author_id.as_str());
+            if !is_author {
+                return None;
+            }
+        }
+
+        let source_tags = Self::social_extract_hashtags(&body);
+
+        // Map a feed row (same shape as social_get_user_posts).
+        let map_row = |row: &rusqlite::Row| -> rusqlite::Result<(
+            String, // id
+            String, // profile_id
+            String, // body
+            String, // created_at
+            serde_json::Value,
+        )> {
+            let id: String = row.get(0)?;
+            let profile_id: String = row.get(1)?;
+            let body: String = row.get(3)?;
+            let created_at: String = row.get(9)?;
+            let agent_name: Option<String> = row.get(13)?;
+            let post = serde_json::json!({
+                "id": id.clone(),
+                "body": body.clone(),
+                "visibility": row.get::<_, String>(4)?,
+                "proofState": row.get::<_, String>(5)?,
+                "authorMode": row.get::<_, String>(6)?,
+                "replyToPostId": row.get::<_, Option<String>>(7)?,
+                "quotePostId": row.get::<_, Option<String>>(8)?,
+                "createdAt": created_at.clone(),
+                "updatedAt": row.get::<_, String>(10)?,
+                "author": {
+                    "profileId": profile_id.clone(),
+                    "handle": row.get::<_, String>(11)?,
+                    "displayName": row.get::<_, String>(12)?,
+                },
+                "linkedAgent": if agent_name.is_some() {
+                    serde_json::json!({
+                        "id": row.get::<_, Option<String>>(2)?,
+                        "agentName": agent_name,
+                        "agentSlug": row.get::<_, Option<String>>(14)?,
+                    })
+                } else {
+                    serde_json::Value::Null
+                },
+            });
+            Ok((id, profile_id, body, created_at, post))
+        };
+
+        const SELECT_COLS: &str = "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                    sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
+                    sp.created_at, sp.updated_at,
+                    p.handle, p.display_name,
+                    la.agent_name, la.agent_slug
+             FROM social_posts sp
+             JOIN social_profiles p ON p.id = sp.profile_id
+             LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id";
+
+        // Collect candidates: same author and/or shared hashtag body matches.
+        let mut by_id: HashMap<String, (String, String, String, serde_json::Value)> = HashMap::new();
+
+        // Same-author recent public posts.
+        {
+            let sql = format!(
+                "{SELECT_COLS}
+                 WHERE sp.profile_id = ?1
+                   AND sp.id != ?2
+                   AND sp.visibility = 'public'
+                   AND sp.deleted_at IS NULL
+                 ORDER BY sp.created_at DESC
+                 LIMIT ?3"
+            );
+            if let Ok(mut stmt) = conn.prepare(&sql) {
+                if let Ok(rows) = stmt.query_map(params![author_id, post_id, candidate_cap], map_row) {
+                    for row in rows.flatten() {
+                        let (id, profile_id, body, created_at, post) = row;
+                        by_id.entry(id).or_insert((profile_id, body, created_at, post));
+                    }
+                }
+            }
+        }
+
+        // Hashtag matches (public, non-deleted, not source). Use LIKE on lowercased body.
+        if !source_tags.is_empty() {
+            let tags_vec: Vec<String> = source_tags.iter().cloned().collect();
+            // params: ?1 = source id, patterns ?2.., limit last.
+            let like_clauses: Vec<String> = (0..tags_vec.len())
+                .map(|i| format!("lower(sp.body) LIKE ?{}", i + 2))
+                .collect();
+            let limit_idx = tags_vec.len() + 2;
+            let sql = format!(
+                "{SELECT_COLS}
+                 WHERE sp.id != ?1
+                   AND sp.visibility = 'public'
+                   AND sp.deleted_at IS NULL
+                   AND ({})
+                 ORDER BY sp.created_at DESC
+                 LIMIT ?{limit_idx}",
+                like_clauses.join(" OR ")
+            );
+
+            if let Ok(mut stmt) = conn.prepare(&sql) {
+                let mut params_vec: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
+                params_vec.push(Box::new(post_id.to_string()));
+                for tag in &tags_vec {
+                    params_vec.push(Box::new(format!("%#{}%", tag.to_lowercase())));
+                }
+                params_vec.push(Box::new(candidate_cap));
+                let param_refs: Vec<&dyn rusqlite::types::ToSql> =
+                    params_vec.iter().map(|p| p.as_ref()).collect();
+                if let Ok(rows) = stmt.query_map(param_refs.as_slice(), map_row) {
+                    for row in rows.flatten() {
+                        let (id, profile_id, body, created_at, post) = row;
+                        by_id.entry(id).or_insert((profile_id, body, created_at, post));
+                    }
+                }
+            }
+        }
+
+        // Score: shared tag count (desc), same-author (desc), recency (desc).
+        let mut scored: Vec<(i64, i64, String, serde_json::Value)> = by_id
+            .into_iter()
+            .filter_map(|(_id, (profile_id, body, created_at, post))| {
+                let cand_tags = Self::social_extract_hashtags(&body);
+                let shared = source_tags.intersection(&cand_tags).count() as i64;
+                let same_author = if profile_id == author_id { 1_i64 } else { 0 };
+                // Must share a tag OR be same author.
+                if shared == 0 && same_author == 0 {
+                    return None;
+                }
+                Some((shared, same_author, created_at, post))
+            })
+            .collect();
+
+        scored.sort_by(|a, b| {
+            b.0.cmp(&a.0) // shared tags
+                .then(b.1.cmp(&a.1)) // same author
+                .then(b.2.cmp(&a.2)) // recency (ISO-ish strings ok for SQLite datetime)
+        });
+        scored.truncate(limit as usize);
+
+        let posts: Vec<serde_json::Value> = scored.into_iter().map(|(_, _, _, p)| p).collect();
+
+        tracing::info!(
+            method = "social_get_related_posts",
+            duration_ms = _t.elapsed().as_millis(),
+            returned = posts.len(),
+            "db query"
+        );
+        Some(posts)
+    }
+
     /// Light view counter: always increments once per call (no anon dedupe).
     /// Returns the new view_count, or None if the post is missing/deleted.
     pub fn social_record_post_view(&self, post_id: &str) -> Option<i64> {
@@ -18353,5 +18576,127 @@ mod tests {
         let err = db.social_redeem_community_invite(token_hash, member2_id);
         assert!(err.is_err());
         assert!(err.unwrap_err().to_lowercase().contains("revoked"));
+    }
+
+    #[test]
+    fn social_extract_hashtags_case_and_punctuation() {
+        let tags = Database::social_extract_hashtags("Hello #Rust and #Hey_Vera! plus #AI.");
+        assert!(tags.contains("rust"));
+        assert!(tags.contains("hey_vera"));
+        // Trailing period is stripped by take_while; "#AI." → "ai"
+        assert!(tags.contains("ai"));
+        assert!(!tags.contains("#rust"));
+        assert!(Database::social_extract_hashtags("no tags here").is_empty());
+    }
+
+    /// Wave 14a: shared tags rank above same-author-only; source excluded; deleted ignored.
+    #[test]
+    fn social_get_related_posts_scores_tags_author_recency() {
+        let db = test_db();
+        let alice = db.social_create_profile("clerk_rel_a", "relalice", "Alice", "");
+        let bob = db.social_create_profile("clerk_rel_b", "relbob", "Bob", "");
+        let carol = db.social_create_profile("clerk_rel_c", "relcarol", "Carol", "");
+        let alice_id = alice["id"].as_str().unwrap();
+        let bob_id = bob["id"].as_str().unwrap();
+        let carol_id = carol["id"].as_str().unwrap();
+
+        let source = db.social_create_post(
+            alice_id,
+            "Building with #rust and #heyvera",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        let source_id = source["id"].as_str().unwrap();
+
+        // Same author, no shared tags — should appear but rank below tag matches.
+        let same_author = db.social_create_post(
+            alice_id,
+            "unrelated alice post",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        let same_author_id = same_author["id"].as_str().unwrap().to_string();
+
+        // One shared tag.
+        let one_tag = db.social_create_post(
+            bob_id,
+            "Love #rust systems",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        let one_tag_id = one_tag["id"].as_str().unwrap().to_string();
+
+        // Two shared tags — should rank first.
+        let two_tags = db.social_create_post(
+            carol_id,
+            "Ship #heyvera with #rust",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        let two_tags_id = two_tags["id"].as_str().unwrap().to_string();
+
+        // Deleted post with tags — must not appear.
+        let deleted = db.social_create_post(
+            bob_id,
+            "gone #rust #heyvera",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        let deleted_id = deleted["id"].as_str().unwrap().to_string();
+        db.social_soft_delete_post(&deleted_id);
+
+        // Unrelated other author — not related.
+        let _noise = db.social_create_post(
+            bob_id,
+            "completely different topic",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+
+        let related = db
+            .social_get_related_posts(source_id, 10, None)
+            .expect("source exists");
+        let ids: Vec<&str> = related
+            .iter()
+            .filter_map(|p| p["id"].as_str())
+            .collect();
+
+        assert!(!ids.contains(&source_id), "source excluded");
+        assert!(!ids.contains(&deleted_id.as_str()), "deleted excluded");
+        assert_eq!(ids[0], two_tags_id.as_str(), "two shared tags rank first");
+        assert!(
+            ids.iter().position(|id| *id == one_tag_id.as_str()).unwrap()
+                < ids.iter().position(|id| *id == same_author_id.as_str()).unwrap(),
+            "one shared tag ranks above same-author-only"
+        );
+        assert!(ids.contains(&same_author_id.as_str()));
+        assert_eq!(
+            db.social_get_related_posts("missing-post-id", 5, None),
+            None
+        );
     }
 }
