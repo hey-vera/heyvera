@@ -89,7 +89,7 @@ Systems are **real** — prefs persist, moderation E2E, credits on checkout, hey
 |-------|--------|--------|
 | **14m** | Facilitator design + env contract (`X402_*` keys, network, recipient) | **Done (#393)** |
 | **14n** | Real verify (facilitator HTTP) + durable payment receipts | **Done (#393)** |
-| **14o** | One Social product gate (e.g. paid agent action or unlock) fail-closed | **Next** |
+| **14o** | One Social product gate (`POST /v1/social/x402/paid-ping`) fail-closed | **Done (this PR)** |
 
 **Honest MVPs:**  
 - Discovery: heuristics first; embeddings = 14e later.  
@@ -111,7 +111,7 @@ Systems are **real** — prefs persist, moderation E2E, credits on checkout, hey
 - **Integrity closeout:** Caddy apex + Vite proxy route social/pulse/health → heyvera-server :3002; `deploy-vera.sh` builds SPA + both APIs; Settings non-account controls labeled device/none; Pulse schedule UI requires cron honesty (no magic auto-publish).
 - Media: shelves foundation; image attach live; video MIME accepted on API — **Wave 14 enables progressive video + Live sessions**.
 - Agents: policy flags foundation; switcher Agents = WIP.
-- x402: scaffold only until Wave 14m–o (facilitator + receipts + one product gate).
+- x402: **14m/n/o** foundation + product gate — `status` / `verify` / `paid-ping`; fail-closed facilitator; FE Test paid action when enabled.
 - **Wave 13 code sealed (#381–#386).** **Wave 14 active** — Discovery / Video / Live / x402 for Social completeness.
 - **Still before cohort live tour:** 13h ops cert (STORAGE_*, Clerk, CORS, Caddy → :3002, smoke) — parallel to Wave 14.
 - **Out of Social Completeness:** Markets/crypto pages, bookmark folders (later), full guild mod suite, dual-shell growth.

@@ -1,4 +1,4 @@
-//! x402 agent micropayments — Social product production path foundation (Wave 14m/n).
+//! x402 agent micropayments — Social product production path (Wave 14m/n/o).
 //!
 //! # Env contract (never log private keys)
 //!
@@ -14,9 +14,14 @@
 //!
 //! # Modes
 //!
-//! - `disabled` — `X402_ENABLED` ≠ `"1"`; verify returns 501
+//! - `disabled` — `X402_ENABLED` ≠ `"1"`; verify / paid-ping return 501
 //! - `shape_only` — enabled, no facilitator URL; shape validation + receipt `pending`
 //! - `facilitator` — enabled + `X402_FACILITATOR_URL`; POST verify to facilitator HTTP API
+//!
+//! # Product gate (Wave 14o)
+//!
+//! `POST /v1/social/x402/paid-ping` — authenticated Social surface that requires
+//! payment proof when mode is not disabled. Fail-closed in facilitator mode.
 //!
 //! Receipts: table `social_x402_receipts` (idempotent by `idempotency_key`).
 
@@ -32,6 +37,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::clerk::ClerkUser;
 use crate::db::Database;
 use crate::state::AppState;
 
@@ -412,6 +418,119 @@ fn receipt_to_response(row: &Value) -> (StatusCode, Json<Value>) {
     )
 }
 
+// ─── Product gate (Wave 14o) — pure logic ────────────────────────────────────
+
+/// Payment proof state after shape check / facilitator verify (pure input).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaidPaymentState {
+    /// No usable payment fields on the request.
+    Missing,
+    /// Shape looks valid; facilitator not consulted (shape_only path).
+    ShapeOk,
+    /// Facilitator explicitly verified the payment.
+    FacilitatorOk,
+    /// Facilitator rejected or failed to verify (fail closed).
+    FacilitatorFailed,
+}
+
+/// Outcome of evaluating the Social paid product gate (pure).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PaidGateOutcome {
+    /// X402 disabled — payments off.
+    PaymentsOff,
+    /// Payment proof missing or incomplete for the active mode.
+    PaymentRequired,
+    /// shape_only: accept action; not settled.
+    AllowShapeOnly,
+    /// facilitator: verified payment; settled.
+    AllowFacilitatorVerified,
+    /// facilitator: verify failed — deny action (fail closed).
+    FacilitatorRejected,
+}
+
+impl PaidGateOutcome {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::PaymentsOff => "payments_off",
+            Self::PaymentRequired => "payment_required",
+            Self::AllowShapeOnly => "allow_shape_only",
+            Self::AllowFacilitatorVerified => "allow_facilitator_verified",
+            Self::FacilitatorRejected => "facilitator_rejected",
+        }
+    }
+
+    /// True when the gated product action may proceed.
+    pub fn allows_action(self) -> bool {
+        matches!(
+            self,
+            Self::AllowShapeOnly | Self::AllowFacilitatorVerified
+        )
+    }
+
+    /// True only when facilitator settled the payment.
+    pub fn settled(self) -> bool {
+        matches!(self, Self::AllowFacilitatorVerified)
+    }
+}
+
+/// Pure fail-closed product gate evaluator.
+///
+/// | mode         | Missing | ShapeOk | FacilitatorOk | FacilitatorFailed |
+/// |--------------|---------|---------|---------------|-------------------|
+/// | disabled     | Off     | Off     | Off           | Off               |
+/// | shape_only   | Required| Allow   | Allow*        | Allow*            |
+/// | facilitator  | Required| Required† | Allow       | Reject            |
+///
+/// \* shape_only never claims settlement even if a facilitator flag is present.
+/// † Shape alone is not enough in facilitator mode — must verify.
+pub fn evaluate_paid_gate(mode: X402Mode, payment: PaidPaymentState) -> PaidGateOutcome {
+    match mode {
+        X402Mode::Disabled => PaidGateOutcome::PaymentsOff,
+        X402Mode::ShapeOnly => match payment {
+            PaidPaymentState::Missing => PaidGateOutcome::PaymentRequired,
+            PaidPaymentState::ShapeOk
+            | PaidPaymentState::FacilitatorOk
+            | PaidPaymentState::FacilitatorFailed => PaidGateOutcome::AllowShapeOnly,
+        },
+        X402Mode::Facilitator => match payment {
+            PaidPaymentState::Missing | PaidPaymentState::ShapeOk => {
+                PaidGateOutcome::PaymentRequired
+            }
+            PaidPaymentState::FacilitatorOk => PaidGateOutcome::AllowFacilitatorVerified,
+            PaidPaymentState::FacilitatorFailed => PaidGateOutcome::FacilitatorRejected,
+        },
+    }
+}
+
+/// HTTP status for a gate outcome (pure mapping).
+pub fn paid_gate_http_status(outcome: PaidGateOutcome) -> StatusCode {
+    match outcome {
+        PaidGateOutcome::PaymentsOff => StatusCode::NOT_IMPLEMENTED,
+        PaidGateOutcome::PaymentRequired | PaidGateOutcome::FacilitatorRejected => {
+            StatusCode::PAYMENT_REQUIRED
+        }
+        PaidGateOutcome::AllowShapeOnly | PaidGateOutcome::AllowFacilitatorVerified => {
+            StatusCode::OK
+        }
+    }
+}
+
+/// Build a stable product-gate idempotency key (pure).
+///
+/// Prefixes client keys with `paid-ping:` so verify receipts and product-gate
+/// receipts do not silently collide when clients reuse the same client key.
+pub fn paid_ping_idempotency_key(base: &str) -> String {
+    let t = base.trim();
+    if t.is_empty() {
+        return "paid-ping:auto".to_string();
+    }
+    if t.starts_with("paid-ping:") {
+        t.to_string()
+    } else {
+        format!("paid-ping:{t}")
+    }
+}
+
 // ─── Handlers ────────────────────────────────────────────────────────────────
 
 /// POST /v1/social/x402/verify
@@ -574,6 +693,265 @@ fn store_receipt(
             tracing::warn!(error = %e, "x402 receipt insert failed; attempting idempotent read");
             db.social_x402_get_receipt_by_idempotency(idempotency_key)
         }
+    }
+}
+
+/// POST /v1/social/x402/paid-ping — Wave 14o Social product gate (fail-closed).
+///
+/// Authenticated. Requires valid payment proof when mode ≠ disabled:
+/// - **disabled** → **501** `{ reason: "payments off" }`
+/// - **shape_only** → shape payment + receipt `pending`; `settled: false`
+/// - **facilitator** → must verify successfully; otherwise **402** (fail closed)
+///
+/// On allow, stores a receipt noting product-gate usage (`product_gate:paid-ping`).
+pub async fn paid_ping(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    headers: HeaderMap,
+    Json(req): Json<VerifyRequest>,
+) -> impl IntoResponse {
+    let cfg = X402Config::from_env();
+
+    // Early exit for disabled (honest payments-off).
+    if cfg.mode == X402Mode::Disabled {
+        let outcome = evaluate_paid_gate(X402Mode::Disabled, PaidPaymentState::Missing);
+        return (
+            paid_gate_http_status(outcome),
+            Json(json!({
+                "ok": false,
+                "action": "paid-ping",
+                "reason": "payments off",
+                "mode": "disabled",
+                "settled": false,
+                "note": "x402 disabled (set X402_ENABLED=1 to enable). No settlement.",
+            })),
+        )
+            .into_response();
+    }
+
+    // Missing payment shape → 402 payment required (fail closed).
+    if validate_verify_shape(&req) == VerifyShapeResult::InvalidShape {
+        let outcome = evaluate_paid_gate(cfg.mode, PaidPaymentState::Missing);
+        return (
+            paid_gate_http_status(outcome),
+            Json(json!({
+                "ok": false,
+                "action": "paid-ping",
+                "reason": "payment required",
+                "mode": cfg.mode.as_str(),
+                "settled": false,
+                "note": "provide payload, payment, or amount for the paid product gate",
+            })),
+        )
+            .into_response();
+    }
+
+    let base_idem = resolve_idempotency_key(&req, &headers);
+    let idem = paid_ping_idempotency_key(&base_idem);
+    let hash = payload_hash(&req);
+    let network = req
+        .network
+        .as_ref()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .unwrap_or(cfg.network.as_str())
+        .to_string();
+    let amount = req.amount.clone();
+    let actor = user.user_id.clone();
+
+    // Idempotent replay of a prior paid-ping for this key.
+    if let Some(db) = state.db.as_ref() {
+        if let Some(existing) = db.social_x402_get_receipt_by_idempotency(&idem) {
+            return paid_ping_receipt_replay(&existing, cfg.mode).into_response();
+        }
+    }
+
+    match cfg.mode {
+        X402Mode::Disabled => unreachable!("handled above"),
+        X402Mode::ShapeOnly => {
+            let payment_state = PaidPaymentState::ShapeOk;
+            let outcome = evaluate_paid_gate(X402Mode::ShapeOnly, payment_state);
+            debug_assert!(outcome.allows_action());
+            let note = "product_gate:paid-ping used (shape_only; not settled)";
+            let receipt = store_receipt(
+                state.db.as_ref(),
+                &idem,
+                &hash,
+                amount.as_deref(),
+                &network,
+                ReceiptStatus::Pending,
+                None,
+                X402Mode::ShapeOnly,
+                note,
+            );
+            (
+                paid_gate_http_status(outcome),
+                Json(json!({
+                    "ok": true,
+                    "action": "paid-ping",
+                    "pong": true,
+                    "mode": "shape_only",
+                    "settled": false,
+                    "verified": false,
+                    "status": "pending",
+                    "receiptId": receipt.as_ref().and_then(|r| r.get("id").cloned()),
+                    "idempotencyKey": idem,
+                    "network": network,
+                    "amount": amount,
+                    "actor": actor,
+                    "note": note,
+                    "message": "paid-ping accepted in shape_only (not settled)",
+                })),
+            )
+                .into_response()
+        }
+        X402Mode::Facilitator => {
+            let base = cfg
+                .facilitator_url
+                .as_deref()
+                .expect("facilitator mode requires URL");
+            let url = facilitator_verify_url(base);
+            let body = build_facilitator_request_body(&req);
+            let (verified, status, raw) = call_facilitator_verify(&url, &body).await;
+            let payment_state = if verified {
+                PaidPaymentState::FacilitatorOk
+            } else {
+                PaidPaymentState::FacilitatorFailed
+            };
+            let outcome = evaluate_paid_gate(X402Mode::Facilitator, payment_state);
+            let note = if outcome.allows_action() {
+                "product_gate:paid-ping used (facilitator verified)"
+            } else {
+                "product_gate:paid-ping rejected (facilitator not verified)"
+            };
+            let raw_str = serde_json::to_string(&raw).ok();
+            let receipt = store_receipt(
+                state.db.as_ref(),
+                &idem,
+                &hash,
+                amount.as_deref(),
+                &network,
+                status,
+                raw_str.as_deref(),
+                X402Mode::Facilitator,
+                note,
+            );
+            if outcome.allows_action() {
+                (
+                    paid_gate_http_status(outcome),
+                    Json(json!({
+                        "ok": true,
+                        "action": "paid-ping",
+                        "pong": true,
+                        "mode": "facilitator",
+                        "settled": true,
+                        "verified": true,
+                        "status": status.as_str(),
+                        "receiptId": receipt.as_ref().and_then(|r| r.get("id").cloned()),
+                        "idempotencyKey": idem,
+                        "network": network,
+                        "amount": amount,
+                        "actor": actor,
+                        "note": note,
+                        "message": "paid-ping completed with verified payment",
+                    })),
+                )
+                    .into_response()
+            } else {
+                (
+                    paid_gate_http_status(outcome),
+                    Json(json!({
+                        "ok": false,
+                        "action": "paid-ping",
+                        "reason": "payment not verified",
+                        "mode": "facilitator",
+                        "settled": false,
+                        "verified": false,
+                        "status": status.as_str(),
+                        "receiptId": receipt.as_ref().and_then(|r| r.get("id").cloned()),
+                        "idempotencyKey": idem,
+                        "network": network,
+                        "amount": amount,
+                        "actor": actor,
+                        "note": note,
+                    })),
+                )
+                    .into_response()
+            }
+        }
+    }
+}
+
+/// Replay a stored paid-ping receipt as an HTTP response (honest settled flag).
+fn paid_ping_receipt_replay(row: &Value, mode: X402Mode) -> (StatusCode, Json<Value>) {
+    let status = row["status"].as_str().unwrap_or("pending");
+    let verified = status == "verified";
+    let receipt_mode = row
+        .get("mode")
+        .and_then(|v| v.as_str())
+        .unwrap_or(mode.as_str());
+    let payment_state = match (receipt_mode, verified) {
+        ("facilitator", true) => PaidPaymentState::FacilitatorOk,
+        ("facilitator", false) => PaidPaymentState::FacilitatorFailed,
+        ("shape_only", _) => PaidPaymentState::ShapeOk,
+        _ if verified => PaidPaymentState::FacilitatorOk,
+        _ => PaidPaymentState::ShapeOk,
+    };
+    let gate_mode = match receipt_mode {
+        "facilitator" => X402Mode::Facilitator,
+        "shape_only" => X402Mode::ShapeOnly,
+        "disabled" => X402Mode::Disabled,
+        _ => mode,
+    };
+    let outcome = evaluate_paid_gate(gate_mode, payment_state);
+    let settled = outcome.settled();
+    if outcome.allows_action() {
+        (
+            StatusCode::OK,
+            Json(json!({
+                "ok": true,
+                "action": "paid-ping",
+                "pong": true,
+                "mode": receipt_mode,
+                "settled": settled,
+                "verified": verified,
+                "status": status,
+                "receiptId": row.get("id"),
+                "idempotencyKey": row.get("idempotencyKey"),
+                "network": row.get("network"),
+                "amount": row.get("amount"),
+                "note": row.get("note").cloned().unwrap_or(json!(
+                    "idempotent replay of paid-ping receipt"
+                )),
+                "message": "paid-ping replay of stored receipt",
+                "replay": true,
+            })),
+        )
+    } else {
+        (
+            paid_gate_http_status(outcome),
+            Json(json!({
+                "ok": false,
+                "action": "paid-ping",
+                "reason": if matches!(outcome, PaidGateOutcome::FacilitatorRejected) {
+                    "payment not verified"
+                } else {
+                    "payment required"
+                },
+                "mode": receipt_mode,
+                "settled": false,
+                "verified": verified,
+                "status": status,
+                "receiptId": row.get("id"),
+                "idempotencyKey": row.get("idempotencyKey"),
+                "network": row.get("network"),
+                "amount": row.get("amount"),
+                "note": row.get("note").cloned().unwrap_or(json!(
+                    "idempotent replay of paid-ping receipt"
+                )),
+                "replay": true,
+            })),
+        )
     }
 }
 
@@ -869,5 +1247,89 @@ mod tests {
         assert_eq!(body["paymentHeader"], "abc");
         assert_eq!(body["amount"], "0.05");
         assert_eq!(body["network"], "base");
+    }
+
+    // ─── Wave 14o product gate (pure) ───────────────────────────────────────
+
+    #[test]
+    fn paid_gate_disabled_always_off() {
+        for payment in [
+            PaidPaymentState::Missing,
+            PaidPaymentState::ShapeOk,
+            PaidPaymentState::FacilitatorOk,
+            PaidPaymentState::FacilitatorFailed,
+        ] {
+            let o = evaluate_paid_gate(X402Mode::Disabled, payment);
+            assert_eq!(o, PaidGateOutcome::PaymentsOff);
+            assert!(!o.allows_action());
+            assert!(!o.settled());
+            assert_eq!(paid_gate_http_status(o), StatusCode::NOT_IMPLEMENTED);
+        }
+    }
+
+    #[test]
+    fn paid_gate_shape_only_requires_shape_not_settled() {
+        assert_eq!(
+            evaluate_paid_gate(X402Mode::ShapeOnly, PaidPaymentState::Missing),
+            PaidGateOutcome::PaymentRequired
+        );
+        let allow = evaluate_paid_gate(X402Mode::ShapeOnly, PaidPaymentState::ShapeOk);
+        assert_eq!(allow, PaidGateOutcome::AllowShapeOnly);
+        assert!(allow.allows_action());
+        assert!(!allow.settled());
+        assert_eq!(paid_gate_http_status(allow), StatusCode::OK);
+        // Even facilitator flags do not claim settlement in shape_only.
+        let still = evaluate_paid_gate(X402Mode::ShapeOnly, PaidPaymentState::FacilitatorOk);
+        assert_eq!(still, PaidGateOutcome::AllowShapeOnly);
+        assert!(!still.settled());
+    }
+
+    #[test]
+    fn paid_gate_facilitator_fail_closed() {
+        assert_eq!(
+            evaluate_paid_gate(X402Mode::Facilitator, PaidPaymentState::Missing),
+            PaidGateOutcome::PaymentRequired
+        );
+        // Shape alone is not enough — fail closed until facilitator verifies.
+        assert_eq!(
+            evaluate_paid_gate(X402Mode::Facilitator, PaidPaymentState::ShapeOk),
+            PaidGateOutcome::PaymentRequired
+        );
+        let reject =
+            evaluate_paid_gate(X402Mode::Facilitator, PaidPaymentState::FacilitatorFailed);
+        assert_eq!(reject, PaidGateOutcome::FacilitatorRejected);
+        assert!(!reject.allows_action());
+        assert!(!reject.settled());
+        assert_eq!(
+            paid_gate_http_status(reject),
+            StatusCode::PAYMENT_REQUIRED
+        );
+        let ok = evaluate_paid_gate(X402Mode::Facilitator, PaidPaymentState::FacilitatorOk);
+        assert_eq!(ok, PaidGateOutcome::AllowFacilitatorVerified);
+        assert!(ok.allows_action());
+        assert!(ok.settled());
+        assert_eq!(paid_gate_http_status(ok), StatusCode::OK);
+    }
+
+    #[test]
+    fn paid_ping_idempotency_prefixes() {
+        assert_eq!(
+            paid_ping_idempotency_key("client-1"),
+            "paid-ping:client-1"
+        );
+        assert_eq!(
+            paid_ping_idempotency_key("paid-ping:already"),
+            "paid-ping:already"
+        );
+        assert_eq!(paid_ping_idempotency_key("  "), "paid-ping:auto");
+    }
+
+    #[test]
+    fn paid_gate_http_status_payment_required_is_402() {
+        assert_eq!(
+            paid_gate_http_status(PaidGateOutcome::PaymentRequired),
+            StatusCode::PAYMENT_REQUIRED
+        );
+        assert_eq!(StatusCode::PAYMENT_REQUIRED.as_u16(), 402);
     }
 }

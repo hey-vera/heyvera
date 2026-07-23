@@ -1194,7 +1194,7 @@ export async function endLiveSession(
   });
 }
 
-// ─── x402 agent micropayments (Wave 14m/n production path foundation) ───────
+// ─── x402 agent micropayments (Wave 14m/n/o production path + product gate) ─
 
 /** Server mode: disabled | shape_only | facilitator */
 export type X402Mode = "disabled" | "shape_only" | "facilitator" | string;
@@ -1212,6 +1212,80 @@ export type X402Status = {
 /** GET /v1/social/x402/status — public config honesty (no private keys). */
 export async function fetchX402Status(): Promise<X402Status> {
   return apiFetch("/x402/status");
+}
+
+/** Response from POST /v1/social/x402/paid-ping (Wave 14o product gate). */
+export type X402PaidPingResult = {
+  ok: boolean;
+  action?: string;
+  pong?: boolean;
+  mode?: X402Mode;
+  settled?: boolean;
+  verified?: boolean;
+  status?: string;
+  receiptId?: string | null;
+  idempotencyKey?: string;
+  network?: string;
+  amount?: string | null;
+  reason?: string;
+  note?: string;
+  message?: string;
+  replay?: boolean;
+  actor?: string;
+};
+
+/**
+ * POST /v1/social/x402/paid-ping — authenticated Social product gate.
+ *
+ * - disabled → 501 payments off
+ * - shape_only → accepts shape payment; settled=false
+ * - facilitator → requires verified payment; fail-closed 402 otherwise
+ *
+ * Throws with `[status] reason` when the server rejects (including 402/501).
+ */
+export async function postX402PaidPing(
+  token: string,
+  body: {
+    payload?: unknown;
+    payment?: unknown;
+    amount?: string;
+    network?: string;
+    idempotencyKey?: string;
+  } = {},
+): Promise<X402PaidPingResult> {
+  const res = await fetch(`${API_BASE}/x402/paid-ping`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${token}`,
+      ...(body.idempotencyKey
+        ? { "Idempotency-Key": body.idempotencyKey }
+        : {}),
+    },
+    body: JSON.stringify({
+      payload: body.payload,
+      payment: body.payment,
+      amount: body.amount,
+      network: body.network,
+      idempotencyKey: body.idempotencyKey,
+    }),
+  });
+  const data = (await res.json().catch(() => ({}))) as X402PaidPingResult & {
+    error?: string;
+    reason?: string;
+  };
+  if (!res.ok) {
+    const reason =
+      data.reason ?? data.error ?? data.message ?? res.statusText;
+    const err = new Error(`[${res.status}] ${reason}`) as Error & {
+      status?: number;
+      body?: X402PaidPingResult;
+    };
+    err.status = res.status;
+    err.body = data;
+    throw err;
+  }
+  return data;
 }
 
 // ─── Post interactions ──────────────────────────────────────────────────────

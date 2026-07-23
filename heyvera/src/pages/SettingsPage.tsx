@@ -39,6 +39,7 @@ import {
   fetchX402Status,
   linkAgent,
   listMyPages,
+  postX402PaidPing,
   rotateLinkedAgentKey,
   unblockUser,
   unmuteUser,
@@ -47,7 +48,18 @@ import {
   updateProfile,
   uploadMediaFile,
 } from '../api/social';
-import type { LinkedAgent, ModerationListEntry, Profile, SocialPage, X402Status } from '../api/social';
+import type {
+  LinkedAgent,
+  ModerationListEntry,
+  Profile,
+  SocialPage,
+  X402PaidPingResult,
+  X402Status,
+} from '../api/social';
+import {
+  formatX402PaidPingResult,
+  showX402PaidAction,
+} from '../utils/x402Enabled';
 import {
   AGENT_POLICY_FOUNDATION_DETAIL,
   AGENT_POLICY_NOT_LIVE_BADGE,
@@ -1515,12 +1527,16 @@ function BrandPagesPanel({
 }
 
 /**
- * Wave 14m/n — honest x402 status card (network, mode, payTo).
- * Reads GET /v1/social/x402/status; no fake pay wallet UI.
+ * Wave 14m/n/o — honest x402 status card (network, mode, payTo).
+ * Reads GET /v1/social/x402/status; optional paid-ping product gate test.
+ * No fake pay wallet UI.
  */
 function X402PaymentsCard() {
+  const { isSignedIn, getToken } = useAuth();
   const [status, setStatus] = useState<X402Status | null>(null);
   const [loadState, setLoadState] = useState<'loading' | 'live' | 'error'>('loading');
+  const [pingBusy, setPingBusy] = useState(false);
+  const [pingResult, setPingResult] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -1555,6 +1571,36 @@ function X402PaymentsCard() {
           : mode === 'shape_only'
             ? 'Shape-only'
             : 'Disabled';
+  const showPaidAction = showX402PaidAction(status);
+
+  async function runPaidPing() {
+    setPingBusy(true);
+    setPingResult(null);
+    try {
+      const token = await getToken();
+      if (!token) {
+        setPingResult('Sign in required to test the paid action.');
+        return;
+      }
+      // Shape payment only — facilitator mode will fail closed without a real proof.
+      const result: X402PaidPingResult = await postX402PaidPing(token, {
+        amount: '0.01',
+        network: status?.network,
+        payload: { x402Version: 1, source: 'settings-test-paid-action' },
+        idempotencyKey: `ui-settings-${Date.now()}`,
+      });
+      setPingResult(formatX402PaidPingResult(result));
+    } catch (e) {
+      const err = e as Error & { body?: X402PaidPingResult };
+      if (err.body) {
+        setPingResult(formatX402PaidPingResult(err.body));
+      } else {
+        setPingResult(e instanceof Error ? e.message : 'Paid action failed');
+      }
+    } finally {
+      setPingBusy(false);
+    }
+  }
 
   return (
     <div className="border-b border-[var(--border-primary)] px-4 py-4">
@@ -1609,6 +1655,44 @@ function X402PaymentsCard() {
               Could not reach /v1/social/x402/status. Treating as not configured.
             </p>
           )}
+          {showPaidAction && isSignedIn ? (
+            <div className="mt-3 flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={pingBusy}
+                onClick={() => void runPaidPing()}
+                className="self-start rounded-full border px-3 py-1.5 text-[13px] font-semibold transition-opacity disabled:opacity-50"
+                style={{
+                  borderColor: 'var(--accent)',
+                  color: 'var(--accent)',
+                }}
+              >
+                {pingBusy ? 'Testing…' : 'Test paid action'}
+              </button>
+              <p className="text-[12px] text-[var(--text-secondary)]">
+                Calls <code className="text-[11px]">POST /v1/social/x402/paid-ping</code>.
+                shape_only accepts a shape payment (not settled). Facilitator mode fails closed
+                without a real verified payment.
+              </p>
+              {pingResult ? (
+                <p
+                  className="rounded-lg border px-3 py-2 text-[12px] font-mono"
+                  style={{
+                    borderColor: 'var(--border-secondary)',
+                    color: 'var(--text-primary)',
+                  }}
+                  role="status"
+                >
+                  {pingResult}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+          {showPaidAction && !isSignedIn ? (
+            <p className="mt-3 text-[12px] text-[var(--text-secondary)]">
+              Sign in to run the paid-ping product gate test.
+            </p>
+          ) : null}
         </div>
       </div>
     </div>
