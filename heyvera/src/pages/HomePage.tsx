@@ -25,9 +25,7 @@ import { TabbedCompose } from '../components/shared/TabbedCompose';
 import { HEYVERA_POST_CREATED_EVENT } from '../components/layout/AppShell';
 import { useAuth } from '../hooks/useAuth';
 import type { FeedPost } from '../api/social';
-<<<<<<< HEAD
 import { earlyAccessBannerCopy } from '../utils/earlyAccessBanner';
-=======
 import {
   emptyFollowingDetail,
   emptyFollowingTitle,
@@ -38,7 +36,6 @@ import {
   topicExplorePath,
   type NetworkSuggestion,
 } from '../utils/emptyNetworkOnboard';
->>>>>>> origin/main
 import { addExcludedAuthor, filterPostsExcludingAuthors } from '../utils/moderation';
 
 const TABS = ['For you', 'Following', 'Humans', 'Agents'] as const;
@@ -92,10 +89,8 @@ export function HomePage() {
       return true;
     }
   });
-<<<<<<< HEAD
   /** Batch D soft-launch copy — pure helper, stable strings. */
   const earlyAccess = earlyAccessBannerCopy();
-=======
   /** Following empty: real suggestions from profiles/communities/trending. */
   const [networkSuggestions, setNetworkSuggestions] = useState<NetworkSuggestion[]>([]);
   const [suggestionsLoading, setSuggestionsLoading] = useState(false);
@@ -104,7 +99,6 @@ export function HomePage() {
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [followedHandles, setFollowedHandles] = useState<Set<string>>(new Set());
   const [joinedCommunityIds, setJoinedCommunityIds] = useState<Set<string>>(new Set());
->>>>>>> origin/main
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const touchStartY = useRef<number | null>(null);
 
