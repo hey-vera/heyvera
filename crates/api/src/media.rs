@@ -119,6 +119,15 @@ pub async fn request_upload_url(
     let profile_id = profile["id"].as_str().unwrap_or("");
     let media_type = if is_video { "video" } else { "image" };
 
+    // Fail-closed before creating a pending media row (production without storage).
+    if must_refuse_mock_upload(crate::is_production_env(), storage_fully_configured()) {
+        tracing::error!("refusing media upload URL: storage not configured in production");
+        return Json(serde_json::json!({
+            "error": "Object storage is not fully configured (STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY). Mock media uploads are disabled in production.",
+            "code": "STORAGE_NOT_CONFIGURED"
+        }));
+    }
+
     // Create media object in DB (status = "pending")
     let media = db(&state).social_create_media_object(
         profile_id,
@@ -133,7 +142,20 @@ pub async fn request_upload_url(
 
     // Generate the upload URL (timed for latency observability)
     let presign_start = std::time::Instant::now();
-    let (upload_url, expires_in) = generate_upload_url(storage_key, &content_type);
+    let (upload_url, expires_in) = match generate_upload_url(storage_key, &content_type) {
+        Ok(pair) => pair,
+        Err(err) => {
+            tracing::error!(
+                media_id = %media_id,
+                error = %err,
+                "refusing media upload URL"
+            );
+            return Json(serde_json::json!({
+                "error": err,
+                "code": "STORAGE_NOT_CONFIGURED"
+            }));
+        }
+    };
     tracing::info!(
         method = "presign_upload_url",
         duration_ms = presign_start.elapsed().as_millis() as u64,
@@ -199,10 +221,21 @@ pub fn mock_store_exists(storage_key: &str) -> bool {
 /// PUT /v1/social/media/mock-upload/{*storage_key}
 ///
 /// Accepts and **persists** a body when real object storage is not configured.
+/// Fail-closed in production even if a client crafts the mock path.
 pub async fn mock_upload(
     Path(storage_key): Path<String>,
     body: axum::body::Bytes,
 ) -> impl IntoResponse {
+    if crate::is_production_env() {
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "Mock media uploads are disabled in production",
+                "code": "STORAGE_NOT_CONFIGURED"
+            })),
+        )
+            .into_response();
+    }
     match mock_store_put(&storage_key, &body) {
         Ok(path) => {
             tracing::info!(
@@ -479,42 +512,92 @@ fn storage_object_url(storage_key: &str) -> Option<String> {
 
 // ─── Storage URL generation ─────────────────────────────────────────────────
 
+/// True when all four storage credentials/env vars are set non-empty.
+pub fn storage_fully_configured() -> bool {
+    storage_credentials_present(
+        std::env::var("STORAGE_ENDPOINT").ok().as_deref(),
+        std::env::var("STORAGE_BUCKET").ok().as_deref(),
+        std::env::var("STORAGE_ACCESS_KEY").ok().as_deref(),
+        std::env::var("STORAGE_SECRET_KEY").ok().as_deref(),
+    )
+}
+
+/// Pure helper: all four storage fields must be Some and non-empty after trim.
+pub fn storage_credentials_present(
+    endpoint: Option<&str>,
+    bucket: Option<&str>,
+    access_key: Option<&str>,
+    secret_key: Option<&str>,
+) -> bool {
+    matches!(
+        (
+            non_empty(endpoint),
+            non_empty(bucket),
+            non_empty(access_key),
+            non_empty(secret_key),
+        ),
+        (true, true, true, true)
+    )
+}
+
+fn non_empty(v: Option<&str>) -> bool {
+    v.map(|s| !s.trim().is_empty()).unwrap_or(false)
+}
+
+/// Pure helper: mock upload URLs are forbidden when production and storage incomplete.
+pub fn must_refuse_mock_upload(is_production: bool, storage_configured: bool) -> bool {
+    is_production && !storage_configured
+}
+
 /// Generate a presigned PUT URL for uploading to S3/R2-compatible storage.
-/// If no storage is configured, returns a mock local upload path.
 ///
-/// Returns (upload_url, expires_in_seconds).
-fn generate_upload_url(storage_key: &str, content_type: &str) -> (String, u64) {
+/// - When storage is fully configured: returns a presigned PUT URL.
+/// - When storage is incomplete and **not** production: returns a mock local upload path.
+/// - When storage is incomplete and production (`HEYVERA_ENV`/`CORTEX_ENV`/…): **errors**
+///   (fail-closed — never return mock URLs in prod).
+///
+/// Returns Ok((upload_url, expires_in_seconds)) or Err(message).
+fn generate_upload_url(storage_key: &str, content_type: &str) -> Result<(String, u64), String> {
     let endpoint = std::env::var("STORAGE_ENDPOINT").ok();
     let bucket = std::env::var("STORAGE_BUCKET").ok();
     let access_key = std::env::var("STORAGE_ACCESS_KEY").ok();
     let secret_key = std::env::var("STORAGE_SECRET_KEY").ok();
 
     let expires_in: u64 = 300; // 5 minutes
+    let configured = storage_credentials_present(
+        endpoint.as_deref(),
+        bucket.as_deref(),
+        access_key.as_deref(),
+        secret_key.as_deref(),
+    );
 
-    match (endpoint, bucket, access_key, secret_key) {
-        (Some(endpoint), Some(bucket), Some(access_key), Some(secret_key)) => {
-            // Generate a presigned PUT URL for S3/R2
-            let url = generate_s3_presigned_put(
-                &endpoint,
-                &bucket,
-                storage_key,
-                content_type,
-                expires_in,
-                &access_key,
-                &secret_key,
-            );
-            (url, expires_in)
-        }
-        _ => {
-            // No storage configured — return a mock/local upload path
-            tracing::warn!(
-                "No STORAGE_ENDPOINT/STORAGE_BUCKET configured — returning mock upload URL for key: {}",
-                storage_key
-            );
-            let mock_url = format!("/v1/social/media/mock-upload/{}", storage_key);
-            (mock_url, expires_in)
-        }
+    if configured {
+        let url = generate_s3_presigned_put(
+            endpoint.as_deref().unwrap(),
+            bucket.as_deref().unwrap(),
+            storage_key,
+            content_type,
+            expires_in,
+            access_key.as_deref().unwrap(),
+            secret_key.as_deref().unwrap(),
+        );
+        return Ok((url, expires_in));
     }
+
+    if must_refuse_mock_upload(crate::is_production_env(), false) {
+        return Err(
+            "Object storage is not fully configured (STORAGE_ENDPOINT, STORAGE_BUCKET, STORAGE_ACCESS_KEY, STORAGE_SECRET_KEY). Mock media uploads are disabled in production."
+                .to_string(),
+        );
+    }
+
+    // Dev/local only — mock/local upload path
+    tracing::warn!(
+        "No STORAGE_ENDPOINT/STORAGE_BUCKET configured — returning mock upload URL for key: {}",
+        storage_key
+    );
+    let mock_url = format!("/v1/social/media/mock-upload/{}", storage_key);
+    Ok((mock_url, expires_in))
 }
 
 /// Generate a presigned S3-compatible PUT URL using AWS Signature V4.
@@ -673,6 +756,81 @@ mod tests {
 
     // Serialize tests that touch env + shared temp dir.
     static MOCK_TEST_LOCK: Mutex<()> = Mutex::new(());
+
+    #[test]
+    fn storage_credentials_require_all_four_non_empty() {
+        assert!(!storage_credentials_present(None, None, None, None));
+        assert!(!storage_credentials_present(
+            Some("https://r2.example"),
+            Some("bucket"),
+            Some("ak"),
+            None
+        ));
+        assert!(!storage_credentials_present(
+            Some("https://r2.example"),
+            Some("bucket"),
+            Some(""),
+            Some("sk")
+        ));
+        assert!(!storage_credentials_present(
+            Some("  "),
+            Some("bucket"),
+            Some("ak"),
+            Some("sk")
+        ));
+        assert!(storage_credentials_present(
+            Some("https://r2.example"),
+            Some("bucket"),
+            Some("ak"),
+            Some("sk")
+        ));
+    }
+
+    #[test]
+    fn refuse_mock_upload_only_in_production_without_storage() {
+        assert!(!must_refuse_mock_upload(false, false));
+        assert!(!must_refuse_mock_upload(false, true));
+        assert!(!must_refuse_mock_upload(true, true));
+        assert!(must_refuse_mock_upload(true, false));
+    }
+
+    #[test]
+    fn generate_upload_url_fails_closed_in_production_without_storage() {
+        let _guard = MOCK_TEST_LOCK.lock().unwrap();
+        std::env::remove_var("STORAGE_ENDPOINT");
+        std::env::remove_var("STORAGE_BUCKET");
+        std::env::remove_var("STORAGE_ACCESS_KEY");
+        std::env::remove_var("STORAGE_SECRET_KEY");
+        std::env::set_var("HEYVERA_ENV", "production");
+        // Avoid panicking CORS helpers in other tests; clear after.
+        let result = generate_upload_url("uploads/u/f.png", "image/png");
+        std::env::remove_var("HEYVERA_ENV");
+        assert!(result.is_err(), "expected Err, got {:?}", result);
+        let msg = result.unwrap_err();
+        assert!(
+            msg.contains("Mock media uploads are disabled in production")
+                || msg.contains("not fully configured"),
+            "unexpected message: {msg}"
+        );
+    }
+
+    #[test]
+    fn generate_upload_url_allows_mock_outside_production() {
+        let _guard = MOCK_TEST_LOCK.lock().unwrap();
+        std::env::remove_var("STORAGE_ENDPOINT");
+        std::env::remove_var("STORAGE_BUCKET");
+        std::env::remove_var("STORAGE_ACCESS_KEY");
+        std::env::remove_var("STORAGE_SECRET_KEY");
+        std::env::remove_var("HEYVERA_ENV");
+        std::env::remove_var("CORTEX_ENV");
+        std::env::remove_var("APP_ENV");
+        std::env::remove_var("ENVIRONMENT");
+        let result = generate_upload_url("uploads/u/f.png", "image/png");
+        assert!(result.is_ok(), "expected Ok mock URL, got {:?}", result);
+        let (url, expires) = result.unwrap();
+        assert!(url.contains("/v1/social/media/mock-upload/"));
+        assert_eq!(expires, 300);
+    }
 
     #[test]
     fn mock_put_get_roundtrip_preserves_bytes() {

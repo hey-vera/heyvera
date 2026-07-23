@@ -171,7 +171,7 @@ fn cors_layer() -> CorsLayer {
         }
         _ => {
             if is_production_env() {
-                panic!("CORTEX_ALLOWED_ORIGINS is required when CORTEX_ENV/APP_ENV/ENVIRONMENT is production");
+                panic!("CORTEX_ALLOWED_ORIGINS is required when HEYVERA_ENV/CORTEX_ENV/APP_ENV/ENVIRONMENT is production");
             }
             tracing::info!("CORS: permissive (set CORTEX_ALLOWED_ORIGINS to restrict)");
             CorsLayer::permissive()
@@ -355,8 +355,10 @@ async fn metrics_handler(
     }
 }
 
-fn is_production_env() -> bool {
-    ["CORTEX_ENV", "APP_ENV", "ENVIRONMENT"]
+/// True when any product env flag is set to production.
+/// Checks HEYVERA_ENV, CORTEX_ENV, APP_ENV, and ENVIRONMENT.
+pub(crate) fn is_production_env() -> bool {
+    ["HEYVERA_ENV", "CORTEX_ENV", "APP_ENV", "ENVIRONMENT"]
         .iter()
         .filter_map(|key| std::env::var(key).ok())
         .any(|value| value.eq_ignore_ascii_case("production"))
@@ -509,68 +511,76 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         .route("/api/ws", get(ws::ws_handler))
         .route("/api/mc", get(mission_control::mc_handler))
         .route("/api/mc/snapshot", get(mission_control::mc_snapshot))
-        // Social layer served through api.heyvera.org/v1/social/*.
-        .route("/v1/social/trending", get(social::get_trending))
-        .route("/v1/social/search", get(social::search))
-        .route("/v1/social/profiles/featured", get(social::get_featured_profiles))
-        .route("/v1/social/feed/home", get(social::get_home_feed))
-        .route("/v1/social/profiles", get(social::get_profiles).post(social::create_profile))
-        .route("/v1/social/profiles/{handle}", get(social::get_profile_by_handle))
-        .route("/v1/social/profiles/{handle}/stats", get(social::get_user_profile_stats))
-        .route("/v1/social/profiles/{handle}/followers", get(social::get_profile_followers))
-        .route("/v1/social/profiles/{handle}/following", get(social::get_profile_following))
-        .route("/v1/social/communities", get(social::get_communities).post(social::create_community))
-        .route("/v1/social/communities/mine", get(social::list_my_communities))
-        .route("/v1/social/longform", get(social::get_longform).post(social::create_longform))
-        .route("/v1/social/x402/status", get(x402::get_status))
-        .route("/v1/social/x402/verify", post(x402::verify))
-        .route("/v1/social/profile/me", get(social::get_my_profile))
-        .route("/v1/social/posts", post(social::create_post))
-        .route("/v1/social/pages/mine", get(social::list_my_pages))
-        .route("/v1/social/pages", post(social::create_page))
-        .route("/v1/social/pages/{slug}", get(social::get_page_by_slug))
-        .route(
-            "/v1/social/pages/{id}/follow",
-            post(social::follow_page).delete(social::unfollow_page),
-        )
-        .route("/v1/social/shelves/mine", get(social::list_my_shelves))
-        .route("/v1/social/shelves", post(social::create_shelf))
-        .route("/v1/social/media/upload-url", post(media::request_upload_url))
-        .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
-        .route(
-            "/v1/social/media/mock-upload/{*storage_key}",
-            put(media::mock_upload).get(media::mock_serve),
-        )
-        .route("/v1/social/linked-agents", get(social::list_my_linked_agents).post(social::create_linked_agent))
-        .route("/v1/social/linked-agents/{id}/rotate-key", post(social::rotate_linked_agent_key))
-        .route("/v1/social/linked-agents/{id}", patch(social::patch_linked_agent))
-        .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
-        .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
-        .route("/v1/social/posts/{id}/bookmark", post(social::bookmark_post).delete(social::unbookmark_post))
-        .route("/v1/social/follows/{handle}", post(social::follow_by_handle).delete(social::unfollow_by_handle))
-        .route("/v1/social/follows/{handle}/status", get(social::get_follow_status))
-        .route("/v1/social/users/{handle}", get(social::get_user_profile))
-        .route("/v1/social/users/{handle}/posts", get(social::get_user_posts))
-        .route("/v1/social/users/{handle}/followers", get(social::get_profile_followers))
-        .route("/v1/social/users/{handle}/following", get(social::get_profile_following))
-        .route("/v1/social/posts/{id}", get(social::get_single_post).delete(social::delete_post))
-        .route("/v1/social/feed/following", get(social::get_following_feed))
-        .route("/v1/social/me/profile", get(social::get_me_profile).post(social::create_me_profile).patch(social::update_me_profile))
-        .route("/v1/social/me/prefs", get(social::get_me_prefs).patch(social::patch_me_prefs))
-        .route("/v1/social/me/blocks", get(moderation::list_my_blocks))
-        .route("/v1/social/me/mutes", get(moderation::list_my_mutes))
-        .route("/v1/social/notifications", get(notifications::get_notifications))
-        .route("/v1/social/notifications/read", post(notifications::mark_notifications_read))
-        .route("/v1/social/communities/{id}/feed", get(social::get_community_feed))
-        .route("/v1/social/communities/{id}/join", post(social::join_community))
-        .route("/v1/social/communities/{id}/leave", delete(social::leave_community))
-        .route("/v1/social/communities/{id}/members", get(social::list_community_members))
-        .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
-        .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))
-        .route("/v1/social/ws", get(messaging::social_ws_handler))
-        .route("/v1/social/users/{id}/block", post(moderation::block_user).delete(moderation::unblock_user))
-        .route("/v1/social/users/{id}/mute", post(moderation::mute_user).delete(moderation::unmute_user))
-        .route("/v1/social/report", post(moderation::create_report))
+        // Social subset on cortex-server (defense-in-depth if Caddy mis-routes).
+        // Primary production owner is heyvera-server :3002 via api.heyvera.org.
+        .merge({
+            Router::new()
+                .route("/v1/social/trending", get(social::get_trending))
+                .route("/v1/social/search", get(social::search))
+                .route("/v1/social/profiles/featured", get(social::get_featured_profiles))
+                .route("/v1/social/feed/home", get(social::get_home_feed))
+                .route("/v1/social/profiles", get(social::get_profiles).post(social::create_profile))
+                .route("/v1/social/profiles/{handle}", get(social::get_profile_by_handle))
+                .route("/v1/social/profiles/{handle}/stats", get(social::get_user_profile_stats))
+                .route("/v1/social/profiles/{handle}/followers", get(social::get_profile_followers))
+                .route("/v1/social/profiles/{handle}/following", get(social::get_profile_following))
+                .route("/v1/social/communities", get(social::get_communities).post(social::create_community))
+                .route("/v1/social/communities/mine", get(social::list_my_communities))
+                .route("/v1/social/longform", get(social::get_longform).post(social::create_longform))
+                .route("/v1/social/x402/status", get(x402::get_status))
+                .route("/v1/social/x402/verify", post(x402::verify))
+                .route("/v1/social/profile/me", get(social::get_my_profile))
+                .route("/v1/social/posts", post(social::create_post))
+                .route("/v1/social/pages/mine", get(social::list_my_pages))
+                .route("/v1/social/pages", post(social::create_page))
+                .route("/v1/social/pages/{slug}", get(social::get_page_by_slug))
+                .route(
+                    "/v1/social/pages/{id}/follow",
+                    post(social::follow_page).delete(social::unfollow_page),
+                )
+                .route("/v1/social/shelves/mine", get(social::list_my_shelves))
+                .route("/v1/social/shelves", post(social::create_shelf))
+                .route("/v1/social/media/upload-url", post(media::request_upload_url))
+                .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
+                .route(
+                    "/v1/social/media/mock-upload/{*storage_key}",
+                    put(media::mock_upload).get(media::mock_serve),
+                )
+                .route("/v1/social/linked-agents", get(social::list_my_linked_agents).post(social::create_linked_agent))
+                .route("/v1/social/linked-agents/{id}/rotate-key", post(social::rotate_linked_agent_key))
+                .route("/v1/social/linked-agents/{id}", patch(social::patch_linked_agent))
+                .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
+                .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
+                .route("/v1/social/posts/{id}/bookmark", post(social::bookmark_post).delete(social::unbookmark_post))
+                .route("/v1/social/follows/{handle}", post(social::follow_by_handle).delete(social::unfollow_by_handle))
+                .route("/v1/social/follows/{handle}/status", get(social::get_follow_status))
+                .route("/v1/social/users/{handle}", get(social::get_user_profile))
+                .route("/v1/social/users/{handle}/posts", get(social::get_user_posts))
+                .route("/v1/social/users/{handle}/followers", get(social::get_profile_followers))
+                .route("/v1/social/users/{handle}/following", get(social::get_profile_following))
+                .route("/v1/social/posts/{id}", get(social::get_single_post).delete(social::delete_post))
+                .route("/v1/social/feed/following", get(social::get_following_feed))
+                .route("/v1/social/me/profile", get(social::get_me_profile).post(social::create_me_profile).patch(social::update_me_profile))
+                .route("/v1/social/me/prefs", get(social::get_me_prefs).patch(social::patch_me_prefs))
+                .route("/v1/social/me/blocks", get(moderation::list_my_blocks))
+                .route("/v1/social/me/mutes", get(moderation::list_my_mutes))
+                .route("/v1/social/notifications", get(notifications::get_notifications))
+                .route("/v1/social/notifications/read", post(notifications::mark_notifications_read))
+                .route("/v1/social/communities/{id}/feed", get(social::get_community_feed))
+                .route("/v1/social/communities/{id}/join", post(social::join_community))
+                .route("/v1/social/communities/{id}/leave", delete(social::leave_community))
+                .route("/v1/social/communities/{id}/members", get(social::list_community_members))
+                .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
+                .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))
+                .route("/v1/social/ws", get(messaging::social_ws_handler))
+                .route("/v1/social/users/{id}/block", post(moderation::block_user).delete(moderation::unblock_user))
+                .route("/v1/social/users/{id}/mute", post(moderation::mute_user).delete(moderation::unmute_user))
+                .route("/v1/social/report", post(moderation::create_report))
+                .layer(middleware::from_fn_with_state(
+                    state.clone(),
+                    ratelimit::rate_limit_middleware,
+                ))
+        })
         .merge(admin_routes)
         .merge(rate_limited)
         // 12 MB: mock media PUT may carry image bytes when R2 is not configured.

@@ -68,18 +68,61 @@ cortex.heyvera.org {
 }
 
 api.heyvera.org {
+	# Cortex product API
 	handle /api/* {
-		reverse_proxy localhost:3001
+		reverse_proxy localhost:3001 {
+			header_up Host {upstream_hostport}
+			header_up X-Real-IP {remote}
+			header_up X-Forwarded-For {remote}
+			header_up X-Forwarded-Proto {scheme}
+		}
 	}
 
-	# Social endpoints → Rust backend
+	# HeyVera Social + Pulse + health — single owner: heyvera-server :3002
 	handle /v1/social/* {
-		reverse_proxy localhost:3001
+		reverse_proxy localhost:3002 {
+			header_up Host {upstream_hostport}
+			header_up X-Real-IP {remote}
+			header_up X-Forwarded-For {remote}
+			header_up X-Forwarded-Proto {scheme}
+		}
 	}
 
-	# Other v1 endpoints → Node.js backend
+	handle /v1/pulse/* {
+		reverse_proxy localhost:3002 {
+			header_up Host {upstream_hostport}
+			header_up X-Real-IP {remote}
+			header_up X-Forwarded-For {remote}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle /v1/health {
+		reverse_proxy localhost:3002 {
+			header_up Host {upstream_hostport}
+			header_up X-Real-IP {remote}
+			header_up X-Forwarded-For {remote}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle /v1/ready {
+		reverse_proxy localhost:3002 {
+			header_up Host {upstream_hostport}
+			header_up X-Real-IP {remote}
+			header_up X-Forwarded-For {remote}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	# Remaining v1 endpoints → legacy Node product API (if still needed)
 	handle /v1/* {
-		reverse_proxy localhost:3402
+		reverse_proxy localhost:3402 {
+			header_up Host {upstream_hostport}
+			header_up X-Real-IP {remote}
+			header_up X-Forwarded-For {remote}
+			header_up X-Forwarded-Proto {scheme}
+		}
 	}
 
 	handle {
