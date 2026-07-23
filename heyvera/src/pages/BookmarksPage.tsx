@@ -15,6 +15,12 @@ import type { Post } from '../api/types';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { PostCard } from '../components/shared/PostCard';
 import { useAuth } from '../hooks/useAuth';
+import {
+  mapBookmarkInPosts,
+  mapLikeInPosts,
+  mapRepostInPosts,
+  withOptimisticPostMutation,
+} from '../utils/optimisticPostMutation';
 
 function filterPostsByQuery(posts: Post[], query: string): Post[] {
   const normalizedQuery = query.trim().toLowerCase();
@@ -82,42 +88,54 @@ export function BookmarksPage() {
   const trimmedQuery = query.trim();
 
   const handleLike = (id: string, liked: boolean, token: string) => {
-    setPosts((currentPosts) =>
-      currentPosts.map((post) =>
-        post.id === id
-          ? {
-              ...post,
-              liked,
-              like_count: Math.max(0, post.like_count + (liked ? 1 : -1)),
-            }
-          : post,
-      ),
-    );
-    void (liked ? likePost(token, id) : unlikePost(token, id));
+    let snapshot: Post[] | null = null;
+    return withOptimisticPostMutation({
+      apply: () => {
+        setPosts((current) => {
+          snapshot = current;
+          return mapLikeInPosts(current, id, liked);
+        });
+      },
+      mutate: () => (liked ? likePost(token, id) : unlikePost(token, id)),
+      revert: () => {
+        if (snapshot) setPosts(snapshot);
+      },
+    });
   };
 
   const handleRepost = (id: string, reposted: boolean, token: string) => {
-    setPosts((currentPosts) =>
-      currentPosts.map((post) =>
-        post.id === id
-          ? {
-              ...post,
-              reposted,
-              repost_count: Math.max(0, post.repost_count + (reposted ? 1 : -1)),
-            }
-          : post,
-      ),
-    );
-    void (reposted ? repostPost : unrepostPost)(token, id);
+    let snapshot: Post[] | null = null;
+    return withOptimisticPostMutation({
+      apply: () => {
+        setPosts((current) => {
+          snapshot = current;
+          return mapRepostInPosts(current, id, reposted);
+        });
+      },
+      mutate: () => (reposted ? repostPost : unrepostPost)(token, id),
+      revert: () => {
+        if (snapshot) setPosts(snapshot);
+      },
+    });
   };
 
   const handleBookmark = (id: string, bookmarked: boolean, token: string) => {
-    setPosts((currentPosts) =>
-      bookmarked
-        ? currentPosts.map((post) => (post.id === id ? { ...post, bookmarked } : post))
-        : currentPosts.filter((post) => post.id !== id),
-    );
-    void (bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id));
+    let snapshot: Post[] | null = null;
+    return withOptimisticPostMutation({
+      apply: () => {
+        setPosts((current) => {
+          snapshot = current;
+          // Unbookmark removes the row from this list; restore snapshot on failure.
+          return bookmarked
+            ? mapBookmarkInPosts(current, id, true)
+            : current.filter((post) => post.id !== id);
+        });
+      },
+      mutate: () => (bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id)),
+      revert: () => {
+        if (snapshot) setPosts(snapshot);
+      },
+    });
   };
 
   return (

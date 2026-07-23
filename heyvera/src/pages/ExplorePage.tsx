@@ -216,9 +216,11 @@ export function ExplorePage() {
                 <PostCard
                   key={post.id}
                   post={post}
-                  onLike={(id, liked, token) => void (liked ? likePost(token, id) : unlikePost(token, id))}
-                  onRepost={(id, reposted, token) => void (reposted ? repostPost : unrepostPost)(token, id)}
-                  onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id))}
+                  onLike={(id, liked, token) => (liked ? likePost(token, id) : unlikePost(token, id))}
+                  onRepost={(id, reposted, token) => (reposted ? repostPost : unrepostPost)(token, id)}
+                  onBookmark={(id, bookmarked, token) =>
+                    bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id)
+                  }
                 />
               ))}
             </section>

@@ -408,13 +408,13 @@ function InlineReplyCompose({
 }
 
 function handleLike(postId: string, liked: boolean, token: string) {
-  void (liked ? likePost(token, postId) : unlikePost(token, postId));
+  return liked ? likePost(token, postId) : unlikePost(token, postId);
 }
 
 function handleRepost(postId: string, reposted: boolean, token: string) {
-  void (reposted ? repostPost : unrepostPost)(token, postId);
+  return (reposted ? repostPost : unrepostPost)(token, postId);
 }
 
 function handleBookmark(postId: string, bookmarked: boolean, token: string) {
-  void (bookmarked ? bookmarkPost(token, postId) : unbookmarkPost(token, postId));
+  return bookmarked ? bookmarkPost(token, postId) : unbookmarkPost(token, postId);
 }

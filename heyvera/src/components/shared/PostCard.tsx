@@ -27,13 +27,15 @@ import { LinkedAgentChip } from './LinkedAgentChip';
 import { QuoteCompose } from './QuoteCompose';
 import { ReplyCompose } from './ReplyCompose';
 import { mapReportToApiBody } from '../../utils/moderation';
+import { mutationErrorMessage } from '../../utils/optimisticPostMutation';
 import { extractFirstUrl, LinkPreviewCard, renderRichText } from '../../utils/richText';
 
 interface PostCardProps {
   post: Post;
-  onLike?: (id: string, liked: boolean, token: string) => void;
-  onRepost?: (id: string, reposted: boolean, token: string) => void;
-  onBookmark?: (id: string, bookmarked: boolean, token: string) => void;
+  /** Parent should return the API promise so the card can roll back UI on failure. */
+  onLike?: (id: string, liked: boolean, token: string) => void | Promise<unknown>;
+  onRepost?: (id: string, reposted: boolean, token: string) => void | Promise<unknown>;
+  onBookmark?: (id: string, bookmarked: boolean, token: string) => void | Promise<unknown>;
   onReply?: () => void;
   /** Called after successful block/mute so parents can hide this author's posts. */
   onHideAuthor?: (authorId: string, reason: 'block' | 'mute') => void;
@@ -157,9 +159,11 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply, onHideAu
   const toggleLike = async () => {
     const token = await ensureCanMutate();
     if (!token) return;
+    const prevLiked = liked;
+    const prevCount = likeCount;
     const nextLiked = !liked;
     setLiked(nextLiked);
-    setLikeCount((count) => Math.max(0, nextLiked ? count + 1 : count - 1));
+    setLikeCount(Math.max(0, nextLiked ? prevCount + 1 : prevCount - 1));
     if (nextLiked) {
       setLikeAnimating(true);
       if (likeTimerRef.current != null) {
@@ -167,7 +171,13 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply, onHideAu
       }
       likeTimerRef.current = window.setTimeout(() => setLikeAnimating(false), 180);
     }
-    onLike?.(post.id, nextLiked, token);
+    try {
+      await onLike?.(post.id, nextLiked, token);
+    } catch (err) {
+      setLiked(prevLiked);
+      setLikeCount(prevCount);
+      showNotice('err', mutationErrorMessage(err, 'Could not update like'));
+    }
   };
 
   const toggleRepost = async () => {
@@ -176,19 +186,33 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply, onHideAu
       setOpenMenu(null);
       return;
     }
+    const prevReposted = reposted;
+    const prevCount = repostCount;
     const nextReposted = !reposted;
     setReposted(nextReposted);
-    setRepostCount((count) => Math.max(0, nextReposted ? count + 1 : count - 1));
+    setRepostCount(Math.max(0, nextReposted ? prevCount + 1 : prevCount - 1));
     setOpenMenu(null);
-    onRepost?.(post.id, nextReposted, token);
+    try {
+      await onRepost?.(post.id, nextReposted, token);
+    } catch (err) {
+      setReposted(prevReposted);
+      setRepostCount(prevCount);
+      showNotice('err', mutationErrorMessage(err, 'Could not update repost'));
+    }
   };
 
   const toggleBookmark = async () => {
     const token = await ensureCanMutate();
     if (!token) return;
+    const prevBookmarked = bookmarked;
     const nextBookmarked = !bookmarked;
     setBookmarked(nextBookmarked);
-    onBookmark?.(post.id, nextBookmarked, token);
+    try {
+      await onBookmark?.(post.id, nextBookmarked, token);
+    } catch (err) {
+      setBookmarked(prevBookmarked);
+      showNotice('err', mutationErrorMessage(err, 'Could not update bookmark'));
+    }
   };
 
   const gateReply = async () => {
@@ -228,13 +252,13 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply, onHideAu
     const token = await ensureCanMutate();
     if (!token) return;
     setModerationBusy(true);
-    // Optimistic hide — revert on failure.
-    onHideAuthor?.(post.author.id, 'block');
+    // Hide only after success so a failed block cannot leave a silent-lie feed gap.
     try {
       await blockUser(token, post.author.id);
+      onHideAuthor?.(post.author.id, 'block');
       showNotice('ok', `Blocked @${post.author.handle}`);
     } catch (err) {
-      showNotice('err', err instanceof Error ? err.message : 'Could not block user');
+      showNotice('err', mutationErrorMessage(err, 'Could not block user'));
     } finally {
       setModerationBusy(false);
     }
@@ -246,12 +270,13 @@ export function PostCard({ post, onLike, onRepost, onBookmark, onReply, onHideAu
     const token = await ensureCanMutate();
     if (!token) return;
     setModerationBusy(true);
-    onHideAuthor?.(post.author.id, 'mute');
+    // Hide only after success so a failed mute cannot leave a silent-lie feed gap.
     try {
       await muteUser(token, post.author.id);
+      onHideAuthor?.(post.author.id, 'mute');
       showNotice('ok', `Muted @${post.author.handle}`);
     } catch (err) {
-      showNotice('err', err instanceof Error ? err.message : 'Could not mute user');
+      showNotice('err', mutationErrorMessage(err, 'Could not mute user'));
     } finally {
       setModerationBusy(false);
     }
