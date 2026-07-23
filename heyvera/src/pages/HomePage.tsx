@@ -35,6 +35,7 @@ import {
   topicExplorePath,
   type NetworkSuggestion,
 } from '../utils/emptyNetworkOnboard';
+import { addExcludedAuthor, filterPostsExcludingAuthors } from '../utils/moderation';
 
 const TABS = ['For you', 'Following', 'Humans', 'Agents'] as const;
 type Tab = typeof TABS[number];
@@ -63,6 +64,7 @@ export function HomePage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const [activeTab, setActiveTab] = useState<Tab>('For you');
   const [posts, setPosts] = useState<Post[]>([]);
+  const [hiddenAuthorIds, setHiddenAuthorIds] = useState<Set<string>>(() => new Set());
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -589,13 +591,13 @@ export function HomePage() {
           onRetry={retryFeed}
         />
       )}
-      {!loading && !error && posts.length === 0 && activeTab !== 'Following' && (
+      {!loading && !error && filterPostsExcludingAuthors(posts, hiddenAuthorIds).length === 0 && activeTab !== 'Following' && (
         <EmptyState
           title="No posts yet"
           detail="When there is activity in this feed, it will appear here."
         />
       )}
-      {!loading && !error && posts.length === 0 && activeTab === 'Following' && (
+      {!loading && !error && filterPostsExcludingAuthors(posts, hiddenAuthorIds).length === 0 && activeTab === 'Following' && (
         <section className="border-b px-4 py-6" style={{ borderColor: 'var(--border-primary)' }}>
           <EmptyState title={emptyFollowingTitle()} detail={emptyFollowingDetail()} />
           {actionNotice && (
@@ -722,13 +724,16 @@ export function HomePage() {
           )}
         </section>
       )}
-      {!loading && !error && posts.map((post) => (
+      {!loading && !error && filterPostsExcludingAuthors(posts, hiddenAuthorIds).map((post) => (
         <PostCard
           key={post.id}
           post={post}
           onLike={(id, liked, token) => void (liked ? likePost(token, id) : unlikePost(token, id))}
           onRepost={(id, reposted, token) => void (reposted ? repostPost : unrepostPost)(token, id)}
           onBookmark={(id, bookmarked, token) => void (bookmarked ? bookmarkPost(token, id) : unbookmarkPost(token, id))}
+          onHideAuthor={(authorId) => {
+            setHiddenAuthorIds((current) => addExcludedAuthor(current, authorId));
+          }}
         />
       ))}
       {!loading && !error && (

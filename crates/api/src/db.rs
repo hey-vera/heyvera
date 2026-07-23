@@ -465,6 +465,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 49 {
         migrate_v49(conn);
     }
+    if current < 50 {
+        migrate_v50(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -2290,6 +2293,27 @@ fn migrate_v48(conn: &Connection) {
 }
 
 fn migrate_v49(conn: &Connection) {
+    // Batch B1 — multi-user privacy prefs (persist Settings Privacy/Account controls).
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS social_profile_prefs (
+            profile_id TEXT PRIMARY KEY,
+            dm_policy TEXT NOT NULL DEFAULT 'verified',
+            discoverable_by_contact INTEGER NOT NULL DEFAULT 0,
+            show_in_search INTEGER NOT NULL DEFAULT 1,
+            protected_posts INTEGER NOT NULL DEFAULT 0,
+            profile_visibility TEXT NOT NULL DEFAULT 'public',
+            allow_agent_dms INTEGER NOT NULL DEFAULT 0,
+            allow_agent_mentions INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        UPDATE schema_version SET version = 49;",
+    )
+    .expect("migration v49 failed creating social_profile_prefs");
+    tracing::info!("applied migration v49: social_profile_prefs (privacy/trust preferences)");
+}
+
+fn migrate_v50(conn: &Connection) {
     // Batch C — private guild invites (token_hash only; plaintext returned once on create).
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS social_community_invites (
@@ -2308,10 +2332,10 @@ fn migrate_v49(conn: &Connection) {
         CREATE UNIQUE INDEX IF NOT EXISTS idx_social_community_invites_token_hash
             ON social_community_invites(token_hash);
 
-        UPDATE schema_version SET version = 49;",
+        UPDATE schema_version SET version = 50;",
     )
-    .expect("migration v49 failed creating social_community_invites");
-    tracing::info!("applied migration v49: social_community_invites (private guild invites)");
+    .expect("migration v50 failed creating social_community_invites");
+    tracing::info!("applied migration v50: social_community_invites (private guild invites)");
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -11054,10 +11078,14 @@ impl Database {
     pub fn social_search_profiles(&self, query: &str, limit: i64) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         let pattern = format!("%{query}%");
+        // Exclude profiles that opted out of search (show_in_search = 0). Missing prefs row → included (default true).
         let mut stmt = conn.prepare(
-            "SELECT id, handle, display_name, avatar_url, bio
-             FROM social_profiles WHERE handle LIKE ?1 OR display_name LIKE ?1
-             ORDER BY created_at DESC LIMIT ?2"
+            "SELECT p.id, p.handle, p.display_name, p.avatar_url, p.bio
+             FROM social_profiles p
+             LEFT JOIN social_profile_prefs pref ON pref.profile_id = p.id
+             WHERE (p.handle LIKE ?1 OR p.display_name LIKE ?1)
+               AND (pref.show_in_search IS NULL OR pref.show_in_search = 1)
+             ORDER BY p.created_at DESC LIMIT ?2"
         ).unwrap();
         stmt.query_map(params![pattern, limit], |row| {
             Ok(serde_json::json!({
@@ -11693,6 +11721,11 @@ impl Database {
         ).is_ok()
     }
 
+    /// True when either profile has blocked the other.
+    pub fn social_is_blocked_either_direction(&self, a: &str, b: &str) -> bool {
+        self.social_is_blocked(a, b) || self.social_is_blocked(b, a)
+    }
+
     pub fn social_get_blocked_ids(&self, profile_id: &str) -> Vec<String> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
@@ -11702,6 +11735,32 @@ impl Database {
             .unwrap()
             .filter_map(|r| r.ok())
             .collect()
+    }
+
+    /// List blocked profiles with public identity fields (for Settings).
+    pub fn social_list_blocks(&self, profile_id: &str) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT p.id, p.handle, p.display_name, p.avatar_url, b.created_at
+                 FROM social_blocks b
+                 JOIN social_profiles p ON p.id = b.blocked_profile_id
+                 WHERE b.blocker_profile_id = ?1
+                 ORDER BY b.created_at DESC",
+            )
+            .unwrap();
+        stmt.query_map(params![profile_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "handle": row.get::<_, String>(1)?,
+                "displayName": row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                "avatarUrl": row.get::<_, Option<String>>(3)?,
+                "createdAt": row.get::<_, String>(4)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
     }
 
     pub fn social_mute_user(&self, muter_id: &str, muted_id: &str) {
@@ -11737,6 +11796,174 @@ impl Database {
             .unwrap()
             .filter_map(|r| r.ok())
             .collect()
+    }
+
+    /// List muted profiles with public identity fields (for Settings).
+    pub fn social_list_mutes(&self, profile_id: &str) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT p.id, p.handle, p.display_name, p.avatar_url, m.created_at
+                 FROM social_mutes m
+                 JOIN social_profiles p ON p.id = m.muted_profile_id
+                 WHERE m.muter_profile_id = ?1
+                 ORDER BY m.created_at DESC",
+            )
+            .unwrap();
+        stmt.query_map(params![profile_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "handle": row.get::<_, String>(1)?,
+                "displayName": row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                "avatarUrl": row.get::<_, Option<String>>(3)?,
+                "createdAt": row.get::<_, String>(4)?,
+            }))
+        })
+        .unwrap()
+        .filter_map(|r| r.ok())
+        .collect()
+    }
+
+    /// Participant profile IDs for a conversation (excluding optional `except_id`).
+    pub fn social_conversation_participant_ids(
+        &self,
+        conversation_id: &str,
+        except_id: Option<&str>,
+    ) -> Vec<String> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT profile_id FROM social_conversation_participants WHERE conversation_id = ?1",
+            )
+            .unwrap();
+        stmt.query_map(params![conversation_id], |row| row.get::<_, String>(0))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .filter(|id| except_id.map(|e| e != id).unwrap_or(true))
+            .collect()
+    }
+
+    // ─── Profile privacy prefs (Batch B1) ────────────────────────────────────
+
+    /// Default privacy prefs as camelCase JSON (no DB row).
+    pub fn social_default_profile_prefs(profile_id: &str) -> serde_json::Value {
+        serde_json::json!({
+            "profileId": profile_id,
+            "dmPolicy": "verified",
+            "discoverableByContact": false,
+            "showInSearch": true,
+            "protectedPosts": false,
+            "profileVisibility": "public",
+            "allowAgentDms": false,
+            "allowAgentMentions": false,
+        })
+    }
+
+    /// Ensure a prefs row exists (lazy defaults on first GET) and return camelCase JSON.
+    pub fn social_get_or_create_profile_prefs(&self, profile_id: &str) -> serde_json::Value {
+        {
+            let conn = self.conn.lock().unwrap();
+            conn.execute(
+                "INSERT OR IGNORE INTO social_profile_prefs (profile_id) VALUES (?1)",
+                params![profile_id],
+            )
+            .ok();
+        }
+        self.social_get_profile_prefs(profile_id)
+            .unwrap_or_else(|| Self::social_default_profile_prefs(profile_id))
+    }
+
+    pub fn social_get_profile_prefs(&self, profile_id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT profile_id, dm_policy, discoverable_by_contact, show_in_search,
+                    protected_posts, profile_visibility, allow_agent_dms, allow_agent_mentions
+             FROM social_profile_prefs WHERE profile_id = ?1",
+            params![profile_id],
+            |row| {
+                Ok(serde_json::json!({
+                    "profileId": row.get::<_, String>(0)?,
+                    "dmPolicy": row.get::<_, String>(1)?,
+                    "discoverableByContact": row.get::<_, i64>(2)? != 0,
+                    "showInSearch": row.get::<_, i64>(3)? != 0,
+                    "protectedPosts": row.get::<_, i64>(4)? != 0,
+                    "profileVisibility": row.get::<_, String>(5)?,
+                    "allowAgentDms": row.get::<_, i64>(6)? != 0,
+                    "allowAgentMentions": row.get::<_, i64>(7)? != 0,
+                }))
+            },
+        )
+        .ok()
+    }
+
+    /// Partial update of privacy prefs. Missing fields keep existing values.
+    pub fn social_update_profile_prefs(
+        &self,
+        profile_id: &str,
+        dm_policy: Option<&str>,
+        discoverable_by_contact: Option<bool>,
+        show_in_search: Option<bool>,
+        protected_posts: Option<bool>,
+        profile_visibility: Option<&str>,
+        allow_agent_dms: Option<bool>,
+        allow_agent_mentions: Option<bool>,
+    ) -> serde_json::Value {
+        // Ensure row exists first.
+        self.social_get_or_create_profile_prefs(profile_id);
+        let current = self
+            .social_get_profile_prefs(profile_id)
+            .unwrap_or_else(|| Self::social_default_profile_prefs(profile_id));
+
+        let next_dm = dm_policy
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| current["dmPolicy"].as_str().unwrap_or("verified").to_string());
+        let next_disc = discoverable_by_contact.unwrap_or_else(|| {
+            current["discoverableByContact"].as_bool().unwrap_or(false)
+        });
+        let next_search =
+            show_in_search.unwrap_or_else(|| current["showInSearch"].as_bool().unwrap_or(true));
+        let next_protected =
+            protected_posts.unwrap_or_else(|| current["protectedPosts"].as_bool().unwrap_or(false));
+        let next_vis = profile_visibility
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| {
+                current["profileVisibility"]
+                    .as_str()
+                    .unwrap_or("public")
+                    .to_string()
+            });
+        let next_agent_dms =
+            allow_agent_dms.unwrap_or_else(|| current["allowAgentDms"].as_bool().unwrap_or(false));
+        let next_agent_mentions = allow_agent_mentions
+            .unwrap_or_else(|| current["allowAgentMentions"].as_bool().unwrap_or(false));
+
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE social_profile_prefs SET
+                dm_policy = ?2,
+                discoverable_by_contact = ?3,
+                show_in_search = ?4,
+                protected_posts = ?5,
+                profile_visibility = ?6,
+                allow_agent_dms = ?7,
+                allow_agent_mentions = ?8,
+                updated_at = datetime('now')
+             WHERE profile_id = ?1",
+            params![
+                profile_id,
+                next_dm,
+                if next_disc { 1 } else { 0 },
+                if next_search { 1 } else { 0 },
+                if next_protected { 1 } else { 0 },
+                next_vis,
+                if next_agent_dms { 1 } else { 0 },
+                if next_agent_mentions { 1 } else { 0 },
+            ],
+        )
+        .ok();
+        drop(conn);
+        self.social_get_profile_prefs(profile_id)
+            .unwrap_or_else(|| Self::social_default_profile_prefs(profile_id))
     }
 
     pub fn social_create_report(&self, reporter_id: &str, target_type: &str, target_id: &str, reason: &str) -> serde_json::Value {

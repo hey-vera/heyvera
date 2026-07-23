@@ -98,6 +98,23 @@ pub async fn create_conversation(
         all_participants.push(profile_id.clone());
     }
 
+    // Block either direction → 403.
+    for other in all_participants.iter().filter(|id| *id != &profile_id) {
+        if db(&state).social_is_blocked_either_direction(&profile_id, other) {
+            return forbidden("Cannot message a blocked user");
+        }
+        // Light dm_policy gate on the recipient.
+        if let Some(prefs) = db(&state).social_get_profile_prefs(other) {
+            let policy = prefs["dmPolicy"].as_str().unwrap_or("everyone");
+            if policy == "following"
+                && !db(&state).social_get_follow_status(other, &profile_id)
+            {
+                // Recipient only accepts DMs from people they follow.
+                return forbidden("This user only accepts messages from people they follow");
+            }
+        }
+    }
+
     let conversation = db(&state).social_create_conversation(&all_participants);
 
     ok(conversation)
@@ -144,6 +161,15 @@ pub async fn send_message(
 
     if body.content.trim().is_empty() {
         return bad_request("content must not be empty");
+    }
+
+    // Block either direction with any other participant → 403.
+    let others =
+        db(&state).social_conversation_participant_ids(&conversation_id, Some(profile_id));
+    for other in &others {
+        if db(&state).social_is_blocked_either_direction(profile_id, other) {
+            return forbidden("Cannot message a blocked user");
+        }
     }
 
     let message = match db(&state).social_send_message(&conversation_id, profile_id, &body.content) {
