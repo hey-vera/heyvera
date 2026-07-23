@@ -12,13 +12,15 @@ import {
   VIDEO_PROGRESSIVE_MVP_NOTE,
   VIDEO_UPLOAD_DISABLED_REASON,
   VIDEO_UPLOAD_CTA_LABEL,
+  hasLivePlayback,
   isLiveChromeAllowed,
   isVideoUploadProductionReady,
+  liveSessionToUiPhase,
   liveStreamBadgeLabel,
   shelfListSubtitle,
 } from './mediaHonesty';
 
-describe('liveStreamBadgeLabel (11c)', () => {
+describe('liveStreamBadgeLabel (11c / 14i)', () => {
   it('returns Preview for default / preview phase', () => {
     expect(liveStreamBadgeLabel('preview')).toBe('Preview');
     expect(liveStreamBadgeLabel(LIVE_DEFAULT_PHASE)).toBe('Preview');
@@ -34,6 +36,7 @@ describe('liveStreamBadgeLabel (11c)', () => {
   it('returns Offline without LIVE chrome', () => {
     expect(liveStreamBadgeLabel('offline')).toBe('Offline');
     expect(liveStreamBadgeLabel('offline').toLowerCase()).not.toContain('live');
+    expect(liveStreamBadgeLabel('ended')).toBe('Offline');
   });
 
   it('LIVE label only for explicit live phase', () => {
@@ -45,12 +48,29 @@ describe('liveStreamBadgeLabel (11c)', () => {
     expect(isLiveChromeAllowed('soon')).toBe(false);
     expect(isLiveChromeAllowed('scheduled')).toBe(false);
     expect(isLiveChromeAllowed('offline')).toBe(false);
+    expect(isLiveChromeAllowed('ended')).toBe(false);
     expect(isLiveChromeAllowed('live')).toBe(true);
   });
 
-  it('foundation copy never claims broadcasting', () => {
-    expect(LIVE_INGEST_FOUNDATION_DETAIL.toLowerCase()).toContain('not production');
-    expect(LIVE_INGEST_FOUNDATION_DETAIL.toLowerCase()).not.toMatch(/\bis live\b/);
+  it('maps LiveSession phase honestly (14i)', () => {
+    expect(liveSessionToUiPhase(null)).toBe('preview');
+    expect(liveSessionToUiPhase({ phase: 'preview' })).toBe('preview');
+    expect(liveSessionToUiPhase({ phase: 'live', playbackUrl: null })).toBe('live');
+    expect(liveSessionToUiPhase({ phase: 'ended' })).toBe('ended');
+    expect(liveStreamBadgeLabel(liveSessionToUiPhase({ phase: 'live' }))).toBe('LIVE');
+    expect(liveStreamBadgeLabel(liveSessionToUiPhase({ phase: 'preview' }))).not.toBe('LIVE');
+  });
+
+  it('hasLivePlayback requires phase live and non-empty URL', () => {
+    expect(hasLivePlayback({ phase: 'live', playbackUrl: null })).toBe(false);
+    expect(hasLivePlayback({ phase: 'live', playbackUrl: '' })).toBe(false);
+    expect(hasLivePlayback({ phase: 'preview', playbackUrl: 'https://x' })).toBe(false);
+    expect(hasLivePlayback({ phase: 'live', playbackUrl: 'https://play.example/x' })).toBe(true);
+  });
+
+  it('foundation copy is honest about deferred provider', () => {
+    expect(LIVE_INGEST_FOUNDATION_DETAIL.toLowerCase()).toMatch(/not production|null/);
+    expect(LIVE_INGEST_FOUNDATION_DETAIL.toLowerCase()).not.toMatch(/\bis broadcasting\b/);
   });
 });
 

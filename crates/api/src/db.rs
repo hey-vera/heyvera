@@ -468,6 +468,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 50 {
         migrate_v50(conn);
     }
+    if current < 51 {
+        migrate_v51(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -2336,6 +2339,39 @@ fn migrate_v50(conn: &Connection) {
     )
     .expect("migration v50 failed creating social_community_invites");
     tracing::info!("applied migration v50: social_community_invites (private guild invites)");
+}
+
+fn migrate_v51(conn: &Connection) {
+    // Wave 14i — LiveSession model foundation (no RTMP/WHIP provider yet).
+    // phase is real DB state: preview | scheduled | live | ended.
+    // ingest_url / playback_url stay null until a provider is wired (Wave 14k).
+    // go-live is allowed without provider URLs (honest offline player chrome on FE).
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS social_live_sessions (
+            id TEXT PRIMARY KEY,
+            owner_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+            title TEXT NOT NULL,
+            description TEXT NOT NULL DEFAULT '',
+            phase TEXT NOT NULL DEFAULT 'preview',
+            ingest_url TEXT,
+            playback_url TEXT,
+            provider TEXT NOT NULL DEFAULT 'none',
+            started_at TEXT,
+            ended_at TEXT,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_live_sessions_owner
+            ON social_live_sessions(owner_profile_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_social_live_sessions_phase
+            ON social_live_sessions(phase, updated_at DESC);
+
+        UPDATE schema_version SET version = 51;",
+    )
+    .expect("migration v51 failed creating social_live_sessions");
+    tracing::info!(
+        "applied migration v51: social_live_sessions (LiveSession model foundation; no provider)"
+    );
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -10702,6 +10738,219 @@ impl Database {
         .unwrap_or_default()
     }
 
+    // ─── Wave 14i: LiveSession model (phase is real DB state; no provider yet) ─
+
+    fn map_live_session_row(row: &rusqlite::Row<'_>) -> rusqlite::Result<serde_json::Value> {
+        let ingest: Option<String> = row.get(5)?;
+        let playback: Option<String> = row.get(6)?;
+        Ok(serde_json::json!({
+            "id": row.get::<_, String>(0)?,
+            "ownerProfileId": row.get::<_, String>(1)?,
+            "title": row.get::<_, String>(2)?,
+            "description": row.get::<_, String>(3)?,
+            "phase": row.get::<_, String>(4)?,
+            "ingestUrl": ingest,
+            "playbackUrl": playback,
+            "provider": row.get::<_, String>(7)?,
+            "startedAt": row.get::<_, Option<String>>(8)?,
+            "endedAt": row.get::<_, Option<String>>(9)?,
+            "createdAt": row.get::<_, String>(10)?,
+            "updatedAt": row.get::<_, String>(11)?,
+            "owner": {
+                "profileId": row.get::<_, String>(1)?,
+                "handle": row.get::<_, String>(12)?,
+                "displayName": row.get::<_, String>(13)?,
+            },
+            // Honesty note for clients: go-live does not require provider URLs yet.
+            "notes": "ingestUrl/playbackUrl are null until a stream provider is wired (Wave 14k). phase=live is real DB state even when playbackUrl is null.",
+        }))
+    }
+
+    /// Create a live session in `preview` phase for the steward person Page.
+    pub fn social_create_live_session(
+        &self,
+        owner_profile_id: &str,
+        title: &str,
+        description: &str,
+    ) -> Result<serde_json::Value, String> {
+        let title = title.trim();
+        if title.is_empty() {
+            return Err("title is required".into());
+        }
+        if title.len() > 200 {
+            return Err("title exceeds 200 characters".into());
+        }
+        let description = description.trim();
+        if description.len() > 2000 {
+            return Err("description exceeds 2000 characters".into());
+        }
+        let conn = self.conn.lock().unwrap();
+        let id = format!("live_{}", Uuid::new_v4());
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        conn.execute(
+            "INSERT INTO social_live_sessions
+             (id, owner_profile_id, title, description, phase, provider, created_at, updated_at)
+             VALUES (?1, ?2, ?3, ?4, 'preview', 'none', ?5, ?5)",
+            params![id, owner_profile_id, title, description, now],
+        )
+        .map_err(|e| format!("create live session failed: {e}"))?;
+        drop(conn);
+        self.social_get_live_session(&id)
+            .ok_or_else(|| "created live session not found".into())
+    }
+
+    pub fn social_get_live_session(&self, id: &str) -> Option<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare(
+                "SELECT s.id, s.owner_profile_id, s.title, s.description, s.phase,
+                        s.ingest_url, s.playback_url, s.provider,
+                        s.started_at, s.ended_at, s.created_at, s.updated_at,
+                        p.handle, p.display_name
+                 FROM social_live_sessions s
+                 JOIN social_profiles p ON p.id = s.owner_profile_id
+                 WHERE s.id = ?1",
+            )
+            .ok()?;
+        stmt.query_row([id], Self::map_live_session_row).ok()
+    }
+
+    /// List live sessions for discovery.
+    /// - Always includes `phase = 'live'` sessions (public).
+    /// - When `viewer_profile_id` is set and `include_mine` is true, also includes
+    ///   that owner's preview/scheduled/ended sessions (deduped).
+    pub fn social_list_live_sessions(
+        &self,
+        limit: i64,
+        viewer_profile_id: Option<&str>,
+        include_mine: bool,
+    ) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let limit = limit.clamp(1, 100);
+        let sql = if include_mine && viewer_profile_id.is_some() {
+            "SELECT s.id, s.owner_profile_id, s.title, s.description, s.phase,
+                    s.ingest_url, s.playback_url, s.provider,
+                    s.started_at, s.ended_at, s.created_at, s.updated_at,
+                    p.handle, p.display_name
+             FROM social_live_sessions s
+             JOIN social_profiles p ON p.id = s.owner_profile_id
+             WHERE s.phase = 'live'
+                OR s.owner_profile_id = ?1
+             ORDER BY
+               CASE s.phase WHEN 'live' THEN 0 WHEN 'preview' THEN 1 WHEN 'scheduled' THEN 2 ELSE 3 END,
+               s.updated_at DESC
+             LIMIT ?2"
+        } else {
+            "SELECT s.id, s.owner_profile_id, s.title, s.description, s.phase,
+                    s.ingest_url, s.playback_url, s.provider,
+                    s.started_at, s.ended_at, s.created_at, s.updated_at,
+                    p.handle, p.display_name
+             FROM social_live_sessions s
+             JOIN social_profiles p ON p.id = s.owner_profile_id
+             WHERE s.phase = 'live'
+             ORDER BY s.started_at DESC, s.updated_at DESC
+             LIMIT ?1"
+        };
+        let mut stmt = match conn.prepare(sql) {
+            Ok(s) => s,
+            Err(_) => return Vec::new(),
+        };
+        let rows = if include_mine && viewer_profile_id.is_some() {
+            stmt.query_map(
+                params![viewer_profile_id.unwrap(), limit],
+                Self::map_live_session_row,
+            )
+        } else {
+            stmt.query_map(params![limit], Self::map_live_session_row)
+        };
+        rows.map(|r| r.filter_map(|x| x.ok()).collect())
+            .unwrap_or_default()
+    }
+
+    /// Transition preview/scheduled → live. Owner-only. Provider URLs may stay null.
+    pub fn social_go_live_session(
+        &self,
+        id: &str,
+        owner_profile_id: &str,
+    ) -> Result<serde_json::Value, String> {
+        let conn = self.conn.lock().unwrap();
+        let row: Option<(String, String)> = conn
+            .query_row(
+                "SELECT owner_profile_id, phase FROM social_live_sessions WHERE id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+        let Some((owner, phase)) = row else {
+            return Err("NOT_FOUND".into());
+        };
+        if owner != owner_profile_id {
+            return Err("FORBIDDEN".into());
+        }
+        if phase == "live" {
+            drop(conn);
+            return self
+                .social_get_live_session(id)
+                .ok_or_else(|| "NOT_FOUND".into());
+        }
+        if phase == "ended" {
+            return Err("cannot go live from ended session".into());
+        }
+        if phase != "preview" && phase != "scheduled" {
+            return Err(format!("cannot go live from phase '{phase}'"));
+        }
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        conn.execute(
+            "UPDATE social_live_sessions
+             SET phase = 'live', started_at = ?2, updated_at = ?2
+             WHERE id = ?1",
+            params![id, now],
+        )
+        .map_err(|e| format!("go-live failed: {e}"))?;
+        drop(conn);
+        self.social_get_live_session(id)
+            .ok_or_else(|| "NOT_FOUND".into())
+    }
+
+    /// Transition any non-ended phase → ended. Owner-only.
+    pub fn social_end_live_session(
+        &self,
+        id: &str,
+        owner_profile_id: &str,
+    ) -> Result<serde_json::Value, String> {
+        let conn = self.conn.lock().unwrap();
+        let row: Option<(String, String)> = conn
+            .query_row(
+                "SELECT owner_profile_id, phase FROM social_live_sessions WHERE id = ?1",
+                params![id],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .ok();
+        let Some((owner, phase)) = row else {
+            return Err("NOT_FOUND".into());
+        };
+        if owner != owner_profile_id {
+            return Err("FORBIDDEN".into());
+        }
+        if phase == "ended" {
+            drop(conn);
+            return self
+                .social_get_live_session(id)
+                .ok_or_else(|| "NOT_FOUND".into());
+        }
+        let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
+        conn.execute(
+            "UPDATE social_live_sessions
+             SET phase = 'ended', ended_at = ?2, updated_at = ?2
+             WHERE id = ?1",
+            params![id, now],
+        )
+        .map_err(|e| format!("end session failed: {e}"))?;
+        drop(conn);
+        self.social_get_live_session(id)
+            .ok_or_else(|| "NOT_FOUND".into())
+    }
+
     /// Look up a linked agent by id (any owner); returns id, profile_id, names/slugs.
     pub fn social_find_linked_agent_by_id(&self, agent_id: &str) -> Option<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
@@ -18296,6 +18545,78 @@ mod tests {
 
         let err = db.social_create_media_shelf(owner_id, "  ", "");
         assert!(err.is_err(), "blank title rejected");
+    }
+
+    #[test]
+    fn social_live_sessions_create_go_live_end_ownership() {
+        let db = test_db();
+        let owner = db.social_create_profile("clerk_live_owner", "liveowner", "Live Owner", "");
+        let owner_id = owner["id"].as_str().unwrap();
+        let other = db.social_create_profile("clerk_live_other", "liveother", "Live Other", "");
+        let other_id = other["id"].as_str().unwrap();
+
+        let session = db
+            .social_create_live_session(owner_id, "Morning studio", "Foundation preview")
+            .expect("create preview session");
+        assert_eq!(session["phase"], "preview");
+        assert_eq!(session["ownerProfileId"], owner_id);
+        assert_eq!(session["provider"], "none");
+        assert!(session["ingestUrl"].is_null());
+        assert!(session["playbackUrl"].is_null());
+        assert!(session["startedAt"].is_null());
+        assert!(session["endedAt"].is_null());
+        let session_id = session["id"].as_str().unwrap();
+
+        // Public list is empty while still preview.
+        let public = db.social_list_live_sessions(20, None, false);
+        assert!(public.is_empty(), "preview not in public live list");
+
+        // Mine includes preview.
+        let mine = db.social_list_live_sessions(20, Some(owner_id), true);
+        assert_eq!(mine.len(), 1);
+        assert_eq!(mine[0]["id"], session_id);
+
+        // Non-owner cannot go live.
+        let forbidden = db.social_go_live_session(session_id, other_id);
+        assert_eq!(forbidden.unwrap_err(), "FORBIDDEN");
+
+        // Owner go-live: real phase transition; URLs stay null.
+        let live = db
+            .social_go_live_session(session_id, owner_id)
+            .expect("owner go-live");
+        assert_eq!(live["phase"], "live");
+        assert!(live["startedAt"].as_str().is_some());
+        assert!(live["playbackUrl"].is_null());
+        assert!(live["ingestUrl"].is_null());
+
+        let public_live = db.social_list_live_sessions(20, None, false);
+        assert_eq!(public_live.len(), 1);
+        assert_eq!(public_live[0]["id"], session_id);
+        assert_eq!(public_live[0]["phase"], "live");
+
+        // Non-owner cannot end.
+        let end_forbidden = db.social_end_live_session(session_id, other_id);
+        assert_eq!(end_forbidden.unwrap_err(), "FORBIDDEN");
+
+        let ended = db
+            .social_end_live_session(session_id, owner_id)
+            .expect("owner end");
+        assert_eq!(ended["phase"], "ended");
+        assert!(ended["endedAt"].as_str().is_some());
+
+        // Cannot go live again from ended.
+        let again = db.social_go_live_session(session_id, owner_id);
+        assert!(again.unwrap_err().contains("ended"));
+
+        // Missing id.
+        assert_eq!(
+            db.social_go_live_session("live_missing", owner_id)
+                .unwrap_err(),
+            "NOT_FOUND"
+        );
+
+        let blank = db.social_create_live_session(owner_id, "  ", "");
+        assert!(blank.is_err(), "blank title rejected");
     }
 
     #[test]

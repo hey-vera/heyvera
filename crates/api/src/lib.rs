@@ -540,6 +540,19 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
                 )
                 .route("/v1/social/shelves/mine", get(social::list_my_shelves))
                 .route("/v1/social/shelves", post(social::create_shelf))
+                .route(
+                    "/v1/social/live/sessions",
+                    get(social::list_live_sessions).post(social::create_live_session),
+                )
+                .route("/v1/social/live/sessions/{id}", get(social::get_live_session))
+                .route(
+                    "/v1/social/live/sessions/{id}/go-live",
+                    post(social::go_live_session),
+                )
+                .route(
+                    "/v1/social/live/sessions/{id}/end",
+                    post(social::end_live_session),
+                )
                 .route("/v1/social/media/upload-url", post(media::request_upload_url))
                 .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
                 .route(
@@ -671,6 +684,19 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         )
         .route("/v1/social/shelves/mine", get(social::list_my_shelves))
         .route("/v1/social/shelves", post(social::create_shelf))
+        .route(
+            "/v1/social/live/sessions",
+            get(social::list_live_sessions).post(social::create_live_session),
+        )
+        .route("/v1/social/live/sessions/{id}", get(social::get_live_session))
+        .route(
+            "/v1/social/live/sessions/{id}/go-live",
+            post(social::go_live_session),
+        )
+        .route(
+            "/v1/social/live/sessions/{id}/end",
+            post(social::end_live_session),
+        )
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
         .route(
@@ -906,6 +932,20 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Wave 11b: empty media shelves under steward Page
         .route("/v1/social/shelves/mine", get(social::list_my_shelves))
         .route("/v1/social/shelves", post(social::create_shelf))
+        // Wave 14i: LiveSession model (phase real; provider URLs deferred)
+        .route(
+            "/v1/social/live/sessions",
+            get(social::list_live_sessions).post(social::create_live_session),
+        )
+        .route("/v1/social/live/sessions/{id}", get(social::get_live_session))
+        .route(
+            "/v1/social/live/sessions/{id}/go-live",
+            post(social::go_live_session),
+        )
+        .route(
+            "/v1/social/live/sessions/{id}/end",
+            post(social::end_live_session),
+        )
         // Task #47: Media uploads
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
