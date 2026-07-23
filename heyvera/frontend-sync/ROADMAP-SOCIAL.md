@@ -4,7 +4,7 @@
 **Grounded:** 2026-07-22  
 **Live entry:** `heyvera/src/main.tsx` → `router.tsx` → `AppShell` / `pages/*`  
 **Do not grow:** orphaned `App.tsx` / `VeraSocials` dual shell (quarantined under `src/orphan/`)  
-**Main tip note:** Waves 10–12 complete (#367–#372); multi-user A–B on main (#374–#375); C #376; D soft-launch/docs
+**Main tip note:** Waves 10–12 complete (#367–#372); multi-user readiness A–D **Done** (#374–#377)
 
 ---
 
@@ -201,8 +201,8 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-22 | docs | Waves 10–12 complete on STATUS/ROADMAP |
 | 2026-07-22 | #374 | Multi-user **Batch A** ops: heyvera-server owns Social+Pulse + prod media gate **merged** |
 | 2026-07-22 | #375 | Multi-user **Batch B** trust: prefs persist, moderation E2E, credits on checkout **merged** |
-| 2026-07-22 | #376 | Multi-user **Batch C** guild invites/members/empty-network onboard (PR open at D base) |
-| 2026-07-22 | Batch D | Soft-launch polish + STATUS/ROADMAP multi-user close-out |
+| 2026-07-22 | #376 | Multi-user **Batch C** guild invites/members/empty-network onboard **merged** |
+| 2026-07-22 | #377 | Multi-user **Batch D** soft-launch polish + STATUS/ROADMAP close-out **merged** |
 
 ### Waves 1–4 implemented (2026-07-21)
 
@@ -350,8 +350,8 @@ Goal: make multi-user Social **real** for soft launch — ops owner correct, pre
 |-------|--------|--------|
 | **A** | heyvera-server owns Social+Pulse in prod; Caddy/deploy/smoke; prod media gate (no mock upload URLs) | **Done (#374)** |
 | **B** | Prefs persist (`/me/prefs`); moderation E2E (block/mute/report + lists); credits init on Stripe checkout | **Done (#375)** |
-| **C** | Private guild invites (create/list/revoke/redeem); members list; Home Following empty-network suggestions | **#376** (open at D base — restack D after merge if needed) |
-| **D** | STATUS/ROADMAP close-out; soft-launch nav de-emphasis (Videos/Live); Home early-access copy helper | **This PR** |
+| **C** | Private guild invites (create/list/revoke/redeem); members list; Home Following empty-network suggestions | **Done (#376)** |
+| **D** | STATUS/ROADMAP close-out; soft-launch nav de-emphasis (Videos/Live); Home early-access copy helper | **Done (#377)** |
 
 ### Product truth (what is real)
 
