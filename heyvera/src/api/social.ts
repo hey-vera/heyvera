@@ -13,6 +13,7 @@ import type {
   FeedResponse,
   SearchResults,
 } from './types';
+import { resolveSocialApiBase as resolveSocialApiBaseFromEnv } from '../utils/apiOrigin';
 
 export type {
   Post,
@@ -294,15 +295,10 @@ export type ProfileSummary = {
 
 // ─── API base URL ────────────────────────────────────────────────────────────
 // VITE_API_URL may be empty (same-origin), an origin (https://api…), or already `/v1`.
-function resolveSocialApiBase(): string {
-  const raw = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, "") ?? "";
-  if (!raw) return "/v1/social";
-  if (raw.endsWith("/v1")) return `${raw}/social`;
-  if (raw.endsWith("/v1/social")) return raw;
-  return `${raw}/v1/social`;
-}
-
-const API_BASE = resolveSocialApiBase();
+// Empty → Vite dual proxy / Caddy apex → heyvera-server :3002 for /v1/social/*.
+const API_BASE = resolveSocialApiBaseFromEnv(
+  import.meta.env.VITE_API_URL as string | undefined,
+);
 
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 

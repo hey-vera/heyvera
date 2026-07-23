@@ -3,13 +3,14 @@
  * Paths use `/api/billing/*` (same host or VITE_API_URL without trailing /v1).
  */
 
-const API_BASE = (import.meta.env.VITE_API_URL as string | undefined)?.replace(/\/$/, '') ?? '';
+import { resolveApiOrigin } from '../utils/apiOrigin';
+
+const API_ORIGIN = resolveApiOrigin(import.meta.env.VITE_API_URL as string | undefined);
 
 /** Resolve `/api/billing/*` against optional VITE_API_URL (which may end with `/v1`). */
 export function resolveBillingPath(path: string): string {
-  if (!API_BASE) return path;
-  if (API_BASE.endsWith('/v1')) return `${API_BASE.replace(/\/v1$/, '')}${path}`;
-  return `${API_BASE}${path}`;
+  if (!API_ORIGIN) return path;
+  return `${API_ORIGIN}${path}`;
 }
 
 /**

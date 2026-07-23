@@ -1,5 +1,7 @@
 // ─── Pulse API client — agent-assisted publishing draft pipeline ────────────
 
+import { resolvePulseApiBase } from '../utils/apiOrigin';
+
 export type PulseDraft = {
   id: string;
   profileId: string;
@@ -22,10 +24,11 @@ export type PulseAuditEntry = {
 };
 
 // ─── API base URL ───────────────────────────────────────────────────────────
+// Empty VITE_API_URL → same-origin /v1/pulse (Vite proxy / Caddy → :3002).
 
-const PULSE_API_BASE = import.meta.env.VITE_API_URL
-  ? `${import.meta.env.VITE_API_URL}/v1/pulse`
-  : '/v1/pulse';
+const PULSE_API_BASE = resolvePulseApiBase(
+  import.meta.env.VITE_API_URL as string | undefined,
+);
 
 // ─── Fetch helper ───────────────────────────────────────────────────────────
 

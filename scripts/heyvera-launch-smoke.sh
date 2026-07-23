@@ -33,9 +33,10 @@ Modes:
   post-proxy  Final launch gate. Requires both api.heyvera.org/v1/health and
               heyvera.org/v1/health to return non-HTML 2xx JSON.
 
-Always probes (Batch A topology):
+Always probes (Batch A + soft-launch integrity topology):
   - /v1/social/trending (or similar) — Social entry owned by heyvera-server :3002
   - /v1/pulse/drafts — Pulse entry; 401 Unauthorized is OK (route exists), 404 is not
+  - SPA: GET heyvera.org/ (HTML index) — static shell health note (not API)
 USAGE
 }
 
@@ -135,6 +136,7 @@ api_v1_body="$(mk_body_file)"
 frontend_v1_body="$(mk_body_file)"
 social_body="$(mk_body_file)"
 pulse_body="$(mk_body_file)"
+spa_body="$(mk_body_file)"
 
 probe legacy_api_health "${API_ORIGIN%/}/api/health" "$legacy_body"
 probe api_v1_health "${API_ORIGIN%/}/v1/health" "$api_v1_body"
@@ -143,12 +145,15 @@ probe frontend_v1_health "${FRONTEND_ORIGIN%/}/v1/health" "$frontend_v1_body"
 probe social_trending "${API_ORIGIN%/}/v1/social/trending" "$social_body"
 # Pulse entry (auth required) — 401 OK means route is mounted; 404 means wrong owner/process
 probe pulse_drafts "${API_ORIGIN%/}/v1/pulse/drafts" "$pulse_body"
+# SPA shell (static index) — note health; does not replace API probes
+probe spa_root "${FRONTEND_ORIGIN%/}/" "$spa_body"
 
 print_probe "api /api/health" "$legacy_api_health_status" "$legacy_api_health_content_type" "$legacy_body"
 print_probe "api /v1/health" "$api_v1_health_status" "$api_v1_health_content_type" "$api_v1_body"
 print_probe "frontend /v1/health" "$frontend_v1_health_status" "$frontend_v1_health_content_type" "$frontend_v1_body"
 print_probe "api /v1/social/trending" "$social_trending_status" "$social_trending_content_type" "$social_body"
 print_probe "api /v1/pulse/drafts" "$pulse_drafts_status" "$pulse_drafts_content_type" "$pulse_body"
+print_probe "SPA / (heyvera.org)" "$spa_root_status" "$spa_root_content_type" "$spa_body"
 
 if [ "$legacy_api_health_curl_exit" -ne 0 ]; then
   record_failure "${legacy_api_health_url} curl failed: ${legacy_api_health_error:-unknown error}"
@@ -215,6 +220,17 @@ else
   echo "[gate] skip social/pulse entry checks until /v1/health is ready"
 fi
 
+# SPA shell note (soft-launch integrity): index should be HTML 2xx when apex is live
+if [ "$spa_root_curl_exit" -ne 0 ]; then
+  echo "[note] SPA ${spa_root_url} curl failed: ${spa_root_error:-unknown} (static deploy may be offline)"
+elif ! is_2xx "$spa_root_status"; then
+  echo "[note] SPA ${FRONTEND_ORIGIN%/}/ returned HTTP ${spa_root_status} (expected 2xx HTML when deploy-vera SPA is live)"
+elif looks_html "$spa_root_content_type" "$spa_body"; then
+  echo "[gate] SPA shell OK (HTML index at ${FRONTEND_ORIGIN%/}/)"
+else
+  echo "[note] SPA ${FRONTEND_ORIGIN%/}/ did not look like HTML — check HEYVERA_WWW deploy path"
+fi
+
 if [ "$MODE" = "pre-proxy" ]; then
   if [ "$frontend_v1_health_curl_exit" -ne 0 ]; then
     record_failure "${frontend_v1_health_url} curl failed: ${frontend_v1_health_error:-unknown error}"
@@ -223,7 +239,12 @@ if [ "$MODE" = "pre-proxy" ]; then
   elif $frontend_v1_api && ! $api_v1_ready; then
     record_failure "${FRONTEND_ORIGIN%/}/v1/health looks proxied, but ${API_ORIGIN%/}/v1/health is not healthy API JSON"
   elif ! $frontend_v1_api && ! looks_html "$frontend_v1_health_content_type" "$frontend_v1_body"; then
-    record_failure "${FRONTEND_ORIGIN%/}/v1/health returned an unexpected non-HTML response before proxy cutover"
+    # Apex may already proxy /v1/health → :3002 (soft-launch integrity); treat as API success path
+    if looks_json "$frontend_v1_health_content_type" "$frontend_v1_body" && $api_v1_ready; then
+      echo "[gate] apex /v1/health is API JSON (Caddy social path) — OK"
+    else
+      record_failure "${FRONTEND_ORIGIN%/}/v1/health returned an unexpected non-HTML response before proxy cutover"
+    fi
   fi
 
   if ! $api_v1_ready; then

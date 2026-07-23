@@ -4,7 +4,7 @@
 **Grounded:** 2026-07-22  
 **Live entry:** `heyvera/src/main.tsx` → `router.tsx` → `AppShell` / `pages/*`  
 **Do not grow:** orphaned `App.tsx` / `VeraSocials` dual shell (quarantined under `src/orphan/`)  
-**Main tip note:** Waves 10–12 complete (#367–#372); multi-user readiness A–D **Done** (#374–#377)
+**Main tip note:** Waves 10–12 complete (#367–#372); multi-user readiness A–D **Done** (#374–#377); soft-launch integrity closeout **Done** (this PR)
 
 ---
 
@@ -203,6 +203,7 @@ Vision gate: no fake Available/LIVE/Join; Page/agent honesty; no dual-shell grow
 | 2026-07-22 | #375 | Multi-user **Batch B** trust: prefs persist, moderation E2E, credits on checkout **merged** |
 | 2026-07-22 | #376 | Multi-user **Batch C** guild invites/members/empty-network onboard **merged** |
 | 2026-07-22 | #377 | Multi-user **Batch D** soft-launch polish + STATUS/ROADMAP close-out **merged** |
+| 2026-07-23 | this PR | Soft-launch integrity closeout: API path, deploy unity, Settings honesty, schedule label |
 
 ### Waves 1–4 implemented (2026-07-21)
 
@@ -352,16 +353,19 @@ Goal: make multi-user Social **real** for soft launch — ops owner correct, pre
 | **B** | Prefs persist (`/me/prefs`); moderation E2E (block/mute/report + lists); credits init on Stripe checkout | **Done (#375)** |
 | **C** | Private guild invites (create/list/revoke/redeem); members list; Home Following empty-network suggestions | **Done (#376)** |
 | **D** | STATUS/ROADMAP close-out; soft-launch nav de-emphasis (Videos/Live); Home early-access copy helper | **Done (#377)** |
+| **Integrity** | Soft-launch integrity closeout: apex/Vite API path → :3002, deploy-vera SPA+API, Settings honesty, schedule cron label | **Done (this PR)** |
 
 ### Product truth (what is real)
 
-- **Ops:** production Social+Pulse traffic → **heyvera-server :3002** (not cortex-server as owner). See `heyvera/docs/OPS-TOPOLOGY.md`.
-- **Prefs:** Settings Privacy/Account read/write real rows; search/DM respect light policy flags.
+- **Ops:** production Social+Pulse traffic → **heyvera-server :3002** (not cortex-server as owner). Apex heyvera.org same-origin social/pulse also → :3002. See `heyvera/docs/OPS-TOPOLOGY.md`.
+- **Deploy:** `scripts/deploy-vera.sh` is the single API owner + SPA procedure.
+- **Prefs:** Settings Privacy/Account read/write real rows; search/DM respect light policy flags. Non-account Settings controls are device-scoped (localStorage) or labeled “Not saved to account”.
 - **Moderation:** block/mute/report hit API; blocked peers cannot DM; Settings lists unblock/unmute.
 - **Credits:** checkout completion can seed ledger; unmetered balance remains honest `null`.
 - **Guilds (C):** private invite redeem is the join path; members show Owner/Member; no kick/ban theater.
 - **Soft-launch (D):** core network is live; Watch/Live stay de-emphasized Preview/Soon until encoder (out of scope).
+- **Schedule:** due Pulse posts need server cron `pulse-schedule-process.sh` — UI does not claim magic auto-publish.
 
-### Still out of scope after A–D
+### Still out of scope after A–D + integrity
 
 Encoder ingest, ML related discovery, production x402 facilitator, large redesigns.

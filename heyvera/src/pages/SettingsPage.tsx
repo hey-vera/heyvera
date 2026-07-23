@@ -63,6 +63,12 @@ import {
   prefsToToggleState,
   settingsControlToPrefsPatch,
 } from '../utils/privacyPrefs';
+import {
+  applyReduceMotionPreference,
+  readDevicePrefs,
+  settingsControlMeta,
+  writeDevicePref,
+} from '../utils/settingsControlMeta';
 
 type Section =
   | 'profile'
@@ -150,17 +156,19 @@ const SECTIONS: SectionMeta[] = [
         id: 'two-factor',
         kind: 'toggle',
         label: 'Two-step verification',
-        description: 'Require a second verification step for new sign-ins.',
+        description:
+          'Configure MFA in Clerk (Manage account). This row is not a HeyVera account toggle.',
         Icon: Lock,
-        enabled: true,
+        enabled: false,
       },
       {
         id: 'login-alerts',
         kind: 'toggle',
         label: 'Login alerts',
-        description: 'Send an alert when your account signs in from a new device.',
+        description:
+          'New-device login alerts are not wired to the account API yet.',
         Icon: Mail,
-        enabled: true,
+        enabled: false,
       },
       {
         id: 'manage-account',
@@ -248,7 +256,7 @@ const SECTIONS: SectionMeta[] = [
         id: 'push-notifications',
         kind: 'toggle',
         label: 'Push notifications',
-        description: 'Receive important alerts on this device.',
+        description: 'Preference for alerts on this browser only (no push subscription API yet).',
         Icon: Smartphone,
         enabled: true,
       },
@@ -256,7 +264,7 @@ const SECTIONS: SectionMeta[] = [
         id: 'email-digest',
         kind: 'choice',
         label: 'Email digest',
-        description: 'Get a summary of activity from posts, mentions, and communities.',
+        description: 'Email digests are not saved to your account yet.',
         Icon: Mail,
         options: ['Off', 'Daily', 'Weekly'],
         selected: 'Weekly',
@@ -265,7 +273,7 @@ const SECTIONS: SectionMeta[] = [
         id: 'conversation-quality',
         kind: 'toggle',
         label: 'Quality filter',
-        description: 'Filter repetitive or low-confidence notifications from the main tab.',
+        description: 'Filter low-confidence notification chrome on this device.',
         Icon: Zap,
         enabled: true,
       },
@@ -279,26 +287,26 @@ const SECTIONS: SectionMeta[] = [
     controls: [
       {
         id: 'premium-plan',
-        kind: 'choice',
+        kind: 'action',
         label: 'Premium plan',
-        description: 'Your current Premium billing cadence.',
+        description: 'View real Premium plans and billing on the Premium page (not a fake toggle).',
         Icon: Star,
-        options: ['Monthly $6.99', 'Annual $69'],
-        selected: 'Annual $69',
+        actionLabel: 'View Premium',
+        tone: 'premium',
       },
       {
         id: 'usage-alerts',
         kind: 'toggle',
         label: 'Usage alerts',
-        description: 'Notify me before premium AI usage reaches the monthly limit.',
+        description: 'Usage alert prefs are not saved to your account yet.',
         Icon: Bell,
-        enabled: true,
+        enabled: false,
       },
       {
         id: 'manage-billing',
         kind: 'action',
         label: 'Payment methods',
-        description: 'Update saved payment methods and download billing history.',
+        description: 'Open Premium for billing and payment management.',
         Icon: CreditCard,
         actionLabel: 'Manage',
         tone: 'premium',
@@ -349,18 +357,18 @@ const SECTIONS: SectionMeta[] = [
         id: 'ai-personalization',
         kind: 'toggle',
         label: 'Personalized AI assistance',
-        description: 'Use your activity and preferences to improve assistant responses.',
+        description: 'Not wired to account prefs — Pulse drafts do not invent personalization.',
         Icon: Sparkles,
-        enabled: true,
+        enabled: false,
       },
       {
         id: 'memory-retention',
         kind: 'choice',
         label: 'AI memory retention',
-        description: 'Choose how long helpful assistant context remains available.',
+        description: 'Not saved to your account yet (no server memory product).',
         Icon: Database,
         options: ['Off', '30 days', 'Until deleted'],
-        selected: '30 days',
+        selected: 'Off',
       },
       {
         id: 'export-data',
@@ -393,6 +401,19 @@ const INITIAL_CHOICES = SECTIONS.reduce<Record<string, string>>((settings, secti
 }, {});
 
 const clerkConfigured = Boolean(import.meta.env.VITE_CLERK_PUBLISHABLE_KEY);
+
+function PersistBadge({ controlId }: { controlId: string }) {
+  const meta = settingsControlMeta(controlId);
+  if (meta.persists === 'account') return null;
+  return (
+    <span
+      className="mt-1 inline-block rounded-full border border-[var(--border-secondary)] px-2 py-0.5 text-[11px] font-semibold text-[var(--text-secondary)]"
+      data-persist={meta.persists}
+    >
+      {meta.label}
+    </span>
+  );
+}
 
 function ToggleSwitch({ checked }: { checked: boolean }) {
   return (
@@ -1740,6 +1761,17 @@ export function SettingsPage() {
 
   const currentSection = SECTIONS.find((section) => section.id === activeSection) ?? SECTIONS[0];
 
+  // Hydrate device-scoped prefs from localStorage once.
+  useEffect(() => {
+    const storage = typeof localStorage !== 'undefined' ? localStorage : null;
+    const device = readDevicePrefs(storage);
+    setToggles((current) => ({ ...current, ...device.toggles }));
+    setChoices((current) => ({ ...current, ...device.choices }));
+    if (typeof device.toggles['reduce-motion'] === 'boolean') {
+      applyReduceMotionPreference(device.toggles['reduce-motion']);
+    }
+  }, []);
+
   // Hydrate privacy/account prefs from backend when signed in.
   useEffect(() => {
     if (!isSignedIn || !authEnabled) {
@@ -1798,6 +1830,15 @@ export function SettingsPage() {
     }
   };
 
+  const persistDeviceControl = (kind: 'toggle' | 'choice', controlId: string, value: boolean | string) => {
+    const storage = typeof localStorage !== 'undefined' ? localStorage : null;
+    writeDevicePref(storage, kind, controlId, value);
+    if (controlId === 'reduce-motion' && kind === 'toggle') {
+      applyReduceMotionPreference(Boolean(value));
+    }
+    setNotice('Saved on this device only.');
+  };
+
   const selectSection = (section: Section) => {
     setActiveSection(section);
     setShowPanelOnMobile(true);
@@ -1817,7 +1858,7 @@ export function SettingsPage() {
       return;
     }
 
-    if (control.id === 'manage-billing') {
+    if (control.id === 'manage-billing' || control.id === 'premium-plan') {
       navigate('/premium');
       return;
     }
@@ -1936,23 +1977,36 @@ export function SettingsPage() {
             ) : null}
             {currentSection.controls.map((control) => {
               const Icon = control.Icon;
+              const meta = settingsControlMeta(control.id);
 
               if (control.kind === 'toggle') {
                 const checked = toggles[control.id] ?? false;
                 const isPrefsControl = settingsControlToPrefsPatch(control.id, checked) != null;
+                const isDevice = meta.persists === 'device';
+                const isNone = meta.persists === 'none';
+                // Non-persisted toggles: keep interactive for local preview but never claim account save.
+                const disabled = (isPrefsControl && prefsSaving) || (isNone && control.id === 'two-factor');
 
                 return (
                   <button
                     key={control.id}
                     type="button"
-                    disabled={isPrefsControl && prefsSaving}
+                    disabled={disabled}
                     onClick={() => {
+                      if (isNone && control.id === 'two-factor') {
+                        setNotice('Use Manage account (Clerk) for two-step verification.');
+                        return;
+                      }
                       const next = !checked;
                       setToggles((current) => ({ ...current, [control.id]: next }));
                       if (isPrefsControl) {
                         void persistPrefsControl(control.id, next, () => {
                           setToggles((current) => ({ ...current, [control.id]: checked }));
                         });
+                      } else if (isDevice) {
+                        persistDeviceControl('toggle', control.id, next);
+                      } else if (isNone) {
+                        setNotice(`${meta.label}. Change is local-only and is not synced.`);
                       }
                     }}
                     className="flex w-full items-center gap-3 px-4 py-4 text-left transition-colors hover:bg-[var(--bg-hover)] disabled:opacity-60"
@@ -1964,6 +2018,7 @@ export function SettingsPage() {
                       <span className="mt-1 block text-[13px] leading-5 text-[var(--text-secondary)]">
                         {control.description}
                       </span>
+                      <PersistBadge controlId={control.id} />
                     </span>
                     <ToggleSwitch checked={checked} />
                   </button>
@@ -1973,6 +2028,8 @@ export function SettingsPage() {
               if (control.kind === 'choice') {
                 const selected = choices[control.id] ?? control.selected;
                 const isPrefsControl = settingsControlToPrefsPatch(control.id, selected) != null;
+                const isDevice = meta.persists === 'device';
+                const isNone = meta.persists === 'none';
 
                 return (
                   <div key={control.id} className="px-4 py-4">
@@ -1981,6 +2038,7 @@ export function SettingsPage() {
                       <div className="min-w-0 flex-1">
                         <h3 className="text-[15px] font-bold">{control.label}</h3>
                         <p className="mt-1 text-[13px] leading-5 text-[var(--text-secondary)]">{control.description}</p>
+                        <PersistBadge controlId={control.id} />
                         <div className="mt-3 flex flex-wrap gap-2">
                           {control.options.map((option) => {
                             const isSelected = option === selected;
@@ -2000,6 +2058,10 @@ export function SettingsPage() {
                                         [control.id]: selected,
                                       }));
                                     });
+                                  } else if (isDevice) {
+                                    persistDeviceControl('choice', control.id, option);
+                                  } else if (isNone) {
+                                    setNotice(`${meta.label}. Change is local-only and is not synced.`);
                                   }
                                 }}
                                 className={`min-h-9 rounded-full border px-3 text-[13px] font-bold transition-colors disabled:opacity-60 ${
@@ -2035,6 +2097,7 @@ export function SettingsPage() {
                     <span className="mt-1 block text-[13px] leading-5 text-[var(--text-secondary)]">
                       {control.description}
                     </span>
+                    <PersistBadge controlId={control.id} />
                   </span>
                   {control.id === 'manage-account' && clerkConfigured && authEnabled && isSignedIn ? (
                     <ClerkManageAccountButton
