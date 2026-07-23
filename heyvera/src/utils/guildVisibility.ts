@@ -1,5 +1,5 @@
 /**
- * Pure helpers for guild (community) visibility + membership roles (Wave 8e / 9d).
+ * Pure helpers for guild (community) visibility + membership roles (Wave 8e / 9d / Batch C).
  */
 
 export type GuildVisibility = "public" | "private" | string;
@@ -45,30 +45,44 @@ export function membershipRoleLabel(role: GuildRole | null | undefined): string 
 
 /**
  * Honest copy when creating a private community.
- * Private = unlisted from Discover; no invite system yet.
+ * Private = unlisted from Discover; join requires an owner invite (Batch C).
  */
 export const PRIVATE_GUILD_CREATE_HINT =
-  "Not listed in Discover. No invite system yet — anyone who already joined can use the feed. Share the slug yourself if you want others to find it; join still uses the real join API when someone has the slug or id.";
+  "Not listed in Discover. Open join is closed — share an invite link from the community detail after create. Invites use the real create/redeem APIs.";
 
 /**
- * After creating a private guild: surface slug/id for manual share.
- * Do not pretend Discord-style invite links exist.
+ * After creating a private guild: point owner at invite UI (no Discord theater).
  */
 export function privateGuildShareHint(slug: string, id?: string | null): string {
   const parts = [`Slug: ${slug}`];
   if (id) parts.push(`id: ${id}`);
-  return `Share this yourself — no invite links yet. ${parts.join(" · ")}`;
+  return `Private guild created. Open it and use Create invite to share a link — open join by slug is closed. ${parts.join(" · ")}`;
 }
 
 /**
- * Join/leave CTA honesty for private guilds (no fake Invite button).
+ * Join/leave CTA honesty for private guilds.
  * Public communities do not need this helper.
  */
 export function privateGuildJoinCtaCopy(isMember: boolean): string {
   if (isMember) {
-    return "Private community — not listed in Discover. No invite system yet. Leave uses the real leave API.";
+    return "Private community — not listed in Discover. Leave uses the real leave API. Owners can create invite links for new members.";
   }
-  return "Private community — unlisted from Discover. No invite system yet. Join uses the real join API if you can open this community by slug or id.";
+  return "Private community — unlisted from Discover. Open join is closed; redeem an invite link to join.";
+}
+
+/** Client path for redeeming a guild invite token. */
+export function guildInviteRedeemPath(token: string): string {
+  return `/invite/${encodeURIComponent(token)}`;
+}
+
+/** Absolute-ish invite URL for clipboard (same origin). */
+export function guildInviteShareUrl(token: string, origin?: string): string {
+  const path = guildInviteRedeemPath(token);
+  if (origin) return `${origin.replace(/\/$/, "")}${path}`;
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return `${window.location.origin}${path}`;
+  }
+  return path;
 }
 
 /** Merge discover + mine lists so private memberships appear in "Your Communities". */
