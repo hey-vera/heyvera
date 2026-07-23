@@ -233,6 +233,30 @@ export type CommunityMembership = Community & {
   role?: string;
 };
 
+/** Member row from GET /communities/{id}/members. */
+export type CommunityMember = {
+  profileId: string;
+  handle: string;
+  displayName: string;
+  avatarUrl?: string | null;
+  joinedAt: string;
+  role?: string;
+};
+
+/** Invite metadata (token only present once on create). */
+export type CommunityInvite = {
+  id: string;
+  communityId: string;
+  createdByProfileId?: string;
+  maxUses?: number | null;
+  useCount: number;
+  expiresAt?: string | null;
+  revokedAt?: string | null;
+  createdAt: string;
+  /** Plaintext token — only on create response. */
+  token?: string;
+};
+
 export type PageInfo = {
   limit: number;
   nextCursor: string | null;
@@ -962,6 +986,75 @@ export async function fetchMyCommunities(token: string, limit = 20): Promise<{
   communities: CommunityMembership[];
 }> {
   return apiAuthFetch(`/communities/mine?limit=${limit}`, { method: "GET", token });
+}
+
+/**
+ * List community members (GET /communities/{id}/members).
+ * Private guilds require membership (Bearer token recommended).
+ */
+export async function fetchCommunityMembers(
+  communityIdOrSlug: string,
+  limit = 50,
+  token?: string | null,
+): Promise<{ members: CommunityMember[]; count: number }> {
+  const path = `/communities/${encodeURIComponent(communityIdOrSlug)}/members?limit=${limit}`;
+  if (token) {
+    return apiAuthFetch(path, { method: "GET", token });
+  }
+  return apiFetch(path);
+}
+
+/** Owner: create invite (POST /communities/{id}/invites). Token returned once. */
+export async function createCommunityInvite(
+  token: string,
+  communityIdOrSlug: string,
+  data?: { maxUses?: number; expiresInHours?: number },
+): Promise<{ ok: true; invite: CommunityInvite }> {
+  return apiAuthFetch(
+    `/communities/${encodeURIComponent(communityIdOrSlug)}/invites`,
+    { method: "POST", token, body: data ?? {} },
+  );
+}
+
+/** Owner: list invites (GET /communities/{id}/invites) — no tokens. */
+export async function fetchCommunityInvites(
+  token: string,
+  communityIdOrSlug: string,
+  limit = 50,
+): Promise<{ invites: CommunityInvite[]; count: number }> {
+  return apiAuthFetch(
+    `/communities/${encodeURIComponent(communityIdOrSlug)}/invites?limit=${limit}`,
+    { method: "GET", token },
+  );
+}
+
+/** Owner: revoke invite (DELETE /communities/{id}/invites/{inviteId}). */
+export async function revokeCommunityInvite(
+  token: string,
+  communityIdOrSlug: string,
+  inviteId: string,
+): Promise<{ ok: true; revoked?: boolean }> {
+  return apiAuthFetch(
+    `/communities/${encodeURIComponent(communityIdOrSlug)}/invites/${encodeURIComponent(inviteId)}`,
+    { method: "DELETE", token },
+  );
+}
+
+/** Redeem invite token (POST /invites/{token}/redeem). Joins private guild. */
+export async function redeemCommunityInvite(
+  token: string,
+  inviteToken: string,
+): Promise<{
+  ok: true;
+  joined?: boolean;
+  communityId?: string;
+  community?: Community;
+  message?: string;
+}> {
+  return apiAuthFetch(`/invites/${encodeURIComponent(inviteToken)}/redeem`, {
+    method: "POST",
+    token,
+  });
 }
 
 export async function createLongform(

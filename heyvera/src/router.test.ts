@@ -36,6 +36,7 @@ describe('router surface', () => {
         'page/:slug',
         'ai',
         'post/:id',
+        'invite/:token',
         '*',
       ])
     );

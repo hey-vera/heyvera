@@ -47,9 +47,14 @@ Legend: **OK** mounted + used · **MISSING** FE calls / needs route · **PARTIAL
 
 | FE usage | Method + path | Backend | Notes |
 |----------|---------------|---------|-------|
-| List | `GET /v1/social/communities` | OK | |
-| Feed / join / leave | by `{id}` | PARTIAL | FE may use slug; create community MISSING |
-| Mine | `GET .../communities/mine` | MISSING | |
+| List | `GET /v1/social/communities` | OK | Public discover only |
+| Create | `POST /v1/social/communities` | OK | Owner auto-joined as `owner` |
+| Feed / join / leave | by `{id}` | OK | Private open join **403** — redeem invite |
+| Mine | `GET .../communities/mine` | OK | Includes `role` |
+| Members | `GET .../communities/{id}/members` | OK | Private requires membership |
+| Invites create/list | `POST/GET .../communities/{id}/invites` | OK | Owner only; token once on create |
+| Invite revoke | `DELETE .../communities/{id}/invites/{inviteId}` | OK | Owner soft-revoke |
+| Invite redeem | `POST /v1/social/invites/{token}/redeem` | OK | Joins member; `hvinv_` tokens |
 
 ## Messaging & notifications
 

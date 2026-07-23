@@ -197,4 +197,42 @@ describe('api social (legacy-compatible functions)', () => {
     expect(urls.some((u) => u.includes('/communities/builders/leave'))).toBe(true);
     expect(urls.some((u) => u.includes('/communities/mine'))).toBe(true);
   });
+
+  it('community invites, members, and redeem hit Batch C routes', async () => {
+    vi.stubEnv('VITE_API_URL', '/v1');
+    const fetchMock = mockFetch();
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        ok: true,
+        invite: { id: 'cinv_1', token: 'hvinv_x', useCount: 0 },
+        members: [],
+        count: 0,
+        invites: [],
+        joined: true,
+      }),
+    });
+
+    const {
+      createCommunityInvite,
+      fetchCommunityInvites,
+      revokeCommunityInvite,
+      fetchCommunityMembers,
+      redeemCommunityInvite,
+    } = await import('./social');
+
+    await createCommunityInvite('tok', 'guild-1', { maxUses: 5 });
+    await fetchCommunityInvites('tok', 'guild-1');
+    await revokeCommunityInvite('tok', 'guild-1', 'cinv_1');
+    await fetchCommunityMembers('guild-1', 20, 'tok');
+    await redeemCommunityInvite('tok', 'hvinv_x');
+
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls.some((u) => u.includes('/communities/guild-1/invites'))).toBe(true);
+    expect(urls.some((u) => u.includes('/communities/guild-1/invites/cinv_1'))).toBe(true);
+    expect(urls.some((u) => u.includes('/communities/guild-1/members'))).toBe(true);
+    expect(urls.some((u) => u.includes('/invites/hvinv_x/redeem'))).toBe(true);
+  });
 });

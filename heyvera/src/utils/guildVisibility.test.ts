@@ -4,6 +4,8 @@ import {
   canAccessGuildFeed,
   communitiesListPath,
   filterDiscoverGuilds,
+  guildInviteRedeemPath,
+  guildInviteShareUrl,
   isPrivateGuild,
   membershipRoleLabel,
   mergeCommunityLists,
@@ -74,25 +76,39 @@ describe("membershipRoleLabel", () => {
 });
 
 describe("private guild honesty copy", () => {
-  it("create hint is honest about Discover and invites", () => {
+  it("create hint mentions Discover and invite requirement", () => {
     expect(PRIVATE_GUILD_CREATE_HINT.toLowerCase()).toContain("discover");
-    expect(PRIVATE_GUILD_CREATE_HINT.toLowerCase()).toContain("no invite");
+    expect(PRIVATE_GUILD_CREATE_HINT.toLowerCase()).toContain("invite");
+    expect(PRIVATE_GUILD_CREATE_HINT.toLowerCase()).toContain("open join");
     expect(PRIVATE_GUILD_CREATE_HINT.toLowerCase()).not.toContain("discord");
   });
 
-  it("share hint surfaces slug and optional id without invite pretence", () => {
+  it("share hint points at Create invite, not fake open join", () => {
     expect(privateGuildShareHint("builders")).toContain("Slug: builders");
-    expect(privateGuildShareHint("builders").toLowerCase()).toContain("no invite");
+    expect(privateGuildShareHint("builders").toLowerCase()).toContain("invite");
     expect(privateGuildShareHint("builders", "gid_1")).toContain("id: gid_1");
   });
 
-  it("join CTA distinguishes member vs non-member", () => {
+  it("join CTA distinguishes member vs non-member and invite gate", () => {
     const member = privateGuildJoinCtaCopy(true);
     const outsider = privateGuildJoinCtaCopy(false);
     expect(member.toLowerCase()).toContain("leave");
-    expect(member.toLowerCase()).toContain("no invite");
-    expect(outsider.toLowerCase()).toContain("join");
-    expect(outsider.toLowerCase()).toContain("discover");
+    expect(member.toLowerCase()).toContain("invite");
+    expect(outsider.toLowerCase()).toContain("invite");
+    expect(outsider.toLowerCase()).toContain("open join");
+  });
+});
+
+describe("invite paths", () => {
+  it("builds redeem path with encoding", () => {
+    expect(guildInviteRedeemPath("hvinv_abc")).toBe("/invite/hvinv_abc");
+    expect(guildInviteRedeemPath("a/b")).toBe("/invite/a%2Fb");
+  });
+
+  it("builds share URL with optional origin", () => {
+    expect(guildInviteShareUrl("hvinv_x", "https://heyvera.org")).toBe(
+      "https://heyvera.org/invite/hvinv_x",
+    );
   });
 });
 

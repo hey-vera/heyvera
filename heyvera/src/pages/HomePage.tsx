@@ -5,8 +5,13 @@ import {
   bookmarkPost,
   createPost,
   feedPostToPost,
+  fetchCommunities,
   fetchHomeFeed,
   fetchMyProfile,
+  fetchProfiles,
+  fetchTrending,
+  followProfile,
+  joinCommunity,
   likePost,
   repostPost,
   unbookmarkPost,
@@ -20,6 +25,16 @@ import { TabbedCompose } from '../components/shared/TabbedCompose';
 import { HEYVERA_POST_CREATED_EVENT } from '../components/layout/AppShell';
 import { useAuth } from '../hooks/useAuth';
 import type { FeedPost } from '../api/social';
+import {
+  emptyFollowingDetail,
+  emptyFollowingTitle,
+  mapCommunitiesToSuggestions,
+  mapProfilesToSuggestions,
+  mapTrendingToSuggestions,
+  mergeNetworkSuggestions,
+  topicExplorePath,
+  type NetworkSuggestion,
+} from '../utils/emptyNetworkOnboard';
 
 const TABS = ['For you', 'Following', 'Humans', 'Agents'] as const;
 type Tab = typeof TABS[number];
@@ -71,6 +86,14 @@ export function HomePage() {
       return true;
     }
   });
+  /** Following empty: real suggestions from profiles/communities/trending. */
+  const [networkSuggestions, setNetworkSuggestions] = useState<NetworkSuggestion[]>([]);
+  const [suggestionsLoading, setSuggestionsLoading] = useState(false);
+  const [suggestionsError, setSuggestionsError] = useState<string | null>(null);
+  const [actionBusyId, setActionBusyId] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [followedHandles, setFollowedHandles] = useState<Set<string>>(new Set());
+  const [joinedCommunityIds, setJoinedCommunityIds] = useState<Set<string>>(new Set());
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const touchStartY = useRef<number | null>(null);
 
@@ -160,6 +183,101 @@ export function HomePage() {
     window.addEventListener(HEYVERA_POST_CREATED_EVENT, onShellPostCreated);
     return () => window.removeEventListener(HEYVERA_POST_CREATED_EVENT, onShellPostCreated);
   }, []);
+
+  // Empty Following: load real network suggestions (no invented users).
+  useEffect(() => {
+    let cancelled = false;
+    const followingEmpty =
+      activeTab === 'Following' && !loading && !error && posts.length === 0;
+    if (!followingEmpty) {
+      setNetworkSuggestions([]);
+      setSuggestionsError(null);
+      setSuggestionsLoading(false);
+      return undefined;
+    }
+
+    async function loadSuggestions() {
+      setSuggestionsLoading(true);
+      setSuggestionsError(null);
+      try {
+        const [profilesRes, communitiesRes, trendingRes] = await Promise.all([
+          fetchProfiles(12).catch(() => ({ profiles: [] as never[] })),
+          fetchCommunities(12).catch(() => ({ communities: [] as never[] })),
+          fetchTrending().catch(() => ({ topics: [] as never[] })),
+        ]);
+        if (cancelled) return;
+        const merged = mergeNetworkSuggestions(
+          mapProfilesToSuggestions(profilesRes.profiles ?? [], 6),
+          mapCommunitiesToSuggestions(communitiesRes.communities ?? [], 4),
+          mapTrendingToSuggestions(trendingRes.topics ?? [], 4),
+          12,
+        );
+        setNetworkSuggestions(merged);
+      } catch (err) {
+        if (!cancelled) {
+          setNetworkSuggestions([]);
+          setSuggestionsError(
+            err instanceof Error ? err.message : 'Unable to load suggestions',
+          );
+        }
+      } finally {
+        if (!cancelled) setSuggestionsLoading(false);
+      }
+    }
+
+    void loadSuggestions();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, loading, error, posts.length]);
+
+  const handleFollowSuggestion = async (handle: string) => {
+    if (actionBusyId || followedHandles.has(handle)) return;
+    setActionNotice(null);
+    if (!authEnabled || !isSignedIn) {
+      setActionNotice(authEnabled ? 'Sign in to follow.' : 'Sign-in is not configured.');
+      return;
+    }
+    const token = await getToken();
+    if (!token) {
+      setActionNotice('Sign in again to follow.');
+      return;
+    }
+    setActionBusyId(`profile:${handle}`);
+    try {
+      await followProfile(token, handle);
+      setFollowedHandles((prev) => new Set(prev).add(handle));
+      setActionNotice(`Following @${handle}`);
+    } catch (err) {
+      setActionNotice(err instanceof Error ? err.message : 'Follow failed');
+    } finally {
+      setActionBusyId(null);
+    }
+  };
+
+  const handleJoinSuggestion = async (communityId: string) => {
+    if (actionBusyId || joinedCommunityIds.has(communityId)) return;
+    setActionNotice(null);
+    if (!authEnabled || !isSignedIn) {
+      setActionNotice(authEnabled ? 'Sign in to join.' : 'Sign-in is not configured.');
+      return;
+    }
+    const token = await getToken();
+    if (!token) {
+      setActionNotice('Sign in again to join.');
+      return;
+    }
+    setActionBusyId(`community:${communityId}`);
+    try {
+      await joinCommunity(token, communityId);
+      setJoinedCommunityIds((prev) => new Set(prev).add(communityId));
+      setActionNotice('Joined community');
+    } catch (err) {
+      setActionNotice(err instanceof Error ? err.message : 'Join failed');
+    } finally {
+      setActionBusyId(null);
+    }
+  };
 
   const loadMorePosts = useCallback(async () => {
     if (loading || loadingMore || !hasMore || cursor === null || error) return;
@@ -471,11 +589,138 @@ export function HomePage() {
           onRetry={retryFeed}
         />
       )}
-      {!loading && !error && posts.length === 0 && (
+      {!loading && !error && posts.length === 0 && activeTab !== 'Following' && (
         <EmptyState
           title="No posts yet"
           detail="When there is activity in this feed, it will appear here."
         />
+      )}
+      {!loading && !error && posts.length === 0 && activeTab === 'Following' && (
+        <section className="border-b px-4 py-6" style={{ borderColor: 'var(--border-primary)' }}>
+          <EmptyState title={emptyFollowingTitle()} detail={emptyFollowingDetail()} />
+          {actionNotice && (
+            <p className="mt-3 text-center text-[13px]" style={{ color: 'var(--text-secondary)' }} role="status">
+              {actionNotice}
+            </p>
+          )}
+          {suggestionsLoading && <LoadingState label="Loading suggestions" />}
+          {!suggestionsLoading && suggestionsError && (
+            <p className="mt-3 text-center text-[13px]" style={{ color: 'var(--danger, #f4212e)' }} role="alert">
+              {suggestionsError}
+            </p>
+          )}
+          {!suggestionsLoading && !suggestionsError && networkSuggestions.length === 0 && (
+            <p className="mt-3 text-center text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+              No live suggestions yet. Try Explore when profiles or communities appear.
+            </p>
+          )}
+          {!suggestionsLoading && networkSuggestions.length > 0 && (
+            <ul className="mx-auto mt-4 max-w-lg space-y-3">
+              {networkSuggestions.map((item) => {
+                if (item.kind === 'profile') {
+                  const busy = actionBusyId === `profile:${item.handle}`;
+                  const followed = followedHandles.has(item.handle);
+                  return (
+                    <li
+                      key={item.id}
+                      className="flex items-center justify-between gap-3 rounded-2xl border px-4 py-3"
+                      style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+                    >
+                      <div className="min-w-0">
+                        <Link
+                          to={`/profile/${encodeURIComponent(item.handle)}`}
+                          className="text-[15px] font-bold underline-offset-2 hover:underline"
+                        >
+                          {item.displayName}
+                        </Link>
+                        <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                          @{item.handle}
+                        </p>
+                        {item.bio ? (
+                          <p className="mt-1 line-clamp-2 text-[13px]">{item.bio}</p>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={busy || followed}
+                        onClick={() => void handleFollowSuggestion(item.handle)}
+                        className="shrink-0 rounded-full px-4 py-1.5 text-[13px] font-bold transition-opacity hover:opacity-90 disabled:opacity-60"
+                        style={{
+                          backgroundColor: followed ? 'transparent' : 'var(--accent)',
+                          color: followed ? 'var(--text-primary)' : 'var(--bg-primary)',
+                          border: followed ? '1px solid var(--border-primary)' : undefined,
+                        }}
+                      >
+                        {busy ? '…' : followed ? 'Following' : 'Follow'}
+                      </button>
+                    </li>
+                  );
+                }
+                if (item.kind === 'community') {
+                  const busy = actionBusyId === `community:${item.id}`;
+                  const joined = joinedCommunityIds.has(item.id);
+                  return (
+                    <li
+                      key={item.id}
+                      className="flex items-center justify-between gap-3 rounded-2xl border px-4 py-3"
+                      style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+                    >
+                      <div className="min-w-0">
+                        <Link
+                          to="/communities"
+                          className="text-[15px] font-bold underline-offset-2 hover:underline"
+                        >
+                          {item.name}
+                        </Link>
+                        <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                          Community · {item.slug}
+                        </p>
+                        {item.description ? (
+                          <p className="mt-1 line-clamp-2 text-[13px]">{item.description}</p>
+                        ) : null}
+                      </div>
+                      <button
+                        type="button"
+                        disabled={busy || joined}
+                        onClick={() => void handleJoinSuggestion(item.id)}
+                        className="shrink-0 rounded-full px-4 py-1.5 text-[13px] font-bold transition-opacity hover:opacity-90 disabled:opacity-60"
+                        style={{
+                          backgroundColor: joined ? 'transparent' : 'var(--accent)',
+                          color: joined ? 'var(--text-primary)' : 'var(--bg-primary)',
+                          border: joined ? '1px solid var(--border-primary)' : undefined,
+                        }}
+                      >
+                        {busy ? '…' : joined ? 'Joined' : 'Join'}
+                      </button>
+                    </li>
+                  );
+                }
+                // topic
+                return (
+                  <li
+                    key={item.id}
+                    className="flex items-center justify-between gap-3 rounded-2xl border px-4 py-3"
+                    style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[15px] font-bold">#{item.tag}</p>
+                      <p className="text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                        Trending · {item.postCount} posts
+                      </p>
+                    </div>
+                    <Link
+                      to={topicExplorePath(item.tag)}
+                      className="shrink-0 rounded-full border px-4 py-1.5 text-[13px] font-bold transition-colors hover-overlay"
+                      style={{ borderColor: 'var(--border-secondary)', color: 'var(--text-primary)' }}
+                    >
+                      Explore
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </section>
       )}
       {!loading && !error && posts.map((post) => (
         <PostCard
