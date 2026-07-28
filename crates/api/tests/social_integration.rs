@@ -123,8 +123,11 @@ async fn test_create_and_fetch_post() {
     let resp = get(app.clone(), &format!("/v1/social/posts/{}", post_id)).await;
     assert_eq!(resp.status(), StatusCode::OK);
     let json = body_json(resp).await;
-    assert_eq!(json["id"], post_id);
-    assert_eq!(json["body"], "Hello, integration test world!");
+    // get_single_post wraps its result: ok({ "post": ..., "replies": ... }).
+    // The assertions here read the post flat, which never matched; the create
+    // assertions above already use the wrapped shape.
+    assert_eq!(json["post"]["id"], post_id);
+    assert_eq!(json["post"]["body"], "Hello, integration test world!");
 }
 
 /// Like a post and verify the count increments.
