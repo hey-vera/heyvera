@@ -14,45 +14,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  api:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-
-      - name: Detect root Node app
-        id: root_node
-        run: |
-          if [ -f package.json ] && [ -f package-lock.json ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Skip root Node checks
-        if: steps.root_node.outputs.present != 'true'
-        run: echo "No root package.json/package-lock.json detected; skipping legacy root Node checks."
-
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
-        if: steps.root_node.outputs.present == 'true'
-        with:
-          node-version: '22'
-          cache: 'npm'
-
-      - name: Install dependencies
-        if: steps.root_node.outputs.present == 'true'
-        run: npm ci
-
-      - name: Type check
-        if: steps.root_node.outputs.present == 'true'
-        run: npm run typecheck
-
-      - name: Build
-        if: steps.root_node.outputs.present == 'true'
-        run: npm run build
-
-      - name: Unit tests
-        if: steps.root_node.outputs.present == 'true'
-        run: npm run test:unit
 
   web:
     runs-on: ubuntu-latest
@@ -191,46 +152,5 @@ jobs:
         run: cargo check --workspace --locked
 
       - name: Test Rust workspace
-        run: cargo test --workspace --lib --locked
+        run: cargo test --workspace --locked
 
-  runtime-floor:
-    # Proves the built CJS artifact can load soma-heart (ESM-only) via
-    # `require(esm)` under the declared minimum Node runtime. Pinned
-    # exactly to 22.12.0 — that is the first Node version where
-    # `require(esm)` is unflagged by default on the 22.x line, and it
-    # is the floor declared in package.json `engines`. See
-    # internal/backlog/moduleresolution-nodenext-migration.md.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-
-      - name: Detect root Node app
-        id: root_node
-        run: |
-          if [ -f package.json ] && [ -f package-lock.json ]; then
-            echo "present=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "present=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Skip runtime floor
-        if: steps.root_node.outputs.present != 'true'
-        run: echo "No root package.json/package-lock.json detected; skipping legacy runtime-floor check."
-
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
-        if: steps.root_node.outputs.present == 'true'
-        with:
-          node-version: '22.12.0'
-          cache: 'npm'
-
-      - name: Install dependencies
-        if: steps.root_node.outputs.present == 'true'
-        run: npm ci
-
-      - name: Build
-        if: steps.root_node.outputs.present == 'true'
-        run: npm run build
-
-      - name: Load built artifact under declared runtime floor
-        if: steps.root_node.outputs.present == 'true'
-        run: node -e "require('./dist/core/api-key-rotation'); console.log('runtime-floor ok')"

@@ -1,6 +1,5 @@
-use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::Json;
@@ -10,8 +9,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::state::AppState;
-
-static RECORDED_DEPLOY_EVENTS: OnceLock<Mutex<HashSet<String>>> = OnceLock::new();
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -294,9 +291,8 @@ fn record_deploy_inspected_event(state: &AppState, status: &DeployStatusResponse
         return;
     };
     let fingerprint = deployment_event_fingerprint(status);
-    let recorded = RECORDED_DEPLOY_EVENTS.get_or_init(|| Mutex::new(HashSet::new()));
     {
-        let mut recorded = recorded.lock().unwrap();
+        let mut recorded = state.recorded_deploy_events.lock().unwrap();
         if !recorded.insert(fingerprint) {
             return;
         }

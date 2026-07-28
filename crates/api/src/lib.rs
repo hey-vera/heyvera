@@ -9,7 +9,10 @@ mod chat;
 pub mod clerk;
 mod clerk_webhooks;
 mod context_api;
-mod context_flow;
+// Public because tests/context_flow_integration_test.rs exercises it as a
+// consumer would. That test has never compiled in CI: the rust job ran
+// `cargo test --workspace --lib`, which excludes tests/.
+pub mod context_flow;
 mod conversations;
 pub mod cost_estimator;
 mod crypto;

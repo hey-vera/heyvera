@@ -40,7 +40,7 @@ async fn test_app() -> (axum::Router, Arc<AppState>, tempfile::TempDir) {
     std::fs::create_dir_all(workspace.join(".cortex")).unwrap();
 
     let ledger_path = workspace.join(".cortex/ledger.jsonl");
-    let state = AppState::new(ledger_path, workspace, None);
+    let state = AppState::new(ledger_path, workspace, None).await;
 
     // Start the scheduler so run creation works
     let scheduler_tx = scheduler::spawn_scheduler(state.clone());
@@ -74,7 +74,7 @@ async fn test_app_with_limits(
         }
     }
 
-    let state = AppState::new(ledger_path, workspace, None);
+    let state = AppState::new(ledger_path, workspace, None).await;
 
     // Restore env vars
     unsafe {

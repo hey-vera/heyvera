@@ -68,6 +68,14 @@ pub struct AppState {
     pub billing_enforced: bool,
     pub usage_limits: UsageLimits,
     pub is_shutting_down: AtomicBool,
+    /// Fingerprints of deployment states already recorded as `deploy.inspected`.
+    ///
+    /// Scoped to the app instance rather than the process. As a global it made
+    /// integration tests order-dependent, since every test in a binary shared
+    /// one set — and more importantly it meant a deployment returning to a
+    /// previously seen state recorded nothing at all, silently, for the life of
+    /// the process.
+    pub recorded_deploy_events: Mutex<HashSet<String>>,
     /// Mission Control WebSocket subscribers, keyed by user_id.
     pub mc_subscribers: RwLock<HashMap<String, Vec<McSubscriber>>>,
     /// Social DM WebSocket subscribers, keyed by conversation_id.
@@ -289,6 +297,7 @@ impl AppState {
             billing_enforced,
             usage_limits,
             is_shutting_down: AtomicBool::new(false),
+            recorded_deploy_events: Mutex::new(HashSet::new()),
             mc_subscribers: RwLock::new(HashMap::new()),
             dm_subscribers: RwLock::new(HashMap::new()),
             github_client,
