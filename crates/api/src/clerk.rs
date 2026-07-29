@@ -18,24 +18,122 @@ pub struct ClerkUser {
     pub user_id: String,
 }
 
-fn local_auth_allowed() -> bool {
-    std::env::var("CORTEX_AUTH_DISABLED")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeyVeraAuthMode {
+    Clerk,
+    LocalDevelopment,
+}
+
+#[derive(Debug, Clone)]
+pub struct HeyVeraAuthConfig {
+    pub mode: HeyVeraAuthMode,
+    pub clerk_secret_key: Option<String>,
+}
+
+fn non_empty_env(key: &str) -> Option<String> {
+    std::env::var(key)
+        .ok()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+}
+
+fn env_flag(key: &str) -> bool {
+    std::env::var(key)
+        .map(|value| value == "1" || value.eq_ignore_ascii_case("true"))
         .unwrap_or(false)
 }
 
-/// True when we must fail closed without Clerk (misconfigured prod).
-fn is_production_runtime() -> bool {
-    for key in ["HEYVERA_ENV", "APP_ENV", "RUST_ENV", "CORTEX_ENV"] {
-        if let Ok(v) = std::env::var(key) {
-            if v.eq_ignore_ascii_case("production") || v.eq_ignore_ascii_case("prod") {
-                return true;
-            }
+/// True when HeyVera must reject all local/dev authentication behavior.
+pub(crate) fn is_production_runtime() -> bool {
+    crate::is_production_env() || env_flag("HEYVERA_REQUIRE_AUTH")
+}
+
+/// Explicit headerless local auth is only valid outside production.
+fn local_auth_allowed() -> bool {
+    !is_production_runtime() && env_flag("CORTEX_AUTH_DISABLED")
+}
+
+fn valid_https_endpoint(value: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    url.scheme() == "https"
+        && url.host_str().is_some()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && url.query().is_none()
+        && url.fragment().is_none()
+}
+
+fn validate_auth_config_values(
+    production: bool,
+    local_auth_requested: bool,
+    clerk_secret_key: Option<&str>,
+    clerk_issuer: Option<&str>,
+    clerk_authorized_party: Option<&str>,
+) -> Result<HeyVeraAuthMode, String> {
+    if production && local_auth_requested {
+        return Err("CORTEX_AUTH_DISABLED is forbidden in HeyVera production".into());
+    }
+
+    if production {
+        if clerk_secret_key.is_none() {
+            return Err("CLERK_SECRET_KEY is required in HeyVera production".into());
+        }
+
+        let issuer = clerk_issuer.ok_or("CLERK_ISSUER is required in HeyVera production")?;
+        if !valid_https_endpoint(issuer) {
+            return Err("CLERK_ISSUER must be a non-empty https URL".into());
+        }
+
+        let authorized_party = clerk_authorized_party
+            .ok_or("CLERK_AUTHORIZED_PARTY is required in HeyVera production")?;
+        if !valid_https_endpoint(authorized_party) {
+            return Err("CLERK_AUTHORIZED_PARTY must be a non-empty https origin".into());
         }
     }
-    std::env::var("HEYVERA_REQUIRE_AUTH")
-        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-        .unwrap_or(false)
+
+    if clerk_secret_key.is_some() {
+        Ok(HeyVeraAuthMode::Clerk)
+    } else {
+        Ok(HeyVeraAuthMode::LocalDevelopment)
+    }
+}
+
+/// Load and validate the complete HeyVera authentication posture before startup.
+pub fn load_heyvera_auth_config() -> Result<HeyVeraAuthConfig, String> {
+    let clerk_secret_key = non_empty_env("CLERK_SECRET_KEY");
+    let clerk_issuer = non_empty_env("CLERK_ISSUER");
+    let clerk_authorized_party = non_empty_env("CLERK_AUTHORIZED_PARTY");
+    let mode = validate_auth_config_values(
+        is_production_runtime(),
+        env_flag("CORTEX_AUTH_DISABLED"),
+        clerk_secret_key.as_deref(),
+        clerk_issuer.as_deref(),
+        clerk_authorized_party.as_deref(),
+    )?;
+
+    Ok(HeyVeraAuthConfig {
+        mode,
+        clerk_secret_key,
+    })
+}
+
+fn blocked_account_message(status: Option<&str>) -> Option<&'static str> {
+    match status {
+        Some("suspended") => Some("account suspended"),
+        Some("deleted") => Some("account deleted"),
+        _ => None,
+    }
+}
+
+pub(crate) fn account_access_error(app_state: &AppState, user_id: &str) -> Option<&'static str> {
+    if user_id == "local" {
+        return None;
+    }
+    let db = app_state.db.as_ref()?;
+    let status = db.get_account_status(user_id);
+    blocked_account_message(status.as_deref())
 }
 
 /// Block suspended/deleted accounts after JWT verification.
@@ -43,26 +141,14 @@ fn reject_if_account_blocked(
     app_state: &AppState,
     user_id: &str,
 ) -> Result<(), (StatusCode, Json<ErrorResponse>)> {
-    if user_id == "local" {
-        return Ok(());
-    }
-    let Some(db) = app_state.db.as_ref() else {
-        return Ok(());
-    };
-    match db.get_account_status(user_id).as_deref() {
-        Some("suspended") => Err((
+    match account_access_error(app_state, user_id) {
+        Some(message) => Err((
             StatusCode::FORBIDDEN,
             Json(ErrorResponse {
-                error: "account suspended".into(),
+                error: message.into(),
             }),
         )),
-        Some("deleted") => Err((
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "account deleted".into(),
-            }),
-        )),
-        _ => Ok(()),
+        None => Ok(()),
     }
 }
 
@@ -76,12 +162,12 @@ fn jwks_ttl_secs() -> u64 {
 
 /// Expected issuer prefix for Clerk JWTs.
 fn clerk_issuer_prefix() -> Option<String> {
-    std::env::var("CLERK_ISSUER").ok()
+    non_empty_env("CLERK_ISSUER")
 }
 
 /// Authorized party (azp) claim — the Clerk frontend API key or app ID.
 fn clerk_authorized_party() -> Option<String> {
-    std::env::var("CLERK_AUTHORIZED_PARTY").ok()
+    non_empty_env("CLERK_AUTHORIZED_PARTY")
 }
 
 #[derive(Debug, Deserialize)]
@@ -247,6 +333,11 @@ pub fn verify_token_pub(token: &str, keys: &[JwkKey]) -> Result<String, String> 
 
 fn verify_token(token: &str, keys: &[JwkKey]) -> Result<ClerkClaims, String> {
     let header = decode_header(token).map_err(|e| format!("invalid JWT header: {e}"))?;
+    if let Some(token_type) = header.typ.as_deref() {
+        if !token_type.eq_ignore_ascii_case("JWT") {
+            return Err("unsupported JWT type".into());
+        }
+    }
     let kid = header.kid.ok_or("JWT missing kid")?;
 
     let key = keys
@@ -264,22 +355,35 @@ fn verify_token(token: &str, keys: &[JwkKey]) -> Result<ClerkClaims, String> {
     let mut validation = Validation::new(Algorithm::RS256);
     validation.set_required_spec_claims(&["exp", "sub"]);
     validation.validate_exp = true;
+    validation.validate_nbf = true;
     validation.validate_aud = false;
 
-    // If CLERK_ISSUER is set, validate the issuer claim
-    if let Some(expected_iss) = clerk_issuer_prefix() {
+    let expected_issuer = clerk_issuer_prefix();
+    if is_production_runtime() && expected_issuer.is_none() {
+        return Err("CLERK_ISSUER is not configured".into());
+    }
+    if let Some(expected_iss) = expected_issuer {
         validation.set_issuer(&[&expected_iss]);
     }
 
     let token_data = decode::<ClerkClaims>(token, &decoding_key, &validation)
         .map_err(|e| format!("JWT verification failed: {e}"))?;
 
-    // Validate authorized party (azp) if configured
-    if let Some(expected_azp) = clerk_authorized_party() {
+    if token_data.claims.sub.trim().is_empty() {
+        return Err("JWT subject is empty".into());
+    }
+
+    let expected_authorized_party = clerk_authorized_party();
+    if is_production_runtime() && expected_authorized_party.is_none() {
+        return Err("CLERK_AUTHORIZED_PARTY is not configured".into());
+    }
+    if let Some(expected_azp) = expected_authorized_party {
         match &token_data.claims.azp {
             Some(azp) if azp == &expected_azp => {}
             Some(azp) => {
-                return Err(format!("JWT azp mismatch: expected {expected_azp}, got {azp}"));
+                return Err(format!(
+                    "JWT azp mismatch: expected {expected_azp}, got {azp}"
+                ));
             }
             None => {
                 return Err("JWT missing azp claim".to_string());
@@ -299,13 +403,19 @@ pub async fn verify_clerk_jwt(token: &str, state: &Arc<AppState>) -> Result<Stri
         .ok_or("clerk auth not configured")?;
 
     let keys = get_or_refresh_jwks(&state.jwks_cache, &state.jwks_stampede, clerk_secret, false).await?;
-    match verify_token(token, &keys) {
-        Ok(claims) => Ok(claims.sub),
+    let user_id = match verify_token(token, &keys) {
+        Ok(claims) => claims.sub,
         Err(_) => {
             let keys = get_or_refresh_jwks(&state.jwks_cache, &state.jwks_stampede, clerk_secret, true).await?;
-            verify_token(token, &keys).map(|c| c.sub)
+            verify_token(token, &keys)?.sub
         }
+    };
+
+    if let Some(message) = account_access_error(state, &user_id) {
+        return Err(message.into());
     }
+
+    Ok(user_id)
 }
 
 impl<S> FromRequestParts<S> for ClerkUser
@@ -349,7 +459,7 @@ where
             Some(key) => key.clone(),
             None => {
                 // No Clerk secret: local/dev only. Production must fail closed.
-                if is_production_runtime() && !local_auth_allowed() {
+                if is_production_runtime() {
                     return Err((
                         StatusCode::INTERNAL_SERVER_ERROR,
                         Json(ErrorResponse {
@@ -421,5 +531,104 @@ where
                 })
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const SECRET: Option<&str> = Some("sk_test_server_secret");
+    const ISSUER: Option<&str> = Some("https://clerk.heyvera.org");
+    const AUTHORIZED_PARTY: Option<&str> = Some("https://heyvera.org");
+
+    #[test]
+    fn production_auth_requires_every_trust_anchor() {
+        assert_eq!(
+            validate_auth_config_values(true, false, SECRET, ISSUER, AUTHORIZED_PARTY),
+            Ok(HeyVeraAuthMode::Clerk)
+        );
+
+        let missing_secret =
+            validate_auth_config_values(true, false, None, ISSUER, AUTHORIZED_PARTY)
+                .expect_err("production must require the Clerk secret");
+        assert!(missing_secret.contains("CLERK_SECRET_KEY"));
+
+        let missing_issuer =
+            validate_auth_config_values(true, false, SECRET, None, AUTHORIZED_PARTY)
+                .expect_err("production must require the issuer");
+        assert!(missing_issuer.contains("CLERK_ISSUER"));
+
+        let missing_party = validate_auth_config_values(true, false, SECRET, ISSUER, None)
+            .expect_err("production must require the authorized party");
+        assert!(missing_party.contains("CLERK_AUTHORIZED_PARTY"));
+    }
+
+    #[test]
+    fn production_auth_rejects_local_override() {
+        let error = validate_auth_config_values(true, true, SECRET, ISSUER, AUTHORIZED_PARTY)
+            .expect_err("local auth must never override production");
+        assert!(error.contains("CORTEX_AUTH_DISABLED"));
+    }
+
+    #[test]
+    fn production_auth_requires_https_trust_anchors() {
+        let issuer_error = validate_auth_config_values(
+            true,
+            false,
+            SECRET,
+            Some("http://clerk.invalid"),
+            AUTHORIZED_PARTY,
+        )
+        .expect_err("issuer must use https");
+        assert!(issuer_error.contains("https URL"));
+
+        let party_error = validate_auth_config_values(
+            true,
+            false,
+            SECRET,
+            ISSUER,
+            Some("http://heyvera.org"),
+        )
+        .expect_err("authorized party must use https");
+        assert!(party_error.contains("https origin"));
+
+        for invalid in [
+            "https://",
+            "https://user@heyvera.org",
+            "https://heyvera.org?redirect=evil",
+            "https://heyvera.org/#fragment",
+        ] {
+            assert!(
+                !valid_https_endpoint(invalid),
+                "{invalid} must not be accepted as a trust anchor"
+            );
+        }
+    }
+
+    #[test]
+    fn development_keeps_explicit_local_mode_available() {
+        assert_eq!(
+            validate_auth_config_values(false, true, None, None, None),
+            Ok(HeyVeraAuthMode::LocalDevelopment)
+        );
+        assert_eq!(
+            validate_auth_config_values(false, false, SECRET, None, None),
+            Ok(HeyVeraAuthMode::Clerk)
+        );
+    }
+
+    #[test]
+    fn blocked_account_status_is_centralized() {
+        assert_eq!(
+            blocked_account_message(Some("suspended")),
+            Some("account suspended")
+        );
+        assert_eq!(
+            blocked_account_message(Some("deleted")),
+            Some("account deleted")
+        );
+        assert_eq!(blocked_account_message(Some("active")), None);
+        assert_eq!(blocked_account_message(None), None);
     }
 }

@@ -395,36 +395,25 @@ async fn handle_social_ws(mut socket: WebSocket, state: Arc<AppState>, params: S
     tracing::info!("social dm ws disconnected: user={user_id}");
 }
 
-async fn authenticate_social_ws(state: &AppState, token: &str) -> Result<String, String> {
-    let clerk_secret = match &state.clerk_secret_key {
-        Some(key) => key,
-        None => {
-            // No Clerk configured — local dev mode
-            return Ok("local".to_string());
+async fn authenticate_social_ws(state: &Arc<AppState>, token: &str) -> Result<String, String> {
+    if state.clerk_secret_key.is_none() {
+        if clerk::is_production_runtime() {
+            return Err("authentication service is not configured".into());
         }
-    };
+        return Ok("local".to_string());
+    }
 
     if token.is_empty() {
         return Err("missing token query parameter — connect with ?token=<jwt>".into());
     }
 
-    let keys =
-        clerk::get_or_refresh_jwks_pub(&state.jwks_cache, &state.jwks_stampede, clerk_secret, false)
-            .await?;
-
-    match clerk::verify_token_pub(token, &keys) {
-        Ok(user_id) => Ok(user_id),
-        Err(_) => {
-            let keys = clerk::get_or_refresh_jwks_pub(
-                &state.jwks_cache,
-                &state.jwks_stampede,
-                clerk_secret,
-                true,
-            )
-            .await?;
-            clerk::verify_token_pub(token, &keys)
-        }
-    }
+    clerk::verify_clerk_jwt(token, state)
+        .await
+        .map_err(|error| match error.as_str() {
+            "account suspended" | "account deleted" => error,
+            "clerk auth not configured" => "authentication service is not configured".into(),
+            _ => "invalid or unavailable bearer token".into(),
+        })
 }
 
 #[cfg(test)]

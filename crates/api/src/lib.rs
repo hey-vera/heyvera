@@ -359,12 +359,14 @@ async fn metrics_handler(
 }
 
 /// True when any product env flag is set to production.
-/// Checks HEYVERA_ENV, CORTEX_ENV, APP_ENV, and ENVIRONMENT.
+/// Checks HEYVERA_ENV, CORTEX_ENV, APP_ENV, RUST_ENV, and ENVIRONMENT.
 pub(crate) fn is_production_env() -> bool {
-    ["HEYVERA_ENV", "CORTEX_ENV", "APP_ENV", "ENVIRONMENT"]
+    ["HEYVERA_ENV", "CORTEX_ENV", "APP_ENV", "RUST_ENV", "ENVIRONMENT"]
         .iter()
         .filter_map(|key| std::env::var(key).ok())
-        .any(|value| value.eq_ignore_ascii_case("production"))
+        .any(|value| {
+            value.eq_ignore_ascii_case("production") || value.eq_ignore_ascii_case("prod")
+        })
 }
 
 /// Build router with only Cortex routes (cortex.heyvera.org).

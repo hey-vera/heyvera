@@ -144,12 +144,8 @@ pub fn resolve_agent_identity(
 
     // Suspended owner: map profile → clerk_user_id and check accounts table.
     if let Some(clerk_user_id) = db.social_profile_clerk_user_id(&profile_id) {
-        if clerk_user_id != "local" {
-            match db.get_account_status(&clerk_user_id).as_deref() {
-                Some("suspended") => return Err(forbidden("account suspended")),
-                Some("deleted") => return Err(forbidden("account deleted")),
-                _ => {}
-            }
+        if let Some(message) = crate::clerk::account_access_error(state, &clerk_user_id) {
+            return Err(forbidden(message));
         }
     }
 

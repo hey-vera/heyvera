@@ -20,12 +20,19 @@ Builds cortex-server (:3001), heyvera-server (:3002), and `heyvera/` SPA → `HE
 | Variable | Purpose |
 |----------|---------|
 | `CLERK_SECRET_KEY` | Verify JWTs on API |
-| `CLERK_ISSUER` | Optional but recommended issuer check |
-| `CLERK_AUTHORIZED_PARTY` | Optional `azp` check |
-| `HEYVERA_ENV=production` (or `APP_ENV` / `CORTEX_ENV` / `ENVIRONMENT=production`) | Fail closed if Clerk missing; **disables mock media** |
+| `CLERK_ISSUER` | **Required in production.** Exact HTTPS issuer expected in Clerk session JWTs |
+| `CLERK_AUTHORIZED_PARTY` | **Required in production.** Exact HTTPS frontend origin expected in the JWT `azp` claim |
+| `HEYVERA_ENV=production` (or `APP_ENV` / `RUST_ENV` / `CORTEX_ENV` / `ENVIRONMENT=production`) | Enables fail-closed auth/CORS/media behavior |
 | `VITE_CLERK_PUBLISHABLE_KEY` | Frontend Clerk |
 
-Never deploy HeyVera social with empty `CLERK_SECRET_KEY` and production env unset.
+The server exits with configuration status `78` before binding a socket if any production trust
+anchor is missing/invalid or if `CORTEX_AUTH_DISABLED` is enabled. Local identity is never honored
+in production. `HEYVERA_REQUIRE_AUTH=1` applies the same strict auth posture outside a named
+production environment.
+
+Account suspension and deletion are enforced through the same policy for HTTP requests, linked
+agents, and Socials direct-message WebSockets. Do not put secrets, credentials, or tokens in
+deployment logs.
 
 ## API / CORS
 
