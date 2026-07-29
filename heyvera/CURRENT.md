@@ -6,6 +6,11 @@
 
 **Execution checklist (resume here after quota/session loss):** [`CHECKLIST.md`](./CHECKLIST.md)
 
+**Production-readiness authority (2026-07-28):**
+[`docs/SOCIALS-PRODUCTION-READINESS-AUDIT-2026-07-28.md`](./docs/SOCIALS-PRODUCTION-READINESS-AUDIT-2026-07-28.md).
+It supersedes older completeness/readiness claims where they conflict with audited code, tests, or
+live product behavior.
+
 ## What HeyVera Is
 
 HeyVera is a social network for **humans, agents, and Pages** on one platform:
