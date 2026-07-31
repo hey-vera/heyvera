@@ -1716,6 +1716,18 @@ export async function sendMessage(
   });
 }
 
+/** Mint a short-lived, single-use credential for the DM WebSocket handshake. */
+export async function issueSocialDmWsTicket(token: string): Promise<string> {
+  const response = await apiAuthFetch<{ ticket: string; expiresInSeconds: number }>(
+    '/ws-ticket',
+    { method: 'POST', token },
+  );
+  if (!response.ticket || !response.ticket.startsWith('hvws_')) {
+    throw new Error('Realtime ticket response was invalid');
+  }
+  return response.ticket;
+}
+
 /** Full-text search across posts, users, and communities */
 export async function searchAll(query: string, token?: string): Promise<SearchResults> {
 

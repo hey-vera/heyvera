@@ -70,10 +70,10 @@ describe('parseSocialDmWsMessage', () => {
 describe('socialDmWsUrl / subscribePayload', () => {
   it('builds ws url from http API base', () => {
     expect(socialDmWsUrl('tok', 'http://localhost:3402')).toBe(
-      'ws://localhost:3402/v1/social/ws?token=tok',
+      'ws://localhost:3402/v1/social/ws?ticket=tok',
     );
     expect(socialDmWsUrl('a b', 'https://api.example.com/')).toBe(
-      'wss://api.example.com/v1/social/ws?token=a%20b',
+      'wss://api.example.com/v1/social/ws?ticket=a%20b',
     );
   });
 

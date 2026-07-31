@@ -601,6 +601,7 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
                 .route("/v1/social/invites/{token}/redeem", post(social::redeem_community_invite))
                 .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
                 .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))
+                .route("/v1/social/ws-ticket", post(messaging::issue_social_ws_ticket))
                 .route("/v1/social/ws", get(messaging::social_ws_handler))
                 .route("/v1/social/users/{id}/block", post(moderation::block_user).delete(moderation::unblock_user))
                 .route("/v1/social/users/{id}/mute", post(moderation::mute_user).delete(moderation::unmute_user))
@@ -745,6 +746,7 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/invites/{token}/redeem", post(social::redeem_community_invite))
         .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
         .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))
+        .route("/v1/social/ws-ticket", post(messaging::issue_social_ws_ticket))
         .route("/v1/social/ws", get(messaging::social_ws_handler))
         .route("/v1/social/users/{id}/block", post(moderation::block_user).delete(moderation::unblock_user))
         .route("/v1/social/users/{id}/mute", post(moderation::mute_user).delete(moderation::unmute_user))
@@ -1008,7 +1010,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Task #35: Conversations & Messages
         .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
         .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))
-        // Wave 8b: social DM WebSocket (JWT via ?token=)
+        // Social DM WebSocket: bearer-authenticated, one-use ticket exchange.
+        .route("/v1/social/ws-ticket", post(messaging::issue_social_ws_ticket))
         .route("/v1/social/ws", get(messaging::social_ws_handler))
         // Task #45: Block/Mute/Report
         .route("/v1/social/users/{id}/block", post(moderation::block_user).delete(moderation::unblock_user))

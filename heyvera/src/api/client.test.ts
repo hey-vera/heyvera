@@ -202,6 +202,30 @@ describe('api social (legacy-compatible functions)', () => {
     );
   });
 
+  it('exchanges a bearer token for a one-use DM WebSocket ticket', async () => {
+    vi.stubEnv('VITE_API_URL', '/v1');
+    const fetchMock = mockFetch();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: vi.fn().mockResolvedValue({
+        ticket: 'hvws_abcdefghijklmnopqrstuvwxyz0123456789ABCDEF',
+        expiresInSeconds: 30,
+      }),
+    });
+
+    const { issueSocialDmWsTicket } = await import('./social');
+    const ticket = await issueSocialDmWsTicket('token-dm');
+    expect(ticket).toMatch(/^hvws_/);
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/v1/social/ws-ticket',
+      expect.objectContaining({
+        method: 'POST',
+        headers: expect.objectContaining({ Authorization: 'Bearer token-dm' }),
+      }),
+    );
+  });
+
   it('createCommunity and joinCommunity hit real guild routes', async () => {
     vi.stubEnv('VITE_API_URL', '/v1');
     const fetchMock = mockFetch();

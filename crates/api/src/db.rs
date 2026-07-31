@@ -299,7 +299,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 36;
+const SCHEMA_VERSION: i64 = 53;
 const RUN_RESOURCE_LEASE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 fn apply_migrations(conn: &Connection) {
@@ -480,6 +480,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 52 {
         migrate_v52(conn);
+    }
+    if current < 53 {
+        migrate_v53(conn);
     }
 }
 
@@ -2414,6 +2417,24 @@ fn migrate_v52(conn: &Connection) {
     );
 }
 
+fn migrate_v53(conn: &Connection) {
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS social_ws_tickets (
+            token_hash TEXT PRIMARY KEY,
+            clerk_user_id TEXT NOT NULL,
+            expires_at INTEGER NOT NULL,
+            consumed_at INTEGER,
+            created_at INTEGER NOT NULL DEFAULT (unixepoch())
+        );
+        CREATE INDEX IF NOT EXISTS idx_social_ws_tickets_expiry
+            ON social_ws_tickets(expires_at);
+
+        UPDATE schema_version SET version = 53;",
+    )
+    .expect("migration v53 failed creating social_ws_tickets");
+    tracing::info!("applied migration v53: single-use Socials WebSocket tickets");
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CredentialAssignment {
     pub id: String,
@@ -3610,6 +3631,59 @@ impl Database {
             |r| r.get(0),
         )
         .unwrap_or(0)
+    }
+
+    /// Store only the digest of a short-lived WebSocket ticket.
+    pub fn social_create_ws_ticket(
+        &self,
+        token_hash: &str,
+        clerk_user_id: &str,
+        expires_at: i64,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "DELETE FROM social_ws_tickets
+             WHERE expires_at <= unixepoch()
+                OR (consumed_at IS NOT NULL AND consumed_at < unixepoch() - 300)",
+            [],
+        )
+        .map_err(|e| format!("WebSocket ticket cleanup failed: {e}"))?;
+        conn.execute(
+            "INSERT INTO social_ws_tickets (token_hash, clerk_user_id, expires_at)
+             VALUES (?1, ?2, ?3)",
+            params![token_hash, clerk_user_id, expires_at],
+        )
+        .map_err(|e| format!("WebSocket ticket creation failed: {e}"))?;
+        Ok(())
+    }
+
+    /// Atomically consume a live ticket. A digest can succeed at most once.
+    pub fn social_consume_ws_ticket(&self, token_hash: &str) -> Result<String, String> {
+        let mut conn = self.conn.lock().unwrap();
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("WebSocket ticket transaction failed: {e}"))?;
+        let user_id = tx
+            .query_row(
+                "SELECT clerk_user_id FROM social_ws_tickets
+                 WHERE token_hash = ?1 AND consumed_at IS NULL AND expires_at > unixepoch()",
+                [token_hash],
+                |row| row.get::<_, String>(0),
+            )
+            .map_err(|_| "invalid, expired, or already-used WebSocket ticket".to_string())?;
+        let updated = tx
+            .execute(
+                "UPDATE social_ws_tickets SET consumed_at = unixepoch()
+                 WHERE token_hash = ?1 AND consumed_at IS NULL AND expires_at > unixepoch()",
+                [token_hash],
+            )
+            .map_err(|e| format!("WebSocket ticket consumption failed: {e}"))?;
+        if updated != 1 {
+            return Err("invalid, expired, or already-used WebSocket ticket".into());
+        }
+        tx.commit()
+            .map_err(|e| format!("WebSocket ticket commit failed: {e}"))?;
+        Ok(user_id)
     }
 
     pub fn list_run_operations_events(&self, run_id: &str, limit: usize) -> Vec<OperationsEvent> {
@@ -16460,6 +16534,25 @@ mod tests {
     fn test_db() -> Database {
         let dir = tempfile::tempdir().unwrap().keep();
         Database::open(&dir.join("cortex.sqlite"))
+    }
+
+    #[test]
+    fn social_ws_ticket_is_single_use_and_expires() {
+        let db = test_db();
+        let now = Utc::now().timestamp();
+
+        db.social_create_ws_ticket("live-digest", "clerk_user_1", now + 30)
+            .expect("create live ticket");
+        assert_eq!(
+            db.social_consume_ws_ticket("live-digest").as_deref(),
+            Ok("clerk_user_1")
+        );
+        assert!(db.social_consume_ws_ticket("live-digest").is_err());
+
+        db.social_create_ws_ticket("expired-digest", "clerk_user_2", now - 1)
+            .expect("create expired ticket");
+        assert!(db.social_consume_ws_ticket("expired-digest").is_err());
+        assert!(db.social_consume_ws_ticket("unknown-digest").is_err());
     }
 
     fn task_state(task_id: &str, title: &str) -> serde_json::Value {

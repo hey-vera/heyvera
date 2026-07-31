@@ -1,15 +1,19 @@
 use std::sync::Arc;
 
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use axum::{
     extract::{
         ws::{Message, WebSocket},
         Path, Query, State, WebSocketUpgrade,
     },
-    http::StatusCode,
+    http::{header, HeaderMap, HeaderValue, StatusCode},
     response::IntoResponse,
     Json,
 };
+use chrono::Utc;
+use rand::RngCore;
 use serde::Deserialize;
+use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -189,7 +193,68 @@ pub async fn send_message(
 
 #[derive(Debug, Deserialize)]
 pub struct SocialWsQuery {
-    pub token: Option<String>,
+    pub ticket: Option<String>,
+}
+
+const SOCIAL_WS_TICKET_TTL_SECONDS: i64 = 30;
+
+fn hash_social_ws_ticket(ticket: &str) -> String {
+    hex::encode(Sha256::digest(ticket.as_bytes()))
+}
+
+fn generate_social_ws_ticket() -> String {
+    let mut bytes = [0u8; 32];
+    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    format!("hvws_{}", URL_SAFE_NO_PAD.encode(bytes))
+}
+
+fn valid_social_ws_ticket_shape(ticket: &str) -> bool {
+    ticket.len() == 48
+        && ticket
+            .strip_prefix("hvws_")
+            .is_some_and(|body| {
+                body.bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+            })
+}
+
+/// POST /v1/social/ws-ticket — exchange a bearer session for a one-use WS ticket.
+pub async fn issue_social_ws_ticket(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let ticket = generate_social_ws_ticket();
+    let expires_at = Utc::now().timestamp() + SOCIAL_WS_TICKET_TTL_SECONDS;
+    let result = state
+        .db
+        .as_ref()
+        .ok_or_else(|| "database unavailable".to_string())
+        .and_then(|db| {
+            db.social_create_ws_ticket(&hash_social_ws_ticket(&ticket), &user.user_id, expires_at)
+        });
+    match result {
+        Ok(()) => {
+            let mut headers = HeaderMap::new();
+            headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+            (
+                StatusCode::CREATED,
+                headers,
+                Json(serde_json::json!({
+                    "ticket": ticket,
+                    "expiresInSeconds": SOCIAL_WS_TICKET_TTL_SECONDS,
+                })),
+            )
+                .into_response()
+        }
+        Err(error) => {
+            tracing::error!(%error, "failed to issue Socials WebSocket ticket");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": "realtime authentication unavailable" })),
+            )
+                .into_response()
+        }
+    }
 }
 
 /// Client → server frames (JSON text).
@@ -217,32 +282,32 @@ pub fn parse_social_ws_client_message(text: &str) -> Result<SocialWsClientMessag
     serde_json::from_str(text).map_err(|e| format!("invalid client message: {e}"))
 }
 
-/// GET /v1/social/ws?token=<jwt> — social DM realtime (subscribe per conversation).
+/// GET /v1/social/ws?ticket=<opaque> — social DM realtime (subscribe per conversation).
 pub async fn social_ws_handler(
     ws: WebSocketUpgrade,
     Query(params): Query<SocialWsQuery>,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| handle_social_ws(socket, state, params))
+    headers: HeaderMap,
+) -> axum::response::Response {
+    if let Err(error) = validate_social_ws_origin(&headers) {
+        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": error }))).into_response();
+    }
+    let ticket = params.ticket.as_deref().unwrap_or("");
+    match authenticate_social_ws(&state, ticket) {
+        Ok(user_id) => ws
+            .on_upgrade(move |socket| handle_social_ws(socket, state, user_id))
+            .into_response(),
+        Err(error) => {
+            tracing::warn!("social dm ws ticket rejected: {error}");
+            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+                "error": "invalid or expired realtime ticket"
+            })))
+                .into_response()
+        }
+    }
 }
 
-async fn handle_social_ws(mut socket: WebSocket, state: Arc<AppState>, params: SocialWsQuery) {
-    let user_id = match authenticate_social_ws(&state, params.token.as_deref().unwrap_or("")).await {
-        Ok(uid) => uid,
-        Err(e) => {
-            tracing::warn!("social dm ws auth failed: {e}");
-            let err = serde_json::json!({
-                "type": "error",
-                "code": "auth_failed",
-                "message": e,
-            });
-            let _ = socket
-                .send(Message::Text(serde_json::to_string(&err).unwrap().into()))
-                .await;
-            let _ = socket.send(Message::Close(None)).await;
-            return;
-        }
-    };
+async fn handle_social_ws(mut socket: WebSocket, state: Arc<AppState>, user_id: String) {
 
     // Resolve social profile (optional — subscribe checks participant via profile).
     let profile_id = state
@@ -395,30 +460,81 @@ async fn handle_social_ws(mut socket: WebSocket, state: Arc<AppState>, params: S
     tracing::info!("social dm ws disconnected: user={user_id}");
 }
 
-async fn authenticate_social_ws(state: &Arc<AppState>, token: &str) -> Result<String, String> {
-    if state.clerk_secret_key.is_none() {
-        if clerk::is_production_runtime() {
-            return Err("authentication service is not configured".into());
-        }
-        return Ok("local".to_string());
-    }
+fn validate_social_ws_origin(headers: &HeaderMap) -> Result<(), String> {
+    let origin = headers
+        .get(header::ORIGIN)
+        .and_then(|value| value.to_str().ok());
+    let expected = std::env::var("CLERK_AUTHORIZED_PARTY")
+        .ok()
+        .filter(|value| !value.trim().is_empty());
+    validate_social_ws_origin_values(
+        origin,
+        expected.as_deref(),
+        clerk::is_production_runtime(),
+    )
+}
 
-    if token.is_empty() {
-        return Err("missing token query parameter — connect with ?token=<jwt>".into());
+fn validate_social_ws_origin_values(
+    origin: Option<&str>,
+    expected: Option<&str>,
+    production: bool,
+) -> Result<(), String> {
+    match (origin, expected) {
+        (Some(actual), Some(expected))
+            if actual.trim_end_matches('/') == expected.trim_end_matches('/') => Ok(()),
+        (None, _) | (_, None) if !production => Ok(()),
+        _ => Err("WebSocket origin is not authorized".into()),
     }
+}
 
-    clerk::verify_clerk_jwt(token, state)
-        .await
-        .map_err(|error| match error.as_str() {
-            "account suspended" | "account deleted" => error,
-            "clerk auth not configured" => "authentication service is not configured".into(),
-            _ => "invalid or unavailable bearer token".into(),
-        })
+fn authenticate_social_ws(state: &Arc<AppState>, ticket: &str) -> Result<String, String> {
+    if !valid_social_ws_ticket_shape(ticket) {
+        return Err("missing or malformed WebSocket ticket".into());
+    }
+    let user_id = state
+        .db
+        .as_ref()
+        .ok_or("database unavailable")?
+        .social_consume_ws_ticket(&hash_social_ws_ticket(ticket))?;
+    if let Some(message) = clerk::account_access_error(state, &user_id) {
+        return Err(message.into());
+    }
+    Ok(user_id)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ws_tickets_are_random_opaque_and_hashable() {
+        let first = generate_social_ws_ticket();
+        let second = generate_social_ws_ticket();
+        assert!(first.starts_with("hvws_"));
+        assert_eq!(first.len(), 48);
+        assert_ne!(first, second);
+        assert_eq!(hash_social_ws_ticket(&first).len(), 64);
+        assert_ne!(hash_social_ws_ticket(&first), first);
+        assert!(valid_social_ws_ticket_shape(&first));
+        assert!(!valid_social_ws_ticket_shape("hvws_short"));
+        assert!(!valid_social_ws_ticket_shape(
+            "hvws_abcdefghijklmnopqrstuvwxyz0123456789ABCDE!"
+        ));
+    }
+
+    #[test]
+    fn production_ws_origin_must_match_exactly() {
+        let expected = Some("https://heyvera.org");
+        assert!(validate_social_ws_origin_values(expected, expected, true).is_ok());
+        assert!(
+            validate_social_ws_origin_values(Some("https://evil.example"), expected, true).is_err()
+        );
+        assert!(validate_social_ws_origin_values(None, expected, true).is_err());
+        assert!(
+            validate_social_ws_origin_values(Some("https://heyvera.org"), None, true).is_err()
+        );
+        assert!(validate_social_ws_origin_values(None, None, false).is_ok());
+    }
 
     #[test]
     fn parse_subscribe_camel_case() {

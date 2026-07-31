@@ -3,7 +3,7 @@ import { SignInButton } from '@clerk/clerk-react';
 import { ArrowLeft, MessageCircle, Search, Send } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import type { Conversation, Message } from '../api/types';
-import { getConversations, getMessages, sendMessage } from '../api/social';
+import { getConversations, getMessages, issueSocialDmWsTicket, sendMessage } from '../api/social';
 import { LoadingState, EmptyState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';
 import { useAuthContext } from '../hooks/useAuthContext';
@@ -338,8 +338,7 @@ export function MessagesPage() {
     };
   }, []);
 
-  // Wave 8b/9b: social DM WebSocket — auth via ?token=, subscribe per conversation.
-  // Reconnect: exponential backoff, fresh token each attempt, online + visibility kicks.
+  // Social DM WebSocket — exchange a fresh bearer token for a one-use handshake ticket.
   useEffect(() => {
     if (!isSignedIn) {
       setWsConnected(false);
@@ -421,7 +420,9 @@ export function MessagesPage() {
         socket = null;
         wsRef.current = null;
 
-        const url = socialDmWsUrl(token);
+        const ticket = await issueSocialDmWsTicket(token);
+        if (cancelled) return;
+        const url = socialDmWsUrl(ticket);
         socket = new WebSocket(url);
         wsRef.current = socket;
 

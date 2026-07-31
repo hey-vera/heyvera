@@ -49,25 +49,25 @@ export function parseSocialDmWsMessage(raw: string): SocialDmWsServerEvent | nul
   }
 }
 
-/** Build ws(s) URL for GET /v1/social/ws?token=… */
-export function socialDmWsUrl(token: string, apiBase?: string): string {
+/** Build ws(s) URL using an opaque, short-lived, single-use ticket. */
+export function socialDmWsUrl(ticket: string, apiBase?: string): string {
   const base = apiBase ?? (typeof import.meta !== 'undefined' ? import.meta.env.VITE_API_URL : undefined);
   if (base && typeof base === 'string' && base.length > 0) {
     const u = new URL(base.endsWith('/') ? base.slice(0, -1) : base);
     u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
     // API base may be origin or origin + path; always target /v1/social/ws
     u.pathname = '/v1/social/ws';
-    u.search = `?token=${encodeURIComponent(token)}`;
+    u.search = `?ticket=${encodeURIComponent(ticket)}`;
     u.hash = '';
     return u.toString();
   }
 
   if (typeof window !== 'undefined' && window.location) {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${window.location.host}/v1/social/ws?token=${encodeURIComponent(token)}`;
+    return `${proto}//${window.location.host}/v1/social/ws?ticket=${encodeURIComponent(ticket)}`;
   }
 
-  return `ws://localhost/v1/social/ws?token=${encodeURIComponent(token)}`;
+  return `ws://localhost/v1/social/ws?ticket=${encodeURIComponent(ticket)}`;
 }
 
 export function subscribePayload(conversationId: string): string {

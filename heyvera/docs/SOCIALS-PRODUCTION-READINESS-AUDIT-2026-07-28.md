@@ -197,7 +197,8 @@ Resolve these before an open beta. Security/privacy items also apply to an invit
 - `CORTEX_AUTH_DISABLED` can select local identity behavior in the HeyVera server path.
 - The server can start without complete Clerk configuration and log that Clerk auth is disabled.
 - JWT issuer and authorized-party validation are not both mandatory.
-- WebSocket authentication accepts a token in the URL query string.
+- WebSocket authentication now exchanges the Clerk bearer token over authenticated HTTP for a
+  30-second, hashed, one-use ticket and validates the production browser origin.
 - Account-status rejection is not consistent across authentication paths.
 
 **Required work**
@@ -207,7 +208,8 @@ Resolve these before an open beta. Security/privacy items also apply to an invit
 - [ ] Validate signature, issuer, expiration, not-before, audience/authorized party, and token type.
 - [ ] Use one principal extractor for HTTP, WebSocket, scheduler, agent, and moderator paths that
       rejects suspended, deleted, locked, and age-restricted status.
-- [ ] Replace WebSocket query tokens with short-lived one-time tickets or another origin-safe flow.
+- [x] Replace WebSocket JWT query tokens with short-lived, hashed, atomically consumed one-time
+  tickets and enforce the configured production origin during the handshake.
 - [ ] Scrub auth material from application, proxy, analytics, and error logs.
 - [ ] Test missing, forged, expired, wrong-tenant, and status-changed tokens.
 - [ ] Prove production boot rejects all fail-open flags.

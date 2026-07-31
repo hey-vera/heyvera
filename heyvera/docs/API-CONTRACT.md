@@ -60,8 +60,10 @@ Legend: **OK** mounted + used · **MISSING** FE calls / needs route · **PARTIAL
 
 | FE usage | Method + path | Backend | Notes |
 |----------|---------------|---------|-------|
-| Conversations | `GET/POST /v1/social/conversations` | OK | No realtime |
+| Conversations | `GET/POST /v1/social/conversations` | OK | DM realtime uses the ticketed WebSocket below |
 | Messages | `GET/POST .../conversations/{id}/messages` | OK | |
+| DM WebSocket ticket | `POST /v1/social/ws-ticket` | OK | Bearer auth; 30-second, hashed, one-use ticket; `Cache-Control: no-store` |
+| DM WebSocket | `GET /v1/social/ws?ticket=...` | OK | Exact production `Origin`; atomically consumes ticket before upgrade |
 | Notifications | `GET /v1/social/notifications` | OK | |
 | Mark read | `POST /v1/social/notifications/read` | OK | Marks all |
 

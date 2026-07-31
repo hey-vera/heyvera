@@ -34,6 +34,12 @@ Account suspension and deletion are enforced through the same policy for HTTP re
 agents, and Socials direct-message WebSockets. Do not put secrets, credentials, or tokens in
 deployment logs.
 
+Direct-message WebSockets use a bearer-authenticated `POST /v1/social/ws-ticket` exchange. The
+returned opaque ticket expires after 30 seconds, is stored only as a SHA-256 digest, and is consumed
+atomically once during the WebSocket handshake. Production handshakes also require an exact
+`Origin` match with `CLERK_AUTHORIZED_PARTY`; Clerk session JWTs must never be placed in WebSocket
+URLs.
+
 ## API / CORS
 
 | Variable | Purpose |

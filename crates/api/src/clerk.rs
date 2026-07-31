@@ -65,6 +65,13 @@ fn valid_https_endpoint(value: &str) -> bool {
         && url.fragment().is_none()
 }
 
+fn valid_https_origin(value: &str) -> bool {
+    let Ok(url) = reqwest::Url::parse(value) else {
+        return false;
+    };
+    valid_https_endpoint(value) && url.path() == "/"
+}
+
 fn validate_auth_config_values(
     production: bool,
     local_auth_requested: bool,
@@ -88,7 +95,7 @@ fn validate_auth_config_values(
 
         let authorized_party = clerk_authorized_party
             .ok_or("CLERK_AUTHORIZED_PARTY is required in HeyVera production")?;
-        if !valid_https_endpoint(authorized_party) {
+        if !valid_https_origin(authorized_party) {
             return Err("CLERK_AUTHORIZED_PARTY must be a non-empty https origin".into());
         }
     }
@@ -604,6 +611,7 @@ mod tests {
                 "{invalid} must not be accepted as a trust anchor"
             );
         }
+        assert!(!valid_https_origin("https://heyvera.org/app"));
     }
 
     #[test]
