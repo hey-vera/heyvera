@@ -9,6 +9,11 @@ use rusqlite::{Connection, params};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+use crate::social_policy::{
+    authorize_post, authorize_profile, PolicyDecision, PostAction, PostAudience,
+    PostPolicyFacts, ProfileAction, ProfilePolicyFacts, ProfileVisibility,
+};
+
 pub struct Database {
     pub(crate) conn: Mutex<Connection>,
 }
@@ -299,7 +304,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 53;
+const SCHEMA_VERSION: i64 = 55;
 const RUN_RESOURCE_LEASE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 fn apply_migrations(conn: &Connection) {
@@ -483,6 +488,12 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 53 {
         migrate_v53(conn);
+    }
+    if current < 54 {
+        migrate_v54(conn);
+    }
+    if current < 55 {
+        migrate_v55(conn);
     }
 }
 
@@ -2417,6 +2428,14 @@ fn migrate_v52(conn: &Connection) {
     );
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SocialFollowOutcome {
+    Following(String),
+    AlreadyFollowing(String),
+    Pending(String),
+    AlreadyPending(String),
+}
+
 fn migrate_v53(conn: &Connection) {
     conn.execute_batch(
         "CREATE TABLE IF NOT EXISTS social_ws_tickets (
@@ -2433,6 +2452,268 @@ fn migrate_v53(conn: &Connection) {
     )
     .expect("migration v53 failed creating social_ws_tickets");
     tracing::info!("applied migration v53: single-use Socials WebSocket tickets");
+}
+
+fn migrate_v54(conn: &Connection) {
+    conn.execute_batch("BEGIN IMMEDIATE;")
+        .expect("migration v54 failed acquiring the migration lock");
+
+    let result = (|| -> rusqlite::Result<bool> {
+        // Another process may have completed v54 while this connection waited
+        // for the write lock. Re-read under the lock before applying any DDL.
+        let current = conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        if current >= 54 {
+            return Ok(false);
+        }
+
+        let has_audience_column = conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM pragma_table_info('social_posts')
+                 WHERE name = 'audience_profile_id'
+            )",
+            [],
+            |row| row.get::<_, bool>(0),
+        )?;
+        if !has_audience_column {
+            conn.execute_batch(
+                "ALTER TABLE social_posts ADD COLUMN audience_profile_id TEXT;",
+            )?;
+        }
+
+        conn.execute_batch(
+        "DROP TRIGGER IF EXISTS social_posts_visibility_insert;
+        DROP TRIGGER IF EXISTS social_posts_visibility_update;
+        DROP TRIGGER IF EXISTS social_posts_audience_insert;
+        DROP TRIGGER IF EXISTS social_posts_audience_update;
+        DROP TRIGGER IF EXISTS social_posts_reply_parent_immutable;
+        DROP TRIGGER IF EXISTS social_posts_audience_with_replies_immutable;
+        DROP TRIGGER IF EXISTS social_longform_visibility_insert;
+        DROP TRIGGER IF EXISTS social_longform_visibility_update;
+        DROP TRIGGER IF EXISTS pulse_drafts_visibility_insert;
+        DROP TRIGGER IF EXISTS pulse_drafts_visibility_update;
+
+        UPDATE social_posts SET visibility = 'author-only' WHERE visibility = 'private';
+        UPDATE social_posts SET visibility = 'author-only'
+         WHERE visibility NOT IN ('public', 'followers', 'mutuals', 'guild', 'circle', 'author-only');
+        UPDATE social_posts SET visibility = 'guild' WHERE community_id IS NOT NULL;
+
+        -- Replies are part of the root post's audience, not independent public
+        -- objects. Carry the root audience owner, visibility, and Guild down
+        -- every valid legacy reply tree before authorization begins using the
+        -- new column.
+        WITH RECURSIVE inherited(id, audience_profile_id, visibility, community_id, depth) AS (
+            SELECT id, profile_id, visibility, community_id, 0
+              FROM social_posts
+             WHERE reply_to_post_id IS NULL
+            UNION ALL
+            SELECT child.id, parent.audience_profile_id,
+                   CASE
+                       WHEN child.visibility = 'public'
+                         OR child.visibility = parent.visibility
+                       THEN parent.visibility
+                       ELSE 'author-only'
+                   END,
+                   parent.community_id, parent.depth + 1
+              FROM social_posts child
+              JOIN inherited parent ON child.reply_to_post_id = parent.id
+             WHERE parent.depth < 1000
+        )
+        UPDATE social_posts
+           SET audience_profile_id = (
+                   SELECT inherited.audience_profile_id
+                     FROM inherited
+                    WHERE inherited.id = social_posts.id
+               ),
+               visibility = (
+                   SELECT inherited.visibility
+                     FROM inherited
+                    WHERE inherited.id = social_posts.id
+               ),
+               community_id = (
+                   SELECT inherited.community_id
+                     FROM inherited
+                    WHERE inherited.id = social_posts.id
+               )
+         WHERE id IN (SELECT id FROM inherited);
+
+        -- Orphaned, cyclic, or pathologically deep legacy replies have no
+        -- trustworthy audience root. Preserve them fail-closed for their own
+        -- author instead of guessing and risking disclosure.
+        UPDATE social_posts
+           SET audience_profile_id = profile_id,
+               visibility = 'author-only',
+               community_id = NULL
+         WHERE audience_profile_id IS NULL OR audience_profile_id = '';
+
+        UPDATE social_longform SET visibility = 'author-only' WHERE visibility = 'private';
+        UPDATE social_longform SET visibility = 'author-only'
+         WHERE visibility NOT IN ('public', 'followers', 'mutuals', 'author-only');
+        UPDATE pulse_drafts SET visibility = 'author-only' WHERE visibility = 'private';
+        UPDATE pulse_drafts SET visibility = 'author-only'
+         WHERE visibility NOT IN ('public', 'followers', 'mutuals', 'author-only');
+
+        CREATE TRIGGER social_posts_visibility_insert
+        BEFORE INSERT ON social_posts
+        WHEN NEW.visibility NOT IN ('public', 'followers', 'mutuals', 'guild', 'circle', 'author-only')
+        BEGIN SELECT RAISE(ABORT, 'invalid social post visibility'); END;
+        CREATE TRIGGER social_posts_visibility_update
+        BEFORE UPDATE OF visibility ON social_posts
+        WHEN NEW.visibility NOT IN ('public', 'followers', 'mutuals', 'guild', 'circle', 'author-only')
+        BEGIN SELECT RAISE(ABORT, 'invalid social post visibility'); END;
+        CREATE TRIGGER social_posts_audience_insert
+        BEFORE INSERT ON social_posts
+        WHEN (
+            NEW.reply_to_post_id IS NULL
+            AND (
+                NULLIF(NEW.audience_profile_id, '') IS NULL
+                OR NEW.audience_profile_id != NEW.profile_id
+            )
+        ) OR (
+            NEW.reply_to_post_id IS NOT NULL
+            AND NOT EXISTS (
+                SELECT 1
+                  FROM social_posts parent
+                 WHERE parent.id = NEW.reply_to_post_id
+                   AND parent.id != NEW.id
+                   AND NEW.audience_profile_id = parent.audience_profile_id
+                   AND NEW.visibility = parent.visibility
+                   AND NEW.community_id IS parent.community_id
+            )
+        )
+        BEGIN SELECT RAISE(ABORT, 'invalid social reply audience'); END;
+        CREATE TRIGGER social_posts_audience_update
+        BEFORE UPDATE OF profile_id, reply_to_post_id, visibility, community_id, audience_profile_id
+        ON social_posts
+        WHEN (
+            NEW.reply_to_post_id IS NULL
+            AND (
+                NULLIF(NEW.audience_profile_id, '') IS NULL
+                OR NEW.audience_profile_id != NEW.profile_id
+            )
+        ) OR (
+            NEW.reply_to_post_id IS NOT NULL
+            AND NOT EXISTS (
+                SELECT 1
+                  FROM social_posts parent
+                 WHERE parent.id = NEW.reply_to_post_id
+                   AND parent.id != NEW.id
+                   AND NEW.audience_profile_id = parent.audience_profile_id
+                   AND NEW.visibility = parent.visibility
+                   AND NEW.community_id IS parent.community_id
+            )
+        )
+        BEGIN SELECT RAISE(ABORT, 'invalid social reply audience'); END;
+        CREATE TRIGGER social_posts_reply_parent_immutable
+        BEFORE UPDATE OF reply_to_post_id ON social_posts
+        WHEN NEW.reply_to_post_id IS NOT OLD.reply_to_post_id
+        BEGIN SELECT RAISE(ABORT, 'social reply parent is immutable'); END;
+        CREATE TRIGGER social_posts_audience_with_replies_immutable
+        BEFORE UPDATE OF profile_id, visibility, community_id, audience_profile_id ON social_posts
+        WHEN EXISTS (
+            SELECT 1 FROM social_posts child WHERE child.reply_to_post_id = OLD.id
+        ) AND (
+            NEW.profile_id IS NOT OLD.profile_id
+            OR NEW.visibility IS NOT OLD.visibility
+            OR NEW.community_id IS NOT OLD.community_id
+            OR NEW.audience_profile_id IS NOT OLD.audience_profile_id
+        )
+        BEGIN SELECT RAISE(ABORT, 'social post audience with replies is immutable'); END;
+        CREATE TRIGGER social_longform_visibility_insert
+        BEFORE INSERT ON social_longform
+        WHEN NEW.visibility NOT IN ('public', 'followers', 'mutuals', 'author-only')
+        BEGIN SELECT RAISE(ABORT, 'invalid social longform visibility'); END;
+        CREATE TRIGGER social_longform_visibility_update
+        BEFORE UPDATE OF visibility ON social_longform
+        WHEN NEW.visibility NOT IN ('public', 'followers', 'mutuals', 'author-only')
+        BEGIN SELECT RAISE(ABORT, 'invalid social longform visibility'); END;
+        CREATE TRIGGER pulse_drafts_visibility_insert
+        BEFORE INSERT ON pulse_drafts
+        WHEN NEW.visibility NOT IN ('public', 'followers', 'mutuals', 'author-only')
+        BEGIN SELECT RAISE(ABORT, 'invalid Pulse draft visibility'); END;
+        CREATE TRIGGER pulse_drafts_visibility_update
+        BEFORE UPDATE OF visibility ON pulse_drafts
+        WHEN NEW.visibility NOT IN ('public', 'followers', 'mutuals', 'author-only')
+        BEGIN SELECT RAISE(ABORT, 'invalid Pulse draft visibility'); END;
+
+        UPDATE schema_version SET version = 54;
+        ",
+        )?;
+        Ok(true)
+    })();
+
+    match result {
+        Ok(applied) => {
+            conn.execute_batch("COMMIT;")
+                .expect("migration v54 failed committing canonical Socials audiences");
+            if applied {
+                tracing::info!(
+                    "applied migration v54: canonical post audiences and reply audience ownership"
+                );
+            }
+        }
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            panic!("migration v54 failed adding canonical Socials post audiences: {error}");
+        }
+    }
+}
+
+fn migrate_v55(conn: &Connection) {
+    conn.execute_batch("BEGIN IMMEDIATE;")
+        .expect("migration v55 failed acquiring the migration lock");
+    let result = (|| -> rusqlite::Result<bool> {
+        let current = conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        if current >= 55 {
+            return Ok(false);
+        }
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS social_follow_requests (
+                id TEXT PRIMARY KEY,
+                requester_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+                target_profile_id TEXT NOT NULL REFERENCES social_profiles(id),
+                status TEXT NOT NULL DEFAULT 'pending',
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(requester_profile_id, target_profile_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_social_follow_requests_target
+                ON social_follow_requests(target_profile_id, status, created_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_social_follow_requests_requester
+                ON social_follow_requests(requester_profile_id, status, created_at DESC);
+            CREATE TRIGGER IF NOT EXISTS social_follow_requests_status_insert
+            BEFORE INSERT ON social_follow_requests
+            WHEN NEW.status NOT IN ('pending', 'accepted', 'rejected')
+            BEGIN SELECT RAISE(ABORT, 'invalid follow request status'); END;
+            CREATE TRIGGER IF NOT EXISTS social_follow_requests_status_update
+            BEFORE UPDATE OF status ON social_follow_requests
+            WHEN NEW.status NOT IN ('pending', 'accepted', 'rejected')
+            BEGIN SELECT RAISE(ABORT, 'invalid follow request status'); END;
+            UPDATE schema_version SET version = 55;",
+        )?;
+        Ok(true)
+    })();
+
+    match result {
+        Ok(applied) => {
+            conn.execute_batch("COMMIT;")
+                .expect("migration v55 failed committing follow requests");
+            if applied {
+                tracing::info!("applied migration v55: approval-based protected follows");
+            }
+        }
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            panic!("migration v55 failed adding follow requests: {error}");
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -10434,7 +10715,7 @@ impl Database {
         }).ok()
     }
 
-    pub fn social_list_profiles(&self, limit: i64) -> Vec<serde_json::Value> {
+    pub fn social_list_profiles(&self, limit: i64, offset: i64) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
@@ -10443,9 +10724,9 @@ impl Database {
                     la.agent_name, la.agent_slug, la.link_state
              FROM social_profiles p
              LEFT JOIN social_linked_agents la ON la.profile_id = p.id AND la.is_primary = 1
-             ORDER BY p.created_at DESC LIMIT ?1"
+             ORDER BY p.created_at DESC, p.id DESC LIMIT ?1 OFFSET ?2"
         ).unwrap();
-        stmt.query_map([limit], |row| {
+        stmt.query_map(params![limit, offset], |row| {
             let agent_name: Option<String> = row.get(13)?;
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
@@ -11469,8 +11750,9 @@ impl Database {
         let conn = self.conn.lock().unwrap();
         let id = Uuid::new_v4().to_string();
         conn.execute(
-            "INSERT INTO social_posts (id, profile_id, body, visibility, author_mode, linked_agent_id, reply_to_post_id, quote_post_id, community_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+            "INSERT INTO social_posts (id, profile_id, body, visibility, author_mode, linked_agent_id, reply_to_post_id, quote_post_id, community_id, audience_profile_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9,
+                COALESCE((SELECT NULLIF(audience_profile_id, '') FROM social_posts WHERE id = ?7), ?2))",
             params![id, profile_id, body, visibility, author_mode, linked_agent_id, reply_to, quote, community_id],
         ).expect("insert post");
         let mut stmt = conn.prepare(
@@ -11520,7 +11802,12 @@ impl Database {
         self.social_search_posts_keyset(query, limit, None, None, &[], &[])
     }
 
-    pub fn social_search_profiles(&self, query: &str, limit: i64) -> Vec<serde_json::Value> {
+    pub fn social_search_profiles(
+        &self,
+        query: &str,
+        limit: i64,
+        offset: i64,
+    ) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         let pattern = format!("%{query}%");
         // Exclude profiles that opted out of search (show_in_search = 0). Missing prefs row → included (default true).
@@ -11530,9 +11817,9 @@ impl Database {
              LEFT JOIN social_profile_prefs pref ON pref.profile_id = p.id
              WHERE (p.handle LIKE ?1 OR p.display_name LIKE ?1)
                AND (pref.show_in_search IS NULL OR pref.show_in_search = 1)
-             ORDER BY p.created_at DESC LIMIT ?2"
+             ORDER BY p.created_at DESC, p.id DESC LIMIT ?2 OFFSET ?3"
         ).unwrap();
-        stmt.query_map(params![pattern, limit], |row| {
+        stmt.query_map(params![pattern, limit, offset], |row| {
             Ok(serde_json::json!({
                 "id": row.get::<_, String>(0)?,
                 "handle": row.get::<_, String>(1)?,
@@ -11558,11 +11845,24 @@ impl Database {
             let conn = self.conn.lock().unwrap();
             let mut stmt = conn
                 .prepare(
-                    "SELECT body FROM social_posts
-                     WHERE visibility = 'public'
-                       AND deleted_at IS NULL
-                       AND created_at >= datetime('now', '-7 days')
-                     ORDER BY created_at DESC
+                    "SELECT sp.body FROM social_posts sp
+                     JOIN social_profiles author_profile ON author_profile.id = sp.profile_id
+                     LEFT JOIN accounts author_account
+                       ON author_account.clerk_user_id = author_profile.clerk_user_id
+                     JOIN social_profiles audience_profile
+                       ON audience_profile.id = COALESCE(NULLIF(sp.audience_profile_id, ''), sp.profile_id)
+                     LEFT JOIN accounts audience_account
+                       ON audience_account.clerk_user_id = audience_profile.clerk_user_id
+                     LEFT JOIN social_profile_prefs audience_pref
+                       ON audience_pref.profile_id = audience_profile.id
+                     WHERE sp.visibility = 'public'
+                       AND sp.community_id IS NULL
+                       AND sp.deleted_at IS NULL
+                       AND COALESCE(audience_pref.protected_posts, 0) = 0
+                       AND COALESCE(author_account.status, 'active') NOT IN ('suspended', 'deleted')
+                       AND COALESCE(audience_account.status, 'active') NOT IN ('suspended', 'deleted')
+                       AND sp.created_at >= datetime('now', '-7 days')
+                     ORDER BY sp.created_at DESC
                      LIMIT ?1",
                 )
                 .unwrap();
@@ -11605,7 +11905,9 @@ impl Database {
                     sc.creator_profile_id, p.handle, p.display_name
              FROM social_communities sc
              JOIN social_profiles p ON p.id = sc.creator_profile_id
+             LEFT JOIN accounts account ON account.clerk_user_id = p.clerk_user_id
              WHERE sc.visibility = 'public'
+               AND COALESCE(account.status, 'active') NOT IN ('suspended', 'deleted')
              ORDER BY sc.created_at DESC LIMIT ?1"
         ).unwrap();
         stmt.query_map([limit], |row| {
@@ -12031,6 +12333,172 @@ impl Database {
         conn.query_row("SELECT 1 FROM social_posts WHERE id = ?1 AND deleted_at IS NULL", [post_id], |_| Ok(())).is_ok()
     }
 
+    /// Central viewer/resource authorization boundary for Socials posts.
+    /// Missing, deleted, malformed, blocked, and unauthorized posts all conceal.
+    pub fn social_authorize_post(
+        &self,
+        post_id: &str,
+        viewer_profile_id: Option<&str>,
+        action: PostAction,
+    ) -> PolicyDecision {
+        let conn = self.conn.lock().unwrap();
+        let resource = conn.query_row(
+            "SELECT sp.profile_id,
+                    COALESCE(NULLIF(sp.audience_profile_id, ''), sp.profile_id),
+                    sp.visibility, sp.community_id, sp.deleted_at IS NOT NULL,
+                    COALESCE(pref.protected_posts, 0),
+                    COALESCE(author_account.status, 'active') NOT IN ('suspended', 'deleted')
+                    AND COALESCE(audience_account.status, 'active') NOT IN ('suspended', 'deleted')
+               FROM social_posts sp
+               LEFT JOIN social_profile_prefs pref
+                 ON pref.profile_id = COALESCE(NULLIF(sp.audience_profile_id, ''), sp.profile_id)
+               LEFT JOIN social_profiles author_profile ON author_profile.id = sp.profile_id
+               LEFT JOIN accounts author_account
+                 ON author_account.clerk_user_id = author_profile.clerk_user_id
+               LEFT JOIN social_profiles audience_profile
+                 ON audience_profile.id = COALESCE(NULLIF(sp.audience_profile_id, ''), sp.profile_id)
+               LEFT JOIN accounts audience_account
+                 ON audience_account.clerk_user_id = audience_profile.clerk_user_id
+              WHERE sp.id = ?1",
+            [post_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, bool>(4)?,
+                    row.get::<_, bool>(5)?,
+                    row.get::<_, bool>(6)?,
+                ))
+            },
+        );
+
+        let Ok((author_id, audience_owner_id, visibility, community_id, deleted, protected, owner_accounts_active)) = resource else {
+            return PolicyDecision::Conceal;
+        };
+
+        let audience = PostAudience::from_storage(&visibility);
+        let viewer_is_author = viewer_profile_id
+            .map(|viewer| viewer == author_id || viewer == audience_owner_id)
+            .unwrap_or(false);
+
+        let (viewer_follows_author, author_follows_viewer, blocked_either_direction, guild_member) =
+            match viewer_profile_id.filter(|viewer| !viewer.is_empty()) {
+                Some(viewer) => {
+                    let viewer_account_active = conn
+                        .query_row(
+                            "SELECT COALESCE(account.status, 'active') NOT IN ('suspended', 'deleted')
+                               FROM social_profiles profile
+                               LEFT JOIN accounts account
+                                 ON account.clerk_user_id = profile.clerk_user_id
+                              WHERE profile.id = ?1",
+                            [viewer],
+                            |row| row.get::<_, bool>(0),
+                        )
+                        .unwrap_or(false);
+                    if !viewer_account_active {
+                        return PolicyDecision::Conceal;
+                    }
+                    let viewer_follows = conn.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM social_follows
+                          WHERE follower_profile_id = ?1 AND following_profile_id = ?2)",
+                        params![viewer, audience_owner_id],
+                        |row| row.get::<_, bool>(0),
+                    ).unwrap_or(false);
+                    let followed_by = conn.query_row(
+                        "SELECT EXISTS(SELECT 1 FROM social_follows
+                          WHERE follower_profile_id = ?1 AND following_profile_id = ?2)",
+                        params![audience_owner_id, viewer],
+                        |row| row.get::<_, bool>(0),
+                    ).unwrap_or(false);
+                    let blocked = conn.query_row(
+                        "SELECT EXISTS(
+                            SELECT 1 FROM social_blocks
+                             WHERE (blocker_profile_id = ?1 AND blocked_profile_id IN (?2, ?3))
+                                OR (blocked_profile_id = ?1 AND blocker_profile_id IN (?2, ?3))
+                        )",
+                        params![viewer, author_id, audience_owner_id],
+                        |row| row.get::<_, bool>(0),
+                    ).unwrap_or(false);
+                    let member = community_id.as_deref().map(|community| {
+                        conn.query_row(
+                            "SELECT EXISTS(SELECT 1 FROM social_community_memberships
+                              WHERE community_id = ?1 AND profile_id = ?2)",
+                            params![community, viewer],
+                            |row| row.get::<_, bool>(0),
+                        ).unwrap_or(false)
+                    }).unwrap_or(false);
+                    (viewer_follows, followed_by, blocked, member)
+                }
+                None => (false, false, false, false),
+            };
+
+        authorize_post(action, &PostPolicyFacts {
+            audience,
+            owner_accounts_active,
+            deleted,
+            viewer_is_author,
+            viewer_follows_author,
+            author_follows_viewer,
+            blocked_either_direction,
+            author_has_protected_posts: protected,
+            requires_guild_membership: community_id.is_some(),
+            guild_member,
+            requires_circle_membership: audience == Some(PostAudience::Circle),
+            // Circle membership storage and management are introduced in the
+            // dedicated circle slice. Until then circle rows fail closed.
+            circle_member: false,
+        })
+    }
+
+    /// Canonical audience and Guild inherited by a new reply.
+    pub fn social_post_reply_context(
+        &self,
+        post_id: &str,
+    ) -> Option<(PostAudience, Option<String>)> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT visibility, community_id FROM social_posts
+              WHERE id = ?1 AND deleted_at IS NULL",
+            [post_id],
+            |row| {
+                let raw = row.get::<_, String>(0)?;
+                let audience = PostAudience::from_storage(&raw)
+                    .ok_or(rusqlite::Error::InvalidQuery)?;
+                Ok((audience, row.get::<_, Option<String>>(1)?))
+            },
+        ).ok()
+    }
+
+    fn social_count_authorized_replies(
+        &self,
+        post_id: &str,
+        viewer_profile_id: Option<&str>,
+    ) -> i64 {
+        let child_ids: Vec<String> = {
+            let conn = self.conn.lock().unwrap();
+            let mut statement = match conn.prepare(
+                "SELECT id FROM social_posts WHERE reply_to_post_id = ?1 AND deleted_at IS NULL",
+            ) {
+                Ok(statement) => statement,
+                Err(_) => return 0,
+            };
+            statement
+                .query_map([post_id], |row| row.get::<_, String>(0))
+                .ok()
+                .map(|rows| rows.filter_map(Result::ok).collect())
+                .unwrap_or_default()
+        };
+        child_ids
+            .into_iter()
+            .filter(|child_id| {
+                self.social_authorize_post(child_id, viewer_profile_id, PostAction::ViewThread)
+                    == PolicyDecision::Allow
+            })
+            .count() as i64
+    }
+
     /// Return the profile_id of the post author, or None if not found / deleted.
     pub fn social_get_post_author_profile_id(&self, post_id: &str) -> Option<String> {
         let conn = self.conn.lock().unwrap();
@@ -12064,10 +12532,248 @@ impl Database {
         actual_id
     }
 
+    /// Atomically create a follow edge or a pending approval request.
+    pub fn social_follow_or_request(
+        &self,
+        requester_id: &str,
+        target_id: &str,
+    ) -> Result<SocialFollowOutcome, String> {
+        if requester_id == target_id {
+            return Err("cannot follow yourself".to_string());
+        }
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch("BEGIN IMMEDIATE;")
+            .map_err(|error| error.to_string())?;
+        let result = (|| -> rusqlite::Result<SocialFollowOutcome> {
+            let target = conn.query_row(
+                "SELECT COALESCE(pref.protected_posts, 0),
+                        COALESCE(pref.profile_visibility, 'public'),
+                        COALESCE(account.status, 'active') NOT IN ('suspended', 'deleted')
+                   FROM social_profiles profile
+                   LEFT JOIN social_profile_prefs pref ON pref.profile_id = profile.id
+                   LEFT JOIN accounts account ON account.clerk_user_id = profile.clerk_user_id
+                  WHERE profile.id = ?1",
+                [target_id],
+                |row| {
+                    Ok((
+                        row.get::<_, bool>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, bool>(2)?,
+                    ))
+                },
+            )?;
+            if !target.2 {
+                return Err(rusqlite::Error::QueryReturnedNoRows);
+            }
+            let blocked = conn.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM social_blocks
+                     WHERE (blocker_profile_id = ?1 AND blocked_profile_id = ?2)
+                        OR (blocker_profile_id = ?2 AND blocked_profile_id = ?1)
+                )",
+                params![requester_id, target_id],
+                |row| row.get::<_, bool>(0),
+            )?;
+            if blocked {
+                return Err(rusqlite::Error::QueryReturnedNoRows);
+            }
+
+            if let Ok(follow_id) = conn.query_row(
+                "SELECT id FROM social_follows
+                  WHERE follower_profile_id = ?1 AND following_profile_id = ?2",
+                params![requester_id, target_id],
+                |row| row.get::<_, String>(0),
+            ) {
+                return Ok(SocialFollowOutcome::AlreadyFollowing(follow_id));
+            }
+
+            let requires_approval = target.0 || target.1 == "followers";
+            if requires_approval {
+                if let Ok(existing_id) = conn.query_row(
+                    "SELECT id FROM social_follow_requests
+                      WHERE requester_profile_id = ?1
+                        AND target_profile_id = ?2
+                        AND status = 'pending'",
+                    params![requester_id, target_id],
+                    |row| row.get::<_, String>(0),
+                ) {
+                    return Ok(SocialFollowOutcome::AlreadyPending(existing_id));
+                }
+                let request_id = format!("follow_request_{}", Uuid::new_v4());
+                conn.execute(
+                    "INSERT INTO social_follow_requests
+                        (id, requester_profile_id, target_profile_id, status)
+                     VALUES (?1, ?2, ?3, 'pending')
+                     ON CONFLICT(requester_profile_id, target_profile_id) DO UPDATE SET
+                        status = 'pending', updated_at = datetime('now')",
+                    params![request_id, requester_id, target_id],
+                )?;
+                let actual_id = conn.query_row(
+                    "SELECT id FROM social_follow_requests
+                      WHERE requester_profile_id = ?1 AND target_profile_id = ?2",
+                    params![requester_id, target_id],
+                    |row| row.get::<_, String>(0),
+                )?;
+                Ok(SocialFollowOutcome::Pending(actual_id))
+            } else {
+                let follow_id = Uuid::new_v4().to_string();
+                conn.execute(
+                    "INSERT INTO social_follows
+                        (id, follower_profile_id, following_profile_id)
+                     VALUES (?1, ?2, ?3)",
+                    params![follow_id, requester_id, target_id],
+                )?;
+                conn.execute(
+                    "UPDATE social_follow_requests
+                        SET status = 'accepted', updated_at = datetime('now')
+                      WHERE requester_profile_id = ?1 AND target_profile_id = ?2",
+                    params![requester_id, target_id],
+                )?;
+                Ok(SocialFollowOutcome::Following(follow_id))
+            }
+        })();
+        match result {
+            Ok(outcome) => {
+                conn.execute_batch("COMMIT;")
+                    .map_err(|error| error.to_string())?;
+                Ok(outcome)
+            }
+            Err(error) => {
+                let _ = conn.execute_batch("ROLLBACK;");
+                Err(error.to_string())
+            }
+        }
+    }
+
+    pub fn social_follow_request_pending(&self, requester_id: &str, target_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM social_follow_requests
+                 WHERE requester_profile_id = ?1
+                   AND target_profile_id = ?2
+                   AND status = 'pending'
+            )",
+            params![requester_id, target_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .unwrap_or(false)
+    }
+
+    pub fn social_list_incoming_follow_requests(
+        &self,
+        target_id: &str,
+        limit: i64,
+    ) -> Vec<serde_json::Value> {
+        let conn = self.conn.lock().unwrap();
+        let mut statement = conn.prepare(
+            "SELECT request.id, request.status, request.created_at,
+                    profile.id, profile.handle, profile.display_name, profile.avatar_url
+               FROM social_follow_requests request
+               JOIN social_profiles profile ON profile.id = request.requester_profile_id
+              WHERE request.target_profile_id = ?1 AND request.status = 'pending'
+              ORDER BY request.created_at DESC, request.id DESC
+              LIMIT ?2",
+        ).unwrap();
+        statement
+            .query_map(params![target_id, limit], |row| {
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "status": row.get::<_, String>(1)?,
+                    "createdAt": row.get::<_, String>(2)?,
+                    "requester": {
+                        "id": row.get::<_, String>(3)?,
+                        "handle": row.get::<_, String>(4)?,
+                        "displayName": row.get::<_, String>(5)?,
+                        "avatarUrl": row.get::<_, Option<String>>(6)?,
+                    }
+                }))
+            })
+            .unwrap()
+            .filter_map(Result::ok)
+            .collect()
+    }
+
+    pub fn social_resolve_follow_request(
+        &self,
+        request_id: &str,
+        target_id: &str,
+        approve: bool,
+    ) -> Result<String, String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute_batch("BEGIN IMMEDIATE;")
+            .map_err(|error| error.to_string())?;
+        let result = (|| -> rusqlite::Result<String> {
+            let requester_id = conn.query_row(
+                "SELECT request.requester_profile_id
+                   FROM social_follow_requests request
+                   JOIN social_profiles requester
+                     ON requester.id = request.requester_profile_id
+                   JOIN social_profiles target
+                     ON target.id = request.target_profile_id
+                   LEFT JOIN accounts requester_account
+                     ON requester_account.clerk_user_id = requester.clerk_user_id
+                   LEFT JOIN accounts target_account
+                     ON target_account.clerk_user_id = target.clerk_user_id
+                  WHERE request.id = ?1
+                    AND request.target_profile_id = ?2
+                    AND request.status = 'pending'
+                    AND COALESCE(requester_account.status, 'active') NOT IN ('suspended', 'deleted')
+                    AND COALESCE(target_account.status, 'active') NOT IN ('suspended', 'deleted')",
+                params![request_id, target_id],
+                |row| row.get::<_, String>(0),
+            )?;
+            let blocked = conn.query_row(
+                "SELECT EXISTS(
+                    SELECT 1 FROM social_blocks
+                     WHERE (blocker_profile_id = ?1 AND blocked_profile_id = ?2)
+                        OR (blocker_profile_id = ?2 AND blocked_profile_id = ?1)
+                )",
+                params![requester_id, target_id],
+                |row| row.get::<_, bool>(0),
+            )?;
+            if blocked {
+                return Err(rusqlite::Error::QueryReturnedNoRows);
+            }
+            let status = if approve { "accepted" } else { "rejected" };
+            conn.execute(
+                "UPDATE social_follow_requests
+                    SET status = ?1, updated_at = datetime('now')
+                  WHERE id = ?2 AND target_profile_id = ?3 AND status = 'pending'",
+                params![status, request_id, target_id],
+            )?;
+            if approve {
+                conn.execute(
+                    "INSERT OR IGNORE INTO social_follows
+                        (id, follower_profile_id, following_profile_id)
+                     VALUES (?1, ?2, ?3)",
+                    params![Uuid::new_v4().to_string(), requester_id, target_id],
+                )?;
+            }
+            Ok(requester_id)
+        })();
+        match result {
+            Ok(requester_id) => {
+                conn.execute_batch("COMMIT;")
+                    .map_err(|error| error.to_string())?;
+                Ok(requester_id)
+            }
+            Err(error) => {
+                let _ = conn.execute_batch("ROLLBACK;");
+                Err(error.to_string())
+            }
+        }
+    }
+
     pub fn social_unfollow(&self, follower_id: &str, following_id: &str) {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "DELETE FROM social_follows WHERE follower_profile_id = ?1 AND following_profile_id = ?2",
+            params![follower_id, following_id],
+        ).ok();
+        conn.execute(
+            "DELETE FROM social_follow_requests
+              WHERE requester_profile_id = ?1 AND target_profile_id = ?2",
             params![follower_id, following_id],
         ).ok();
     }
@@ -12170,10 +12876,40 @@ impl Database {
 
     pub fn social_block_user(&self, blocker_id: &str, blocked_id: &str) {
         let conn = self.conn.lock().unwrap();
-        conn.execute(
-            "INSERT OR IGNORE INTO social_blocks (blocker_profile_id, blocked_profile_id) VALUES (?1, ?2)",
-            params![blocker_id, blocked_id],
-        ).ok();
+        if conn.execute_batch("BEGIN IMMEDIATE;").is_err() {
+            return;
+        }
+        let result = (|| -> rusqlite::Result<()> {
+            conn.execute(
+                "INSERT OR IGNORE INTO social_blocks (blocker_profile_id, blocked_profile_id) VALUES (?1, ?2)",
+                params![blocker_id, blocked_id],
+            )?;
+            // A block revokes relationship-based authorization permanently.
+            // Unblocking must never restore a previously approved follow edge.
+            conn.execute(
+                "DELETE FROM social_follows
+                  WHERE (follower_profile_id = ?1 AND following_profile_id = ?2)
+                     OR (follower_profile_id = ?2 AND following_profile_id = ?1)",
+                params![blocker_id, blocked_id],
+            )?;
+            conn.execute(
+                "DELETE FROM social_follow_requests
+                  WHERE (requester_profile_id = ?1 AND target_profile_id = ?2)
+                     OR (requester_profile_id = ?2 AND target_profile_id = ?1)",
+                params![blocker_id, blocked_id],
+            )?;
+            Ok(())
+        })();
+        match result {
+            Ok(()) => {
+                if conn.execute_batch("COMMIT;").is_err() {
+                    let _ = conn.execute_batch("ROLLBACK;");
+                }
+            }
+            Err(_) => {
+                let _ = conn.execute_batch("ROLLBACK;");
+            }
+        }
     }
 
     pub fn social_unblock_user(&self, blocker_id: &str, blocked_id: &str) {
@@ -12365,6 +13101,106 @@ impl Database {
             },
         )
         .ok()
+    }
+
+    /// Central viewer/resource authorization boundary for Socials profiles.
+    pub fn social_authorize_profile(
+        &self,
+        profile_id: &str,
+        viewer_profile_id: Option<&str>,
+        action: ProfileAction,
+    ) -> PolicyDecision {
+        let conn = self.conn.lock().unwrap();
+        let resource = conn.query_row(
+            "SELECT COALESCE(pref.profile_visibility, 'public'),
+                    COALESCE(pref.show_in_search, 1),
+                    COALESCE(account.status, 'active') NOT IN ('suspended', 'deleted')
+               FROM social_profiles profile
+               LEFT JOIN social_profile_prefs pref ON pref.profile_id = profile.id
+               LEFT JOIN accounts account ON account.clerk_user_id = profile.clerk_user_id
+              WHERE profile.id = ?1",
+            [profile_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, bool>(1)?,
+                    row.get::<_, bool>(2)?,
+                ))
+            },
+        );
+        let Ok((visibility, show_in_search, owner_account_active)) = resource else {
+            return PolicyDecision::Conceal;
+        };
+        let viewer_present = viewer_profile_id.map(|id| !id.is_empty()).unwrap_or(false);
+        let viewer_is_profile = viewer_profile_id == Some(profile_id);
+        let (viewer_follows_profile, blocked_either_direction) = match viewer_profile_id {
+            Some(viewer) if !viewer.is_empty() && viewer != profile_id => {
+                let follows = conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM social_follows
+                      WHERE follower_profile_id = ?1 AND following_profile_id = ?2)",
+                    params![viewer, profile_id],
+                    |row| row.get::<_, bool>(0),
+                ).unwrap_or(false);
+                let blocked = conn.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM social_blocks
+                      WHERE (blocker_profile_id = ?1 AND blocked_profile_id = ?2)
+                         OR (blocker_profile_id = ?2 AND blocked_profile_id = ?1))",
+                    params![viewer, profile_id],
+                    |row| row.get::<_, bool>(0),
+                ).unwrap_or(false);
+                (follows, blocked)
+            }
+            _ => (false, false),
+        };
+        authorize_profile(action, &ProfilePolicyFacts {
+            visibility: ProfileVisibility::from_storage(&visibility),
+            owner_account_active,
+            viewer_present,
+            viewer_is_profile,
+            viewer_follows_profile,
+            blocked_either_direction,
+            show_in_search,
+        })
+    }
+
+    pub fn social_filter_authorized_profiles(
+        &self,
+        profiles: &mut Vec<serde_json::Value>,
+        viewer_profile_id: Option<&str>,
+        action: ProfileAction,
+    ) {
+        profiles.retain(|profile| {
+            profile.get("id").and_then(|value| value.as_str()).map(|profile_id| {
+                self.social_authorize_profile(profile_id, viewer_profile_id, action)
+                    == PolicyDecision::Allow
+            }).unwrap_or(false)
+        });
+    }
+
+    pub fn social_get_profile_stats_visible(
+        &self,
+        profile_id: &str,
+        viewer_profile_id: Option<&str>,
+    ) -> serde_json::Value {
+        let mut stats = self.social_get_profile_stats(profile_id);
+        let post_ids: Vec<String> = {
+            let conn = self.conn.lock().unwrap();
+            let mut statement = conn.prepare(
+                "SELECT id FROM social_posts WHERE profile_id = ?1 AND deleted_at IS NULL",
+            ).unwrap();
+            statement.query_map([profile_id], |row| row.get::<_, String>(0))
+                .unwrap()
+                .filter_map(Result::ok)
+                .collect()
+        };
+        let visible_count = post_ids.into_iter().filter(|post_id| {
+            self.social_authorize_post(post_id, viewer_profile_id, PostAction::View)
+                == PolicyDecision::Allow
+        }).count() as i64;
+        if let Some(object) = stats.as_object_mut() {
+            object.insert("postCount".into(), serde_json::json!(visible_count));
+        }
+        stats
     }
 
     /// Partial update of privacy prefs. Missing fields keep existing values.
@@ -12594,17 +13430,7 @@ impl Database {
             }))
         }).ok()?;
 
-        let profile_id = profile["id"].as_str().unwrap_or("");
-
-        // Stats
-        let count = |sql: &str| -> i64 {
-            conn.query_row(sql, [profile_id], |r| r.get(0)).unwrap_or(0)
-        };
-        let stats = serde_json::json!({
-            "postCount": count("SELECT COUNT(*) FROM social_posts WHERE profile_id = ?1"),
-            "followerCount": count("SELECT COUNT(*) FROM social_follows WHERE following_profile_id = ?1"),
-            "followingCount": count("SELECT COUNT(*) FROM social_follows WHERE follower_profile_id = ?1"),
-        });
+        let profile_id = profile["id"].as_str().unwrap_or("").to_string();
 
         // Viewer-relative flags
         let (is_following, is_followed_by) = match viewer_profile_id {
@@ -12622,6 +13448,9 @@ impl Database {
             _ => (false, false),
         };
 
+        drop(stmt);
+        drop(conn);
+        let stats = self.social_get_profile_stats_visible(&profile_id, viewer_profile_id);
         let mut obj = profile;
         if let Some(m) = obj.as_object_mut() {
             m.insert("stats".into(), stats);
@@ -12676,7 +13505,7 @@ impl Database {
                  FROM social_posts sp
                  JOIN social_profiles p ON p.id = sp.profile_id
                  LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
-                 WHERE sp.profile_id = ?1 AND sp.visibility = 'public' AND sp.deleted_at IS NULL
+                 WHERE sp.profile_id = ?1 AND sp.deleted_at IS NULL
                    AND (sp.created_at < ?2 OR (sp.created_at = ?2 AND sp.id < ?3))
                  ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?4"
             ).unwrap();
@@ -12697,7 +13526,7 @@ impl Database {
                  FROM social_posts sp
                  JOIN social_profiles p ON p.id = sp.profile_id
                  LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
-                 WHERE sp.profile_id = ?1 AND sp.visibility = 'public' AND sp.deleted_at IS NULL
+                 WHERE sp.profile_id = ?1 AND sp.deleted_at IS NULL
                  ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?2"
             ).unwrap();
             stmt.query_map(params![profile_id, limit], map_row)
@@ -12713,6 +13542,23 @@ impl Database {
         viewer_profile_id: Option<&str>,
     ) -> Option<serde_json::Value> {
         let _t = std::time::Instant::now();
+        if self.social_authorize_post(post_id, viewer_profile_id, PostAction::View)
+            != PolicyDecision::Allow
+        {
+            return None;
+        }
+        let visible_quote_id = {
+            let conn = self.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT quote_post_id FROM social_posts WHERE id = ?1",
+                [post_id],
+                |row| row.get::<_, Option<String>>(0),
+            ).ok().flatten()
+        }.filter(|quote_id| {
+            self.social_authorize_post(quote_id, viewer_profile_id, PostAction::View)
+                == PolicyDecision::Allow
+        });
+        let visible_reply_count = self.social_count_authorized_replies(post_id, viewer_profile_id);
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
@@ -12763,9 +13609,7 @@ impl Database {
         let bookmark_count: i64 = conn.query_row(
             "SELECT COUNT(*) FROM social_bookmarks WHERE post_id = ?1", [post_id], |r| r.get(0),
         ).unwrap_or(0);
-        let reply_count: i64 = conn.query_row(
-            "SELECT COUNT(*) FROM social_posts WHERE reply_to_post_id = ?1 AND deleted_at IS NULL", [post_id], |r| r.get(0),
-        ).unwrap_or(0);
+        let reply_count = visible_reply_count;
 
         // Viewer-relative booleans
         let (liked, bookmarked, reposted) = match viewer_profile_id {
@@ -12798,17 +13642,16 @@ impl Database {
         }
 
         // Nest quoted post when present (same shape as feed enrich `quotePost`).
-        if let Some(qid) = post
-            .get("quotePostId")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string())
-        {
+        if let Some(qid) = visible_quote_id {
             let quote_map = Self::social_load_quote_posts_by_ids(&conn, &[qid.clone()]);
             if let Some(quoted) = quote_map.get(&qid) {
                 if let Some(m) = post.as_object_mut() {
                     m.insert("quotePost".into(), quoted.clone());
                 }
+            }
+        } else if post.get("quotePostId").and_then(|value| value.as_str()).is_some() {
+            if let Some(object) = post.as_object_mut() {
+                object.insert("quotePostId".into(), serde_json::Value::Null);
             }
         }
 
@@ -12867,6 +13710,11 @@ impl Database {
         viewer_profile_id: Option<&str>,
     ) -> Option<Vec<serde_json::Value>> {
         let _t = std::time::Instant::now();
+        if self.social_authorize_post(post_id, viewer_profile_id, PostAction::View)
+            != PolicyDecision::Allow
+        {
+            return None;
+        }
         let limit = limit.clamp(1, 20);
         // Over-fetch candidates so scoring can re-rank by shared tags.
         let candidate_cap: i64 = (limit * 20).clamp(40, 200);
@@ -12891,17 +13739,9 @@ impl Database {
             )
             .ok();
 
-        let Some((_id, author_id, body, visibility)) = source else {
+        let Some((_id, author_id, body, _visibility)) = source else {
             return None;
         };
-
-        let visibility = visibility.unwrap_or_else(|| "public".to_string());
-        if visibility != "public" {
-            let is_author = viewer_profile_id == Some(author_id.as_str());
-            if !is_author {
-                return None;
-            }
-        }
 
         let source_tags = Self::social_extract_hashtags(&body);
 
@@ -13094,7 +13934,7 @@ impl Database {
     pub fn social_get_thread_replies(
         &self,
         root_post_id: &str,
-        _viewer_profile_id: Option<&str>,
+        viewer_profile_id: Option<&str>,
     ) -> (Vec<serde_json::Value>, bool) {
         let _t = std::time::Instant::now();
         const MAX_DEPTH: i64 = 8;
@@ -13275,6 +14115,14 @@ impl Database {
             })
         });
 
+        drop(conn);
+        results.retain(|post| {
+            post.get("id").and_then(|value| value.as_str()).map(|id| {
+                self.social_authorize_post(id, viewer_profile_id, PostAction::ViewThread)
+                    == PolicyDecision::Allow
+            }).unwrap_or(false)
+        });
+
         tracing::info!(
             method = "social_get_thread_replies",
             duration_ms = _t.elapsed().as_millis(),
@@ -13289,15 +14137,42 @@ impl Database {
     /// Call this on the Vec returned by any social_list_feed_posts* or social_get_*_feed function.
     pub fn social_enrich_feed_posts(
         &self,
-        posts: &mut [serde_json::Value],
+        posts: &mut Vec<serde_json::Value>,
         viewer_profile_id: Option<&str>,
     ) {
+        posts.retain(|post| {
+            post.get("id").and_then(|value| value.as_str()).map(|id| {
+                self.social_authorize_post(id, viewer_profile_id, PostAction::View)
+                    == PolicyDecision::Allow
+            }).unwrap_or(false)
+        });
+        let visible_quote_ids: HashSet<String> = posts.iter()
+            .filter_map(|post| post.get("quotePostId").and_then(|value| value.as_str()))
+            .filter(|id| {
+                self.social_authorize_post(id, viewer_profile_id, PostAction::View)
+                    == PolicyDecision::Allow
+            })
+            .map(str::to_owned)
+            .collect();
+        let visible_reply_counts: HashMap<String, i64> = posts.iter()
+            .filter_map(|post| post.get("id").and_then(|value| value.as_str()))
+            .map(|post_id| {
+                (post_id.to_string(), self.social_count_authorized_replies(post_id, viewer_profile_id))
+            })
+            .collect();
         let conn = self.conn.lock().unwrap();
         for post in posts.iter_mut() {
             let post_id = match post["id"].as_str() {
                 Some(id) => id.to_string(),
                 None => continue,
             };
+            if let Some(quote_id) = post.get("quotePostId").and_then(|value| value.as_str()) {
+                if !visible_quote_ids.contains(quote_id) {
+                    if let Some(object) = post.as_object_mut() {
+                        object.insert("quotePostId".into(), serde_json::Value::Null);
+                    }
+                }
+            }
 
             let like_count: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM social_likes WHERE post_id = ?1", [&post_id], |r| r.get(0),
@@ -13308,9 +14183,7 @@ impl Database {
             let bookmark_count: i64 = conn.query_row(
                 "SELECT COUNT(*) FROM social_bookmarks WHERE post_id = ?1", [&post_id], |r| r.get(0),
             ).unwrap_or(0);
-            let reply_count: i64 = conn.query_row(
-                "SELECT COUNT(*) FROM social_posts WHERE reply_to_post_id = ?1 AND deleted_at IS NULL", [&post_id], |r| r.get(0),
-            ).unwrap_or(0);
+            let reply_count = visible_reply_counts.get(&post_id).copied().unwrap_or(0);
 
             // Also fetch avatar_url for the author
             let profile_id_str = post["author"]["profileId"].as_str().unwrap_or("").to_string();
@@ -13375,15 +14248,19 @@ impl Database {
                 };
                 media_stmt
                     .query_map(params![post_id], |row| {
-                        let storage_key: String = row.get(5)?;
-                        let public_url = Self::social_media_public_url(&storage_key);
+                        let media_id: String = row.get(0)?;
+                        let delivery_url = crate::media::signed_media_delivery_url(
+                            &media_id,
+                            Some(&post_id),
+                            viewer_profile_id,
+                        );
                         Ok(serde_json::json!({
-                            "id": row.get::<_, String>(0)?,
+                            "id": media_id,
                             "filename": row.get::<_, String>(1)?,
                             "contentType": row.get::<_, String>(2)?,
                             "sizeBytes": row.get::<_, i64>(3)?,
                             "mediaType": row.get::<_, String>(4)?,
-                            "url": public_url,
+                            "url": delivery_url,
                             "position": row.get::<_, i64>(6)?,
                         }))
                     })
@@ -13398,19 +14275,23 @@ impl Database {
 
         // Nested quoted posts (one level): batch-load unique quote targets to avoid N+1.
         // Only attach real backend rows — never invent a quote shell when the target is gone.
-        Self::social_attach_nested_quote_posts(&conn, posts);
+        Self::social_attach_nested_quote_posts(&conn, posts, &visible_quote_ids);
     }
 
     /// Collect `quotePostId`s from posts and attach nested `quotePost` objects (batch IN query).
     fn social_attach_nested_quote_posts(
         conn: &rusqlite::Connection,
         posts: &mut [serde_json::Value],
+        visible_quote_ids: &HashSet<String>,
     ) {
         let mut quote_ids: Vec<String> = Vec::new();
         let mut seen: HashSet<String> = HashSet::new();
         for post in posts.iter() {
             if let Some(qid) = post.get("quotePostId").and_then(|v| v.as_str()) {
-                if !qid.is_empty() && seen.insert(qid.to_string()) {
+                if !qid.is_empty()
+                    && visible_quote_ids.contains(qid)
+                    && seen.insert(qid.to_string())
+                {
                     quote_ids.push(qid.to_string());
                 }
             }
@@ -13556,7 +14437,7 @@ impl Database {
                  FROM social_posts sp
                  JOIN social_profiles p ON p.id = sp.profile_id
                  LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
-                 WHERE sp.visibility = 'public' AND sp.deleted_at IS NULL
+                 WHERE sp.deleted_at IS NULL
                    AND sp.profile_id IN (
                        SELECT following_profile_id FROM social_follows WHERE follower_profile_id = ?1
                    )
@@ -13605,7 +14486,7 @@ impl Database {
                  FROM social_posts sp
                  JOIN social_profiles p ON p.id = sp.profile_id
                  LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
-                 WHERE sp.visibility = 'public' AND sp.deleted_at IS NULL
+                 WHERE sp.deleted_at IS NULL
                    AND sp.profile_id IN (
                        SELECT following_profile_id FROM social_follows WHERE follower_profile_id = ?1
                    )
@@ -13701,10 +14582,11 @@ impl Database {
                 "actorHandle": row.get::<_, String>(6)?,
                 "actorDisplayName": row.get::<_, String>(7)?,
                 "actorAvatarUrl": row.get::<_, Option<String>>(8)?,
+                "actorProfileId": row.get::<_, String>(5)?,
             }))
         };
         let mut stmt = conn.prepare(&sql).unwrap();
-        let rows: Vec<serde_json::Value> = if use_cursor {
+        let mut rows: Vec<serde_json::Value> = if use_cursor {
             stmt.query_map(
                 params![profile_id, cursor_created_at.unwrap(), cursor_id.unwrap(), limit],
                 map_row,
@@ -13718,6 +14600,24 @@ impl Database {
                 .filter_map(|r| r.ok())
                 .collect()
         };
+        drop(stmt);
+        drop(conn);
+        rows.retain(|notification| {
+            let actor_visible = notification["actorProfileId"].as_str().map(|actor_id| {
+                self.social_authorize_profile(actor_id, Some(profile_id), ProfileAction::View)
+                    == PolicyDecision::Allow
+            }).unwrap_or(false);
+            let post_visible = notification["postId"].as_str().map(|post_id| {
+                self.social_authorize_post(post_id, Some(profile_id), PostAction::View)
+                    == PolicyDecision::Allow
+            }).unwrap_or(true);
+            actor_visible && post_visible
+        });
+        for notification in &mut rows {
+            if let Some(object) = notification.as_object_mut() {
+                object.remove("actorProfileId");
+            }
+        }
         tracing::info!(method = "social_get_notifications", duration_ms = _t.elapsed().as_millis(), row_count = rows.len(), "db query");
         rows
     }
@@ -13782,7 +14682,7 @@ impl Database {
                  FROM social_posts sp
                  JOIN social_profiles p ON p.id = sp.profile_id
                  LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
-                 WHERE sp.community_id = ?1 AND sp.visibility = 'public' AND sp.deleted_at IS NULL
+                 WHERE sp.community_id = ?1 AND sp.deleted_at IS NULL
                    AND (sp.created_at < ?2 OR (sp.created_at = ?2 AND sp.id < ?3))
                    {exclude_clause}
                  ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?4"
@@ -13809,7 +14709,7 @@ impl Database {
                  FROM social_posts sp
                  JOIN social_profiles p ON p.id = sp.profile_id
                  LEFT JOIN social_linked_agents la ON la.id = sp.linked_agent_id
-                 WHERE sp.community_id = ?1 AND sp.visibility = 'public' AND sp.deleted_at IS NULL
+                 WHERE sp.community_id = ?1 AND sp.deleted_at IS NULL
                    {exclude_clause}
                  ORDER BY sp.created_at DESC, sp.id DESC LIMIT ?2"
             );
@@ -14260,33 +15160,46 @@ impl Database {
         linked
     }
 
-    /// Resolve public media URL (mock-upload path when R2/S3 is not configured).
-    /// Must match `media::resolve_public_url` mock branch and feed enrichment.
-    pub fn social_media_public_url(storage_key: &str) -> String {
-        if let Ok(domain) = std::env::var("STORAGE_PUBLIC_URL") {
-            return format!("{}/{}", domain.trim_end_matches('/'), storage_key);
-        }
-        match (
-            std::env::var("STORAGE_ENDPOINT"),
-            std::env::var("STORAGE_BUCKET"),
-        ) {
-            (Ok(ep), Ok(bucket)) => {
-                format!(
-                    "{}/{}/{}",
-                    ep.trim_end_matches('/'),
-                    bucket,
-                    storage_key
-                )
-            }
-            _ => format!(
-                "/v1/social/media/mock-upload/{}",
-                storage_key.trim_start_matches('/')
-            ),
-        }
+    pub fn social_get_media_delivery_context(
+        &self,
+        media_id: &str,
+    ) -> Option<(String, String, String, String)> {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT owner_profile_id, storage_key, content_type, status
+               FROM social_media_objects WHERE id = ?1",
+            [media_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                    row.get::<_, String>(3)?,
+                ))
+            },
+        )
+        .ok()
+    }
+
+    pub fn social_media_is_attached_to_post(&self, media_id: &str, post_id: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM social_post_media
+                 WHERE media_id = ?1 AND post_id = ?2
+            )",
+            params![media_id, post_id],
+            |row| row.get::<_, bool>(0),
+        )
+        .unwrap_or(false)
     }
 
     /// Get media objects attached to a post.
-    pub fn social_get_post_media(&self, post_id: &str) -> Vec<serde_json::Value> {
+    pub fn social_get_post_media(
+        &self,
+        post_id: &str,
+        viewer_profile_id: Option<&str>,
+    ) -> Vec<serde_json::Value> {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn.prepare(
             "SELECT m.id, m.filename, m.content_type, m.size_bytes, m.media_type, m.storage_key, pm.position
@@ -14296,15 +15209,19 @@ impl Database {
              ORDER BY pm.position ASC"
         ).unwrap();
         stmt.query_map(params![post_id], |row| {
-            let storage_key: String = row.get(5)?;
-            let public_url = Self::social_media_public_url(&storage_key);
+            let media_id: String = row.get(0)?;
+            let delivery_url = crate::media::signed_media_delivery_url(
+                &media_id,
+                Some(post_id),
+                viewer_profile_id,
+            );
             Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
+                "id": media_id,
                 "filename": row.get::<_, String>(1)?,
                 "contentType": row.get::<_, String>(2)?,
                 "sizeBytes": row.get::<_, i64>(3)?,
                 "mediaType": row.get::<_, String>(4)?,
-                "url": public_url,
+                "url": delivery_url,
                 "position": row.get::<_, i64>(6)?,
             }))
         }).unwrap().filter_map(|r| r.ok()).collect()
@@ -16555,6 +17472,572 @@ mod tests {
         assert!(db.social_consume_ws_ticket("unknown-digest").is_err());
     }
 
+    #[test]
+    fn migration_v54_inherits_legacy_reply_audiences_and_fails_closed() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v53.sqlite");
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);
+             INSERT INTO schema_version (version) VALUES (53);
+             CREATE TABLE social_posts (
+                 id TEXT PRIMARY KEY,
+                 profile_id TEXT NOT NULL,
+                 body TEXT NOT NULL,
+                 visibility TEXT NOT NULL DEFAULT 'public',
+                 reply_to_post_id TEXT,
+                 community_id TEXT
+             );
+             CREATE TABLE social_longform (
+                 id TEXT PRIMARY KEY,
+                 visibility TEXT NOT NULL DEFAULT 'public'
+             );
+             CREATE TABLE pulse_drafts (
+                 id TEXT PRIMARY KEY,
+                 visibility TEXT NOT NULL DEFAULT 'public'
+             );
+
+             INSERT INTO social_posts VALUES
+                 ('root', 'root-author', 'root', 'followers', NULL, NULL),
+                 ('reply', 'reply-author', 'reply', 'public', 'root', NULL),
+                 ('nested', 'nested-author', 'nested', 'public', 'reply', NULL),
+                 ('public-root', 'public-author', 'public root', 'public', NULL, NULL),
+                 ('narrow-reply', 'narrow-author', 'narrow', 'private', 'public-root', NULL),
+                 ('guild-root', 'guild-owner', 'guild', 'public', NULL, 'guild-1'),
+                 ('guild-reply', 'guild-replier', 'guild reply', 'public', 'guild-root', NULL),
+                 ('orphan', 'orphan-author', 'orphan', 'public', 'missing-parent', 'wrong-guild');",
+        )
+        .unwrap();
+
+        migrate_v54(&conn);
+
+        assert_eq!(
+            conn.query_row("SELECT version FROM schema_version", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            54
+        );
+        for post_id in ["root", "reply", "nested"] {
+            let audience = conn
+                .query_row(
+                    "SELECT audience_profile_id, visibility, community_id
+                       FROM social_posts WHERE id = ?1",
+                    [post_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    },
+                )
+                .unwrap();
+            assert_eq!(audience, ("root-author".into(), "followers".into(), None));
+        }
+        for post_id in ["guild-root", "guild-reply"] {
+            let audience = conn
+                .query_row(
+                    "SELECT audience_profile_id, visibility, community_id
+                       FROM social_posts WHERE id = ?1",
+                    [post_id],
+                    |row| {
+                        Ok((
+                            row.get::<_, String>(0)?,
+                            row.get::<_, String>(1)?,
+                            row.get::<_, Option<String>>(2)?,
+                        ))
+                    },
+                )
+                .unwrap();
+            assert_eq!(
+                audience,
+                ("guild-owner".into(), "guild".into(), Some("guild-1".into()))
+            );
+        }
+        let orphan = conn
+            .query_row(
+                "SELECT audience_profile_id, visibility, community_id
+                   FROM social_posts WHERE id = 'orphan'",
+                [],
+                |row| {
+                    Ok((
+                        row.get::<_, String>(0)?,
+                        row.get::<_, String>(1)?,
+                        row.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .unwrap();
+        assert_eq!(orphan, ("orphan-author".into(), "author-only".into(), None));
+
+        let narrow_reply = conn
+            .query_row(
+                "SELECT audience_profile_id, visibility
+                   FROM social_posts WHERE id = 'narrow-reply'",
+                [],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+            )
+            .unwrap();
+        assert_eq!(
+            narrow_reply,
+            ("public-author".into(), "author-only".into())
+        );
+
+        assert!(conn
+            .execute(
+                "INSERT INTO social_posts
+                    (id, profile_id, body, visibility, reply_to_post_id, community_id, audience_profile_id)
+                 VALUES ('bad-reply', 'bad-author', 'bad', 'public', 'root', NULL, 'bad-author')",
+                [],
+            )
+            .is_err());
+        assert!(conn
+            .execute(
+                "INSERT INTO social_posts
+                    (id, profile_id, body, visibility, reply_to_post_id, community_id, audience_profile_id)
+                 VALUES ('good-reply', 'good-author', 'good', 'followers', 'root', NULL, 'root-author')",
+                [],
+            )
+            .is_ok());
+
+        // Re-entry after another process has completed the migration is a
+        // successful no-op rather than a duplicate-column/trigger crash.
+        migrate_v54(&conn);
+    }
+
+    #[test]
+    fn migration_v55_upgrades_v54_once_under_concurrent_startup() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("v54.sqlite");
+        {
+            let conn = Connection::open(&path).unwrap();
+            conn.execute_batch(
+                "PRAGMA foreign_keys = ON;
+                 CREATE TABLE schema_version (version INTEGER NOT NULL);
+                 INSERT INTO schema_version (version) VALUES (54);
+                 CREATE TABLE social_profiles (id TEXT PRIMARY KEY);
+                 INSERT INTO social_profiles (id) VALUES ('requester'), ('target');",
+            )
+            .unwrap();
+        }
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(2));
+        let mut workers = Vec::new();
+        for _ in 0..2 {
+            let path = path.clone();
+            let barrier = barrier.clone();
+            workers.push(std::thread::spawn(move || {
+                let conn = Connection::open(path).unwrap();
+                conn.busy_timeout(std::time::Duration::from_secs(5))
+                    .unwrap();
+                barrier.wait();
+                migrate_v55(&conn);
+            }));
+        }
+        for worker in workers {
+            worker.join().expect("migration worker");
+        }
+
+        let conn = Connection::open(path).unwrap();
+        conn.execute_batch("PRAGMA foreign_keys = ON;").unwrap();
+        assert_eq!(
+            conn.query_row("SELECT version FROM schema_version", [], |row| {
+                row.get::<_, i64>(0)
+            })
+            .unwrap(),
+            55
+        );
+        assert!(conn
+            .execute(
+                "INSERT INTO social_follow_requests
+                    (id, requester_profile_id, target_profile_id, status)
+                 VALUES ('invalid', 'requester', 'target', 'unexpected')",
+                [],
+            )
+            .is_err());
+        assert!(conn
+            .execute(
+                "INSERT INTO social_follow_requests
+                    (id, requester_profile_id, target_profile_id, status)
+                 VALUES ('valid', 'requester', 'target', 'pending')",
+                [],
+            )
+            .is_ok());
+
+        // Re-entry after a completed migration is an intentional no-op.
+        migrate_v55(&conn);
+    }
+
+    #[test]
+    fn social_post_policy_enforces_audiences_protection_and_blocks() {
+        let db = test_db();
+        assert_eq!(db.schema_version(), 55);
+        let author = db.social_create_profile("clerk_policy_author", "policy_author", "Author", "");
+        let viewer = db.social_create_profile("clerk_policy_viewer", "policy_viewer", "Viewer", "");
+        let author_id = author["id"].as_str().unwrap();
+        let viewer_id = viewer["id"].as_str().unwrap();
+
+        let public = db.social_create_post(author_id, "public", "public", "person", None, None, None, None);
+        assert_eq!(db.social_authorize_post(public["id"].as_str().unwrap(), None, PostAction::View), PolicyDecision::Allow);
+        db.upsert_account("clerk_policy_author", "", "Author", "suspended");
+        assert_eq!(db.social_authorize_post(public["id"].as_str().unwrap(), None, PostAction::View), PolicyDecision::Conceal);
+        db.upsert_account("clerk_policy_author", "", "Author", "active");
+
+        let followers = db.social_create_post(author_id, "followers", "followers", "person", None, None, None, None);
+        let followers_id = followers["id"].as_str().unwrap();
+        assert_eq!(db.social_authorize_post(followers_id, Some(viewer_id), PostAction::View), PolicyDecision::Conceal);
+        db.social_follow(viewer_id, author_id);
+        assert_eq!(db.social_authorize_post(followers_id, Some(viewer_id), PostAction::View), PolicyDecision::Allow);
+
+        let mutuals = db.social_create_post(author_id, "mutuals", "mutuals", "person", None, None, None, None);
+        let mutuals_id = mutuals["id"].as_str().unwrap();
+        assert_eq!(db.social_authorize_post(mutuals_id, Some(viewer_id), PostAction::View), PolicyDecision::Conceal);
+        db.social_follow(author_id, viewer_id);
+        assert_eq!(db.social_authorize_post(mutuals_id, Some(viewer_id), PostAction::View), PolicyDecision::Allow);
+
+        let private = db.social_create_post(author_id, "mine", "author-only", "person", None, None, None, None);
+        assert_eq!(db.social_authorize_post(private["id"].as_str().unwrap(), Some(viewer_id), PostAction::View), PolicyDecision::Conceal);
+        assert_eq!(db.social_authorize_post(private["id"].as_str().unwrap(), Some(author_id), PostAction::View), PolicyDecision::Allow);
+
+        db.social_update_profile_prefs(author_id, None, None, None, Some(true), None, None, None);
+        let protected = db.social_create_post(author_id, "protected", "public", "person", None, None, None, None);
+        assert_eq!(db.social_authorize_post(protected["id"].as_str().unwrap(), None, PostAction::View), PolicyDecision::Conceal);
+        assert_eq!(db.social_authorize_post(protected["id"].as_str().unwrap(), Some(viewer_id), PostAction::View), PolicyDecision::Allow);
+        assert_eq!(db.social_authorize_post(protected["id"].as_str().unwrap(), Some(viewer_id), PostAction::Quote), PolicyDecision::Conceal);
+
+        db.social_block_user(author_id, viewer_id);
+        assert_eq!(db.social_authorize_post(followers_id, Some(viewer_id), PostAction::Like), PolicyDecision::Conceal);
+    }
+
+    #[test]
+    fn social_profile_policy_enforces_visibility_search_and_blocks() {
+        let db = test_db();
+        let owner = db.social_create_profile("clerk_profile_policy_owner", "profile_policy_owner", "Owner", "");
+        let viewer = db.social_create_profile("clerk_profile_policy_viewer", "profile_policy_viewer", "Viewer", "");
+        let owner_id = owner["id"].as_str().unwrap();
+        let viewer_id = viewer["id"].as_str().unwrap();
+
+        db.social_update_profile_prefs(owner_id, None, None, Some(false), None, Some("signed_in"), None, None);
+        assert_eq!(db.social_authorize_profile(owner_id, None, ProfileAction::View), PolicyDecision::Conceal);
+        assert_eq!(db.social_authorize_profile(owner_id, Some(viewer_id), ProfileAction::View), PolicyDecision::Allow);
+        assert_eq!(db.social_authorize_profile(owner_id, Some(viewer_id), ProfileAction::Discover), PolicyDecision::Conceal);
+
+        db.upsert_account("clerk_profile_policy_owner", "", "Owner", "deleted");
+        assert_eq!(db.social_authorize_profile(owner_id, Some(owner_id), ProfileAction::View), PolicyDecision::Conceal);
+        db.upsert_account("clerk_profile_policy_owner", "", "Owner", "active");
+
+        db.social_update_profile_prefs(owner_id, None, None, Some(true), None, Some("followers"), None, None);
+        assert_eq!(db.social_authorize_profile(owner_id, Some(viewer_id), ProfileAction::View), PolicyDecision::Conceal);
+        db.social_follow(viewer_id, owner_id);
+        assert_eq!(db.social_authorize_profile(owner_id, Some(viewer_id), ProfileAction::View), PolicyDecision::Allow);
+        db.social_block_user(viewer_id, owner_id);
+        assert_eq!(db.social_authorize_profile(owner_id, Some(viewer_id), ProfileAction::View), PolicyDecision::Conceal);
+    }
+
+    #[test]
+    fn protected_profiles_require_follow_approval_before_content_access() {
+        let db = test_db();
+        let owner = db.social_create_profile(
+            "clerk_follow_approval_owner",
+            "follow_approval_owner",
+            "Owner",
+            "",
+        );
+        let requester = db.social_create_profile(
+            "clerk_follow_approval_requester",
+            "follow_approval_requester",
+            "Requester",
+            "",
+        );
+        let blocked = db.social_create_profile(
+            "clerk_follow_approval_blocked",
+            "follow_approval_blocked",
+            "Blocked",
+            "",
+        );
+        let owner_id = owner["id"].as_str().unwrap();
+        let requester_id = requester["id"].as_str().unwrap();
+        let blocked_id = blocked["id"].as_str().unwrap();
+        db.social_update_profile_prefs(
+            owner_id,
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+            None,
+            None,
+        );
+        let protected_post = db.social_create_post(
+            owner_id,
+            "protected",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        let post_id = protected_post["id"].as_str().unwrap();
+
+        let request_id = match db
+            .social_follow_or_request(requester_id, owner_id)
+            .expect("follow request")
+        {
+            SocialFollowOutcome::Pending(request_id) => request_id,
+            other => panic!("expected pending request, got {other:?}"),
+        };
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE social_follow_requests
+                    SET updated_at = '2000-01-01 00:00:00'
+                  WHERE id = ?1",
+                [&request_id],
+            )
+            .unwrap();
+        }
+        assert_eq!(
+            db.social_follow_or_request(requester_id, owner_id),
+            Ok(SocialFollowOutcome::AlreadyPending(request_id.clone())),
+            "an existing pending request must be idempotent"
+        );
+        {
+            let conn = db.conn.lock().unwrap();
+            let updated_at: String = conn
+                .query_row(
+                    "SELECT updated_at FROM social_follow_requests WHERE id = ?1",
+                    [&request_id],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(
+                updated_at, "2000-01-01 00:00:00",
+                "idempotent retries must not churn request timestamps"
+            );
+        }
+        assert!(db.social_follow_request_pending(requester_id, owner_id));
+        assert!(!db.social_get_follow_status(requester_id, owner_id));
+        assert_eq!(
+            db.social_authorize_post(post_id, Some(requester_id), PostAction::View),
+            PolicyDecision::Conceal
+        );
+        assert_eq!(db.social_list_incoming_follow_requests(owner_id, 10).len(), 1);
+
+        assert!(
+            db.social_resolve_follow_request(&request_id, blocked_id, true)
+                .is_err(),
+            "a different profile must not resolve someone else's request"
+        );
+        assert_eq!(
+            db.social_resolve_follow_request(&request_id, owner_id, false)
+                .as_deref(),
+            Ok(requester_id)
+        );
+        assert!(!db.social_get_follow_status(requester_id, owner_id));
+        assert!(!db.social_follow_request_pending(requester_id, owner_id));
+        assert!(db.social_list_incoming_follow_requests(owner_id, 10).is_empty());
+        assert!(
+            db.social_resolve_follow_request(&request_id, owner_id, true)
+                .is_err(),
+            "a rejected request must not be replayable"
+        );
+        assert_eq!(
+            db.social_authorize_post(post_id, Some(requester_id), PostAction::View),
+            PolicyDecision::Conceal
+        );
+
+        let cancelled_request_id = match db
+            .social_follow_or_request(requester_id, owner_id)
+            .expect("replacement follow request")
+        {
+            SocialFollowOutcome::Pending(request_id) => request_id,
+            other => panic!("expected pending request, got {other:?}"),
+        };
+        db.social_unfollow(requester_id, owner_id);
+        assert!(!db.social_follow_request_pending(requester_id, owner_id));
+        assert!(
+            db.social_resolve_follow_request(&cancelled_request_id, owner_id, true)
+                .is_err(),
+            "a cancelled request must not be approvable"
+        );
+
+        let approved_request_id = match db
+            .social_follow_or_request(requester_id, owner_id)
+            .expect("approval follow request")
+        {
+            SocialFollowOutcome::Pending(request_id) => request_id,
+            other => panic!("expected pending request, got {other:?}"),
+        };
+        assert_eq!(
+            db.social_resolve_follow_request(&approved_request_id, owner_id, true)
+                .as_deref(),
+            Ok(requester_id)
+        );
+        assert!(db.social_get_follow_status(requester_id, owner_id));
+        assert!(!db.social_follow_request_pending(requester_id, owner_id));
+        assert!(matches!(
+            db.social_follow_or_request(requester_id, owner_id),
+            Ok(SocialFollowOutcome::AlreadyFollowing(_))
+        ));
+        assert_eq!(
+            db.social_authorize_post(post_id, Some(requester_id), PostAction::View),
+            PolicyDecision::Allow
+        );
+
+        db.social_unfollow(requester_id, owner_id);
+        assert!(!db.social_get_follow_status(requester_id, owner_id));
+        assert_eq!(
+            db.social_authorize_post(post_id, Some(requester_id), PostAction::View),
+            PolicyDecision::Conceal,
+            "unfollowing must revoke protected content immediately"
+        );
+
+        let reapproved_request_id = match db
+            .social_follow_or_request(requester_id, owner_id)
+            .expect("reapproval follow request")
+        {
+            SocialFollowOutcome::Pending(request_id) => request_id,
+            other => panic!("expected pending request, got {other:?}"),
+        };
+        db.social_resolve_follow_request(&reapproved_request_id, owner_id, true)
+            .expect("reapprove");
+        db.social_block_user(owner_id, requester_id);
+        assert!(!db.social_get_follow_status(requester_id, owner_id));
+        assert!(!db.social_follow_request_pending(requester_id, owner_id));
+        assert_eq!(
+            db.social_authorize_post(post_id, Some(requester_id), PostAction::View),
+            PolicyDecision::Conceal
+        );
+        db.social_unblock_user(owner_id, requester_id);
+        assert!(!db.social_get_follow_status(requester_id, owner_id));
+        assert_eq!(
+            db.social_authorize_post(post_id, Some(requester_id), PostAction::View),
+            PolicyDecision::Conceal,
+            "unblocking must not silently restore an approved follow"
+        );
+
+        db.social_block_user(owner_id, blocked_id);
+        assert!(db.social_follow_or_request(blocked_id, owner_id).is_err());
+    }
+
+    #[test]
+    fn follow_request_resolution_revalidates_both_account_statuses() {
+        let db = test_db();
+        let owner = db.social_create_profile(
+            "clerk_follow_status_owner",
+            "follow_status_owner",
+            "Owner",
+            "",
+        );
+        let requester = db.social_create_profile(
+            "clerk_follow_status_requester",
+            "follow_status_requester",
+            "Requester",
+            "",
+        );
+        let owner_id = owner["id"].as_str().unwrap();
+        let requester_id = requester["id"].as_str().unwrap();
+        db.social_update_profile_prefs(
+            owner_id,
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+            None,
+            None,
+        );
+        let request_id = match db
+            .social_follow_or_request(requester_id, owner_id)
+            .expect("follow request")
+        {
+            SocialFollowOutcome::Pending(request_id) => request_id,
+            other => panic!("expected pending request, got {other:?}"),
+        };
+
+        db.upsert_account(
+            "clerk_follow_status_requester",
+            "",
+            "Requester",
+            "suspended",
+        );
+        assert!(
+            db.social_resolve_follow_request(&request_id, owner_id, true)
+                .is_err()
+        );
+        assert!(!db.social_get_follow_status(requester_id, owner_id));
+        db.upsert_account(
+            "clerk_follow_status_requester",
+            "",
+            "Requester",
+            "active",
+        );
+
+        db.upsert_account("clerk_follow_status_owner", "", "Owner", "deleted");
+        assert!(
+            db.social_resolve_follow_request(&request_id, owner_id, true)
+                .is_err()
+        );
+        assert!(!db.social_get_follow_status(requester_id, owner_id));
+        db.upsert_account("clerk_follow_status_owner", "", "Owner", "active");
+
+        assert_eq!(
+            db.social_resolve_follow_request(&request_id, owner_id, true)
+                .as_deref(),
+            Ok(requester_id)
+        );
+        assert!(db.social_get_follow_status(requester_id, owner_id));
+    }
+
+    #[test]
+    fn social_reply_policy_inherits_root_audience_owner() {
+        let db = test_db();
+        let root_author = db.social_create_profile("clerk_root_author", "root_author", "Root", "");
+        let replier = db.social_create_profile("clerk_replier", "replier", "Replier", "");
+        let stranger = db.social_create_profile("clerk_reply_stranger", "reply_stranger", "Stranger", "");
+        let root_author_id = root_author["id"].as_str().unwrap();
+        let replier_id = replier["id"].as_str().unwrap();
+        let stranger_id = stranger["id"].as_str().unwrap();
+        db.social_follow(replier_id, root_author_id);
+        db.social_follow(stranger_id, replier_id);
+
+        let root = db.social_create_post(root_author_id, "root", "followers", "person", None, None, None, None);
+        let reply = db.social_create_post(
+            replier_id,
+            "reply",
+            "followers",
+            "person",
+            None,
+            Some(root["id"].as_str().unwrap()),
+            None,
+            None,
+        );
+        let reply_id = reply["id"].as_str().unwrap();
+
+        assert_eq!(db.social_authorize_post(reply_id, Some(stranger_id), PostAction::View), PolicyDecision::Conceal);
+        assert_eq!(db.social_authorize_post(reply_id, Some(replier_id), PostAction::View), PolicyDecision::Allow);
+        assert_eq!(db.social_authorize_post(reply_id, Some(root_author_id), PostAction::View), PolicyDecision::Allow);
+    }
+
+    #[test]
+    fn social_guild_posts_require_membership_and_nested_quotes_do_not_leak() {
+        let db = test_db();
+        let owner = db.social_create_profile("clerk_guild_policy_owner", "guild_policy_owner", "Owner", "");
+        let outsider = db.social_create_profile("clerk_guild_policy_out", "guild_policy_out", "Out", "");
+        let owner_id = owner["id"].as_str().unwrap();
+        let outsider_id = outsider["id"].as_str().unwrap();
+        let guild = db.social_create_community(owner_id, "policy-guild", "Policy Guild", "", "public").unwrap();
+        let guild_post = db.social_create_post(owner_id, "guild", "guild", "person", None, None, None, guild["id"].as_str());
+        assert_eq!(db.social_authorize_post(guild_post["id"].as_str().unwrap(), Some(outsider_id), PostAction::View), PolicyDecision::Conceal);
+        assert_eq!(db.social_authorize_post(guild_post["id"].as_str().unwrap(), Some(owner_id), PostAction::View), PolicyDecision::Allow);
+
+        let secret = db.social_create_post(owner_id, "secret", "author-only", "person", None, None, None, None);
+        let wrapper = db.social_create_post(outsider_id, "wrapper", "public", "person", None, None, secret["id"].as_str(), None);
+        let loaded = db.social_get_post_by_id(wrapper["id"].as_str().unwrap(), Some(outsider_id)).unwrap();
+        assert!(loaded.get("quotePost").is_none());
+        assert!(loaded["quotePostId"].is_null());
+    }
+
     fn task_state(task_id: &str, title: &str) -> serde_json::Value {
         serde_json::json!({
             "tasks": [{
@@ -18599,9 +20082,9 @@ mod tests {
         );
     }
 
-    /// create_post media attachment URLs must use mock-upload path (not dead /media/).
+    /// Attached media URLs are short-lived capabilities and never expose storage keys.
     #[test]
-    fn social_get_post_media_url_uses_mock_upload_prefix() {
+    fn social_get_post_media_url_is_signed_and_storage_opaque() {
         std::env::remove_var("STORAGE_PUBLIC_URL");
         std::env::remove_var("STORAGE_ENDPOINT");
         std::env::remove_var("STORAGE_BUCKET");
@@ -18634,21 +20117,17 @@ mod tests {
         let linked = db.social_link_media_to_post(post_id, &[media_id.to_string()], profile_id);
         assert!(!linked.is_empty(), "media should link to post");
 
-        let got = db.social_get_post_media(post_id);
+        let got = db.social_get_post_media(post_id, Some(profile_id));
         assert_eq!(got.len(), 1);
         let url = got[0]["url"].as_str().expect("url field");
         assert!(
-            url.starts_with("/v1/social/media/mock-upload/"),
-            "expected mock-upload prefix, got {url}"
+            url.starts_with(&format!("/v1/social/media/{media_id}/content?")),
+            "expected signed delivery route, got {url}"
         );
         assert!(
-            url.contains(storage_key.trim_start_matches('/')),
-            "url should include storage key, got {url}"
+            !url.contains(storage_key),
+            "url must not expose storage key, got {url}"
         );
-
-        // Same helper used by feed enrichment
-        let helper = Database::social_media_public_url(storage_key);
-        assert_eq!(helper, url);
     }
 
     /// Golden path: profile → post → feed → like → reply (real SQLite social tables).
@@ -19218,7 +20697,7 @@ mod tests {
         db.social_create_post(
             alice_id,
             "Secret #rust #privateonly",
-            "private",
+            "author-only",
             "person",
             None,
             None,

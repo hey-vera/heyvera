@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use axum::{
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     Json,
@@ -9,6 +9,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::clerk::ClerkUser;
+use crate::social_policy::{PolicyDecision, PostAction, ProfileAction};
 use crate::state::AppState;
 
 type MediaResponse = (StatusCode, Json<serde_json::Value>);
@@ -39,9 +40,125 @@ const ALLOWED_VIDEO_TYPES: &[&str] = &[
 /// Max file sizes in bytes.
 const MAX_IMAGE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
 const MAX_VIDEO_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
+const MEDIA_DELIVERY_TTL_SECONDS: i64 = 300;
 
 fn db(state: &AppState) -> &crate::db::Database {
     state.db.as_ref().expect("database not initialized")
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MediaDeliveryQuery {
+    exp: i64,
+    sig: String,
+    post: Option<String>,
+    viewer: Option<String>,
+}
+
+fn media_signing_secret() -> Option<String> {
+    std::env::var("SOCIAL_MEDIA_SIGNING_SECRET")
+        .ok()
+        .filter(|value| !value.trim().is_empty())
+        .or_else(|| {
+            std::env::var("CLERK_SECRET_KEY")
+                .ok()
+                .filter(|value| !value.trim().is_empty())
+        })
+        .or_else(|| {
+            if crate::is_production_env() {
+                None
+            } else {
+                Some("heyvera-local-media-delivery-only".to_string())
+            }
+        })
+}
+
+fn media_delivery_payload(
+    media_id: &str,
+    post_id: Option<&str>,
+    viewer_profile_id: Option<&str>,
+    expires_at: i64,
+) -> String {
+    format!(
+        "heyvera-media-v1\n{}\n{}\n{}\n{}",
+        media_id,
+        post_id.unwrap_or(""),
+        viewer_profile_id.unwrap_or(""),
+        expires_at
+    )
+}
+
+fn sign_media_delivery(
+    secret: &[u8],
+    media_id: &str,
+    post_id: Option<&str>,
+    viewer_profile_id: Option<&str>,
+    expires_at: i64,
+) -> Vec<u8> {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts media signing keys");
+    mac.update(
+        media_delivery_payload(media_id, post_id, viewer_profile_id, expires_at).as_bytes(),
+    );
+    mac.finalize().into_bytes().to_vec()
+}
+
+fn verify_media_delivery(
+    secret: &[u8],
+    media_id: &str,
+    post_id: Option<&str>,
+    viewer_profile_id: Option<&str>,
+    expires_at: i64,
+    signature_hex: &str,
+    now: i64,
+) -> bool {
+    use hmac::{Hmac, Mac};
+    use sha2::Sha256;
+
+    if expires_at < now || expires_at > now + MEDIA_DELIVERY_TTL_SECONDS + 30 {
+        return false;
+    }
+    let Ok(signature) = hex::decode(signature_hex) else {
+        return false;
+    };
+    let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts media signing keys");
+    mac.update(
+        media_delivery_payload(media_id, post_id, viewer_profile_id, expires_at).as_bytes(),
+    );
+    mac.verify_slice(&signature).is_ok()
+}
+
+/// Short-lived, audience-bound capability URL. The storage key is never exposed.
+pub fn signed_media_delivery_url(
+    media_id: &str,
+    post_id: Option<&str>,
+    viewer_profile_id: Option<&str>,
+) -> Option<String> {
+    let secret = media_signing_secret()?;
+    let expires_at = chrono::Utc::now().timestamp() + MEDIA_DELIVERY_TTL_SECONDS;
+    let signature = sign_media_delivery(
+        secret.as_bytes(),
+        media_id,
+        post_id,
+        viewer_profile_id,
+        expires_at,
+    );
+    let mut url = format!(
+        "/v1/social/media/{}/content?exp={}&sig={}",
+        media_id,
+        expires_at,
+        hex::encode(signature)
+    );
+    if let Some(post_id) = post_id {
+        url.push_str("&post=");
+        url.push_str(post_id);
+    }
+    if let Some(viewer_profile_id) = viewer_profile_id {
+        url.push_str("&viewer=");
+        url.push_str(viewer_profile_id);
+    }
+    Some(url)
 }
 
 #[derive(Debug, Deserialize)]
@@ -268,51 +385,95 @@ pub async fn mock_upload(
     }
 }
 
-/// GET /v1/social/media/mock-upload/{*storage_key}
+/// GET /v1/social/media/{media_id}/content
 ///
-/// Serves bytes written by mock_upload so finalize public URLs actually render.
-pub async fn mock_serve(Path(storage_key): Path<String>) -> impl IntoResponse {
+/// Validates a short-lived audience-bound capability, re-checks current post
+/// authorization, then serves local bytes or redirects to a short-lived S3 GET.
+pub async fn serve_media(
+    Path(media_id): Path<String>,
+    Query(query): Query<MediaDeliveryQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let post_id = query.post.as_deref().filter(|value| !value.is_empty());
+    let viewer_profile_id = query.viewer.as_deref().filter(|value| !value.is_empty());
+    let Some(secret) = media_signing_secret() else {
+        return media_err(StatusCode::NOT_FOUND, "NOT_FOUND", "Media not found").into_response();
+    };
+    if !verify_media_delivery(
+        secret.as_bytes(),
+        &media_id,
+        post_id,
+        viewer_profile_id,
+        query.exp,
+        &query.sig,
+        chrono::Utc::now().timestamp(),
+    ) {
+        return media_err(StatusCode::NOT_FOUND, "NOT_FOUND", "Media not found").into_response();
+    }
+
+    let Some((owner_profile_id, storage_key, content_type, status)) =
+        db(&state).social_get_media_delivery_context(&media_id)
+    else {
+        return media_err(StatusCode::NOT_FOUND, "NOT_FOUND", "Media not found").into_response();
+    };
+
+    let authorized = if let Some(post_id) = post_id {
+        status == "attached"
+            && db(&state).social_media_is_attached_to_post(&media_id, post_id)
+            && db(&state).social_authorize_post(
+                post_id,
+                viewer_profile_id,
+                PostAction::ViewMedia,
+            ) == PolicyDecision::Allow
+    } else {
+        matches!(status.as_str(), "ready" | "attached")
+            && viewer_profile_id == Some(owner_profile_id.as_str())
+            && db(&state).social_authorize_profile(
+                &owner_profile_id,
+                viewer_profile_id,
+                ProfileAction::View,
+            ) == PolicyDecision::Allow
+    };
+    if !authorized {
+        return media_err(StatusCode::NOT_FOUND, "NOT_FOUND", "Media not found").into_response();
+    }
+
+    if storage_fully_configured() {
+        let endpoint = std::env::var("STORAGE_ENDPOINT").unwrap_or_default();
+        let bucket = std::env::var("STORAGE_BUCKET").unwrap_or_default();
+        let access_key = std::env::var("STORAGE_ACCESS_KEY").unwrap_or_default();
+        let secret_key = std::env::var("STORAGE_SECRET_KEY").unwrap_or_default();
+        let url = generate_s3_presigned_get(
+            &endpoint,
+            &bucket,
+            &storage_key,
+            60,
+            &access_key,
+            &secret_key,
+        );
+        return axum::response::Redirect::temporary(&url).into_response();
+    }
+
     match mock_store_get(&storage_key) {
         Ok(bytes) => {
-            let content_type = guess_content_type(&storage_key);
-            let mut res = axum::response::Response::new(axum::body::Body::from(bytes));
-            *res.status_mut() = StatusCode::OK;
-            res.headers_mut().insert(
-                axum::http::header::CONTENT_TYPE,
-                axum::http::HeaderValue::from_str(&content_type)
-                    .unwrap_or_else(|_| axum::http::HeaderValue::from_static("application/octet-stream")),
-            );
-            res.headers_mut().insert(
+            let mut response = axum::response::Response::new(axum::body::Body::from(bytes));
+            *response.status_mut() = StatusCode::OK;
+            if let Ok(value) = axum::http::HeaderValue::from_str(&content_type) {
+                response
+                    .headers_mut()
+                    .insert(axum::http::header::CONTENT_TYPE, value);
+            }
+            response.headers_mut().insert(
                 axum::http::header::CACHE_CONTROL,
-                axum::http::HeaderValue::from_static("public, max-age=3600"),
+                axum::http::HeaderValue::from_static("private, max-age=60"),
             );
-            res
+            response.headers_mut().insert(
+                axum::http::header::X_CONTENT_TYPE_OPTIONS,
+                axum::http::HeaderValue::from_static("nosniff"),
+            );
+            response
         }
-        Err(_) => (
-            StatusCode::NOT_FOUND,
-            Json(serde_json::json!({
-                "error": "Mock media object not found",
-                "code": "NOT_FOUND",
-            })),
-        )
-            .into_response(),
-    }
-}
-
-fn guess_content_type(storage_key: &str) -> String {
-    let lower = storage_key.to_lowercase();
-    if lower.ends_with(".png") {
-        "image/png".into()
-    } else if lower.ends_with(".gif") {
-        "image/gif".into()
-    } else if lower.ends_with(".webp") {
-        "image/webp".into()
-    } else if lower.ends_with(".webm") {
-        "video/webm".into()
-    } else if lower.ends_with(".mp4") {
-        "video/mp4".into()
-    } else {
-        "image/jpeg".into()
+        Err(_) => media_err(StatusCode::NOT_FOUND, "NOT_FOUND", "Media not found").into_response(),
     }
 }
 
@@ -425,13 +586,15 @@ pub async fn finalize_upload(
     // Mark as finalized
     let finalized = db(&state).social_finalize_media_object(&media_id);
 
-    let public_url = resolve_public_url(
-        finalized["storageKey"].as_str().unwrap_or(""),
+    let delivery_url = signed_media_delivery_url(
+        finalized["id"].as_str().unwrap_or(""),
+        None,
+        Some(profile_id),
     );
 
     media_ok(serde_json::json!({
         "media_id": finalized["id"],
-        "url": public_url,
+        "url": delivery_url,
         "type": finalized["mediaType"],
     }))
 }
@@ -604,6 +767,63 @@ fn generate_upload_url(storage_key: &str, content_type: &str) -> Result<(String,
 ///
 /// This constructs the URL with query-string authentication parameters
 /// so the client can PUT the file directly without needing credentials.
+fn generate_s3_presigned_get(
+    endpoint: &str,
+    bucket: &str,
+    key: &str,
+    expires_in: u64,
+    access_key: &str,
+    secret_key: &str,
+) -> String {
+    use sha2::Digest;
+
+    let now = chrono::Utc::now();
+    let date_stamp = now.format("%Y%m%d").to_string();
+    let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
+    let region = std::env::var("STORAGE_REGION").unwrap_or_else(|_| "auto".to_string());
+    let credential_scope = format!("{}/{}/s3/aws4_request", date_stamp, region);
+    let credential = format!("{}/{}", access_key, credential_scope);
+    let host = endpoint
+        .trim_start_matches("https://")
+        .trim_start_matches("http://")
+        .trim_end_matches('/');
+    let mut params = vec![
+        ("X-Amz-Algorithm", "AWS4-HMAC-SHA256".to_string()),
+        ("X-Amz-Credential", credential),
+        ("X-Amz-Date", amz_date.clone()),
+        ("X-Amz-Expires", expires_in.to_string()),
+        ("X-Amz-SignedHeaders", "host".to_string()),
+    ];
+    params.sort_by(|a, b| a.0.cmp(b.0));
+    let canonical_query: String = params
+        .iter()
+        .map(|(key, value)| format!("{}={}", uri_encode(key), uri_encode(value)))
+        .collect::<Vec<_>>()
+        .join("&");
+    let canonical_request = format!(
+        "GET\n/{}/{}\n{}\nhost:{}\n\nhost\nUNSIGNED-PAYLOAD",
+        bucket, key, canonical_query, host
+    );
+    let canonical_hash = hex::encode(sha2::Sha256::digest(canonical_request.as_bytes()));
+    let string_to_sign = format!(
+        "AWS4-HMAC-SHA256\n{}\n{}\n{}",
+        amz_date, credential_scope, canonical_hash
+    );
+    let k_date = hmac_sha256(format!("AWS4{}", secret_key).as_bytes(), date_stamp.as_bytes());
+    let k_region = hmac_sha256(&k_date, region.as_bytes());
+    let k_service = hmac_sha256(&k_region, b"s3");
+    let k_signing = hmac_sha256(&k_service, b"aws4_request");
+    let signature = hex::encode(hmac_sha256(&k_signing, string_to_sign.as_bytes()));
+    format!(
+        "{}/{}/{}?{}&X-Amz-Signature={}",
+        endpoint.trim_end_matches('/'),
+        bucket,
+        key,
+        canonical_query,
+        signature
+    )
+}
+
 fn generate_s3_presigned_put(
     endpoint: &str,
     bucket: &str,
@@ -613,11 +833,6 @@ fn generate_s3_presigned_put(
     access_key: &str,
     secret_key: &str,
 ) -> String {
-    use hmac::{Hmac, Mac};
-    use sha2::{Sha256, Digest};
-
-    type HmacSha256 = Hmac<Sha256>;
-
     let now = chrono::Utc::now();
     let date_stamp = now.format("%Y%m%d").to_string();
     let amz_date = now.format("%Y%m%dT%H%M%SZ").to_string();
@@ -716,28 +931,6 @@ fn uri_encode(s: &str) -> String {
     result
 }
 
-/// Resolve the public URL for a finalized media object.
-/// Mock mode uses the GET mock-upload route so PostCard can render images.
-fn resolve_public_url(storage_key: &str) -> String {
-    let endpoint = std::env::var("STORAGE_ENDPOINT").ok();
-    let bucket = std::env::var("STORAGE_BUCKET").ok();
-    let custom_domain = std::env::var("STORAGE_PUBLIC_URL").ok();
-
-    match custom_domain {
-        Some(domain) => {
-            format!("{}/{}", domain.trim_end_matches('/'), storage_key)
-        }
-        None => match (endpoint, bucket) {
-            (Some(endpoint), Some(bucket)) => {
-                format!("{}/{}/{}", endpoint.trim_end_matches('/'), bucket, storage_key)
-            }
-            _ => {
-                format!("/v1/social/media/mock-upload/{}", storage_key.trim_start_matches('/'))
-            }
-        },
-    }
-}
-
 /// Sanitize a filename: keep only alphanumeric, dash, underscore, dot.
 fn sanitize_filename(name: &str) -> String {
     let name = name.trim();
@@ -784,6 +977,274 @@ mod tests {
             Some("ak"),
             Some("sk")
         ));
+    }
+
+    #[test]
+    fn media_delivery_signature_binds_post_viewer_and_expiry() {
+        let secret = b"test-media-secret";
+        let now = 1_800_000_000;
+        let expires_at = now + 120;
+        let signature = hex::encode(sign_media_delivery(
+            secret,
+            "media-1",
+            Some("post-1"),
+            Some("viewer-1"),
+            expires_at,
+        ));
+
+        assert!(verify_media_delivery(
+            secret,
+            "media-1",
+            Some("post-1"),
+            Some("viewer-1"),
+            expires_at,
+            &signature,
+            now,
+        ));
+        assert!(!verify_media_delivery(
+            secret,
+            "media-2",
+            Some("post-1"),
+            Some("viewer-1"),
+            expires_at,
+            &signature,
+            now,
+        ));
+        assert!(!verify_media_delivery(
+            secret,
+            "media-1",
+            Some("post-2"),
+            Some("viewer-1"),
+            expires_at,
+            &signature,
+            now,
+        ));
+        assert!(!verify_media_delivery(
+            secret,
+            "media-1",
+            Some("post-1"),
+            Some("viewer-2"),
+            expires_at,
+            &signature,
+            now,
+        ));
+        assert!(!verify_media_delivery(
+            secret,
+            "media-1",
+            Some("post-1"),
+            Some("viewer-1"),
+            expires_at,
+            &signature,
+            expires_at + 1,
+        ));
+        assert!(!verify_media_delivery(
+            secret,
+            "media-1",
+            Some("post-1"),
+            Some("viewer-1"),
+            expires_at,
+            "not-hex",
+            now,
+        ));
+        assert!(!verify_media_delivery(
+            b"different-secret",
+            "media-1",
+            Some("post-1"),
+            Some("viewer-1"),
+            expires_at,
+            &signature,
+            now,
+        ));
+
+        let excessive_expiry = now + MEDIA_DELIVERY_TTL_SECONDS + 31;
+        let excessive_signature = hex::encode(sign_media_delivery(
+            secret,
+            "media-1",
+            Some("post-1"),
+            Some("viewer-1"),
+            excessive_expiry,
+        ));
+        assert!(!verify_media_delivery(
+            secret,
+            "media-1",
+            Some("post-1"),
+            Some("viewer-1"),
+            excessive_expiry,
+            &excessive_signature,
+            now,
+        ));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn media_delivery_rechecks_attachment_and_revoked_audience_access() {
+        let _guard = MOCK_TEST_LOCK.lock().unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join(".cortex")).unwrap();
+        std::env::set_var("HEYVERA_MOCK_MEDIA_DIR", dir.path());
+        std::env::set_var("SOCIAL_MEDIA_SIGNING_SECRET", "media-route-test-secret");
+        std::env::remove_var("STORAGE_ENDPOINT");
+        std::env::remove_var("STORAGE_BUCKET");
+        std::env::remove_var("STORAGE_ACCESS_KEY");
+        std::env::remove_var("STORAGE_SECRET_KEY");
+
+        let state = AppState::new(
+            dir.path().join(".cortex/ledger.jsonl"),
+            dir.path().to_path_buf(),
+            None,
+        )
+        .await;
+        let database = state.db.as_ref().expect("database");
+        let owner = database.social_create_profile(
+            "clerk_media_route_owner",
+            "media_route_owner",
+            "Owner",
+            "",
+        );
+        let viewer = database.social_create_profile(
+            "clerk_media_route_viewer",
+            "media_route_viewer",
+            "Viewer",
+            "",
+        );
+        let owner_id = owner["id"].as_str().unwrap();
+        let viewer_id = viewer["id"].as_str().unwrap();
+        database.social_update_profile_prefs(
+            owner_id,
+            None,
+            None,
+            None,
+            Some(true),
+            None,
+            None,
+            None,
+        );
+
+        let media = database.social_create_media_object(
+            owner_id,
+            "private.png",
+            "image/png",
+            12,
+            "image",
+        );
+        let media_id = media["id"].as_str().unwrap();
+        let storage_key = media["storageKey"].as_str().unwrap();
+        mock_store_put(storage_key, b"private bytes").expect("mock media");
+        database.social_finalize_media_object(media_id);
+
+        let protected_post = database.social_create_post(
+            owner_id,
+            "protected media",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        let post_id = protected_post["id"].as_str().unwrap();
+        assert_eq!(
+            database.social_link_media_to_post(post_id, &[media_id.to_string()], owner_id),
+            vec![media_id.to_string()]
+        );
+
+        let unrelated_post = database.social_create_post(
+            owner_id,
+            "unrelated",
+            "public",
+            "person",
+            None,
+            None,
+            None,
+            None,
+        );
+        let unrelated_post_id = unrelated_post["id"].as_str().unwrap();
+
+        fn delivery_query(url: &str) -> MediaDeliveryQuery {
+            let query = url.split_once('?').expect("signed query").1;
+            let params: std::collections::HashMap<&str, &str> = query
+                .split('&')
+                .filter_map(|part| part.split_once('='))
+                .collect();
+            MediaDeliveryQuery {
+                exp: params["exp"].parse().unwrap(),
+                sig: params["sig"].to_string(),
+                post: params.get("post").map(|value| (*value).to_string()),
+                viewer: params.get("viewer").map(|value| (*value).to_string()),
+            }
+        }
+
+        let pending_url =
+            signed_media_delivery_url(media_id, Some(post_id), Some(viewer_id)).unwrap();
+        let pending_response = serve_media(
+            Path(media_id.to_string()),
+            Query(delivery_query(&pending_url)),
+            State(state.clone()),
+        )
+        .await
+        .into_response();
+        assert_eq!(pending_response.status(), StatusCode::NOT_FOUND);
+
+        let request_id = match database
+            .social_follow_or_request(viewer_id, owner_id)
+            .expect("follow request")
+        {
+            crate::db::SocialFollowOutcome::Pending(request_id) => request_id,
+            other => panic!("expected pending request, got {other:?}"),
+        };
+        database
+            .social_resolve_follow_request(&request_id, owner_id, true)
+            .expect("approve");
+
+        let allowed_url =
+            signed_media_delivery_url(media_id, Some(post_id), Some(viewer_id)).unwrap();
+        let allowed_response = serve_media(
+            Path(media_id.to_string()),
+            Query(delivery_query(&allowed_url)),
+            State(state.clone()),
+        )
+        .await
+        .into_response();
+        assert_eq!(allowed_response.status(), StatusCode::OK);
+
+        let wrong_attachment_url =
+            signed_media_delivery_url(media_id, Some(unrelated_post_id), Some(viewer_id)).unwrap();
+        let wrong_attachment_response = serve_media(
+            Path(media_id.to_string()),
+            Query(delivery_query(&wrong_attachment_url)),
+            State(state.clone()),
+        )
+        .await
+        .into_response();
+        assert_eq!(wrong_attachment_response.status(), StatusCode::NOT_FOUND);
+
+        database.upsert_account(
+            "clerk_media_route_viewer",
+            "",
+            "Viewer",
+            "suspended",
+        );
+        let suspended_response = serve_media(
+            Path(media_id.to_string()),
+            Query(delivery_query(&allowed_url)),
+            State(state.clone()),
+        )
+        .await
+        .into_response();
+        assert_eq!(suspended_response.status(), StatusCode::NOT_FOUND);
+        database.upsert_account("clerk_media_route_viewer", "", "Viewer", "active");
+
+        database.social_unfollow(viewer_id, owner_id);
+        let revoked_response = serve_media(
+            Path(media_id.to_string()),
+            Query(delivery_query(&allowed_url)),
+            State(state.clone()),
+        )
+        .await
+        .into_response();
+        assert_eq!(revoked_response.status(), StatusCode::NOT_FOUND);
+
+        std::env::remove_var("HEYVERA_MOCK_MEDIA_DIR");
+        std::env::remove_var("SOCIAL_MEDIA_SIGNING_SECRET");
     }
 
     #[test]
@@ -849,9 +1310,6 @@ mod tests {
         let got = mock_store_get(key).expect("get");
         assert_eq!(got, payload);
 
-        let url = resolve_public_url(key);
-        assert_eq!(url, format!("/v1/social/media/mock-upload/{key}"));
-
         // Finalize path requires object present
         assert!(mock_store_exists(key));
         std::env::remove_var("HEYVERA_MOCK_MEDIA_DIR");
@@ -914,11 +1372,6 @@ mod tests {
         let finalized = db.social_finalize_media_object(media_id);
         assert_eq!(finalized["status"], "ready");
 
-        let public = resolve_public_url(storage_key);
-        assert!(
-            public.starts_with("/v1/social/media/mock-upload/"),
-            "public url must be mock GET route, got {public}"
-        );
         let got = mock_store_get(storage_key).expect("GET path reads same store");
         assert_eq!(got, payload);
 

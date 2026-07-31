@@ -33,7 +33,8 @@ export type { LegacyCommunity };
 
 export type Profile = {
   id: string;
-  accountId: string;
+  /** Internal identity is present only on authenticated owner/admin DTOs. */
+  accountId?: string;
   displayName: string;
   handle: string;
   bio: string;
@@ -308,7 +309,7 @@ export type ProfileStats = {
 
 export type ProfileSummary = {
   id: string;
-  accountId: string;
+  accountId?: string;
   displayName: string;
   handle: string;
   bio: string;
@@ -333,6 +334,11 @@ export type ProfileSummary = {
 const API_BASE = resolveSocialApiBaseFromEnv(
   import.meta.env.VITE_API_URL as string | undefined,
 );
+
+function resolveMediaDeliveryUrl(url: string): string {
+  if (!url.startsWith('/v1/social/') || !/^https?:\/\//i.test(API_BASE)) return url;
+  return `${new URL(API_BASE).origin}${url}`;
+}
 
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 
@@ -508,16 +514,16 @@ export async function fetchProfileFeed(
   };
 }
 
-export async function fetchProfileStats(handle: string): Promise<{
+export async function fetchProfileStats(handle: string, token?: string | null): Promise<{
   stats: ProfileStats;
 }> {
-  return apiFetch(`/profiles/${handle}/stats`);
+  return apiFetch(`/profiles/${handle}/stats`, token);
 }
 
-export async function fetchProfiles(limit = 20): Promise<{
+export async function fetchProfiles(limit = 20, token?: string | null): Promise<{
   profiles: ProfileSummary[];
 }> {
-  return apiFetch(`/profiles?limit=${limit}`);
+  return apiFetch(`/profiles?limit=${limit}`, token);
 }
 
 export async function fetchCommunities(limit = 20): Promise<{
@@ -564,6 +570,7 @@ export async function fetchProfileFollowers(
   handle: string,
   limit = 20,
   cursor: string | null = null,
+  token?: string | null,
 ): Promise<{
   profile: Profile;
   followers: ProfileSummary[];
@@ -572,6 +579,7 @@ export async function fetchProfileFollowers(
   const qs = feedQueryParams(limit, cursor);
   const raw = await apiFetch<{ profile?: Profile; followers?: ProfileSummary[]; cursor: string | null }>(
     `/profiles/${handle}/followers?${qs}`,
+    token,
   );
   return {
     profile: raw.profile as Profile,
@@ -584,6 +592,7 @@ export async function fetchProfileFollowing(
   handle: string,
   limit = 20,
   cursor: string | null = null,
+  token?: string | null,
 ): Promise<{
   profile: Profile;
   following: ProfileSummary[];
@@ -592,6 +601,7 @@ export async function fetchProfileFollowing(
   const qs = feedQueryParams(limit, cursor);
   const raw = await apiFetch<{ profile?: Profile; following?: ProfileSummary[]; cursor: string | null }>(
     `/profiles/${handle}/following?${qs}`,
+    token,
   );
   return {
     profile: raw.profile as Profile,
@@ -605,6 +615,7 @@ export async function fetchProfileFollowing(
 export async function searchSocial(
   query: string,
   type: "all" | "posts" | "profiles" = "all",
+  token?: string | null,
 ): Promise<{
   posts: FeedPost[];
   profiles: Array<{ id: string; handle: string; displayName: string; avatarUrl: string | null; bio: string }>;
@@ -612,7 +623,7 @@ export async function searchSocial(
   const params = new URLSearchParams({ q: query });
   if (type !== "all") params.set("type", type);
   // Surface errors to callers (ExplorePage shows ErrorState) — do not swallow.
-  return apiFetch(`/search?${params.toString()}`);
+  return apiFetch(`/search?${params.toString()}`, token);
 }
 
 // ─── Public: trending ───────────────────────────────────────────────────────
@@ -631,7 +642,15 @@ export async function fetchTrending(): Promise<{
 
 export type SocialNotification = {
   id: string;
-  type: "like" | "follow" | "repost" | "reply" | "mention" | "quote";
+  type:
+    | "like"
+    | "follow"
+    | "follow_request"
+    | "follow_accepted"
+    | "repost"
+    | "reply"
+    | "mention"
+    | "quote";
   actorHandle: string;
   actorDisplayName: string;
   actorAvatarUrl: string | null;
@@ -792,11 +811,19 @@ export async function updateProfile(
   return apiAuthFetch("/me/profile", { method: "PATCH", token, body });
 }
 
+export type PostAudience =
+  | "public"
+  | "followers"
+  | "mutuals"
+  | "guild"
+  | "circle"
+  | "author-only";
+
 export async function createPost(
   token: string,
   data: {
     body: string;
-    visibility?: string;
+    visibility?: PostAudience;
     authorMode?: string;
     linkedAgentId?: string;
     /** Page id from listMyPages — maps person/agent/brand → authorship. */
@@ -901,10 +928,7 @@ export async function requestMediaUploadUrl(
 
 /** PUT file bytes to the upload URL returned by requestMediaUploadUrl. */
 export async function putMediaFile(uploadUrl: string, file: File): Promise<void> {
-  const absolute =
-    uploadUrl.startsWith("http://") || uploadUrl.startsWith("https://")
-      ? uploadUrl
-      : `${import.meta.env.VITE_API_URL ?? ""}${uploadUrl.startsWith("/") ? "" : "/"}${uploadUrl}`;
+  const absolute = resolveMediaDeliveryUrl(uploadUrl);
 
   const res = await fetch(absolute, {
     method: "PUT",
@@ -939,12 +963,12 @@ export async function uploadMediaFile(
   const finalized = await finalizeMedia(token, media_id);
   return {
     mediaId: finalized.media_id || media_id,
-    url: finalized.url,
+    url: resolveMediaDeliveryUrl(finalized.url),
     type: finalized.type,
   };
 }
 
-export async function fetchSinglePost(postId: string): Promise<{
+export async function fetchSinglePost(postId: string, token?: string | null): Promise<{
   post: FeedPost;
   replies: FeedPost[];
   /** True when BE walk stopped early (cap 100 / max depth 8). Missing on older servers. */
@@ -952,7 +976,7 @@ export async function fetchSinglePost(postId: string): Promise<{
   /** Reply list hard cap from BE when present. */
   repliesCap?: number;
 }> {
-  return apiFetch(`/posts/${postId}`);
+  return apiFetch(`/posts/${postId}`, token);
 }
 
 /**
@@ -963,27 +987,33 @@ export async function fetchSinglePost(postId: string): Promise<{
 export async function fetchRelatedPosts(
   postId: string,
   limit = 8,
+  token?: string | null,
 ): Promise<{ posts: FeedPost[]; sourcePostId?: string }> {
   const capped = Math.min(Math.max(1, limit), 20);
-  return apiFetch(`/posts/${encodeURIComponent(postId)}/related?limit=${capped}`);
+  return apiFetch(`/posts/${encodeURIComponent(postId)}/related?limit=${capped}`, token);
 }
 
 export async function fetchFollowStatus(
   token: string,
   handle: string,
-): Promise<{ following: boolean }> {
+): Promise<{ following: boolean; pending?: boolean }> {
   try {
     return await apiAuthFetch(`/follows/${handle}/status`, { method: "GET", token });
   } catch {
     // Status route may be missing; default to not following (UI can still toggle).
-    return { following: false };
+    return { following: false, pending: false };
   }
 }
 
 export async function followProfile(
   token: string,
   handle: string,
-): Promise<{ ok: true; followId: string; state: string }> {
+): Promise<{
+  ok: true;
+  followId?: string;
+  requestId?: string;
+  state: 'following' | 'pending';
+}> {
   return apiAuthFetch(`/follows/${handle}`, { method: "POST", token });
 }
 
@@ -1529,7 +1559,7 @@ export function feedPostToPost(fp: FeedPost): Post {
     ? fp.media.map((m) => ({
         id: m.id,
         type: mapFeedMediaType(m.mediaType, m.contentType),
-        url: m.url,
+        url: resolveMediaDeliveryUrl(m.url),
         thumbnail_url: m.thumbnailUrl ?? undefined,
         width: m.width ?? 0,
         height: m.height ?? 0,
@@ -1713,6 +1743,45 @@ export async function sendMessage(
     method: 'POST',
     token,
     body: { content },
+  });
+}
+
+export type FollowRequest = {
+  id: string;
+  status: 'pending';
+  createdAt: string;
+  requester: {
+    id: string;
+    handle: string;
+    displayName: string;
+    avatarUrl: string | null;
+  };
+};
+
+export async function fetchFollowRequests(
+  token: string,
+  limit = 50,
+): Promise<{ requests: FollowRequest[] }> {
+  return apiAuthFetch(`/follow-requests?limit=${limit}`, { method: 'GET', token });
+}
+
+export async function approveFollowRequest(
+  token: string,
+  requestId: string,
+): Promise<{ ok: true; state: 'accepted' }> {
+  return apiAuthFetch(`/follow-requests/${encodeURIComponent(requestId)}/approve`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export async function rejectFollowRequest(
+  token: string,
+  requestId: string,
+): Promise<{ ok: true; state: 'rejected' }> {
+  return apiAuthFetch(`/follow-requests/${encodeURIComponent(requestId)}`, {
+    method: 'DELETE',
+    token,
   });
 }
 

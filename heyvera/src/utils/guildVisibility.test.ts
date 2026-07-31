@@ -46,8 +46,8 @@ describe("filterDiscoverGuilds", () => {
 });
 
 describe("canAccessGuildFeed", () => {
-  it("allows public always", () => {
-    expect(canAccessGuildFeed("public", false)).toBe(true);
+  it("requires membership for public guild content", () => {
+    expect(canAccessGuildFeed("public", false)).toBe(false);
     expect(canAccessGuildFeed("public", true)).toBe(true);
   });
 

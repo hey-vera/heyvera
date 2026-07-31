@@ -97,6 +97,7 @@ export function ProfilePage() {
   const [editError, setEditError] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [followPending, setFollowPending] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
   const [followError, setFollowError] = useState<string | null>(null);
   const [messageBusy, setMessageBusy] = useState(false);
@@ -117,6 +118,7 @@ export function ProfilePage() {
       setLoading(true);
       setError(null);
       setCreateError(null);
+      setFollowPending(false);
       try {
         if (ownProfile) {
           if (!authEnabled || !isSignedIn) {
@@ -150,7 +152,7 @@ export function ProfilePage() {
           const tokenForFeed = await getToken();
           const [feedRes, statsRes] = await Promise.all([
             fetchProfileFeed(nextProfile.handle, 20, null, tokenForFeed),
-            fetchProfileStats(nextProfile.handle),
+            fetchProfileStats(nextProfile.handle, tokenForFeed),
           ]);
           if (!cancelled) {
             setProfile(nextProfile);
@@ -165,14 +167,16 @@ export function ProfilePage() {
         const [profileRes, feedRes, statsRes] = await Promise.all([
           fetchProfile(handle, token),
           fetchProfileFeed(handle, 20, null, token),
-          fetchProfileStats(handle),
+          fetchProfileStats(handle, token),
         ]);
         // Prefer isFollowing from profile payload; fall back to dedicated follow-status route.
         let following = Boolean(profileRes.profile.isFollowing);
-        if (token && profileRes.profile.isFollowing === undefined) {
+        let pending = false;
+        if (token) {
           try {
             const followRes = await fetchFollowStatus(token, handle);
             following = followRes.following;
+            pending = Boolean(followRes.pending);
           } catch {
             // ignore — treat as not following
           }
@@ -182,6 +186,7 @@ export function ProfilePage() {
           setStats(statsRes.stats);
           setPosts(feedRes.feed.map(feedPostToPost));
           setIsFollowing(following);
+          setFollowPending(pending);
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load profile');
@@ -194,7 +199,7 @@ export function ProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [authEnabled, handle, isSignedIn, ownProfile, reloadKey]);
+  }, [authEnabled, getToken, handle, isSignedIn, ownProfile, reloadKey]);
 
   const handleCreateProfile = async (input: { handle: string; displayName: string; bio?: string }) => {
     if (creating) return;
@@ -328,8 +333,11 @@ export function ProfilePage() {
 
     setFollowBusy(true);
     const previousFollowing = isFollowing;
-    const nextFollowing = !isFollowing;
+    const previousPending = followPending;
+    const removing = isFollowing || followPending;
+    const nextFollowing = !removing;
     setIsFollowing(nextFollowing);
+    setFollowPending(false);
 
     try {
       const token = await getToken();
@@ -341,9 +349,18 @@ export function ProfilePage() {
         throw new Error('Create your profile before following people.');
       }
 
-      await (nextFollowing ? followProfile(token, profile.handle) : unfollowProfile(token, profile.handle));
+      if (removing) {
+        await unfollowProfile(token, profile.handle);
+      } else {
+        const result = await followProfile(token, profile.handle);
+        if (result.state === 'pending') {
+          setIsFollowing(false);
+          setFollowPending(true);
+        }
+      }
     } catch (err) {
       setIsFollowing(previousFollowing);
+      setFollowPending(previousPending);
       setFollowError(err instanceof Error ? err.message : 'Unable to update follow state.');
     } finally {
       setFollowBusy(false);
@@ -357,11 +374,12 @@ export function ProfilePage() {
     setFollowListError(null);
     setFollowList([]);
     try {
+      const token = authEnabled && isSignedIn ? await getToken() : null;
       if (mode === 'followers') {
-        const res = await fetchProfileFollowers(profile.handle);
+        const res = await fetchProfileFollowers(profile.handle, 20, null, token);
         setFollowList(res.followers);
       } else {
-        const res = await fetchProfileFollowing(profile.handle);
+        const res = await fetchProfileFollowing(profile.handle, 20, null, token);
         setFollowList(res.following);
       }
     } catch (err) {
@@ -595,14 +613,22 @@ export function ProfilePage() {
             disabled={!ownProfile && followBusy}
             className="rounded-full px-4 py-1.5 text-[14px] font-bold transition-colors hover:opacity-90 focus-visible:outline-none focus-ring"
             style={{
-              border: ownProfile || isFollowing ? '1px solid var(--border-primary)' : undefined,
-              backgroundColor: ownProfile || isFollowing ? 'transparent' : 'var(--accent)',
-              color: ownProfile || isFollowing ? 'var(--text-primary)' : '#000',
+              border: ownProfile || isFollowing || followPending ? '1px solid var(--border-primary)' : undefined,
+              backgroundColor: ownProfile || isFollowing || followPending ? 'transparent' : 'var(--accent)',
+              color: ownProfile || isFollowing || followPending ? 'var(--text-primary)' : '#000',
             }}
             aria-pressed={ownProfile ? undefined : isFollowing}
             aria-busy={!ownProfile && followBusy ? true : undefined}
           >
-            {ownProfile ? 'Edit profile' : followBusy ? 'Saving' : isFollowing ? 'Following' : 'Follow'}
+            {ownProfile
+              ? 'Edit profile'
+              : followBusy
+                ? 'Saving'
+                : isFollowing
+                  ? 'Following'
+                  : followPending
+                    ? 'Requested'
+                    : 'Follow'}
           </button>
         </div>
       </div>

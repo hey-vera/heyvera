@@ -38,13 +38,6 @@ fn bad_request(msg: &str) -> ApiResponse {
         Json(serde_json::json!({ "error": msg, "code": "BAD_REQUEST" })),
     )
 }
-fn forbidden(msg: &str) -> ApiResponse {
-    (
-        StatusCode::FORBIDDEN,
-        Json(serde_json::json!({ "error": msg, "code": "FORBIDDEN" })),
-    )
-}
-
 #[derive(Debug, Deserialize)]
 pub struct CreateConversationRequest {
     pub participant_ids: Vec<String>,
@@ -64,6 +57,20 @@ fn db(state: &AppState) -> &crate::db::Database {
     state.db.as_ref().expect("database not initialized")
 }
 
+fn conversation_is_accessible(
+    database: &crate::db::Database,
+    conversation_id: &str,
+    profile_id: &str,
+) -> bool {
+    if !database.social_is_conversation_participant(conversation_id, profile_id) {
+        return false;
+    }
+    database
+        .social_conversation_participant_ids(conversation_id, Some(profile_id))
+        .into_iter()
+        .all(|other| !database.social_is_blocked_either_direction(profile_id, &other))
+}
+
 /// GET /v1/social/conversations — list viewer's conversations
 pub async fn list_conversations(
     user: ClerkUser,
@@ -75,7 +82,12 @@ pub async fn list_conversations(
     };
 
     let profile_id = profile["id"].as_str().unwrap_or("");
-    let conversations = db(&state).social_list_conversations(profile_id);
+    let mut conversations = db(&state).social_list_conversations(profile_id);
+    conversations.retain(|conversation| {
+        conversation["id"].as_str().map(|conversation_id| {
+            conversation_is_accessible(db(&state), conversation_id, profile_id)
+        }).unwrap_or(false)
+    });
 
     ok(serde_json::json!({ "conversations": conversations }))
 }
@@ -97,25 +109,40 @@ pub async fn create_conversation(
         return bad_request("participant_ids must not be empty");
     }
 
-    let mut all_participants = body.participant_ids.clone();
+    let mut all_participants: Vec<String> = Vec::new();
+    for raw_id in body.participant_ids {
+        let participant_id = raw_id.trim();
+        if participant_id.is_empty() {
+            return bad_request("participant_ids must contain valid profile ids");
+        }
+        if !all_participants.iter().any(|existing| existing == participant_id) {
+            all_participants.push(participant_id.to_string());
+        }
+    }
+    if all_participants.len() > 20 {
+        return bad_request("conversations support at most 20 participants");
+    }
     if !all_participants.contains(&profile_id) {
         all_participants.push(profile_id.clone());
     }
 
     // Block either direction → 403.
     for other in all_participants.iter().filter(|id| *id != &profile_id) {
-        if db(&state).social_is_blocked_either_direction(&profile_id, other) {
-            return forbidden("Cannot message a blocked user");
+        if db(&state).social_find_profile_by_id(other).is_none()
+            || db(&state).social_is_blocked_either_direction(&profile_id, other)
+        {
+            return not_found("User not found");
         }
-        // Light dm_policy gate on the recipient.
-        if let Some(prefs) = db(&state).social_get_profile_prefs(other) {
-            let policy = prefs["dmPolicy"].as_str().unwrap_or("everyone");
-            if policy == "following"
-                && !db(&state).social_get_follow_status(other, &profile_id)
-            {
-                // Recipient only accepts DMs from people they follow.
-                return forbidden("This user only accepts messages from people they follow");
-            }
+        let prefs = db(&state).social_get_or_create_profile_prefs(other);
+        let policy = prefs["dmPolicy"].as_str().unwrap_or("verified");
+        let allowed = match policy {
+            "everyone" => true,
+            "verified" => profile["proofState"].as_str() == Some("verified"),
+            "following" => db(&state).social_get_follow_status(other, &profile_id),
+            _ => false,
+        };
+        if !allowed {
+            return not_found("User not found");
         }
     }
 
@@ -139,9 +166,13 @@ pub async fn list_messages(
     let profile_id = profile["id"].as_str().unwrap_or("");
     let limit = params.limit.unwrap_or(50).min(200);
 
+    if !conversation_is_accessible(db(&state), &conversation_id, profile_id) {
+        return not_found("Conversation not found");
+    }
+
     let messages = match db(&state).social_list_messages(&conversation_id, profile_id, limit) {
         Some(msgs) => msgs,
-        None => return forbidden("Not a participant of this conversation"),
+        None => return not_found("Conversation not found"),
     };
 
     db(&state).social_mark_messages_read(&conversation_id, profile_id);
@@ -168,17 +199,20 @@ pub async fn send_message(
     }
 
     // Block either direction with any other participant → 403.
+    if !conversation_is_accessible(db(&state), &conversation_id, profile_id) {
+        return not_found("Conversation not found");
+    }
     let others =
         db(&state).social_conversation_participant_ids(&conversation_id, Some(profile_id));
     for other in &others {
         if db(&state).social_is_blocked_either_direction(profile_id, other) {
-            return forbidden("Cannot message a blocked user");
+            return not_found("Conversation not found");
         }
     }
 
     let message = match db(&state).social_send_message(&conversation_id, profile_id, &body.content) {
         Some(msg) => msg,
-        None => return forbidden("Not a participant of this conversation"),
+        None => return not_found("Conversation not found"),
     };
 
     // Soft-realtime: push to WebSocket subscribers of this conversation.
@@ -367,7 +401,7 @@ async fn handle_social_ws(mut socket: WebSocket, state: Arc<AppState>, user_id: 
                                 let is_participant = state
                                     .db
                                     .as_ref()
-                                    .map(|db| db.social_is_conversation_participant(&conversationId, pid))
+                                    .map(|db| conversation_is_accessible(db, &conversationId, pid))
                                     .unwrap_or(false);
 
                                 if !is_participant {

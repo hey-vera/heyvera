@@ -228,7 +228,7 @@ Resolve these before an open beta. Security/privacy items also apply to an invit
 
 **Required work**
 
-- [ ] Define typed public/followers/mutuals/guild/circle/author-only visibility; reject arbitrary
+- [x] Define typed public/followers/mutuals/guild/circle/author-only visibility; reject arbitrary
       strings.
 - [ ] Build one policy service for every post/profile/thread/search/embed/media read and every
       reply/mention/repost/quote/message write.
@@ -243,6 +243,50 @@ Resolve these before an open beta. Security/privacy items also apply to an invit
 - [ ] Prevent counts/error shapes from revealing private existence.
 
 **Exit evidence:** every object/action passes one policy suite; no direct-ID bypass exists.
+
+**Implementation progress — 2026-07-31 (`security/socials-authorization-policy`)**
+
+- Added `social_policy.rs` with canonical post audiences, profile visibility, conceal/allow
+  decisions, and table-driven matrices. Unknown persisted values fail closed; `private` is migrated
+  to `author-only`.
+- Added transactional schemas v54–v55: reply audience ownership, canonical post/longform/Pulse
+  audience repair, validation triggers, and approval-based protected follow requests. Both new
+  migrations re-read the version under an immediate lock; v54 and v55 fixture/re-entry tests pass.
+- Centralized post authorization now gates direct post reads, complete thread output, feed/search/
+  bookmark/profile-feed enrichment, related-source reads, nested quote previews, like, bookmark,
+  repost, reply, quote, protected posts, bidirectional blocks, and Guild membership.
+- Replies inherit the parent audience owner, audience, and Guild. This prevents a reply author from
+  accidentally making a protected thread public to their own followers.
+- Centralized profile authorization now gates direct profiles, discovery/search/list/featured,
+  stats, follower/following lists, linked-agent lists, live-session discovery, and blocks. Public
+  DTOs recursively remove Clerk account IDs and agent key material.
+- Notification reads revalidate actor and post access. DM creation now validates/deduplicates
+  participants, enforces `everyone`/`verified`/`following`, and applies bidirectional blocks to
+  conversation list/read/send and WebSocket subscribe paths.
+- Protected profiles now use an explicit pending/approve/reject/cancel follow workflow. Retries are
+  idempotent, approval is atomic, blocks revoke the relationship in both directions, and status
+  changes immediately revoke protected post/media access. Notifications and live UI cover the
+  request and acceptance states without falsely presenting a pending request as a follow.
+- Every Guild feed, post, direct-post read, and member-list operation now requires membership;
+  inaccessible resources use concealed `404` responses on the new boundary.
+- Non-public media is delivered through a five-minute HMAC capability bound to media, post, viewer,
+  and expiry. Delivery revalidates attachment and current post/profile/account policy, never exposes
+  the storage key, and uses a 60-second storage GET. The anonymous mock GET was removed.
+- Authorization-aware scanners fill feed and connection pages across concealed rows. Post cursors
+  derive from the last visible row; connection offsets are AES-256-GCM encrypted, randomized,
+  domain-separated, and tamper-evident. Profile discovery/search still lacks an independent cursor.
+- Viewer-sensitive frontend reads now attach optional auth for direct posts, related posts, profile
+  stats, relationship lists, and search.
+- Verification at this checkpoint: 251/251 frontend unit tests, frontend typecheck/build, all new
+  policy/migration/media/pagination tests, 15/15 Socials integration tests, and 243/244 backend
+  library tests pass. The only library failure is the pre-existing
+  Windows-only `validate::tests::normalizes_dot_segments` slash expectation.
+
+This P0 remains open. Circle storage/management, per-participant DM read state, moderator/role
+granularity, policy-aware SQL/batching, independent profile-search pagination, privacy-safe aggregate
+counts/caches/embeds, and multi-principal route/E2E tests are still required before the exit evidence
+is true. Signed media URLs are deliberately short-lived bearer capabilities; stronger session/device
+binding would require cookie-authenticated media proxying or a different delivery architecture.
 
 ### P0-03 — Replace fragile data access and migrations
 
@@ -284,7 +328,7 @@ Resolve these before an open beta. Security/privacy items also apply to an invit
 - [ ] Quarantine every upload pending malware, safety, and technical validation.
 - [ ] Strip unsafe metadata and serve generated safe derivatives by default.
 - [ ] Build image variants and adaptive video, posters, previews, waveform, captions, manifests.
-- [ ] Deliver non-public media through short-lived policy-bound authorization.
+- [x] Deliver non-public media through short-lived policy-bound authorization.
 - [ ] Clean abandoned, rejected, deleted, and failed assets.
 - [ ] Add abuse/copyright matching hooks and evidence-preserving takedown workflow.
 

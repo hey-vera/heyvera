@@ -40,6 +40,7 @@ pub mod routes;
 mod run_payload;
 mod run_stream;
 pub mod social;
+pub mod social_policy;
 pub mod scheduler;
 pub mod soma;
 mod soma_bridge;
@@ -561,9 +562,10 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
                 )
                 .route("/v1/social/media/upload-url", post(media::request_upload_url))
                 .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
+                .route("/v1/social/media/{id}/content", get(media::serve_media))
                 .route(
                     "/v1/social/media/mock-upload/{*storage_key}",
-                    put(media::mock_upload).get(media::mock_serve),
+                    put(media::mock_upload),
                 )
                 .route("/v1/social/linked-agents", get(social::list_my_linked_agents).post(social::create_linked_agent))
                 .route("/v1/social/linked-agents/{id}/rotate-key", post(social::rotate_linked_agent_key))
@@ -574,6 +576,15 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
                 .route("/v1/social/posts/{id}/related", get(social::get_related_posts))
                 .route("/v1/social/follows/{handle}", post(social::follow_by_handle).delete(social::unfollow_by_handle))
                 .route("/v1/social/follows/{handle}/status", get(social::get_follow_status))
+                .route("/v1/social/follow-requests", get(social::list_follow_requests))
+                .route(
+                    "/v1/social/follow-requests/{id}/approve",
+                    post(social::approve_follow_request),
+                )
+                .route(
+                    "/v1/social/follow-requests/{id}",
+                    delete(social::reject_follow_request),
+                )
                 .route("/v1/social/users/{handle}", get(social::get_user_profile))
                 .route("/v1/social/users/{handle}/posts", get(social::get_user_posts))
                 .route("/v1/social/users/{handle}/followers", get(social::get_profile_followers))
@@ -708,9 +719,10 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         )
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
+        .route("/v1/social/media/{id}/content", get(media::serve_media))
         .route(
             "/v1/social/media/mock-upload/{*storage_key}",
-            put(media::mock_upload).get(media::mock_serve),
+            put(media::mock_upload),
         )
         .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
         .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
@@ -719,6 +731,15 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/bookmarks", get(social::get_bookmarks))
         .route("/v1/social/follows/{handle}", post(social::follow_by_handle).delete(social::unfollow_by_handle))
         .route("/v1/social/follows/{handle}/status", get(social::get_follow_status))
+        .route("/v1/social/follow-requests", get(social::list_follow_requests))
+        .route(
+            "/v1/social/follow-requests/{id}/approve",
+            post(social::approve_follow_request),
+        )
+        .route(
+            "/v1/social/follow-requests/{id}",
+            delete(social::reject_follow_request),
+        )
         .route("/v1/social/users/{handle}", get(social::get_user_profile))
         .route("/v1/social/users/{handle}/posts", get(social::get_user_posts))
         .route("/v1/social/users/{handle}/followers", get(social::get_profile_followers))
@@ -961,9 +982,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Task #47: Media uploads
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
+        .route("/v1/social/media/{id}/content", get(media::serve_media))
         .route(
             "/v1/social/media/mock-upload/{*storage_key}",
-            put(media::mock_upload).get(media::mock_serve),
+            put(media::mock_upload),
         )
         // Task #30: Social action endpoints
         .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
@@ -974,6 +996,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/bookmarks", get(social::get_bookmarks))
         .route("/v1/social/follows/{handle}", post(social::follow_by_handle).delete(social::unfollow_by_handle))
         .route("/v1/social/follows/{handle}/status", get(social::get_follow_status))
+        .route("/v1/social/follow-requests", get(social::list_follow_requests))
+        .route(
+            "/v1/social/follow-requests/{id}/approve",
+            post(social::approve_follow_request),
+        )
+        .route(
+            "/v1/social/follow-requests/{id}",
+            delete(social::reject_follow_request),
+        )
         // Task #31: User profile endpoints
         .route("/v1/social/users/{handle}", get(social::get_user_profile))
         .route("/v1/social/users/{handle}/posts", get(social::get_user_posts))

@@ -49,7 +49,7 @@ pub(crate) fn is_production_runtime() -> bool {
 }
 
 /// Explicit headerless local auth is only valid outside production.
-fn local_auth_allowed() -> bool {
+pub(crate) fn local_auth_allowed() -> bool {
     !is_production_runtime() && env_flag("CORTEX_AUTH_DISABLED")
 }
 
