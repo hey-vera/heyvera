@@ -61,7 +61,11 @@ describe('label mappers', () => {
     expect(labelToDmPolicy(dmPolicyToLabel('everyone'))).toBe('everyone');
     expect(labelToDmPolicy(dmPolicyToLabel('verified'))).toBe('verified');
     expect(labelToDmPolicy(dmPolicyToLabel('following'))).toBe('following');
+    expect(labelToDmPolicy(dmPolicyToLabel('mutuals'))).toBe('mutuals');
+    expect(labelToDmPolicy(dmPolicyToLabel('nobody'))).toBe('nobody');
     expect(labelToDmPolicy('People you follow')).toBe('following');
+    expect(labelToDmPolicy('Mutual follows')).toBe('mutuals');
+    expect(labelToDmPolicy('Nobody')).toBe('nobody');
   });
 
   it('round-trips profile visibility labels', () => {

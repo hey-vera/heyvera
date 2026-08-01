@@ -218,10 +218,10 @@ const SECTIONS: SectionMeta[] = [
       {
         id: 'message-requests',
         kind: 'choice',
-        label: 'Direct message requests',
+        label: 'Who can start conversations',
         description: 'Decide who can start a new conversation with you.',
         Icon: MessageCircle,
-        options: ['Everyone', 'Verified users', 'People you follow'],
+        options: ['Everyone', 'Verified users', 'People you follow', 'Mutual follows', 'Nobody'],
         selected: 'Verified users',
       },
       {

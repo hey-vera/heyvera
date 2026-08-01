@@ -350,7 +350,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 57;
+const SCHEMA_VERSION: i64 = 58;
 const RUN_RESOURCE_LEASE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 fn apply_migrations(conn: &Connection) {
@@ -546,6 +546,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 57 {
         migrate_v57(conn);
+    }
+    if current < 58 {
+        migrate_v58(conn);
     }
 }
 
@@ -3068,6 +3071,61 @@ fn migrate_v57(conn: &Connection) {
         Err(error) => {
             let _ = conn.execute_batch("ROLLBACK;");
             panic!("migration v57 failed adding the conversation activity clock: {error}");
+        }
+    }
+}
+
+fn migrate_v58(conn: &Connection) {
+    conn.execute_batch("BEGIN IMMEDIATE;")
+        .expect("migration v58 failed acquiring the migration lock");
+    let result = (|| -> rusqlite::Result<bool> {
+        let current = conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        if current >= 58 {
+            return Ok(false);
+        }
+
+        conn.execute_batch(
+            "UPDATE social_profile_prefs
+                SET dm_policy = CASE lower(trim(dm_policy))
+                    WHEN 'everyone' THEN 'everyone'
+                    WHEN 'verified' THEN 'verified'
+                    WHEN 'following' THEN 'following'
+                    WHEN 'mutuals' THEN 'mutuals'
+                    WHEN 'nobody' THEN 'nobody'
+                    ELSE 'nobody'
+                END;
+
+             DROP TRIGGER IF EXISTS social_profile_prefs_dm_policy_insert;
+             DROP TRIGGER IF EXISTS social_profile_prefs_dm_policy_update;
+             CREATE TRIGGER social_profile_prefs_dm_policy_insert
+             BEFORE INSERT ON social_profile_prefs
+             WHEN NEW.dm_policy NOT IN ('everyone', 'verified', 'following', 'mutuals', 'nobody')
+             BEGIN SELECT RAISE(ABORT, 'invalid social DM policy'); END;
+             CREATE TRIGGER social_profile_prefs_dm_policy_update
+             BEFORE UPDATE OF dm_policy ON social_profile_prefs
+             WHEN NEW.dm_policy NOT IN ('everyone', 'verified', 'following', 'mutuals', 'nobody')
+             BEGIN SELECT RAISE(ABORT, 'invalid social DM policy'); END;
+
+             UPDATE schema_version SET version = 58;",
+        )?;
+        Ok(true)
+    })();
+
+    match result {
+        Ok(applied) => {
+            conn.execute_batch("COMMIT;")
+                .expect("migration v58 failed committing typed DM policies");
+            if applied {
+                tracing::info!("applied migration v58: typed Socials DM consent policies");
+            }
+        }
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            panic!("migration v58 failed adding typed DM consent policies: {error}");
         }
     }
 }
@@ -16364,9 +16422,11 @@ impl Database {
                     |row| row.get(0),
                 )
                 .map_err(|_| SocialMessagingError::NotFound)?;
+            let mut new_conversation_allowed = true;
 
             for participant_id in participant_profile_ids {
-                let (account_active, dm_policy, follows_creator): (bool, String, bool) = conn
+                let (account_active, dm_policy, follows_creator, creator_follows_participant):
+                    (bool, String, bool, bool) = conn
                     .query_row(
                         "SELECT COALESCE(account.status, 'active') NOT IN ('suspended', 'deleted'),
                                 COALESCE(preference.dm_policy, 'verified'),
@@ -16374,13 +16434,18 @@ impl Database {
                                     SELECT 1 FROM social_follows follow
                                      WHERE follow.follower_profile_id = profile.id
                                        AND follow.following_profile_id = ?2
+                                ),
+                                EXISTS(
+                                    SELECT 1 FROM social_follows follow
+                                     WHERE follow.follower_profile_id = ?2
+                                       AND follow.following_profile_id = profile.id
                                 )
                            FROM social_profiles profile
                            LEFT JOIN accounts account ON account.clerk_user_id = profile.clerk_user_id
                            LEFT JOIN social_profile_prefs preference ON preference.profile_id = profile.id
                           WHERE profile.id = ?1",
                         params![participant_id, creator_profile_id],
-                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                        |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
                     )
                     .map_err(|_| SocialMessagingError::NotFound)?;
                 if !account_active {
@@ -16391,10 +16456,12 @@ impl Database {
                         "everyone" => true,
                         "verified" => creator_proof == "verified",
                         "following" => follows_creator,
+                        "mutuals" => follows_creator && creator_follows_participant,
+                        "nobody" => false,
                         _ => false,
                     };
                     if !dm_allowed {
-                        return Err(SocialMessagingError::NotFound);
+                        new_conversation_allowed = false;
                     }
                 }
             }
@@ -16459,6 +16526,9 @@ impl Database {
                         creator_profile_id,
                     );
                 }
+            }
+            if !new_conversation_allowed {
+                return Err(SocialMessagingError::NotFound);
             }
 
             let conversation_id = Uuid::new_v4().to_string();
@@ -18548,10 +18618,64 @@ mod tests {
         );
         migrate_v57(&conn);
     }
+
+    #[test]
+    fn migration_v58_repairs_and_constrains_dm_consent_policies() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version(version INTEGER NOT NULL);
+             INSERT INTO schema_version(version) VALUES (57);
+             CREATE TABLE social_profile_prefs(
+                profile_id TEXT PRIMARY KEY,
+                dm_policy TEXT NOT NULL
+             );
+             INSERT INTO social_profile_prefs(profile_id, dm_policy) VALUES
+                ('legacy-unknown', 'surprise'),
+                ('legacy-mutuals', ' Mutuals ');",
+        )
+        .unwrap();
+
+        migrate_v58(&conn);
+        assert_eq!(
+            conn.query_row("SELECT version FROM schema_version", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            58,
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT dm_policy FROM social_profile_prefs WHERE profile_id = 'legacy-unknown'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "nobody",
+        );
+        assert_eq!(
+            conn.query_row(
+                "SELECT dm_policy FROM social_profile_prefs WHERE profile_id = 'legacy-mutuals'",
+                [],
+                |row| row.get::<_, String>(0),
+            )
+            .unwrap(),
+            "mutuals",
+        );
+        assert!(conn
+            .execute(
+                "UPDATE social_profile_prefs SET dm_policy = 'invalid' WHERE profile_id = 'legacy-mutuals'",
+                [],
+            )
+            .is_err());
+        conn.execute(
+            "UPDATE social_profile_prefs SET dm_policy = 'nobody' WHERE profile_id = 'legacy-mutuals'",
+            [],
+        )
+        .unwrap();
+        migrate_v58(&conn);
+    }
     #[test]
     fn social_post_policy_enforces_audiences_protection_and_blocks() {
         let db = test_db();
-        assert_eq!(db.schema_version(), 57);
+        assert_eq!(db.schema_version(), 58);
         let author = db.social_create_profile("clerk_policy_author", "policy_author", "Author", "");
         let viewer = db.social_create_profile("clerk_policy_viewer", "policy_viewer", "Viewer", "");
         let author_id = author["id"].as_str().unwrap();
@@ -21332,6 +21456,74 @@ mod tests {
             SocialMessagingError::Conflict,
         );
 
+    }
+
+    #[test]
+    fn social_dm_consent_policies_gate_only_new_conversations() {
+        let db = test_db();
+        let alice = db.social_create_profile("clerk_dm_consent_a", "dm_consent_a", "Alice", "");
+        let bob = db.social_create_profile("clerk_dm_consent_b", "dm_consent_b", "Bob", "");
+        let carol = db.social_create_profile("clerk_dm_consent_c", "dm_consent_c", "Carol", "");
+        let dana = db.social_create_profile("clerk_dm_consent_d", "dm_consent_d", "Dana", "");
+        let alice_id = alice["id"].as_str().unwrap().to_string();
+        let bob_id = bob["id"].as_str().unwrap().to_string();
+        let carol_id = carol["id"].as_str().unwrap().to_string();
+        let dana_id = dana["id"].as_str().unwrap().to_string();
+
+        let set_policy = |profile_id: &str, policy: &str| {
+            db.social_update_profile_prefs(
+                profile_id,
+                Some(policy),
+                None,
+                None,
+                None,
+                None,
+                None,
+                None,
+            );
+        };
+
+        set_policy(&bob_id, "everyone");
+        let existing = db
+            .social_create_conversation(
+                &alice_id,
+                &[alice_id.clone(), bob_id.clone()],
+                None,
+            )
+            .unwrap();
+        set_policy(&bob_id, "nobody");
+        let reopened = db
+            .social_create_conversation(
+                &alice_id,
+                &[alice_id.clone(), bob_id.clone()],
+                None,
+            )
+            .unwrap();
+        assert_eq!(reopened["id"], existing["id"]);
+
+        set_policy(&carol_id, "nobody");
+        assert_eq!(
+            db.social_create_conversation(
+                &alice_id,
+                &[alice_id.clone(), carol_id],
+                None,
+            )
+            .unwrap_err(),
+            SocialMessagingError::NotFound,
+        );
+
+        set_policy(&dana_id, "mutuals");
+        let participants = [alice_id.clone(), dana_id.clone()];
+        assert_eq!(
+            db.social_create_conversation(&alice_id, &participants, None)
+                .unwrap_err(),
+            SocialMessagingError::NotFound,
+        );
+        db.social_follow(&dana_id, &alice_id);
+        db.social_follow(&alice_id, &dana_id);
+        assert!(db
+            .social_create_conversation(&alice_id, &participants, None)
+            .is_ok());
     }
     #[test]
     fn social_conversation_inbox_pages_activity_and_unread_truth() {

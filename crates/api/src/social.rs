@@ -2075,11 +2075,31 @@ pub struct UpdatePrefsRequest {
 }
 
 fn normalize_dm_policy(raw: &str) -> Option<&'static str> {
-    match raw.trim().to_ascii_lowercase().as_str() {
+    match raw
+        .trim()
+        .to_ascii_lowercase()
+        .replace(['-', ' '], "_")
+        .as_str() {
         "everyone" | "all" | "open" => Some("everyone"),
         "verified" | "verified_users" => Some("verified"),
         "following" | "people_you_follow" | "followers" => Some("following"),
+        "mutuals" | "mutual_follow" | "mutual_follows" => Some("mutuals"),
+        "nobody" | "none" | "closed" => Some("nobody"),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod dm_policy_tests {
+    use super::normalize_dm_policy;
+
+    #[test]
+    fn dm_policy_parser_is_typed_and_fail_closed() {
+        assert_eq!(normalize_dm_policy("Mutual Follows"), Some("mutuals"));
+        assert_eq!(normalize_dm_policy("none"), Some("nobody"));
+        assert_eq!(normalize_dm_policy("people_you_follow"), Some("following"));
+        assert_eq!(normalize_dm_policy("custom"), None);
+        assert_eq!(normalize_dm_policy("surprise"), None);
     }
 }
 
@@ -2122,7 +2142,9 @@ pub async fn patch_me_prefs(
         None => None,
         Some(s) => match normalize_dm_policy(s) {
             Some(v) => Some(v),
-            None => return bad_request("dmPolicy must be everyone, verified, or following"),
+            None => {
+                return bad_request("dmPolicy must be everyone, verified, following, mutuals, or nobody")
+            }
         },
     };
     let profile_visibility = match &req.profile_visibility {

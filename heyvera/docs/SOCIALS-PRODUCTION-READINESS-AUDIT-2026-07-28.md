@@ -261,8 +261,9 @@ Resolve these before an open beta. Security/privacy items also apply to an invit
   stats, follower/following lists, linked-agent lists, live-session discovery, and blocks. Public
   DTOs recursively remove Clerk account IDs and agent key material.
 - Notification reads revalidate actor and post access. DM creation now validates/deduplicates
-  participants, enforces `everyone`/`verified`/`following`, and applies bidirectional blocks to
-  conversation list/read/send and WebSocket subscribe paths.
+  participants, enforces the canonical `everyone`/`verified`/`following`/`mutuals`/`nobody`
+  policies for new threads, keeps existing authorized threads reopenable after policy tightening,
+  and applies bidirectional blocks to conversation list/read/send and WebSocket subscribe paths.
 - DM schema v56 adds deterministic per-conversation sequence numbers, durable direct-thread and
   group-create idempotency keys, conservative duplicate-thread migration, and monotonic
   per-participant read watermarks. Message history uses encrypted, randomized, viewer- and
@@ -271,6 +272,9 @@ Resolve these before an open beta. Security/privacy items also apply to an invit
   formats cannot corrupt inbox ordering. Conversation authorization is filtered before the SQL
   limit, and randomized encrypted inbox cursors are viewer-bound. Concealed single-conversation
   hydration supports deep links; uncapped unread aggregation keeps navigation badges truthful.
+- DM schema v58 repairs unknown legacy consent values to fail-closed `nobody`, constrains persisted
+  values to the five canonical policies, and adds mutual-follow and nobody enforcement. The settings
+  copy describes conversation-start consent without implying a request inbox that is not built yet.
 - DM authorization is rechecked inside create/send/read transactions and again for each local
   WebSocket delivery. Frames, subscriptions, identifiers, participant cardinality, and route bodies
   are bounded; sensitive JSON responses are `private, no-store`. A saturated consumer receives
@@ -297,7 +301,7 @@ Resolve these before an open beta. Security/privacy items also apply to an invit
   stats, relationship lists, and search.
 - Verification at this checkpoint: 269/269 frontend unit tests plus frontend typecheck/production
   build pass. The focused DM migration/dedupe/inbox/history/read/idempotency/content/cursor/gap tests
-  pass, and the backend library compiles. The full backend library run is 255/256; its only failure is the
+  pass, and the backend library compiles. The full backend library run is 258/259; its only failure is the
   pre-existing Windows-only `validate::tests::normalizes_dot_segments` slash expectation. The prior
   broader Socials integration checkpoint remains 15/15.
 

@@ -61,7 +61,7 @@ Legend: **OK** mounted + used · **MISSING** FE calls / needs route · **PARTIAL
 
 | FE usage | Method + path | Backend | Notes |
 |----------|---------------|---------|-------|
-| Conversations | `GET/POST /v1/social/conversations`, `GET /conversations/{id}`, `GET /conversations/unread-count` | OK | Authorization is applied before a stable activity-keyset limit; randomized encrypted cursors are viewer-bound; a concealed detail read supports deep links and the aggregate unread count is uncapped; creation remains transactional and retry-safe |
+| Conversations | `GET/POST /v1/social/conversations`, `GET /conversations/{id}`, `GET /conversations/unread-count` | OK | Authorization is applied before a stable activity-keyset limit; randomized encrypted cursors are viewer-bound; a concealed detail read supports deep links and the aggregate unread count is uncapped; new threads enforce the canonical `everyone`/`verified`/`following`/`mutuals`/`nobody` consent policy while existing authorized threads remain reopenable; creation is transactional and retry-safe |
 | Messages | `GET/POST .../conversations/{id}/messages` | OK | Backward history and forward recovery use separate encrypted, viewer/conversation-bound cursors; sends are bounded and idempotent by client ID; responses are private/no-store |
 | DM read receipt | `POST .../conversations/{id}/read` | OK | Explicit monotonic per-participant watermark through a message ID; GET does not mutate read state |
 | DM WebSocket ticket | `POST /v1/social/ws-ticket` | OK | Bearer auth; 30-second, hashed, one-use ticket; `Cache-Control: no-store` |
