@@ -301,9 +301,10 @@ Resolve these before an open beta. Security/privacy items also apply to an invit
   stats, relationship lists, and search.
 - Verification at this checkpoint: 269/269 frontend unit tests plus frontend typecheck/production
   build pass. The focused DM migration/dedupe/inbox/history/read/idempotency/content/cursor/gap tests
-  pass, and the backend library compiles. The full backend library run is 258/259; its only failure is the
-  pre-existing Windows-only `validate::tests::normalizes_dot_segments` slash expectation. The prior
-  broader Socials integration checkpoint remains 15/15.
+  pass, the backend library compiles, and the full backend library run is 260/260. Repository file
+  paths are now normalized to one portable `/` representation, with host-independent rejection of
+  Windows drive, UNC, and backslash traversal forms plus panic-safe oversized-Unicode handling. The
+  prior broader Socials integration checkpoint remains 15/15.
 
 This P0 remains open. Circle storage/management, moderator/role granularity, policy-aware SQL/batching,
 independent profile-search pagination, cross-instance DM pub/sub/shared storage, privacy-safe
