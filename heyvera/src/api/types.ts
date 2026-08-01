@@ -86,17 +86,26 @@ export interface Notification {
 export interface Conversation {
   id: string;
   participants: UserSummary[];
-  last_message: Message;
+  last_message: Message | null;
   unread_count: number;
   pinned: boolean;
 }
 
 export interface Message {
   id: string;
+  sequence: number;
+  client_message_id?: string | null;
   sender: UserSummary;
   content: string;
   created_at: string;
   read: boolean;
+  read_by_profile_ids: string[];
+}
+
+export interface MessagePage {
+  messages: Message[];
+  next_cursor: string | null;
+  has_more: boolean;
 }
 
 export interface Community {

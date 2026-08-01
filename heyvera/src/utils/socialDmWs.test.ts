@@ -5,6 +5,7 @@ import {
   pingPayload,
   socialDmWsUrl,
   subscribePayload,
+  unsubscribePayload,
 } from './socialDmWs';
 
 describe('parseSocialDmWsMessage', () => {
@@ -47,6 +48,37 @@ describe('parseSocialDmWsMessage', () => {
     }
   });
 
+  it('parses participant read receipts in camelCase', () => {
+    expect(
+      parseSocialDmWsMessage(
+        JSON.stringify({
+          type: 'read',
+          conversationId: 'c-2',
+          profileId: 'profile-reader',
+          throughMessageId: 'm-9',
+        }),
+      ),
+    ).toEqual({
+      type: 'read',
+      conversationId: 'c-2',
+      profileId: 'profile-reader',
+      throughMessageId: 'm-9',
+    });
+  });
+
+  it('accepts snake_case read receipt aliases and rejects incomplete receipts', () => {
+    expect(
+      parseSocialDmWsMessage(
+        JSON.stringify({
+          type: 'read',
+          conversation_id: 'c-3',
+          profile_id: 'profile-reader',
+          through_message_id: 'm-10',
+        }),
+      ),
+    ).toEqual(expect.objectContaining({ conversationId: 'c-3', throughMessageId: 'm-10' }));
+    expect(parseSocialDmWsMessage(JSON.stringify({ type: 'read', conversationId: 'c-3' }))).toBeNull();
+  });
   it('returns null for invalid payloads', () => {
     expect(parseSocialDmWsMessage('')).toBeNull();
     expect(parseSocialDmWsMessage('not-json')).toBeNull();
@@ -84,6 +116,12 @@ describe('socialDmWsUrl / subscribePayload', () => {
     });
   });
 
+  it('builds unsubscribe frame', () => {
+    expect(JSON.parse(unsubscribePayload('conv-9'))).toEqual({
+      type: 'unsubscribe',
+      conversationId: 'conv-9',
+    });
+  });
   it('builds ping frame', () => {
     expect(JSON.parse(pingPayload())).toEqual({ type: 'ping' });
   });

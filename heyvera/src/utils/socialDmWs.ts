@@ -6,6 +6,7 @@ export type SocialDmWsServerEvent =
   | { type: 'subscribed'; conversationId: string }
   | { type: 'unsubscribed'; conversationId: string }
   | { type: 'message'; conversationId: string; message: Message }
+  | { type: 'read'; conversationId: string; profileId: string; throughMessageId: string }
   | { type: 'pong' }
   | { type: 'error'; code?: string; message?: string; conversationId?: string }
   | { type: 'unknown'; rawType: string };
@@ -40,6 +41,14 @@ export function parseSocialDmWsMessage(raw: string): SocialDmWsServerEvent | nul
       };
     }
 
+    if (obj.type === 'read') {
+      const conversationId = stringField(obj, 'conversationId', 'conversation_id');
+      const profileId = stringField(obj, 'profileId', 'profile_id');
+      const throughMessageId = stringField(obj, 'throughMessageId', 'through_message_id');
+      if (!conversationId || !profileId || !throughMessageId) return null;
+      return { type: 'read', conversationId, profileId, throughMessageId };
+    }
+
     if (obj.type === 'welcome' || obj.type === 'subscribed' || obj.type === 'unsubscribed' || obj.type === 'pong' || obj.type === 'error') {
       return obj as SocialDmWsServerEvent;
     }
@@ -47,6 +56,15 @@ export function parseSocialDmWsMessage(raw: string): SocialDmWsServerEvent | nul
   } catch {
     return null;
   }
+}
+
+function stringField(
+  value: Record<string, unknown>,
+  camelCase: string,
+  snakeCase: string,
+): string | null {
+  const candidate = value[camelCase] ?? value[snakeCase];
+  return typeof candidate === 'string' && candidate.length > 0 ? candidate : null;
 }
 
 /** Build ws(s) URL using an opaque, short-lived, single-use ticket. */
@@ -72,6 +90,10 @@ export function socialDmWsUrl(ticket: string, apiBase?: string): string {
 
 export function subscribePayload(conversationId: string): string {
   return JSON.stringify({ type: 'subscribe', conversationId });
+}
+
+export function unsubscribePayload(conversationId: string): string {
+  return JSON.stringify({ type: 'unsubscribe', conversationId });
 }
 
 /** Client application ping (server replies with `{ type: "pong" }`). */

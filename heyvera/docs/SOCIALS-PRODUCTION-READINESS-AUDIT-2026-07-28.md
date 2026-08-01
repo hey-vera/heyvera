@@ -48,7 +48,7 @@ These scores reflect production readiness, not effort already invested.
 | Visual design and interaction polish | 4/10 | Coherent dark theme, but generic/X-like composition, sparse states, and inconsistent product depth |
 | Profiles, identity, and Pages | 4/10 | Profile basics exist; public DTO, Page model, recovery, verification, and lifecycle need substantial work |
 | Communities and group belonging | 2/10 | UI/API foundations only; permissions, persistence, moderation, roles, channels, and events are missing |
-| Messaging and real-time presence | 2/10 | Basic conversations exist; group semantics, pagination, attachments, receipts, presence, calls, and safety are missing |
+| Messaging and real-time presence | 3/10 | Durable message ordering, history pagination, per-member receipts, retry idempotency, and policy-aware local realtime now exist; distributed delivery, inbox pagination, attachments, presence, calls, and mature safety remain |
 | Watch/video and creator platform | 2/10 | Raw native video only; no upload processing, adaptive streaming, captions, creator studio, or rights tooling |
 | Live | 1/10 | Database lifecycle scaffolding without real ingest, playback, chat, recording, or moderation |
 | Discovery and search | 2/10 | Empty or shallow discovery; no mature search index, recommendation system, topic model, or controls |
@@ -164,7 +164,7 @@ produce a crowded clone. The unifying product idea should be:
 | Post/thread | Post route, replies, actions | Viewer-aware reads, deep conversation, pagination, moderation context, private/deleted ancestors |
 | Profiles | Public profile and actions | Page/account separation, privacy, tabs, Channel organization, verification, safety, SEO/share polish |
 | Notifications | Notification primitives | Deduplication, controls, aggregation, push/email, cursors, abuse-safe generation |
-| Inbox | Basic conversation model and screen | Pagination, per-member read state, attachments, reactions, edit/delete, requests, search, calls, safety |
+| Inbox | Transactional conversations, stable message history, explicit per-member reads, retry-safe sends, and local realtime | Conversation-list pagination, distributed replay/pub-sub, attachments, reactions, edit/delete, requests, search, calls, safety |
 | Guilds | Browse/create/join concepts | Durable membership, roles, permissions, rooms, kick/ban, audit, events, resources, moderation |
 | Watch | Video shelves and native playback shell | Trusted upload, processing, thumbnails, adaptive streaming, captions, Channels, playlists, rights |
 | Live | Session lifecycle labels | Ingest, transcode, playback, chat, moderation, recording, scheduling, notifications |
@@ -263,6 +263,16 @@ Resolve these before an open beta. Security/privacy items also apply to an invit
 - Notification reads revalidate actor and post access. DM creation now validates/deduplicates
   participants, enforces `everyone`/`verified`/`following`, and applies bidirectional blocks to
   conversation list/read/send and WebSocket subscribe paths.
+- DM schema v56 adds deterministic per-conversation sequence numbers, durable direct-thread and
+  group-create idempotency keys, conservative duplicate-thread migration, and monotonic
+  per-participant read watermarks. Message history uses encrypted, randomized, viewer- and
+  conversation-bound keyset cursors; GET is non-mutating; sends are content-bounded and retry-safe.
+- DM authorization is rechecked inside create/send/read transactions and again for each local
+  WebSocket delivery. Frames, subscriptions, identifiers, participant cardinality, and route bodies
+  are bounded; sensitive JSON responses are `private, no-store`.
+- The live inbox merges paged/polled/WebSocket/send results by durable ID and sequence, retains older
+  pages, resyncs after reconnect, unsubscribes old threads, acknowledges reads only while visible,
+  keeps one client message ID across retries, and renders participant-specific receipt metadata.
 - Protected profiles now use an explicit pending/approve/reject/cancel follow workflow. Retries are
   idempotent, approval is atomic, blocks revoke the relationship in both directions, and status
   changes immediately revoke protected post/media access. Notifications and live UI cover the
@@ -277,14 +287,16 @@ Resolve these before an open beta. Security/privacy items also apply to an invit
   domain-separated, and tamper-evident. Profile discovery/search still lacks an independent cursor.
 - Viewer-sensitive frontend reads now attach optional auth for direct posts, related posts, profile
   stats, relationship lists, and search.
-- Verification at this checkpoint: 251/251 frontend unit tests, frontend typecheck/build, all new
-  policy/migration/media/pagination tests, 15/15 Socials integration tests, and 243/244 backend
-  library tests pass. The only library failure is the pre-existing
-  Windows-only `validate::tests::normalizes_dot_segments` slash expectation.
+- Verification at this checkpoint: 261/261 frontend unit tests plus frontend typecheck/production
+  build pass. The focused DM migration/dedupe/paging/read/idempotency/content/cursor tests pass,
+  and the backend library compiles. The full backend library run is 249/250; its only failure is the
+  pre-existing Windows-only `validate::tests::normalizes_dot_segments` slash expectation. The prior
+  broader Socials integration checkpoint remains 15/15.
 
-This P0 remains open. Circle storage/management, per-participant DM read state, moderator/role
-granularity, policy-aware SQL/batching, independent profile-search pagination, privacy-safe aggregate
-counts/caches/embeds, and multi-principal route/E2E tests are still required before the exit evidence
+This P0 remains open. Circle storage/management, moderator/role granularity, policy-aware SQL/batching,
+independent profile-search and conversation-list pagination, cross-instance DM pub/sub/replay and
+slow-consumer gap recovery, privacy-safe aggregate counts/caches/embeds, and multi-principal route/E2E
+tests are still required before the exit evidence
 is true. Signed media URLs are deliberately short-lived bearer capabilities; stronger session/device
 binding would require cookie-authenticated media proxying or a different delivery architecture.
 
@@ -305,8 +317,8 @@ binding would require cookie-authenticated media proxying or a different deliver
 - [ ] Add foreign keys, uniqueness, checks, indexes, and explicit deletion behavior.
 - [ ] Remove user-triggerable panic paths; return typed errors with trace IDs.
 - [ ] Replace N+1 hydration with bounded joins/batches and cursor queries.
-- [ ] Add idempotency for follows, reactions, notifications, messages, uploads, schedules, and
-      moderation.
+- [ ] Add idempotency for remaining reactions, notifications, uploads, schedules, and moderation;
+      follows and messages now have durable retry semantics.
 - [ ] Define retention, tombstones, export, deletion, legal hold, and backup semantics.
 - [ ] Load-test feed, thread, profile, message, notification, and search at realistic graph size.
 

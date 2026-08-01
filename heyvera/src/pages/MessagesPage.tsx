@@ -3,7 +3,14 @@ import { SignInButton } from '@clerk/clerk-react';
 import { ArrowLeft, MessageCircle, Search, Send } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import type { Conversation, Message } from '../api/types';
-import { getConversations, getMessages, issueSocialDmWsTicket, sendMessage } from '../api/social';
+import {
+  getConversations,
+  getMessages,
+  issueSocialDmWsTicket,
+  markConversationRead,
+  sendMessage,
+  SOCIAL_DM_MAX_MESSAGE_CHARS,
+} from '../api/social';
 import { LoadingState, EmptyState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';
 import { useAuthContext } from '../hooks/useAuthContext';
@@ -22,7 +29,9 @@ import {
   pingPayload,
   socialDmWsUrl,
   subscribePayload,
+  unsubscribePayload,
 } from '../utils/socialDmWs';
+import { mergeMessageHistory } from '../utils/messageHistory';
 
 /** Soft-realtime: messages while a thread is open (honest intermediate before WS). */
 const MESSAGES_POLL_MS = 6_000;
@@ -58,22 +67,23 @@ function getOtherParticipant(conversation: Conversation, currentProfileId: strin
   return conversation.participants[0];
 }
 
-function sameMessageIds(a: Message[], b: Message[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i]?.id !== b[i]?.id) return false;
-  }
-  return true;
+function updateUnreadLocal(
+  list: Conversation[],
+  conversationId: string,
+  unreadCount: number,
+): Conversation[] {
+  return list.map((conversation) =>
+    conversation.id === conversationId
+      ? { ...conversation, unread_count: unreadCount }
+      : conversation,
+  );
 }
 
-function clearUnreadLocal(list: Conversation[], conversationId: string): Conversation[] {
-  let changed = false;
-  const next = list.map((c) => {
-    if (c.id !== conversationId || c.unread_count === 0) return c;
-    changed = true;
-    return { ...c, unread_count: 0 };
-  });
-  return changed ? next : list;
+function newClientMessageId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
 function bumpUnreadLocal(
@@ -111,6 +121,9 @@ export function MessagesPage() {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(deepLinkConversationId);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [nextMessagesCursor, setNextMessagesCursor] = useState<string | null>(null);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [olderMessagesError, setOlderMessagesError] = useState<string | null>(null);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [conversationsError, setConversationsError] = useState<string | null>(null);
@@ -127,12 +140,22 @@ export function MessagesPage() {
   const [reconnecting, setReconnecting] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesScrollerRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
   const wsRef = useRef<WebSocket | null>(null);
+  const viewerProfileIdRef = useRef<string | null>(viewerProfileId);
+  viewerProfileIdRef.current = viewerProfileId;
   const loadMessagesForRef = useRef<
     ((conversationId: string, opts?: { quiet?: boolean }) => Promise<void>) | null
   >(null);
+
+  const readAckRef = useRef<string | null>(null);
+  const pendingSendRef = useRef<
+    { conversationId: string; content: string; clientMessageId: string } | null
+  >(null);
+  const subscribedConversationRef = useRef<string | null>(null);
+  const shouldScrollToEndRef = useRef(true);
 
   const selectedConversation = conversations.find((c) => c.id === selectedId) ?? null;
 
@@ -248,6 +271,41 @@ export function MessagesPage() {
     );
   }, [searchQuery, conversations, viewerProfileId]);
 
+  const acknowledgeVisibleMessages = useCallback(
+    async (conversationId: string, history: Message[]) => {
+      if (
+        selectedIdRef.current !== conversationId ||
+        document.visibilityState !== 'visible' ||
+        history.length === 0
+      ) {
+        return;
+      }
+      const throughMessageId = history[history.length - 1]!.id;
+      const acknowledgementKey = `${conversationId}:${throughMessageId}`;
+      if (readAckRef.current === acknowledgementKey) return;
+      readAckRef.current = acknowledgementKey;
+      try {
+        const token = await getToken();
+        if (
+          !token ||
+          selectedIdRef.current !== conversationId ||
+          document.visibilityState !== 'visible'
+        ) {
+          readAckRef.current = null;
+          return;
+        }
+        const result = await markConversationRead(token, conversationId, throughMessageId);
+        if (selectedIdRef.current === conversationId) {
+          setConversations((current) =>
+            updateUnreadLocal(current, conversationId, result.unread_count),
+          );
+        }
+      } catch {
+        if (readAckRef.current === acknowledgementKey) readAckRef.current = null;
+      }
+    },
+    [getToken],
+  );
   /* Load messages for selected conversation (initial = full load; poll = quiet). */
   const loadMessagesFor = useCallback(
     async (conversationId: string, opts?: { quiet?: boolean }) => {
@@ -259,30 +317,36 @@ export function MessagesPage() {
       try {
         const token = await getToken();
         if (!token) return;
-        const result = await getMessages(conversationId, token);
+        const page = await getMessages(conversationId, token);
+        if (selectedIdRef.current !== conversationId) return;
         // Avoid re-render/scroll churn when nothing changed.
-        setMessages((prev) => (sameMessageIds(prev, result) ? prev : result));
-        // Server marks read on GET — clear list badge locally.
-        setConversations((prev) => clearUnreadLocal(prev, conversationId));
+        const scroller = messagesScrollerRef.current;
+        shouldScrollToEndRef.current = Boolean(
+          scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80,
+        );
+        setMessages((current) => mergeMessageHistory(current, page.messages));
+        void acknowledgeVisibleMessages(conversationId, page.messages);
         setMessagesError(null);
         setLastUpdatedAt(Date.now());
       } catch (err) {
-        if (quiet) return;
+        if (quiet || selectedIdRef.current !== conversationId) return;
         setMessagesError(err instanceof Error ? err.message : 'Failed to load messages');
-        setMessages([]);
       } finally {
-        if (!quiet) setLoadingMessages(false);
+        if (!quiet && selectedIdRef.current === conversationId) setLoadingMessages(false);
       }
     },
-    [getToken],
+    [acknowledgeVisibleMessages, getToken],
   );
   loadMessagesForRef.current = loadMessagesFor;
 
   useEffect(() => {
-    if (!selectedId || !isSignedIn) {
-      setMessages([]);
-      return;
-    }
+    setMessages([]);
+    setNextMessagesCursor(null);
+    setOlderMessagesError(null);
+    readAckRef.current = null;
+    shouldScrollToEndRef.current = true;
+    if (!selectedId || !isSignedIn) return;
+    const conversationId = selectedId;
     let cancelled = false;
 
     async function load() {
@@ -291,20 +355,19 @@ export function MessagesPage() {
       try {
         const token = await getToken();
         if (!token || cancelled) return;
-        const result = await getMessages(selectedId!, token);
-        if (!cancelled) {
-          setMessages(result);
-          // Server marks read on GET — clear list badge locally.
-          setConversations((prev) => clearUnreadLocal(prev, selectedId!));
+        const page = await getMessages(conversationId, token);
+        if (!cancelled && selectedIdRef.current === conversationId) {
+          setMessages(page.messages);
+          setNextMessagesCursor(page.next_cursor);
           setLastUpdatedAt(Date.now());
+          void acknowledgeVisibleMessages(conversationId, page.messages);
         }
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && selectedIdRef.current === conversationId) {
           setMessagesError(err instanceof Error ? err.message : 'Failed to load messages');
-          setMessages([]);
         }
       } finally {
-        if (!cancelled) setLoadingMessages(false);
+        if (!cancelled && selectedIdRef.current === conversationId) setLoadingMessages(false);
       }
     }
 
@@ -312,9 +375,44 @@ export function MessagesPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId, getToken, isSignedIn]);
+  }, [acknowledgeVisibleMessages, selectedId, getToken, isSignedIn]);
 
   // Soft-realtime fallback: quiet message poll when WS is down (Wave 8b/9b).
+
+  const loadOlderMessages = useCallback(async () => {
+    const conversationId = selectedIdRef.current;
+    const cursor = nextMessagesCursor;
+    if (!conversationId || !cursor || loadingOlderMessages) return;
+
+    setLoadingOlderMessages(true);
+    setOlderMessagesError(null);
+    const scroller = messagesScrollerRef.current;
+    const previousHeight = scroller?.scrollHeight ?? 0;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const page = await getMessages(conversationId, token, { cursor });
+      if (selectedIdRef.current !== conversationId) return;
+      shouldScrollToEndRef.current = false;
+      setMessages((current) => mergeMessageHistory(current, page.messages));
+      setNextMessagesCursor(page.next_cursor);
+      setLastUpdatedAt(Date.now());
+      requestAnimationFrame(() => {
+        const activeScroller = messagesScrollerRef.current;
+        if (activeScroller && selectedIdRef.current === conversationId) {
+          activeScroller.scrollTop += activeScroller.scrollHeight - previousHeight;
+        }
+      });
+    } catch (err) {
+      if (selectedIdRef.current === conversationId) {
+        setOlderMessagesError(
+          err instanceof Error ? err.message : 'Failed to load earlier messages',
+        );
+      }
+    } finally {
+      if (selectedIdRef.current === conversationId) setLoadingOlderMessages(false);
+    }
+  }, [getToken, loadingOlderMessages, nextMessagesCursor]);
   useVisibilityPoll(
     () => {
       const id = selectedIdRef.current;
@@ -450,6 +548,8 @@ export function MessagesPage() {
           const id = selectedIdRef.current;
           if (id && socket?.readyState === WebSocket.OPEN) {
             socket.send(subscribePayload(id));
+            subscribedConversationRef.current = id;
+            void loadMessagesForRef.current?.(id, { quiet: true });
           }
         };
 
@@ -460,20 +560,45 @@ export function MessagesPage() {
           if (event.type === 'message') {
             const activeId = selectedIdRef.current;
             if (event.conversationId === activeId) {
-              setMessages((prev) => {
-                if (prev.some((m) => m.id === event.message.id)) return prev;
-                return [...prev, event.message];
-              });
+              const scroller = messagesScrollerRef.current;
+              shouldScrollToEndRef.current = Boolean(
+                scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80,
+              );
+              setMessages((current) => mergeMessageHistory(current, [event.message]));
               setLastUpdatedAt(Date.now());
-              // Quiet re-GET marks read on server + keeps list honest.
-              void loadMessagesForRef.current?.(event.conversationId, { quiet: true });
+              void acknowledgeVisibleMessages(event.conversationId, [event.message]);
             } else {
-              // Other conversation: bump local unread + last_message.
-              setConversations((prev) =>
-                bumpUnreadLocal(prev, event.conversationId, event.message),
+              setConversations((current) =>
+                event.message.sender.id === viewerProfileIdRef.current
+                  ? current.map((conversation) =>
+                      conversation.id === event.conversationId
+                        ? { ...conversation, last_message: event.message }
+                        : conversation,
+                    )
+                  : bumpUnreadLocal(current, event.conversationId, event.message),
               );
               setLastUpdatedAt(Date.now());
             }
+            return;
+          }
+          if (event.type === 'read' && event.conversationId === selectedIdRef.current) {
+            setMessages((current) => {
+              const through = current.find((message) => message.id === event.throughMessageId);
+              if (!through) return current;
+              return current.map((message) => {
+                if (
+                  message.sequence > through.sequence ||
+                  message.sender.id === event.profileId ||
+                  message.read_by_profile_ids.includes(event.profileId)
+                ) {
+                  return message;
+                }
+                return {
+                  ...message,
+                  read_by_profile_ids: [...message.read_by_profile_ids, event.profileId],
+                };
+              });
+            });
           }
         };
 
@@ -483,6 +608,7 @@ export function MessagesPage() {
 
         socket.onclose = () => {
           if (wsRef.current === socket) wsRef.current = null;
+          subscribedConversationRef.current = null;
           if (pingTimer) {
             clearInterval(pingTimer);
             pingTimer = null;
@@ -528,11 +654,16 @@ export function MessagesPage() {
         detachSocket(wsRef.current);
         wsRef.current = null;
       }
+      subscribedConversationRef.current = null;
     };
 
     const onVisibility = () => {
       if (cancelled) return;
       if (document.visibilityState !== 'visible') return;
+      const selectedConversationId = selectedIdRef.current;
+      if (selectedConversationId) {
+        void loadMessagesForRef.current?.(selectedConversationId, { quiet: true });
+      }
       const open =
         wsRef.current?.readyState === WebSocket.OPEN ||
         wsRef.current?.readyState === WebSocket.CONNECTING;
@@ -563,27 +694,45 @@ export function MessagesPage() {
       }
       wsRef.current = null;
       setWsConnected(false);
+      subscribedConversationRef.current = null;
       setReconnecting(false);
     };
-  }, [getToken, isSignedIn]);
+  }, [acknowledgeVisibleMessages, getToken, isSignedIn]);
 
   // Resubscribe when the selected conversation changes while WS is live.
   useEffect(() => {
-    if (!selectedId || !wsConnected) return;
+    if (!wsConnected) return;
     const s = wsRef.current;
     if (s && s.readyState === WebSocket.OPEN) {
-      s.send(subscribePayload(selectedId));
+      const previousId = subscribedConversationRef.current;
+      if (previousId && previousId !== selectedId) {
+        s.send(unsubscribePayload(previousId));
+      }
+      if (selectedId && previousId !== selectedId) {
+        s.send(subscribePayload(selectedId));
+      }
+      subscribedConversationRef.current = selectedId;
     }
   }, [selectedId, wsConnected]);
 
   /* Scroll to bottom when messages change */
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (shouldScrollToEndRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+    shouldScrollToEndRef.current = false;
   }, [messages]);
 
   /* Send message */
   const handleSend = async () => {
-    if (!composeText.trim() || !selectedId || sending) return;
+    const content = composeText.trim();
+    if (!content || !selectedId || sending) return;
+    const conversationId = selectedId;
+    let pending = pendingSendRef.current;
+    if (!pending || pending.conversationId !== conversationId || pending.content !== content) {
+      pending = { conversationId, content, clientMessageId: newClientMessageId() };
+      pendingSendRef.current = pending;
+    }
     setSending(true);
     setSendError(null);
     try {
@@ -592,14 +741,17 @@ export function MessagesPage() {
         setSendError('Sign in again to send.');
         return;
       }
-      const newMsg = await sendMessage(token, selectedId, composeText.trim());
-      setMessages((current) => [...current, newMsg]);
-      setComposeText('');
+      const newMsg = await sendMessage(token, conversationId, content, pending.clientMessageId);
+      pendingSendRef.current = null;
+      if (selectedIdRef.current !== conversationId) return;
+      shouldScrollToEndRef.current = true;
+      setMessages((current) => mergeMessageHistory(current, [newMsg]));
+      setComposeText((current) => (current.trim() === content ? '' : current));
       setLastUpdatedAt(Date.now());
       // Keep list preview fresh for the open thread.
       setConversations((prev) =>
         prev.map((c) =>
-          c.id === selectedId ? { ...c, last_message: newMsg, unread_count: 0 } : c,
+          c.id === conversationId ? { ...c, last_message: newMsg, unread_count: 0 } : c,
         ),
       );
     } catch (err) {
@@ -615,6 +767,12 @@ export function MessagesPage() {
       void handleSend();
     }
   };
+
+  const newestSentMessageId = useMemo(
+    () =>
+      [...messages].reverse().find((message) => message.sender.id === viewerProfileId)?.id ?? null,
+    [messages, viewerProfileId],
+  );
 
   const showStatusChrome = isSignedIn && (wsConnected || lastUpdatedAt != null || !navigatorOnline || reconnecting);
 
@@ -935,8 +1093,28 @@ export function MessagesPage() {
             </div>
 
             {/* Messages area */}
-            <div className="flex-1 overflow-y-auto px-4 py-4">
+            <div ref={messagesScrollerRef} className="flex-1 overflow-y-auto px-4 py-4">
               {loadingMessages && <LoadingState label="Loading messages" />}
+
+              {!loadingMessages && nextMessagesCursor && (
+                <div className="mb-4 text-center">
+                  <button
+                    type="button"
+                    onClick={() => void loadOlderMessages()}
+                    disabled={loadingOlderMessages}
+                    className="rounded-full border px-4 py-1.5 text-[13px] font-semibold disabled:opacity-50"
+                    style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+                  >
+                    {loadingOlderMessages ? 'Loading earlier messages...' : 'Load earlier messages'}
+                  </button>
+                </div>
+              )}
+
+              {olderMessagesError && (
+                <p className="mb-4 text-center text-[13px]" style={{ color: 'var(--color-danger)' }}>
+                  {olderMessagesError}
+                </p>
+              )}
 
               {!loadingMessages && messagesError && (
                 <div className="py-6 text-center">
@@ -980,6 +1158,8 @@ export function MessagesPage() {
                           }}
                         >
                           {formatTimestamp(msg.created_at)}
+                          {isSent && msg.id === newestSentMessageId && msg.read_by_profile_ids.length > 0
+                            ? ' \u00B7 Seen' : ''}
                         </p>
                       </div>
                     </div>
@@ -1001,10 +1181,14 @@ export function MessagesPage() {
               <div className="flex items-center gap-3">
                 <input
                   type="text"
+                  maxLength={SOCIAL_DM_MAX_MESSAGE_CHARS}
                   value={composeText}
                   onChange={(e) => {
                     setComposeText(e.target.value);
                     if (sendError) setSendError(null);
+                    if (pendingSendRef.current?.content !== e.target.value.trim()) {
+                      pendingSendRef.current = null;
+                    }
                   }}
                   onKeyDown={handleKeyDown}
                   placeholder="Start a new message"
@@ -1027,6 +1211,13 @@ export function MessagesPage() {
                   <Send className="h-5 w-5" aria-hidden="true" />
                 </button>
               </div>
+              <p
+                className="mt-1 pr-14 text-right text-[11px]"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                {composeText.length.toLocaleString()} /{' '}
+                {SOCIAL_DM_MAX_MESSAGE_CHARS.toLocaleString()}
+              </p>
             </div>
           </>
         )}

@@ -8,6 +8,7 @@ import type {
   Notification,
   Conversation,
   Message,
+  MessagePage,
   Community as LegacyCommunity,
   TrendingTopic,
   FeedResponse,
@@ -23,6 +24,7 @@ export type {
   Notification,
   Conversation,
   Message,
+  MessagePage,
   TrendingTopic,
   FeedResponse,
   SearchResults,
@@ -1725,24 +1727,67 @@ export async function createConversation(
   });
 }
 
-/** Get messages in a conversation */
-export async function getMessages(conversationId: string, token?: string): Promise<Message[]> {
-
+/** Get a newest-first page boundary, returned in chronological display order. */
+export async function getMessages(
+  conversationId: string,
+  token?: string,
+  options: { limit?: number; cursor?: string | null } = {},
+): Promise<MessagePage> {
   if (!token) throw new Error('Auth token required');
-  const res = await legacyFetchAuthedApi<{ messages: Message[] }>(`/conversations/${conversationId}/messages`, token);
-  return res.messages ?? [];
+  const limit = options.limit ?? 50;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error('Message page limit must be between 1 and 100');
+  }
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (options.cursor) params.set('cursor', options.cursor);
+  const id = encodeURIComponent(conversationId);
+  const res = await legacyFetchAuthedApi<Partial<MessagePage>>(
+    `/conversations/${id}/messages?${params.toString()}`,
+    token,
+  );
+  const nextCursor = res.next_cursor ?? null;
+  return {
+    messages: res.messages ?? [],
+    next_cursor: nextCursor,
+    has_more: res.has_more ?? nextCursor !== null,
+  };
 }
+
+export type MarkConversationReadResult = {
+  ok: true;
+  through_message_id: string;
+  unread_count: number;
+};
+
+/** Advance only the authenticated participant's read watermark. */
+export async function markConversationRead(
+  token: string,
+  conversationId: string,
+  throughMessageId: string,
+): Promise<MarkConversationReadResult> {
+  return apiAuthFetch<MarkConversationReadResult>(
+    `/conversations/${encodeURIComponent(conversationId)}/read`,
+    {
+      method: 'POST',
+      token,
+      body: { through_message_id: throughMessageId },
+    },
+  );
+}
+
+export const SOCIAL_DM_MAX_MESSAGE_CHARS = 4_000;
 
 /** POST a DM message. Uses shared social API base (resolveSocialApiBase). */
 export async function sendMessage(
   token: string,
   conversationId: string,
   content: string,
+  clientMessageId: string,
 ): Promise<Message> {
-  return apiAuthFetch<Message>(`/conversations/${conversationId}/messages`, {
+  return apiAuthFetch<Message>(`/conversations/${encodeURIComponent(conversationId)}/messages`, {
     method: 'POST',
     token,
-    body: { content },
+    body: { content, client_message_id: clientMessageId },
   });
 }
 

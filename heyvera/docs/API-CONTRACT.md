@@ -61,10 +61,11 @@ Legend: **OK** mounted + used · **MISSING** FE calls / needs route · **PARTIAL
 
 | FE usage | Method + path | Backend | Notes |
 |----------|---------------|---------|-------|
-| Conversations | `GET/POST /v1/social/conversations` | OK | Validated/deduped participants; bidirectional blocks; recipient DM policy; realtime uses ticketed WebSocket |
-| Messages | `GET/POST .../conversations/{id}/messages` | OK | Participant and block policy rechecked on read/send |
+| Conversations | `GET/POST /v1/social/conversations` | PARTIAL | Creation is transactional and idempotent with validated 2–20 participants, durable direct-thread dedupe, bidirectional blocks, and recipient DM policy; the inbox list is capped at 100 and still lacks a cursor |
+| Messages | `GET/POST .../conversations/{id}/messages` | OK | Latest-first keyset pages return in display order; opaque cursors are encrypted and viewer/conversation-bound; sends are bounded and idempotent by client ID; responses are private/no-store |
+| DM read receipt | `POST .../conversations/{id}/read` | OK | Explicit monotonic per-participant watermark through a message ID; GET does not mutate read state |
 | DM WebSocket ticket | `POST /v1/social/ws-ticket` | OK | Bearer auth; 30-second, hashed, one-use ticket; `Cache-Control: no-store` |
-| DM WebSocket | `GET /v1/social/ws?ticket=...` | OK | Exact production `Origin`; atomically consumes ticket before upgrade |
+| DM WebSocket | `GET /v1/social/ws?ticket=...` | PARTIAL | Exact production `Origin`, atomically consumed ticket, bounded frames/subscriptions, read events, and delivery-time policy revalidation; fan-out remains process-local and slow-consumer gap signaling is not built |
 | Notifications | `GET /v1/social/notifications` | OK | Actor and referenced-post access are revalidated; protected follow-request/acceptance types supported |
 | Mark read | `POST /v1/social/notifications/read` | OK | Marks all |
 

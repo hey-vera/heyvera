@@ -30,6 +30,7 @@ pub struct DmSubscriberId(pub Uuid);
 /// Fan-out target for a conversation's realtime message pushes.
 pub struct DmSubscriber {
     pub id: DmSubscriberId,
+    pub profile_id: String,
     pub tx: mpsc::Sender<serde_json::Value>,
 }
 use crate::soma::CortexHeart;
@@ -501,28 +502,73 @@ impl AppState {
     /// Push a new DM to all WebSocket subscribers of `conversation_id`.
     /// Payload shape: `{ type: "message", conversationId, message }`.
     pub async fn broadcast_dm_message(&self, conversation_id: &str, message: serde_json::Value) {
-        let event = serde_json::json!({
-            "type": "message",
-            "conversationId": conversation_id,
-            "message": message,
-        });
+        self.broadcast_dm_event(
+            conversation_id,
+            serde_json::json!({
+                "type": "message",
+                "conversationId": conversation_id,
+                "message": message,
+            }),
+        )
+        .await;
+    }
 
-        let mut closed = Vec::new();
-        {
-            let subs = self.dm_subscribers.read().await;
-            if let Some(list) = subs.get(conversation_id) {
-                for sub in list {
-                    if sub.tx.try_send(event.clone()).is_err() {
-                        closed.push(sub.id);
-                    }
-                }
+    /// Broadcast a monotonic per-participant read acknowledgement.
+    pub async fn broadcast_dm_read(
+        &self,
+        conversation_id: &str,
+        profile_id: &str,
+        through_message_id: &str,
+    ) {
+        self.broadcast_dm_event(
+            conversation_id,
+            serde_json::json!({
+                "type": "read",
+                "conversationId": conversation_id,
+                "profileId": profile_id,
+                "throughMessageId": through_message_id,
+            }),
+        )
+        .await;
+    }
+
+    async fn broadcast_dm_event(&self, conversation_id: &str, event: serde_json::Value) {
+        let targets: Vec<(DmSubscriberId, String, mpsc::Sender<serde_json::Value>)> = {
+            let subscribers = self.dm_subscribers.read().await;
+            subscribers
+                .get(conversation_id)
+                .map(|list| {
+                    list.iter()
+                        .map(|subscriber| {
+                            (
+                                subscriber.id,
+                                subscriber.profile_id.clone(),
+                                subscriber.tx.clone(),
+                            )
+                        })
+                        .collect()
+                })
+                .unwrap_or_default()
+        };
+
+        let mut revoked_or_closed = Vec::new();
+        for (subscriber_id, profile_id, sender) in targets {
+            let authorized = self
+                .db
+                .as_ref()
+                .map(|database| {
+                    database.social_conversation_is_accessible(conversation_id, &profile_id)
+                })
+                .unwrap_or(false);
+            if !authorized || sender.try_send(event.clone()).is_err() {
+                revoked_or_closed.push(subscriber_id);
             }
         }
 
-        if !closed.is_empty() {
+        if !revoked_or_closed.is_empty() {
             let mut subs = self.dm_subscribers.write().await;
             if let Some(list) = subs.get_mut(conversation_id) {
-                list.retain(|s| !closed.contains(&s.id));
+                list.retain(|subscriber| !revoked_or_closed.contains(&subscriber.id));
                 if list.is_empty() {
                     subs.remove(conversation_id);
                 }
