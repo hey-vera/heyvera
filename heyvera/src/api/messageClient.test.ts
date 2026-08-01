@@ -27,12 +27,49 @@ describe('message API contract', () => {
       cursor: 'hvm1.a/b?',
     });
 
-    expect(page).toEqual({ messages: [], next_cursor: 'hvm1.next', has_more: true });
+    expect(page).toEqual({
+      messages: [],
+      next_cursor: 'hvm1.next',
+      has_more: true,
+      sync_cursor: null,
+    });
     expect(fetchMock.mock.calls[0]?.[0]).toBe(
       '/v1/social/conversations/conv%2F1/messages?limit=25&cursor=hvm1.a%2Fb%3F',
     );
     const request = fetchMock.mock.calls[0]?.[1] as RequestInit;
     expect(new Headers(request.headers).get('Authorization')).toBe('Bearer token-dm');
+  });
+
+  it('passes a forward sync cursor and returns the advanced recovery boundary', async () => {
+    vi.stubEnv('VITE_API_URL', '/v1');
+    const fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        messages: [],
+        next_cursor: null,
+        sync_cursor: 'hvs1.advanced',
+        has_more: false,
+      }),
+    });
+
+    const { getMessages } = await import('./social');
+    const page = await getMessages('conv/1', 'token-dm', {
+      limit: 100,
+      afterCursor: 'hvs1.current/a?',
+    });
+
+    expect(page).toEqual({
+      messages: [],
+      next_cursor: null,
+      sync_cursor: 'hvs1.advanced',
+      has_more: false,
+    });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      '/v1/social/conversations/conv%2F1/messages?limit=100&after_cursor=hvs1.current%2Fa%3F',
+    );
   });
 
   it('advances only the viewer read watermark through one message', async () => {

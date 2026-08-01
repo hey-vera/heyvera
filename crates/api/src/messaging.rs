@@ -1,9 +1,9 @@
 use std::collections::HashSet;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 use aes_gcm::aead::{Aead, KeyInit};
 use aes_gcm::{Aes256Gcm, Nonce};
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use axum::{
     extract::{
         ws::{Message, WebSocket},
@@ -13,6 +13,7 @@ use axum::{
     response::IntoResponse,
     Json,
 };
+use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::Utc;
 use rand::RngCore;
 use serde::{Deserialize, Serialize};
@@ -79,6 +80,9 @@ const MAX_MESSAGE_CHARS: usize = 4_000;
 const MAX_MESSAGE_BYTES: usize = 16 * 1024;
 const MAX_CLIENT_ID_BYTES: usize = 128;
 const MAX_MESSAGE_PAGE_SIZE: i64 = 100;
+const DEFAULT_CONVERSATION_PAGE_SIZE: i64 = 30;
+const MAX_CONVERSATION_PAGE_SIZE: i64 = 100;
+const MAX_CURSOR_BYTES: usize = 1024;
 const MAX_WS_SUBSCRIPTIONS: usize = 64;
 const MAX_WS_FRAMES_PER_MINUTE: u32 = 120;
 
@@ -100,9 +104,23 @@ pub struct MarkReadRequest {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct ConversationsQuery {
+    pub limit: Option<i64>,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct MessagesQuery {
     pub limit: Option<i64>,
     pub cursor: Option<String>,
+    pub after_cursor: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct ConversationCursor {
+    profile_id: String,
+    before_activity_sequence: i64,
+    before_conversation_id: String,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -110,6 +128,13 @@ struct MessageCursor {
     conversation_id: String,
     profile_id: String,
     before_sequence: i64,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MessageSyncCursor {
+    conversation_id: String,
+    profile_id: String,
+    after_sequence: i64,
 }
 
 fn db(state: &AppState) -> &crate::db::Database {
@@ -214,27 +239,248 @@ fn decode_message_cursor(
         .then_some(cursor.before_sequence)
 }
 
-/// GET /v1/social/conversations — list viewer's conversations
+fn message_sync_cursor_key() -> Option<[u8; 32]> {
+    let secret = std::env::var("CLERK_SECRET_KEY")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            std::env::var("CORTEX_KEY_ENCRYPTION_SECRET")
+                .ok()
+                .filter(|value| !value.is_empty())
+        })
+        .or_else(|| {
+            (!crate::is_production_env()).then(|| "heyvera-local-message-sync-cursor-key".into())
+        })?;
+    let digest = Sha256::digest(
+        [
+            b"heyvera-social-message-sync-cursor:v1:".as_slice(),
+            secret.as_bytes(),
+        ]
+        .concat(),
+    );
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&digest);
+    Some(key)
+}
+
+const MESSAGE_SYNC_CURSOR_PREFIX: &str = "hvs1.";
+
+fn encode_message_sync_cursor(cursor: &MessageSyncCursor) -> Option<String> {
+    let cipher = Aes256Gcm::new_from_slice(&message_sync_cursor_key()?).ok()?;
+    let mut nonce_bytes = [0u8; MESSAGE_CURSOR_NONCE_LEN];
+    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    let plaintext = serde_json::to_vec(cursor).ok()?;
+    let ciphertext = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext.as_slice())
+        .ok()?;
+    let mut payload = nonce_bytes.to_vec();
+    payload.extend_from_slice(&ciphertext);
+    Some(format!(
+        "{MESSAGE_SYNC_CURSOR_PREFIX}{}",
+        URL_SAFE_NO_PAD.encode(payload)
+    ))
+}
+
+fn decode_message_sync_cursor(
+    encoded: &str,
+    expected_conversation_id: &str,
+    expected_profile_id: &str,
+) -> Option<i64> {
+    if encoded.len() > MAX_CURSOR_BYTES {
+        return None;
+    }
+    let payload = URL_SAFE_NO_PAD
+        .decode(encoded.strip_prefix(MESSAGE_SYNC_CURSOR_PREFIX)?)
+        .ok()?;
+    if payload.len() <= MESSAGE_CURSOR_NONCE_LEN {
+        return None;
+    }
+    let cipher = Aes256Gcm::new_from_slice(&message_sync_cursor_key()?).ok()?;
+    let (nonce, ciphertext) = payload.split_at(MESSAGE_CURSOR_NONCE_LEN);
+    let plaintext = cipher.decrypt(Nonce::from_slice(nonce), ciphertext).ok()?;
+    let cursor: MessageSyncCursor = serde_json::from_slice(&plaintext).ok()?;
+    (cursor.conversation_id == expected_conversation_id
+        && cursor.profile_id == expected_profile_id
+        && cursor.after_sequence >= 0)
+        .then_some(cursor.after_sequence)
+}
+fn conversation_cursor_key() -> Option<[u8; 32]> {
+    let secret = std::env::var("CLERK_SECRET_KEY")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            std::env::var("CORTEX_KEY_ENCRYPTION_SECRET")
+                .ok()
+                .filter(|value| !value.is_empty())
+        })
+        .or_else(|| {
+            (!crate::is_production_env()).then(|| "heyvera-local-conversation-cursor-key".into())
+        })?;
+    let digest = Sha256::digest(
+        [
+            b"heyvera-social-conversation-cursor:v1:".as_slice(),
+            secret.as_bytes(),
+        ]
+        .concat(),
+    );
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&digest);
+    Some(key)
+}
+
+const CONVERSATION_CURSOR_PREFIX: &str = "hvc1.";
+
+fn encode_conversation_cursor(cursor: &ConversationCursor) -> Option<String> {
+    let cipher = Aes256Gcm::new_from_slice(&conversation_cursor_key()?).ok()?;
+    let mut nonce_bytes = [0u8; MESSAGE_CURSOR_NONCE_LEN];
+    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    let plaintext = serde_json::to_vec(cursor).ok()?;
+    let ciphertext = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext.as_slice())
+        .ok()?;
+    let mut payload = nonce_bytes.to_vec();
+    payload.extend_from_slice(&ciphertext);
+    Some(format!(
+        "{CONVERSATION_CURSOR_PREFIX}{}",
+        URL_SAFE_NO_PAD.encode(payload)
+    ))
+}
+
+fn decode_conversation_cursor(encoded: &str, expected_profile_id: &str) -> Option<(i64, String)> {
+    if encoded.len() > MAX_CURSOR_BYTES {
+        return None;
+    }
+    let payload = URL_SAFE_NO_PAD
+        .decode(encoded.strip_prefix(CONVERSATION_CURSOR_PREFIX)?)
+        .ok()?;
+    if payload.len() <= MESSAGE_CURSOR_NONCE_LEN {
+        return None;
+    }
+    let cipher = Aes256Gcm::new_from_slice(&conversation_cursor_key()?).ok()?;
+    let (nonce, ciphertext) = payload.split_at(MESSAGE_CURSOR_NONCE_LEN);
+    let plaintext = cipher.decrypt(Nonce::from_slice(nonce), ciphertext).ok()?;
+    let cursor: ConversationCursor = serde_json::from_slice(&plaintext).ok()?;
+    (cursor.profile_id == expected_profile_id
+        && cursor.before_activity_sequence > 0
+        && valid_opaque_id(&cursor.before_conversation_id, MAX_PROFILE_ID_BYTES))
+    .then_some((
+        cursor.before_activity_sequence,
+        cursor.before_conversation_id,
+    ))
+}
+/// GET /v1/social/conversations — list a confidential, bounded inbox page.
 pub async fn list_conversations(
+    user: ClerkUser,
+    Query(params): Query<ConversationsQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(profile) => profile,
+        None => {
+            return ok(serde_json::json!({
+                "conversations": [],
+                "next_cursor": null,
+                "has_more": false,
+                "total_unread_count": 0,
+            }))
+        }
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+    let limit = params.limit.unwrap_or(DEFAULT_CONVERSATION_PAGE_SIZE);
+    if !(1..=MAX_CONVERSATION_PAGE_SIZE).contains(&limit) {
+        return bad_request("limit must be between 1 and 100");
+    }
+    let before = match params.cursor.as_deref() {
+        Some(cursor) => match decode_conversation_cursor(cursor, profile_id) {
+            Some(boundary) => Some(boundary),
+            None => return bad_request("cursor is invalid for this inbox"),
+        },
+        None => None,
+    };
+
+    let page = match db(&state).social_list_conversations(
+        profile_id,
+        limit,
+        before
+            .as_ref()
+            .map(|(sequence, id)| (*sequence, id.as_str())),
+    ) {
+        Ok(page) => page,
+        Err(error) => {
+            tracing::error!(?error, "failed to list Socials conversations");
+            return unavailable();
+        }
+    };
+    let next_cursor = match page.next_before {
+        Some((sequence, conversation_id)) => {
+            match encode_conversation_cursor(&ConversationCursor {
+                profile_id: profile_id.to_string(),
+                before_activity_sequence: sequence,
+                before_conversation_id: conversation_id,
+            }) {
+                Some(cursor) => Some(cursor),
+                None => return unavailable(),
+            }
+        }
+        None => None,
+    };
+    let total_unread_count = match db(&state).social_conversation_unread_total(profile_id) {
+        Ok(count) => count,
+        Err(error) => {
+            tracing::error!(?error, "failed to count unread Socials conversations");
+            return unavailable();
+        }
+    };
+    ok(serde_json::json!({
+        "conversations": page.conversations,
+        "next_cursor": next_cursor,
+        "has_more": next_cursor.is_some(),
+        "total_unread_count": total_unread_count,
+    }))
+}
+
+/// GET /v1/social/conversations/{id} — hydrate one concealed inbox row.
+pub async fn get_conversation(
+    user: ClerkUser,
+    Path(conversation_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    if !valid_opaque_id(&conversation_id, MAX_PROFILE_ID_BYTES) {
+        return not_found("Conversation not found");
+    }
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(profile) => profile,
+        None => return not_found("Conversation not found"),
+    };
+    let profile_id = profile["id"].as_str().unwrap_or("");
+    match db(&state).social_get_conversation(&conversation_id, profile_id) {
+        Ok(conversation) => ok(conversation),
+        Err(crate::db::SocialMessagingError::NotFound) => not_found("Conversation not found"),
+        Err(error) => {
+            tracing::error!(?error, "failed to hydrate Socials conversation");
+            unavailable()
+        }
+    }
+}
+
+/// GET /v1/social/conversations/unread-count — uncapped navigation badge truth.
+pub async fn get_conversation_unread_count(
     user: ClerkUser,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
-        Some(p) => p,
-        None => return ok(serde_json::json!({ "conversations": [] })),
+        Some(profile) => profile,
+        None => return ok(serde_json::json!({ "unread_count": 0 })),
     };
-
     let profile_id = profile["id"].as_str().unwrap_or("");
-    let mut conversations = db(&state).social_list_conversations(profile_id, 100);
-    conversations.retain(|conversation| {
-        conversation["id"].as_str().map(|conversation_id| {
-            conversation_is_accessible(db(&state), conversation_id, profile_id)
-        }).unwrap_or(false)
-    });
-
-    ok(serde_json::json!({ "conversations": conversations }))
+    match db(&state).social_conversation_unread_total(profile_id) {
+        Ok(unread_count) => ok(serde_json::json!({ "unread_count": unread_count })),
+        Err(error) => {
+            tracing::error!(?error, "failed to count unread Socials conversations");
+            unavailable()
+        }
+    }
 }
-
 pub async fn create_conversation(
     user: ClerkUser,
     State(state): State<Arc<AppState>>,
@@ -286,17 +532,20 @@ pub async fn create_conversation(
             tracing::error!(%error, "failed to create Socials conversation");
             unavailable()
         }
-        }
     }
+}
 
 pub async fn list_messages(
     user: ClerkUser,
     Path(conversation_id): Path<String>,
-    axum::extract::Query(params): axum::extract::Query<MessagesQuery>,
+    Query(params): Query<MessagesQuery>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
     if !valid_opaque_id(&conversation_id, MAX_PROFILE_ID_BYTES) {
         return not_found("Conversation not found");
+    }
+    if params.cursor.is_some() && params.after_cursor.is_some() {
+        return bad_request("cursor and after_cursor are mutually exclusive");
     }
     let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
         Some(profile) => profile,
@@ -307,6 +556,43 @@ pub async fn list_messages(
     if !(1..=MAX_MESSAGE_PAGE_SIZE).contains(&limit) {
         return bad_request("limit must be between 1 and 100");
     }
+
+    if let Some(encoded) = params.after_cursor.as_deref() {
+        let after_sequence = match decode_message_sync_cursor(encoded, &conversation_id, profile_id)
+        {
+            Some(sequence) => sequence,
+            None => return bad_request("after_cursor is invalid for this conversation"),
+        };
+        return match db(&state).social_list_messages_after(
+            &conversation_id,
+            profile_id,
+            limit,
+            after_sequence,
+        ) {
+            Ok(page) => {
+                let sync_cursor = match encode_message_sync_cursor(&MessageSyncCursor {
+                    conversation_id: conversation_id.clone(),
+                    profile_id: profile_id.to_string(),
+                    after_sequence: page.next_after_sequence,
+                }) {
+                    Some(cursor) => cursor,
+                    None => return unavailable(),
+                };
+                ok(serde_json::json!({
+                    "messages": page.messages,
+                    "next_cursor": null,
+                    "sync_cursor": sync_cursor,
+                    "has_more": page.has_more,
+                }))
+            }
+            Err(crate::db::SocialMessagingError::NotFound) => not_found("Conversation not found"),
+            Err(error) => {
+                tracing::error!(?error, "failed to synchronize Socials messages");
+                unavailable()
+            }
+        };
+    }
+
     let before_sequence = match params.cursor.as_deref() {
         Some(cursor) => match decode_message_cursor(cursor, &conversation_id, profile_id) {
             Some(sequence) => Some(sequence),
@@ -327,9 +613,27 @@ pub async fn list_messages(
                 },
                 None => None,
             };
+            let sync_cursor = if before_sequence.is_none() {
+                let newest_sequence = page
+                    .messages
+                    .last()
+                    .and_then(|message| message["sequence"].as_i64())
+                    .unwrap_or(0);
+                match encode_message_sync_cursor(&MessageSyncCursor {
+                    conversation_id: conversation_id.clone(),
+                    profile_id: profile_id.to_string(),
+                    after_sequence: newest_sequence,
+                }) {
+                    Some(cursor) => Some(cursor),
+                    None => return unavailable(),
+                }
+            } else {
+                None
+            };
             ok(serde_json::json!({
                 "messages": page.messages,
                 "next_cursor": next_cursor,
+                "sync_cursor": sync_cursor,
                 "has_more": next_cursor.is_some(),
             }))
         }
@@ -340,7 +644,6 @@ pub async fn list_messages(
         }
     }
 }
-
 pub async fn mark_conversation_read(
     user: ClerkUser,
     Path(conversation_id): Path<String>,
@@ -411,9 +714,9 @@ pub async fn send_message(
     ) {
         Ok(outcome) => {
             if !outcome.replayed {
-    state
+                state
                     .broadcast_dm_message(&conversation_id, outcome.message.clone())
-        .await;
+                    .await;
             }
             api_response(
                 if outcome.replayed {
@@ -456,12 +759,10 @@ fn generate_social_ws_ticket() -> String {
 
 fn valid_social_ws_ticket_shape(ticket: &str) -> bool {
     ticket.len() == 48
-        && ticket
-            .strip_prefix("hvws_")
-            .is_some_and(|body| {
-                body.bytes()
-                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
-            })
+        && ticket.strip_prefix("hvws_").is_some_and(|body| {
+            body.bytes()
+                .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+        })
 }
 
 /// POST /v1/social/ws-ticket — exchange a bearer session for a one-use WS ticket.
@@ -536,7 +837,11 @@ pub async fn social_ws_handler(
     headers: HeaderMap,
 ) -> axum::response::Response {
     if let Err(error) = validate_social_ws_origin(&headers) {
-        return (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": error }))).into_response();
+        return (
+            StatusCode::FORBIDDEN,
+            Json(serde_json::json!({ "error": error })),
+        )
+            .into_response();
     }
     let ticket = params.ticket.as_deref().unwrap_or("");
     match authenticate_social_ws(&state, ticket) {
@@ -547,16 +852,18 @@ pub async fn social_ws_handler(
             .into_response(),
         Err(error) => {
             tracing::warn!("social dm ws ticket rejected: {error}");
-            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
-                "error": "invalid or expired realtime ticket"
-            })))
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(serde_json::json!({
+                    "error": "invalid or expired realtime ticket"
+                })),
+            )
                 .into_response()
         }
     }
 }
 
 async fn handle_social_ws(mut socket: WebSocket, state: Arc<AppState>, user_id: String) {
-
     // Resolve social profile (optional — subscribe checks participant via profile).
     let profile_id = state
         .db
@@ -584,6 +891,8 @@ async fn handle_social_ws(mut socket: WebSocket, state: Arc<AppState>, user_id: 
 
     // One fan-out channel for this socket; map conversation_id → sub id for cleanup.
     let (tx, mut rx) = mpsc::channel::<serde_json::Value>(64);
+    let (control_tx, mut control_rx) = mpsc::unbounded_channel::<serde_json::Value>();
+    let gap_signaled = Arc::new(AtomicBool::new(false));
     let sub_id = DmSubscriberId(Uuid::new_v4());
     let mut active_conversations: Vec<String> = Vec::new();
     let mut frame_window_started = Instant::now();
@@ -591,6 +900,12 @@ async fn handle_social_ws(mut socket: WebSocket, state: Arc<AppState>, user_id: 
 
     loop {
         tokio::select! {
+            Some(control) = control_rx.recv() => {
+                let json = serde_json::to_string(&control).unwrap_or_else(|_| "{}".into());
+                let _ = socket.send(Message::Text(json.into())).await;
+                // A gap requires a fresh ticket, subscription, and durable HTTP catch-up.
+                break;
+            }
             Some(event) = rx.recv() => {
                 let json = serde_json::to_string(&event).unwrap_or_else(|_| "{}".into());
                 if socket.send(Message::Text(json.into())).await.is_err() {
@@ -673,6 +988,8 @@ async fn handle_social_ws(mut socket: WebSocket, state: Arc<AppState>, user_id: 
                                                 id: sub_id,
                                                 profile_id: pid.clone(),
                                                 tx: tx.clone(),
+                                                control_tx: control_tx.clone(),
+                                                gap_signaled: gap_signaled.clone(),
                                             },
                                         )
                                         .await;
@@ -764,11 +1081,7 @@ fn validate_social_ws_origin(headers: &HeaderMap) -> Result<(), String> {
     let expected = std::env::var("CLERK_AUTHORIZED_PARTY")
         .ok()
         .filter(|value| !value.trim().is_empty());
-    validate_social_ws_origin_values(
-        origin,
-        expected.as_deref(),
-        clerk::is_production_runtime(),
-    )
+    validate_social_ws_origin_values(origin, expected.as_deref(), clerk::is_production_runtime())
 }
 
 fn validate_social_ws_origin_values(
@@ -778,7 +1091,10 @@ fn validate_social_ws_origin_values(
 ) -> Result<(), String> {
     match (origin, expected) {
         (Some(actual), Some(expected))
-            if actual.trim_end_matches('/') == expected.trim_end_matches('/') => Ok(()),
+            if actual.trim_end_matches('/') == expected.trim_end_matches('/') =>
+        {
+            Ok(())
+        }
         (None, _) | (_, None) if !production => Ok(()),
         _ => Err("WebSocket origin is not authorized".into()),
     }
@@ -827,9 +1143,7 @@ mod tests {
             validate_social_ws_origin_values(Some("https://evil.example"), expected, true).is_err()
         );
         assert!(validate_social_ws_origin_values(None, expected, true).is_err());
-        assert!(
-            validate_social_ws_origin_values(Some("https://heyvera.org"), None, true).is_err()
-        );
+        assert!(validate_social_ws_origin_values(Some("https://heyvera.org"), None, true).is_err());
         assert!(validate_social_ws_origin_values(None, None, false).is_ok());
     }
 
@@ -885,9 +1199,7 @@ mod tests {
         let multibyte_at_limit = "\u{1F980}".repeat(MAX_MESSAGE_CHARS);
         assert_eq!(multibyte_at_limit.len(), 16_000);
         assert!(normalize_message_content(&multibyte_at_limit).is_ok());
-        assert!(normalize_message_content(
-            &(multibyte_at_limit + "\u{1F980}")
-        ).is_err());
+        assert!(normalize_message_content(&(multibyte_at_limit + "\u{1F980}")).is_err());
     }
 
     #[test]
@@ -924,11 +1236,179 @@ mod tests {
     }
 
     #[test]
+    fn message_sync_cursor_is_forward_only_and_context_bound() {
+        let cursor = MessageSyncCursor {
+            conversation_id: "conversation-1234".into(),
+            profile_id: "profile-1234".into(),
+            after_sequence: 42,
+        };
+        let first = encode_message_sync_cursor(&cursor).expect("sync cursor key");
+        let second = encode_message_sync_cursor(&cursor).expect("sync cursor key");
+        assert!(first.starts_with(MESSAGE_SYNC_CURSOR_PREFIX));
+        assert_ne!(first, second);
+        assert_eq!(
+            decode_message_sync_cursor(&first, "conversation-1234", "profile-1234"),
+            Some(42),
+        );
+        assert_eq!(
+            decode_message_sync_cursor(&first, "other-conversation", "profile-1234"),
+            None,
+        );
+        assert_eq!(
+            decode_message_sync_cursor(&first, "conversation-1234", "other-profile"),
+            None,
+        );
+        assert_eq!(
+            decode_message_cursor(&first, "conversation-1234", "profile-1234"),
+            None,
+        );
+    }
+    #[test]
+    fn conversation_cursor_is_randomized_tamper_evident_and_viewer_bound() {
+        let cursor = ConversationCursor {
+            profile_id: "profile-1234".into(),
+            before_activity_sequence: 42,
+            before_conversation_id: "conversation-1234".into(),
+        };
+        let first = encode_conversation_cursor(&cursor).expect("cursor key");
+        let second = encode_conversation_cursor(&cursor).expect("cursor key");
+        assert!(first.starts_with(CONVERSATION_CURSOR_PREFIX));
+        assert_ne!(first, second);
+        assert_eq!(
+            decode_conversation_cursor(&first, "profile-1234"),
+            Some((42, "conversation-1234".into())),
+        );
+        assert_eq!(decode_conversation_cursor(&first, "other-profile"), None);
+        assert_eq!(
+            decode_message_cursor(&first, "conversation-1234", "profile-1234"),
+            None,
+            "conversation and message cursor domains must not overlap",
+        );
+
+        let mut tampered = first.into_bytes();
+        let last = tampered.len() - 1;
+        tampered[last] = if tampered[last] == b'A' { b'B' } else { b'A' };
+        let tampered = String::from_utf8(tampered).unwrap();
+        assert_eq!(decode_conversation_cursor(&tampered, "profile-1234"), None,);
+        assert_eq!(
+            decode_conversation_cursor(
+                &format!(
+                    "{}{}",
+                    CONVERSATION_CURSOR_PREFIX,
+                    "A".repeat(MAX_CURSOR_BYTES)
+                ),
+                "profile-1234",
+            ),
+            None,
+        );
+    }
+    #[test]
     fn messaging_json_responses_are_private_and_not_cached() {
         let response = ok(serde_json::json!({ "ok": true })).into_response();
         assert_eq!(
             response.headers().get(header::CACHE_CONTROL).unwrap(),
             "private, no-store"
         );
+    }
+
+    #[tokio::test]
+    async fn conversation_handlers_conceal_outsiders_and_keep_principal_unread_truth() {
+        use http_body_util::BodyExt;
+
+        let temporary = tempfile::tempdir().expect("temporary workspace");
+        let workspace = temporary.path().to_path_buf();
+        std::fs::create_dir_all(workspace.join(".cortex")).expect("workspace metadata");
+        let state = AppState::new(workspace.join(".cortex/ledger.jsonl"), workspace, None).await;
+        let database = state.db.as_ref().expect("test database");
+
+        let alice = database.social_create_profile("clerk_dm_alice", "dm_alice", "Alice", "");
+        let bob = database.social_create_profile("clerk_dm_bob", "dm_bob", "Bob", "");
+        database.social_create_profile("clerk_dm_outsider", "dm_outsider", "Outsider", "");
+        let alice_id = alice["id"].as_str().expect("alice profile").to_string();
+        let bob_id = bob["id"].as_str().expect("bob profile").to_string();
+        database.social_update_profile_prefs(
+            &bob_id,
+            Some("everyone"),
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        );
+        let conversation = database
+            .social_create_conversation(&alice_id, &[alice_id.clone(), bob_id.clone()], None)
+            .expect("direct conversation");
+        let conversation_id = conversation["id"]
+            .as_str()
+            .expect("conversation id")
+            .to_string();
+        database
+            .social_send_message(
+                &conversation_id,
+                &alice_id,
+                "principal-specific unread evidence",
+                "handler-principal-message-0001",
+            )
+            .expect("message");
+
+        let bob_response = list_conversations(
+            ClerkUser {
+                user_id: "clerk_dm_bob".into(),
+            },
+            Query(ConversationsQuery {
+                limit: Some(10),
+                cursor: None,
+            }),
+            State(state.clone()),
+        )
+        .await
+        .into_response();
+        assert_eq!(bob_response.status(), StatusCode::OK);
+        let bob_body = bob_response
+            .into_body()
+            .collect()
+            .await
+            .expect("bob response")
+            .to_bytes();
+        let bob_json: serde_json::Value =
+            serde_json::from_slice(&bob_body).expect("bob JSON response");
+        assert_eq!(bob_json["conversations"][0]["id"], conversation_id);
+        assert_eq!(bob_json["total_unread_count"], 1);
+
+        let outsider_detail = get_conversation(
+            ClerkUser {
+                user_id: "clerk_dm_outsider".into(),
+            },
+            Path(conversation_id.clone()),
+            State(state.clone()),
+        )
+        .await
+        .into_response();
+        assert_eq!(outsider_detail.status(), StatusCode::NOT_FOUND);
+
+        let outsider_list = list_conversations(
+            ClerkUser {
+                user_id: "clerk_dm_outsider".into(),
+            },
+            Query(ConversationsQuery {
+                limit: Some(10),
+                cursor: None,
+            }),
+            State(state),
+        )
+        .await
+        .into_response();
+        assert_eq!(outsider_list.status(), StatusCode::OK);
+        let outsider_body = outsider_list
+            .into_body()
+            .collect()
+            .await
+            .expect("outsider response")
+            .to_bytes();
+        let outsider_json: serde_json::Value =
+            serde_json::from_slice(&outsider_body).expect("outsider JSON response");
+        assert_eq!(outsider_json["conversations"], serde_json::json!([]));
+        assert_eq!(outsider_json["total_unread_count"], 0);
     }
 }

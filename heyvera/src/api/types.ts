@@ -91,6 +91,13 @@ export interface Conversation {
   pinned: boolean;
 }
 
+export interface ConversationPage {
+  conversations: Conversation[];
+  next_cursor: string | null;
+  has_more: boolean;
+  total_unread_count: number;
+}
+
 export interface Message {
   id: string;
   sequence: number;
@@ -106,6 +113,7 @@ export interface MessagePage {
   messages: Message[];
   next_cursor: string | null;
   has_more: boolean;
+  sync_cursor: string | null;
 }
 
 export interface Community {

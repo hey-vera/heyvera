@@ -5,6 +5,7 @@ import { useSearchParams } from 'react-router-dom';
 import type { Conversation, Message } from '../api/types';
 import {
   getConversations,
+  getConversation,
   getMessages,
   issueSocialDmWsTicket,
   markConversationRead,
@@ -32,6 +33,11 @@ import {
   unsubscribePayload,
 } from '../utils/socialDmWs';
 import { mergeMessageHistory } from '../utils/messageHistory';
+import {
+  appendConversationPage,
+  mergeConversationHead,
+  promoteConversation,
+} from '../utils/conversationList';
 
 /** Soft-realtime: messages while a thread is open (honest intermediate before WS). */
 const MESSAGES_POLL_MS = 6_000;
@@ -91,16 +97,12 @@ function bumpUnreadLocal(
   conversationId: string,
   message: Message,
 ): Conversation[] {
-  return list.map((c) => {
-    if (c.id !== conversationId) return c;
-    return {
-      ...c,
-      unread_count: (c.unread_count ?? 0) + 1,
-      last_message: message,
-    };
-  });
+  return promoteConversation(list, conversationId, (conversation) => ({
+    ...conversation,
+    unread_count: (conversation.unread_count ?? 0) + 1,
+    last_message: message,
+  }));
 }
-
 function readNavigatorOnline(): boolean {
   if (typeof navigator === 'undefined') return true;
   return navigator.onLine !== false;
@@ -117,6 +119,9 @@ export function MessagesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const deepLinkConversationId = searchParams.get('c');
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [nextConversationCursor, setNextConversationCursor] = useState<string | null>(null);
+  const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
+  const [moreConversationsError, setMoreConversationsError] = useState<string | null>(null);
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(deepLinkConversationId);
@@ -132,7 +137,8 @@ export function MessagesPage() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
-  /** Wave 8b/9b: true only when social DM WebSocket is open. */
+  const [selectedConversationError, setSelectedConversationError] = useState<string | null>(null);
+  /** True only after the socket subscription is acknowledged and durable catch-up completes. */
   const [wsConnected, setWsConnected] = useState(false);
   /** Wave 9b: browser offline (navigator.onLine). */
   const [navigatorOnline, setNavigatorOnline] = useState(readNavigatorOnline);
@@ -150,11 +156,17 @@ export function MessagesPage() {
     ((conversationId: string, opts?: { quiet?: boolean }) => Promise<void>) | null
   >(null);
 
+  const recoverMessagesForRef = useRef<
+    ((conversationId: string) => Promise<void>) | null
+  >(null);
+  const messageSyncCursorsRef = useRef(new Map<string, string>());
   const readAckRef = useRef<string | null>(null);
   const pendingSendRef = useRef<
     { conversationId: string; content: string; clientMessageId: string } | null
   >(null);
   const subscribedConversationRef = useRef<string | null>(null);
+  const loadedOlderConversationsRef = useRef(false);
+  const deepLinkHydrationRef = useRef<string | null>(null);
   const shouldScrollToEndRef = useRef(true);
 
   const selectedConversation = conversations.find((c) => c.id === selectedId) ?? null;
@@ -198,41 +210,107 @@ export function MessagesPage() {
     pollActive,
   });
 
-  /* Load conversations (quiet = background poll: no LoadingState flash). */
+  /* Load conversations (quiet = background head refresh without discarding older pages). */
   const loadConversations = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!isSignedIn) return;
     const quiet = opts?.quiet ?? false;
     if (!quiet) {
+      loadedOlderConversationsRef.current = false;
       setLoadingConversations(true);
       setConversationsError(null);
+      setMoreConversationsError(null);
     }
     try {
       const token = await getToken();
       if (!token) return;
-      const result = await getConversations(token);
-      setConversations(result);
+      const page = await getConversations(token);
+      setConversations((current) =>
+        quiet ? mergeConversationHead(current, page.conversations) : page.conversations,
+      );
+      if (!quiet || !loadedOlderConversationsRef.current) {
+        setNextConversationCursor(page.next_cursor);
+      }
       setLastUpdatedAt(Date.now());
     } catch (err) {
       if (quiet) return;
       setConversationsError(err instanceof Error ? err.message : 'Failed to load conversations');
       setConversations([]);
       setFilteredConversations([]);
+      setNextConversationCursor(null);
     } finally {
       if (!quiet) setLoadingConversations(false);
     }
   }, [getToken, isSignedIn]);
-
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
 
+  const loadMoreConversations = useCallback(async () => {
+    const cursor = nextConversationCursor;
+    if (!cursor || loadingMoreConversations) return;
+    setLoadingMoreConversations(true);
+    setMoreConversationsError(null);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const page = await getConversations(token, { cursor });
+      setConversations((current) => appendConversationPage(current, page.conversations));
+      setNextConversationCursor(page.next_cursor);
+      loadedOlderConversationsRef.current = true;
+      setLastUpdatedAt(Date.now());
+    } catch (err) {
+      setMoreConversationsError(
+        err instanceof Error ? err.message : 'Failed to load more conversations',
+      );
+    } finally {
+      setLoadingMoreConversations(false);
+    }
+  }, [getToken, loadingMoreConversations, nextConversationCursor]);
+
+  useEffect(() => {
+    const conversationId = selectedId;
+    if (
+      !isSignedIn ||
+      !conversationId ||
+      conversations.some((conversation) => conversation.id === conversationId) ||
+      deepLinkHydrationRef.current === conversationId
+    ) {
+      return;
+    }
+    let cancelled = false;
+    deepLinkHydrationRef.current = conversationId;
+    setSelectedConversationError(null);
+    void (async () => {
+      try {
+        const token = await getToken();
+        if (!token || cancelled) return;
+        const conversation = await getConversation(token, conversationId);
+        if (!cancelled && selectedIdRef.current === conversationId) {
+          setConversations((current) => mergeConversationHead(current, [conversation]));
+        }
+      } catch (err) {
+        if (!cancelled && selectedIdRef.current === conversationId) {
+          setSelectedConversationError(
+            err instanceof Error ? err.message : 'Conversation is unavailable',
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversations, getToken, isSignedIn, selectedId]);
   // Deep link from Profile "Message" → /messages?c=<conversationId>
   useEffect(() => {
     if (!deepLinkConversationId) return;
+    deepLinkHydrationRef.current = null;
+    setSelectedConversationError(null);
     setSelectedId(deepLinkConversationId);
   }, [deepLinkConversationId]);
 
   const selectConversation = (id: string | null) => {
+    deepLinkHydrationRef.current = null;
+    setSelectedConversationError(null);
     setSelectedId(id);
     if (id) {
       setSearchParams({ c: id }, { replace: true });
@@ -319,6 +397,7 @@ export function MessagesPage() {
         if (!token) return;
         const page = await getMessages(conversationId, token);
         if (selectedIdRef.current !== conversationId) return;
+        if (page.sync_cursor) messageSyncCursorsRef.current.set(conversationId, page.sync_cursor);
         // Avoid re-render/scroll churn when nothing changed.
         const scroller = messagesScrollerRef.current;
         shouldScrollToEndRef.current = Boolean(
@@ -339,6 +418,56 @@ export function MessagesPage() {
   );
   loadMessagesForRef.current = loadMessagesFor;
 
+  const recoverMessagesFor = useCallback(
+    async (conversationId: string) => {
+      const token = await getToken();
+      if (!token || selectedIdRef.current !== conversationId) return;
+
+      let syncCursor = messageSyncCursorsRef.current.get(conversationId) ?? null;
+      let newestRecovered: Message[] = [];
+
+      if (!syncCursor) {
+        const page = await getMessages(conversationId, token, { limit: 100 });
+        if (selectedIdRef.current !== conversationId) return;
+        setMessages((current) => mergeMessageHistory(current, page.messages));
+        newestRecovered = page.messages;
+        syncCursor = page.sync_cursor;
+        if (syncCursor) messageSyncCursorsRef.current.set(conversationId, syncCursor);
+      } else {
+        for (let pageNumber = 0; pageNumber < 1_000; pageNumber += 1) {
+          const page = await getMessages(conversationId, token, {
+            limit: 100,
+            afterCursor: syncCursor,
+          });
+          if (selectedIdRef.current !== conversationId) return;
+          if (page.messages.length > 0) {
+            newestRecovered = page.messages;
+            setMessages((current) => mergeMessageHistory(current, page.messages));
+          }
+
+          const nextSyncCursor = page.sync_cursor;
+          if (nextSyncCursor) messageSyncCursorsRef.current.set(conversationId, nextSyncCursor);
+          if (!page.has_more) break;
+          if (!nextSyncCursor || nextSyncCursor === syncCursor) {
+            throw new Error('Message recovery cursor did not advance');
+          }
+          syncCursor = nextSyncCursor;
+
+          if (pageNumber === 999) throw new Error('Message recovery exceeded its safety limit');
+        }
+      }
+
+      if (selectedIdRef.current !== conversationId) return;
+      setMessagesError(null);
+      setLastUpdatedAt(Date.now());
+      if (newestRecovered.length > 0) {
+        void acknowledgeVisibleMessages(conversationId, newestRecovered);
+      }
+    },
+    [acknowledgeVisibleMessages, getToken],
+  );
+  recoverMessagesForRef.current = recoverMessagesFor;
+
   useEffect(() => {
     setMessages([]);
     setNextMessagesCursor(null);
@@ -357,7 +486,8 @@ export function MessagesPage() {
         if (!token || cancelled) return;
         const page = await getMessages(conversationId, token);
         if (!cancelled && selectedIdRef.current === conversationId) {
-          setMessages(page.messages);
+          if (page.sync_cursor) messageSyncCursorsRef.current.set(conversationId, page.sync_cursor);
+          setMessages((current) => mergeMessageHistory(current, page.messages));
           setNextMessagesCursor(page.next_cursor);
           setLastUpdatedAt(Date.now());
           void acknowledgeVisibleMessages(conversationId, page.messages);
@@ -530,8 +660,8 @@ export function MessagesPage() {
             return;
           }
           attempt = 0;
-          setWsConnected(true);
-          setReconnecting(false);
+          setWsConnected(false);
+          setReconnecting(Boolean(selectedIdRef.current));
 
           if (pingTimer) clearInterval(pingTimer);
           pingTimer = setInterval(() => {
@@ -549,7 +679,9 @@ export function MessagesPage() {
           if (id && socket?.readyState === WebSocket.OPEN) {
             socket.send(subscribePayload(id));
             subscribedConversationRef.current = id;
-            void loadMessagesForRef.current?.(id, { quiet: true });
+          } else {
+            setWsConnected(true);
+            setReconnecting(false);
           }
         };
 
@@ -557,28 +689,55 @@ export function MessagesPage() {
           if (typeof ev.data !== 'string') return;
           const event = parseSocialDmWsMessage(ev.data);
           if (!event) return;
+          if (event.type === 'subscribed') {
+            const activeId = selectedIdRef.current;
+            if (event.conversationId !== activeId) return;
+            void recoverMessagesForRef.current?.(event.conversationId).then(
+              () => {
+                if (
+                  !cancelled &&
+                  wsRef.current === socket &&
+                  socket?.readyState === WebSocket.OPEN &&
+                  selectedIdRef.current === event.conversationId
+                ) {
+                  setWsConnected(true);
+                  setReconnecting(false);
+                }
+              },
+              () => {
+                setWsConnected(false);
+                setReconnecting(true);
+                if (socket?.readyState === WebSocket.OPEN) socket.close();
+              },
+            );
+            return;
+          }
+          if (event.type === 'gap') {
+            if (event.conversationId !== selectedIdRef.current) return;
+            setWsConnected(false);
+            setReconnecting(true);
+            if (socket?.readyState === WebSocket.OPEN) socket.close();
+            return;
+          }
           if (event.type === 'message') {
             const activeId = selectedIdRef.current;
+            setConversations((current) =>
+              event.message.sender.id === viewerProfileIdRef.current
+                ? promoteConversation(current, event.conversationId, (conversation) => ({
+                    ...conversation,
+                    last_message: event.message,
+                  }))
+                : bumpUnreadLocal(current, event.conversationId, event.message),
+            );
             if (event.conversationId === activeId) {
               const scroller = messagesScrollerRef.current;
               shouldScrollToEndRef.current = Boolean(
                 scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80,
               );
               setMessages((current) => mergeMessageHistory(current, [event.message]));
-              setLastUpdatedAt(Date.now());
               void acknowledgeVisibleMessages(event.conversationId, [event.message]);
-            } else {
-              setConversations((current) =>
-                event.message.sender.id === viewerProfileIdRef.current
-                  ? current.map((conversation) =>
-                      conversation.id === event.conversationId
-                        ? { ...conversation, last_message: event.message }
-                        : conversation,
-                    )
-                  : bumpUnreadLocal(current, event.conversationId, event.message),
-              );
-              setLastUpdatedAt(Date.now());
             }
+            setLastUpdatedAt(Date.now());
             return;
           }
           if (event.type === 'read' && event.conversationId === selectedIdRef.current) {
@@ -699,9 +858,8 @@ export function MessagesPage() {
     };
   }, [acknowledgeVisibleMessages, getToken, isSignedIn]);
 
-  // Resubscribe when the selected conversation changes while WS is live.
+  // Resubscribe when the selected conversation changes on an open socket.
   useEffect(() => {
-    if (!wsConnected) return;
     const s = wsRef.current;
     if (s && s.readyState === WebSocket.OPEN) {
       const previousId = subscribedConversationRef.current;
@@ -709,11 +867,16 @@ export function MessagesPage() {
         s.send(unsubscribePayload(previousId));
       }
       if (selectedId && previousId !== selectedId) {
+        setWsConnected(false);
+        setReconnecting(true);
         s.send(subscribePayload(selectedId));
+      } else if (!selectedId) {
+        setWsConnected(true);
+        setReconnecting(false);
       }
       subscribedConversationRef.current = selectedId;
     }
-  }, [selectedId, wsConnected]);
+  }, [selectedId]);
 
   /* Scroll to bottom when messages change */
   useEffect(() => {
@@ -749,10 +912,12 @@ export function MessagesPage() {
       setComposeText((current) => (current.trim() === content ? '' : current));
       setLastUpdatedAt(Date.now());
       // Keep list preview fresh for the open thread.
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === conversationId ? { ...c, last_message: newMsg, unread_count: 0 } : c,
-        ),
+      setConversations((current) =>
+        promoteConversation(current, conversationId, (conversation) => ({
+          ...conversation,
+          last_message: newMsg,
+          unread_count: 0,
+        })),
       );
     } catch (err) {
       setSendError(err instanceof Error ? err.message : 'Send failed. Try again.');
@@ -998,6 +1163,38 @@ export function MessagesPage() {
                 </button>
               );
             })}
+          {!loadingConversations && !conversationsError && nextConversationCursor && (
+            <div className="border-t px-4 py-3 text-center" style={{ borderColor: 'var(--border-primary)' }}>
+              {searchQuery.trim() && (
+                <p className="mb-2 text-[12px]" style={{ color: 'var(--text-secondary)' }}>
+                  Search currently covers loaded conversations.
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => void loadMoreConversations()}
+                disabled={loadingMoreConversations}
+                className="rounded-full border px-4 py-2 text-[13px] font-semibold transition-colors hover-overlay disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-ring"
+                style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+              >
+                {loadingMoreConversations ? 'Loading...' : 'Load more conversations'}
+              </button>
+            </div>
+          )}
+          {moreConversationsError && (
+            <div className="px-4 pb-3 text-center" role="status" aria-live="polite">
+              <p className="text-[12px]" style={{ color: 'var(--danger, #dc2626)' }}>
+                {moreConversationsError}
+              </p>
+              <button
+                type="button"
+                onClick={() => void loadMoreConversations()}
+                className="mt-1 text-[12px] font-semibold underline focus-visible:outline-none focus-ring"
+              >
+                Retry
+              </button>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1017,10 +1214,24 @@ export function MessagesPage() {
               >
                 <MessageCircle className="h-7 w-7" aria-hidden="true" />
               </div>
-              <p className="text-[20px] font-bold">Select a conversation</p>
-              <p className="mt-1 text-[15px]" style={{ color: 'var(--text-secondary)' }}>
-                Choose a conversation from the list to start messaging.
+              <p className="text-[20px] font-bold">
+                {selectedConversationError
+                  ? 'Conversation unavailable'
+                  : selectedId
+                    ? 'Loading conversation...'
+                    : 'Select a conversation'}
               </p>
+              <p className="mt-1 text-[15px]" style={{ color: 'var(--text-secondary)' }}>
+                {selectedConversationError ??
+                  (selectedId
+                    ? 'Fetching this conversation securely.'
+                    : 'Choose a conversation from the list to start messaging.')}
+              </p>
+              {selectedConversationError && (
+                <button type="button" onClick={() => selectConversation(null)} className="mt-4 rounded-full border px-4 py-2 text-[13px] font-semibold focus-visible:outline-none focus-ring" style={{ borderColor: 'var(--border-primary)' }}>
+                  Back to inbox
+                </button>
+              )}
             </div>
           </div>
         ) : (

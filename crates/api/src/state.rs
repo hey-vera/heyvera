@@ -28,10 +28,32 @@ use crate::ratelimit::RateLimiter;
 pub struct DmSubscriberId(pub Uuid);
 
 /// Fan-out target for a conversation's realtime message pushes.
+#[derive(Clone)]
 pub struct DmSubscriber {
     pub id: DmSubscriberId,
     pub profile_id: String,
     pub tx: mpsc::Sender<serde_json::Value>,
+    pub control_tx: mpsc::UnboundedSender<serde_json::Value>,
+    pub gap_signaled: Arc<AtomicBool>,
+}
+
+impl DmSubscriber {
+    fn signal_slow_consumer_gap(&self, conversation_id: &str) -> bool {
+        if self
+            .gap_signaled
+            .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+            .is_err()
+        {
+            return false;
+        }
+        self.control_tx
+            .send(serde_json::json!({
+                "type": "gap",
+                "conversationId": conversation_id,
+                "reason": "slow_consumer",
+            }))
+            .is_ok()
+    }
 }
 use crate::soma::CortexHeart;
 use crate::storage::Storage;
@@ -533,49 +555,53 @@ impl AppState {
     }
 
     async fn broadcast_dm_event(&self, conversation_id: &str, event: serde_json::Value) {
-        let targets: Vec<(DmSubscriberId, String, mpsc::Sender<serde_json::Value>)> = {
+        let targets: Vec<DmSubscriber> = {
             let subscribers = self.dm_subscribers.read().await;
             subscribers
                 .get(conversation_id)
-                .map(|list| {
-                    list.iter()
-                        .map(|subscriber| {
-                            (
-                                subscriber.id,
-                                subscriber.profile_id.clone(),
-                                subscriber.tx.clone(),
-                            )
-                        })
-                        .collect()
-                })
+                .cloned()
                 .unwrap_or_default()
         };
 
         let mut revoked_or_closed = Vec::new();
-        for (subscriber_id, profile_id, sender) in targets {
+        for subscriber in targets {
             let authorized = self
                 .db
                 .as_ref()
                 .map(|database| {
-                    database.social_conversation_is_accessible(conversation_id, &profile_id)
+                    database.social_conversation_is_accessible(
+                        conversation_id,
+                        &subscriber.profile_id,
+                    )
                 })
                 .unwrap_or(false);
-            if !authorized || sender.try_send(event.clone()).is_err() {
-                revoked_or_closed.push(subscriber_id);
+            if !authorized {
+                revoked_or_closed.push(subscriber.id);
+                continue;
+            }
+            match subscriber.tx.try_send(event.clone()) {
+                Ok(()) => {}
+                Err(tokio::sync::mpsc::error::TrySendError::Full(_)) => {
+                    subscriber.signal_slow_consumer_gap(conversation_id);
+                    revoked_or_closed.push(subscriber.id);
+                }
+                Err(tokio::sync::mpsc::error::TrySendError::Closed(_)) => {
+                    revoked_or_closed.push(subscriber.id);
+                }
             }
         }
 
         if !revoked_or_closed.is_empty() {
-            let mut subs = self.dm_subscribers.write().await;
-            if let Some(list) = subs.get_mut(conversation_id) {
-                list.retain(|subscriber| !revoked_or_closed.contains(&subscriber.id));
+            let revoked: HashSet<DmSubscriberId> = revoked_or_closed.into_iter().collect();
+            let mut subscribers = self.dm_subscribers.write().await;
+            if let Some(list) = subscribers.get_mut(conversation_id) {
+                list.retain(|subscriber| !revoked.contains(&subscriber.id));
                 if list.is_empty() {
-                    subs.remove(conversation_id);
+                    subscribers.remove(conversation_id);
                 }
             }
         }
     }
-
     // --- Mission Control subscriber management ---
 
     pub async fn subscribe_mc(
@@ -693,5 +719,31 @@ impl AppState {
         tracing::info!(
             "shutdown complete: workers_remaining={final_workers}, steps_remaining={final_steps}"
         );
+    }
+}
+
+#[cfg(test)]
+mod dm_subscriber_tests {
+    use super::*;
+
+    #[test]
+    fn slow_consumer_gap_is_signaled_exactly_once_per_socket() {
+        let (tx, _rx) = mpsc::channel(1);
+        let (control_tx, mut control_rx) = mpsc::unbounded_channel();
+        let subscriber = DmSubscriber {
+            id: DmSubscriberId(Uuid::new_v4()),
+            profile_id: "profile-1234".into(),
+            tx,
+            control_tx,
+            gap_signaled: Arc::new(AtomicBool::new(false)),
+        };
+
+        assert!(subscriber.signal_slow_consumer_gap("conversation-1234"));
+        assert!(!subscriber.signal_slow_consumer_gap("conversation-1234"));
+        let event = control_rx.try_recv().expect("one gap event");
+        assert_eq!(event["type"], "gap");
+        assert_eq!(event["conversationId"], "conversation-1234");
+        assert_eq!(event["reason"], "slow_consumer");
+        assert!(control_rx.try_recv().is_err());
     }
 }

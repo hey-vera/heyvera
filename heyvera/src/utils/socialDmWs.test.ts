@@ -79,6 +79,32 @@ describe('parseSocialDmWsMessage', () => {
     ).toEqual(expect.objectContaining({ conversationId: 'c-3', throughMessageId: 'm-10' }));
     expect(parseSocialDmWsMessage(JSON.stringify({ type: 'read', conversationId: 'c-3' }))).toBeNull();
   });
+
+  it('parses subscription acknowledgements and explicit slow-consumer gaps', () => {
+    expect(
+      parseSocialDmWsMessage(
+        JSON.stringify({ type: 'subscribed', conversation_id: 'conversation-7' }),
+      ),
+    ).toEqual({ type: 'subscribed', conversationId: 'conversation-7' });
+    expect(
+      parseSocialDmWsMessage(
+        JSON.stringify({
+          type: 'gap',
+          conversationId: 'conversation-7',
+          reason: 'slow_consumer',
+        }),
+      ),
+    ).toEqual({
+      type: 'gap',
+      conversationId: 'conversation-7',
+      reason: 'slow_consumer',
+    });
+    expect(
+      parseSocialDmWsMessage(
+        JSON.stringify({ type: 'gap', conversationId: 'conversation-7', reason: 'unknown' }),
+      ),
+    ).toBeNull();
+  });
   it('returns null for invalid payloads', () => {
     expect(parseSocialDmWsMessage('')).toBeNull();
     expect(parseSocialDmWsMessage('not-json')).toBeNull();

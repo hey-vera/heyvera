@@ -8,6 +8,7 @@ export type SocialDmWsServerEvent =
   | { type: 'message'; conversationId: string; message: Message }
   | { type: 'read'; conversationId: string; profileId: string; throughMessageId: string }
   | { type: 'pong' }
+  | { type: 'gap'; conversationId: string; reason: 'slow_consumer' }
   | { type: 'error'; code?: string; message?: string; conversationId?: string }
   | { type: 'unknown'; rawType: string };
 
@@ -49,7 +50,21 @@ export function parseSocialDmWsMessage(raw: string): SocialDmWsServerEvent | nul
       return { type: 'read', conversationId, profileId, throughMessageId };
     }
 
-    if (obj.type === 'welcome' || obj.type === 'subscribed' || obj.type === 'unsubscribed' || obj.type === 'pong' || obj.type === 'error') {
+    if (obj.type === 'gap') {
+      const conversationId = stringField(obj, 'conversationId', 'conversation_id');
+      if (!conversationId || obj.reason !== 'slow_consumer') return null;
+      return {
+        type: 'gap',
+        conversationId,
+        reason: 'slow_consumer',
+      };
+    }
+    if (obj.type === 'subscribed' || obj.type === 'unsubscribed') {
+      const conversationId = stringField(obj, 'conversationId', 'conversation_id');
+      if (!conversationId) return null;
+      return { type: obj.type, conversationId };
+    }
+    if (obj.type === 'welcome' || obj.type === 'pong' || obj.type === 'error') {
       return obj as SocialDmWsServerEvent;
     }
     return { type: 'unknown', rawType: obj.type };

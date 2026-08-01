@@ -33,10 +33,23 @@ impl From<rusqlite::Error> for SocialMessagingError {
 }
 
 #[derive(Debug)]
+pub struct SocialConversationPage {
+    pub conversations: Vec<serde_json::Value>,
+    pub next_before: Option<(i64, String)>,
+}
+
+#[derive(Debug)]
 pub struct SocialMessagePage {
     pub messages: Vec<serde_json::Value>,
     pub next_before_sequence: Option<i64>,
 }
+#[derive(Debug)]
+pub struct SocialMessageSyncPage {
+    pub messages: Vec<serde_json::Value>,
+    pub next_after_sequence: i64,
+    pub has_more: bool,
+}
+
 
 #[derive(Debug)]
 pub struct SocialReadReceipt {
@@ -337,7 +350,7 @@ pub struct CodeRedemption {
 
 // --- Schema version ---
 
-const SCHEMA_VERSION: i64 = 56;
+const SCHEMA_VERSION: i64 = 57;
 const RUN_RESOURCE_LEASE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 fn apply_migrations(conn: &Connection) {
@@ -530,6 +543,9 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 56 {
         migrate_v56(conn);
+    }
+    if current < 57 {
+        migrate_v57(conn);
     }
 }
 
@@ -2968,6 +2984,93 @@ fn migrate_v56(conn: &Connection) {
     }
 }
 
+fn migrate_v57(conn: &Connection) {
+    conn.execute_batch("BEGIN IMMEDIATE;")
+        .expect("migration v57 failed acquiring the migration lock");
+    let result = (|| -> rusqlite::Result<bool> {
+        let current = conn.query_row(
+            "SELECT COALESCE(MAX(version), 0) FROM schema_version",
+            [],
+            |row| row.get::<_, i64>(0),
+        )?;
+        if current >= 57 {
+            return Ok(false);
+        }
+
+        let has_activity_sequence: bool = conn.query_row(
+            "SELECT EXISTS(
+                SELECT 1 FROM pragma_table_info('social_conversations')
+                 WHERE name = 'activity_sequence'
+            )",
+            [],
+            |row| row.get(0),
+        )?;
+        if !has_activity_sequence {
+            conn.execute_batch(
+                "ALTER TABLE social_conversations
+                    ADD COLUMN activity_sequence INTEGER NOT NULL DEFAULT 0;",
+            )?;
+        }
+
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS social_conversation_activity_clock (
+                singleton INTEGER PRIMARY KEY CHECK(singleton = 1),
+                next_sequence INTEGER NOT NULL CHECK(next_sequence > 0)
+             ) WITHOUT ROWID;
+
+             WITH ranked AS (
+                SELECT id,
+                       ROW_NUMBER() OVER (
+                           ORDER BY COALESCE(
+                               julianday(updated_at), julianday(created_at), 0
+                           ) ASC, id ASC
+                       ) AS activity_sequence
+                  FROM social_conversations
+             )
+             UPDATE social_conversations
+                SET activity_sequence = (
+                    SELECT ranked.activity_sequence
+                      FROM ranked
+                     WHERE ranked.id = social_conversations.id
+                );
+
+             INSERT INTO social_conversation_activity_clock(singleton, next_sequence)
+             VALUES (
+                 1,
+                 (SELECT COALESCE(MAX(activity_sequence), 0) + 1
+                    FROM social_conversations)
+             )
+             ON CONFLICT(singleton) DO UPDATE
+                 SET next_sequence = MAX(
+                     excluded.next_sequence,
+                     social_conversation_activity_clock.next_sequence
+                 );
+
+             CREATE UNIQUE INDEX IF NOT EXISTS idx_social_conversations_activity
+                 ON social_conversations(activity_sequence DESC, id DESC);
+             CREATE INDEX IF NOT EXISTS idx_social_conv_participants_profile_conversation
+                 ON social_conversation_participants(profile_id, conversation_id);
+             UPDATE schema_version SET version = 57;",
+        )?;
+        Ok(true)
+    })();
+
+    match result {
+        Ok(applied) => {
+            conn.execute_batch("COMMIT;")
+                .expect("migration v57 failed committing conversation activity clock");
+            if applied {
+                tracing::info!(
+                    "applied migration v57: stable Socials conversation activity clock"
+                );
+            }
+        }
+        Err(error) => {
+            let _ = conn.execute_batch("ROLLBACK;");
+            panic!("migration v57 failed adding the conversation activity clock: {error}");
+        }
+    }
+}
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CredentialAssignment {
     pub id: String,
@@ -16028,97 +16131,152 @@ impl Database {
         }))
     }
 
-    /// List conversations where the user is a participant, with last message and unread count.
+    fn next_social_conversation_activity_sequence_inner(
+        conn: &Connection,
+    ) -> rusqlite::Result<i64> {
+        conn.query_row(
+            "UPDATE social_conversation_activity_clock
+                SET next_sequence = next_sequence + 1
+              WHERE singleton = 1
+              RETURNING next_sequence - 1",
+            [],
+            |row| row.get(0),
+        )
+    }
+
+    /// List an authorization-filtered inbox page in stable activity order.
     pub fn social_list_conversations(
         &self,
         profile_id: &str,
         limit: i64,
-    ) -> Vec<serde_json::Value> {
+        before: Option<(i64, &str)>,
+    ) -> Result<SocialConversationPage, SocialMessagingError> {
         let conn = self.conn.lock().unwrap();
-
-        let mut conv_stmt = conn
-            .prepare(
-                "SELECT c.id
-             FROM social_conversations c
-             JOIN social_conversation_participants cp ON cp.conversation_id = c.id
-             WHERE cp.profile_id = ?1
-             ORDER BY c.updated_at DESC, c.id DESC
-             LIMIT ?2",
-            )
-            .unwrap();
-
-        let conv_rows: Vec<String> = conv_stmt
-            .query_map(params![profile_id, limit], |row| row.get(0))
-            .unwrap()
-            .filter_map(|r| r.ok())
-            .collect();
-
-        let mut conversations = Vec::new();
-        for conv_id in &conv_rows {
-            if !Self::social_conversation_is_accessible_inner(&conn, conv_id, profile_id) {
-                continue;
-            }
-            // Get participants
-            let mut part_stmt = conn
-                .prepare(
-                    "SELECT p.id, p.handle, p.display_name, p.avatar_url, p.proof_state
-                 FROM social_conversation_participants cp
-                 JOIN social_profiles p ON p.id = cp.profile_id
-                 WHERE cp.conversation_id = ?1"
-            ).unwrap();
-            let participants: Vec<serde_json::Value> = part_stmt
-                .query_map(params![conv_id], |row| {
-                    Ok(serde_json::json!({
-                        "id": row.get::<_, String>(0)?,
-                        "display_name": row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                        "handle": row.get::<_, String>(1)?,
-                        "avatar_url": row.get::<_, Option<String>>(3)?,
-                        "verified": row.get::<_, String>(4)? == "verified",
-                    }))
-                })
-                .unwrap()
-                .filter_map(|r| r.ok())
-                .collect();
-
-            let last_message_id: Option<String> = conn
-                .query_row(
-                    "SELECT id FROM social_messages WHERE conversation_id = ?1
-                  ORDER BY sequence DESC LIMIT 1",
-                params![conv_id],
-                    |row| row.get(0),
+        let (before_sequence, before_id) = before
+            .map(|(sequence, id)| (Some(sequence), Some(id)))
+            .unwrap_or((None, None));
+        let mut statement = conn.prepare(
+            "SELECT conversation.id, conversation.activity_sequence
+               FROM social_conversation_participants viewer
+               JOIN social_conversations conversation
+                 ON conversation.id = viewer.conversation_id
+              WHERE viewer.profile_id = ?1
+                AND (
+                    ?2 IS NULL
+                    OR conversation.activity_sequence < ?2
+                    OR (
+                        conversation.activity_sequence = ?2
+                        AND conversation.id < ?3
+                    )
                 )
-                .ok();
-            let last_message = last_message_id
-                .as_deref()
-                .and_then(|id| Self::social_message_json_inner(&conn, id).ok());
-
-            let unread_count: i64 = conn
-                .query_row(
-                    "SELECT COUNT(*)
-                   FROM social_messages message
-                   JOIN social_conversation_participants participant
-                     ON participant.conversation_id = message.conversation_id
-                    AND participant.profile_id = ?2
-                  WHERE message.conversation_id = ?1
-                    AND message.sender_profile_id != ?2
-                    AND message.sequence > participant.joined_message_sequence
-                    AND message.sequence > participant.last_read_message_sequence",
-                params![conv_id, profile_id],
-                |r| r.get(0),
-            ).unwrap_or(0);
-
-            conversations.push(serde_json::json!({
-                "id": conv_id,
-                "participants": participants,
-                "last_message": last_message,
-                "unread_count": unread_count,
-                "pinned": false,
-            }));
+                AND NOT EXISTS(
+                    SELECT 1
+                      FROM social_conversation_participants participant
+                      LEFT JOIN social_profiles profile ON profile.id = participant.profile_id
+                      LEFT JOIN accounts account ON account.clerk_user_id = profile.clerk_user_id
+                     WHERE participant.conversation_id = conversation.id
+                       AND (
+                           profile.id IS NULL
+                           OR COALESCE(account.status, 'active') IN ('suspended', 'deleted')
+                       )
+                )
+                AND NOT EXISTS(
+                    SELECT 1
+                      FROM social_blocks block
+                     WHERE EXISTS(
+                         SELECT 1 FROM social_conversation_participants blocker
+                          WHERE blocker.conversation_id = conversation.id
+                            AND blocker.profile_id = block.blocker_profile_id
+                     )
+                       AND EXISTS(
+                         SELECT 1 FROM social_conversation_participants blocked
+                          WHERE blocked.conversation_id = conversation.id
+                            AND blocked.profile_id = block.blocked_profile_id
+                     )
+                )
+              ORDER BY conversation.activity_sequence DESC, conversation.id DESC
+              LIMIT ?4",
+        )?;
+        let mut rows = statement
+            .query_map(
+                params![profile_id, before_sequence, before_id, limit + 1],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let has_more = rows.len() > limit as usize;
+        if has_more {
+            rows.truncate(limit as usize);
         }
-
-        conversations
+        let next_before = has_more
+            .then(|| rows.last().map(|(id, sequence)| (*sequence, id.clone())))
+            .flatten();
+        let conversations = rows
+            .iter()
+            .map(|(id, _)| Self::social_conversation_json_inner(&conn, id, profile_id))
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(SocialConversationPage {
+            conversations,
+            next_before,
+        })
     }
 
+    pub fn social_get_conversation(
+        &self,
+        conversation_id: &str,
+        profile_id: &str,
+    ) -> Result<serde_json::Value, SocialMessagingError> {
+        let conn = self.conn.lock().unwrap();
+        if !Self::social_conversation_is_accessible_inner(&conn, conversation_id, profile_id) {
+            return Err(SocialMessagingError::NotFound);
+        }
+        Self::social_conversation_json_inner(&conn, conversation_id, profile_id)
+    }
+
+    pub fn social_conversation_unread_total(
+        &self,
+        profile_id: &str,
+    ) -> Result<i64, SocialMessagingError> {
+        let conn = self.conn.lock().unwrap();
+        Ok(conn.query_row(
+            "SELECT COUNT(*)
+               FROM social_conversation_participants viewer
+               JOIN social_conversations conversation
+                 ON conversation.id = viewer.conversation_id
+               JOIN social_messages message
+                 ON message.conversation_id = conversation.id
+              WHERE viewer.profile_id = ?1
+                AND message.sender_profile_id != ?1
+                AND message.sequence > viewer.joined_message_sequence
+                AND message.sequence > viewer.last_read_message_sequence
+                AND NOT EXISTS(
+                    SELECT 1
+                      FROM social_conversation_participants participant
+                      LEFT JOIN social_profiles profile ON profile.id = participant.profile_id
+                      LEFT JOIN accounts account ON account.clerk_user_id = profile.clerk_user_id
+                     WHERE participant.conversation_id = conversation.id
+                       AND (
+                           profile.id IS NULL
+                           OR COALESCE(account.status, 'active') IN ('suspended', 'deleted')
+                       )
+                )
+                AND NOT EXISTS(
+                    SELECT 1
+                      FROM social_blocks block
+                     WHERE EXISTS(
+                         SELECT 1 FROM social_conversation_participants blocker
+                          WHERE blocker.conversation_id = conversation.id
+                            AND blocker.profile_id = block.blocker_profile_id
+                     )
+                       AND EXISTS(
+                         SELECT 1 FROM social_conversation_participants blocked
+                          WHERE blocked.conversation_id = conversation.id
+                            AND blocked.profile_id = block.blocked_profile_id
+                     )
+                )",
+            params![profile_id],
+            |row| row.get(0),
+        )?)
+    }
     fn social_conversation_json_inner(
         conn: &Connection,
         conversation_id: &str,
@@ -16304,15 +16462,17 @@ impl Database {
             }
 
             let conversation_id = Uuid::new_v4().to_string();
+            let activity_sequence = Self::next_social_conversation_activity_sequence_inner(&conn)?;
             conn.execute(
                 "INSERT INTO social_conversations
-                    (id, direct_key, creation_key, creator_profile_id)
-                 VALUES (?1, ?2, ?3, ?4)",
+                    (id, direct_key, creation_key, creator_profile_id, activity_sequence)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![
                     conversation_id,
                     direct_key,
                     direct_key.is_none().then_some(creation_key).flatten(),
                     creator_profile_id,
+                    activity_sequence,
                 ],
             )?;
             for participant_id in participant_profile_ids {
@@ -16390,6 +16550,47 @@ impl Database {
         })
     }
 
+    pub fn social_list_messages_after(
+        &self,
+        conversation_id: &str,
+        profile_id: &str,
+        limit: i64,
+        after_sequence: i64,
+    ) -> Result<SocialMessageSyncPage, SocialMessagingError> {
+        let conn = self.conn.lock().unwrap();
+        if !Self::social_conversation_is_accessible_inner(&conn, conversation_id, profile_id) {
+            return Err(SocialMessagingError::NotFound);
+        }
+        let mut statement = conn.prepare(
+            "SELECT id, sequence FROM social_messages
+              WHERE conversation_id = ?1 AND sequence > ?2
+              ORDER BY sequence ASC
+              LIMIT ?3",
+        )?;
+        let mut rows = statement
+            .query_map(
+                params![conversation_id, after_sequence, limit + 1],
+                |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)),
+            )?
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        let has_more = rows.len() > limit as usize;
+        if has_more {
+            rows.truncate(limit as usize);
+        }
+        let next_after_sequence = rows
+            .last()
+            .map(|(_, sequence)| *sequence)
+            .unwrap_or(after_sequence);
+        let messages = rows
+            .iter()
+            .map(|(id, _)| Self::social_message_json_inner(&conn, id))
+            .collect::<rusqlite::Result<Vec<_>>>()?;
+        Ok(SocialMessageSyncPage {
+            messages,
+            next_after_sequence,
+            has_more,
+        })
+    }
     pub fn social_send_message(
         &self,
         conversation_id: &str,
@@ -16449,11 +16650,13 @@ impl Database {
                     client_message_id
                 ],
             )?;
+            let activity_sequence = Self::next_social_conversation_activity_sequence_inner(&conn)?;
             conn.execute(
                 "UPDATE social_conversations
-                    SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+                    SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                        activity_sequence = ?2
                   WHERE id = ?1",
-                params![conversation_id],
+                params![conversation_id, activity_sequence],
             )?;
             Ok(SocialSendOutcome {
                 message: Self::social_message_json_inner(&conn, &message_id)?,
@@ -18277,9 +18480,78 @@ mod tests {
     }
 
     #[test]
+    fn migration_v57_backfills_monotonic_conversation_activity_clock() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch(
+            "CREATE TABLE schema_version (version INTEGER NOT NULL);
+             INSERT INTO schema_version VALUES (56);
+             CREATE TABLE social_conversations (
+                 id TEXT PRIMARY KEY,
+                 created_at TEXT NOT NULL,
+                 updated_at TEXT NOT NULL,
+                 direct_key TEXT,
+                 creation_key TEXT,
+                 creator_profile_id TEXT
+             );
+             CREATE TABLE social_conversation_participants (
+                 conversation_id TEXT NOT NULL,
+                 profile_id TEXT NOT NULL,
+                 PRIMARY KEY (conversation_id, profile_id)
+             );
+             INSERT INTO social_conversations(id, created_at, updated_at) VALUES
+                 ('conversation-early', '2026-01-01', '2026-01-01T09:00:00.000Z'),
+                 ('conversation-a', '2026-01-01', '2026-01-01 10:00:00'),
+                 ('conversation-b', '2026-01-01', '2026-01-01 10:00:00');",
+        )
+        .unwrap();
+
+        migrate_v57(&conn);
+        assert_eq!(
+            conn.query_row("SELECT version FROM schema_version", [], |row| row.get::<_, i64>(0))
+                .unwrap(),
+            57,
+        );
+        let ranked = {
+            let mut statement = conn
+                .prepare(
+                    "SELECT id, activity_sequence FROM social_conversations
+                      ORDER BY activity_sequence ASC",
+                )
+                .unwrap();
+            statement
+                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+                .unwrap()
+                .collect::<rusqlite::Result<Vec<_>>>()
+                .unwrap()
+        };
+        assert_eq!(
+            ranked,
+            vec![
+                ("conversation-early".to_string(), 1),
+                ("conversation-a".to_string(), 2),
+                ("conversation-b".to_string(), 3),
+            ],
+        );
+        assert_eq!(
+            Database::next_social_conversation_activity_sequence_inner(&conn).unwrap(),
+            4,
+        );
+        conn.execute(
+            "DELETE FROM social_conversations WHERE id = 'conversation-b'",
+            [],
+        )
+        .unwrap();
+        assert_eq!(
+            Database::next_social_conversation_activity_sequence_inner(&conn).unwrap(),
+            5,
+            "deleting the newest conversation must not permit activity-sequence reuse",
+        );
+        migrate_v57(&conn);
+    }
+    #[test]
     fn social_post_policy_enforces_audiences_protection_and_blocks() {
         let db = test_db();
-        assert_eq!(db.schema_version(), 56);
+        assert_eq!(db.schema_version(), 57);
         let author = db.social_create_profile("clerk_policy_author", "policy_author", "Author", "");
         let viewer = db.social_create_profile("clerk_policy_viewer", "policy_viewer", "Viewer", "");
         let author_id = author["id"].as_str().unwrap();
@@ -21062,6 +21334,147 @@ mod tests {
 
     }
     #[test]
+    fn social_conversation_inbox_pages_activity_and_unread_truth() {
+        let db = test_db();
+        let a = db.social_create_profile("clerk_inbox_a", "inbox_a", "A", "");
+        let a_id = a["id"].as_str().unwrap().to_string();
+        {
+            let conn = db.conn.lock().unwrap();
+            conn.execute(
+                "UPDATE social_profiles SET proof_state = 'verified' WHERE id = ?1",
+                params![a_id],
+            )
+            .unwrap();
+        }
+        let mut peer_ids = Vec::new();
+        let mut conversation_ids = Vec::new();
+        for index in 0..5 {
+            let peer = db.social_create_profile(
+                &format!("clerk_inbox_peer_{index}"),
+                &format!("inbox_peer_{index}"),
+                &format!("Peer {index}"),
+                "",
+            );
+            let peer_id = peer["id"].as_str().unwrap().to_string();
+            let conversation = db
+                .social_create_conversation(
+                    &a_id,
+                    &[a_id.clone(), peer_id.clone()],
+                    None,
+                )
+                .unwrap();
+            peer_ids.push(peer_id);
+            conversation_ids.push(conversation["id"].as_str().unwrap().to_string());
+        }
+
+        let clock_before_replay = {
+            let conn = db.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT next_sequence FROM social_conversation_activity_clock WHERE singleton = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+        };
+        let replay = db
+            .social_create_conversation(
+                &a_id,
+                &[peer_ids[0].clone(), a_id.clone()],
+                None,
+            )
+            .unwrap();
+        assert_eq!(replay["id"], conversation_ids[0]);
+        let clock_after_replay = {
+            let conn = db.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT next_sequence FROM social_conversation_activity_clock WHERE singleton = 1",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(clock_before_replay, clock_after_replay);
+
+        let first_page = db.social_list_conversations(&a_id, 2, None).unwrap();
+        assert_eq!(first_page.conversations.len(), 2);
+        let boundary = first_page.next_before.clone().expect("second inbox page");
+        let second_page = db
+            .social_list_conversations(&a_id, 2, Some((boundary.0, &boundary.1)))
+            .unwrap();
+        assert_eq!(second_page.conversations.len(), 2);
+        assert!(first_page.conversations.iter().all(|first| {
+            second_page
+                .conversations
+                .iter()
+                .all(|second| first["id"] != second["id"])
+        }));
+
+        let outcome = db
+            .social_send_message(
+                &conversation_ids[0],
+                &a_id,
+                "move this conversation to the inbox head",
+                "inbox-message-0001",
+            )
+            .unwrap();
+        let activity_after_send = {
+            let conn = db.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT activity_sequence FROM social_conversations WHERE id = ?1",
+                params![conversation_ids[0]],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(
+            db.social_list_conversations(&a_id, 2, None).unwrap().conversations[0]["id"],
+            conversation_ids[0],
+        );
+        assert_eq!(db.social_conversation_unread_total(&peer_ids[0]).unwrap(), 1);
+
+        let send_replay = db
+            .social_send_message(
+                &conversation_ids[0],
+                &a_id,
+                "move this conversation to the inbox head",
+                "inbox-message-0001",
+            )
+            .unwrap();
+        assert!(send_replay.replayed);
+        let receipt = db
+            .social_mark_message_read(
+                &conversation_ids[0],
+                &peer_ids[0],
+                outcome.message["id"].as_str().unwrap(),
+            )
+            .unwrap();
+        assert!(receipt.advanced);
+        assert_eq!(db.social_conversation_unread_total(&peer_ids[0]).unwrap(), 0);
+        let activity_after_read = {
+            let conn = db.conn.lock().unwrap();
+            conn.query_row(
+                "SELECT activity_sequence FROM social_conversations WHERE id = ?1",
+                params![conversation_ids[0]],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap()
+        };
+        assert_eq!(activity_after_send, activity_after_read);
+
+        db.social_block_user(&a_id, &peer_ids[0]);
+        assert_eq!(
+            db.social_get_conversation(&conversation_ids[0], &a_id)
+                .unwrap_err(),
+            SocialMessagingError::NotFound,
+        );
+        let filtered = db.social_list_conversations(&a_id, 2, None).unwrap();
+        assert_eq!(filtered.conversations.len(), 2, "hidden rows must not consume page capacity");
+        assert!(filtered
+            .conversations
+            .iter()
+            .all(|conversation| conversation["id"] != conversation_ids[0]));
+    }
+    #[test]
     fn social_messages_page_idempotently_and_track_reads_per_participant() {
         let db = test_db();
         let a = db.social_create_profile("clerk_dm_page_a", "dmpagea", "A", "");
@@ -21120,8 +21533,28 @@ mod tests {
                 .all(|older_message| older_message["id"] != message["id"])
         }));
 
+        let sync_first = db
+            .social_list_messages_after(conversation_id, &b_id, 2, 0)
+            .unwrap();
+        assert_eq!(sync_first.messages[0]["content"], "message 1");
+        assert_eq!(sync_first.messages[1]["content"], "message 2");
+        assert!(sync_first.has_more);
+        assert_eq!(sync_first.next_after_sequence, 2);
+        let sync_second = db
+            .social_list_messages_after(
+                conversation_id,
+                &b_id,
+                2,
+                sync_first.next_after_sequence,
+            )
+            .unwrap();
+        assert_eq!(sync_second.messages[0]["content"], "message 3");
+        assert_eq!(sync_second.messages[1]["content"], "message 4");
+
         let unread_for = |profile_id: &str| {
-            db.social_list_conversations(profile_id, 20)
+            db.social_list_conversations(profile_id, 20, None)
+                .unwrap()
+                .conversations
                 .into_iter()
                 .find(|item| item["id"] == conversation_id)
                 .unwrap()["unread_count"]

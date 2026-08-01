@@ -16,7 +16,6 @@ import {
   fetchProfileFollowing,
   fetchProfileStats,
   followProfile,
-  getConversations,
   likePost,
   muteUser,
   reportContent,
@@ -407,22 +406,6 @@ export function ProfilePage() {
         await fetchMyProfile(token);
       } catch {
         throw new Error('Create your profile before messaging.');
-      }
-
-      // Belt+suspenders: prefer existing 1:1 if list already has the other profile.
-      // Backend also dedupes on create for the same pair.
-      try {
-        const existing = await getConversations(token);
-        const match = existing.find((c) => {
-          const ids = (c.participants ?? []).map((p) => p.id);
-          return ids.length === 2 && ids.includes(profile.id);
-        });
-        if (match) {
-          navigate(`/messages?c=${encodeURIComponent(match.id)}`);
-          return;
-        }
-      } catch {
-        // Fall through to createConversation.
       }
 
       const conversation = await createConversation(token, [profile.id]);

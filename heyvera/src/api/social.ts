@@ -8,6 +8,7 @@ import type {
   Notification,
   Conversation,
   Message,
+  ConversationPage,
   MessagePage,
   Community as LegacyCommunity,
   TrendingTopic,
@@ -23,6 +24,7 @@ export type {
   UpdateUserProfileInput,
   Notification,
   Conversation,
+  ConversationPage,
   Message,
   MessagePage,
   TrendingTopic,
@@ -1704,14 +1706,50 @@ export async function getNotifications(token?: string): Promise<Notification[]> 
   return legacyFetchAuthedApi<Notification[]>('/notifications', token);
 }
 
-/** Get all conversations */
-export async function getConversations(token?: string): Promise<Conversation[]> {
-
+/** Get one confidential inbox page. */
+export async function getConversations(
+  token?: string,
+  options: { limit?: number; cursor?: string | null } = {},
+): Promise<ConversationPage> {
   if (!token) throw new Error('Auth token required');
-  const res = await legacyFetchAuthedApi<{ conversations: Conversation[] }>('/conversations', token);
-  return res.conversations ?? [];
+  const limit = options.limit ?? 30;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error('Conversation page limit must be between 1 and 100');
+  }
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (options.cursor) params.set('cursor', options.cursor);
+  const response = await legacyFetchAuthedApi<Partial<ConversationPage>>(
+    `/conversations?${params.toString()}`,
+    token,
+  );
+  const nextCursor = response.next_cursor ?? null;
+  return {
+    conversations: response.conversations ?? [],
+    next_cursor: nextCursor,
+    has_more: response.has_more ?? nextCursor !== null,
+    total_unread_count: response.total_unread_count ?? 0,
+  };
 }
 
+/** Hydrate one accessible conversation, including deep links outside page one. */
+export async function getConversation(
+  token: string,
+  conversationId: string,
+): Promise<Conversation> {
+  return legacyFetchAuthedApi<Conversation>(
+    `/conversations/${encodeURIComponent(conversationId)}`,
+    token,
+  );
+}
+
+/** Get the uncapped inbox unread total used by global navigation badges. */
+export async function getConversationUnreadCount(token: string): Promise<number> {
+  const response = await legacyFetchAuthedApi<{ unread_count?: number }>(
+    '/conversations/unread-count',
+    token,
+  );
+  return response.unread_count ?? 0;
+}
 /**
  * Start or open a DM. POST /v1/social/conversations with participant_ids
  * (other profile ids; server adds the viewer).
@@ -1731,25 +1769,31 @@ export async function createConversation(
 export async function getMessages(
   conversationId: string,
   token?: string,
-  options: { limit?: number; cursor?: string | null } = {},
+  options: { limit?: number; cursor?: string | null; afterCursor?: string | null } = {},
 ): Promise<MessagePage> {
   if (!token) throw new Error('Auth token required');
   const limit = options.limit ?? 50;
   if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
     throw new Error('Message page limit must be between 1 and 100');
   }
+  if (options.cursor && options.afterCursor) {
+    throw new Error('Message cursor and after cursor are mutually exclusive');
+  }
   const params = new URLSearchParams({ limit: String(limit) });
   if (options.cursor) params.set('cursor', options.cursor);
+  if (options.afterCursor) params.set('after_cursor', options.afterCursor);
   const id = encodeURIComponent(conversationId);
   const res = await legacyFetchAuthedApi<Partial<MessagePage>>(
     `/conversations/${id}/messages?${params.toString()}`,
     token,
   );
   const nextCursor = res.next_cursor ?? null;
+  const syncCursor = res.sync_cursor ?? null;
   return {
     messages: res.messages ?? [],
     next_cursor: nextCursor,
     has_more: res.has_more ?? nextCursor !== null,
+    sync_cursor: syncCursor,
   };
 }
 

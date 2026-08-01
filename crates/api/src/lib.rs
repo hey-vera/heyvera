@@ -611,6 +611,8 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
                 )
                 .route("/v1/social/invites/{token}/redeem", post(social::redeem_community_invite))
                 .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation).layer(DefaultBodyLimit::max(32 * 1024)))
+                .route("/v1/social/conversations/unread-count", get(messaging::get_conversation_unread_count))
+                .route("/v1/social/conversations/{id}", get(messaging::get_conversation))
                 .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message).layer(DefaultBodyLimit::max(24 * 1024)))
                 .route("/v1/social/ws-ticket", post(messaging::issue_social_ws_ticket))
                 .route("/v1/social/conversations/{id}/read", post(messaging::mark_conversation_read).layer(DefaultBodyLimit::max(4 * 1024)))
@@ -767,6 +769,8 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         )
         .route("/v1/social/invites/{token}/redeem", post(social::redeem_community_invite))
         .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation).layer(DefaultBodyLimit::max(32 * 1024)))
+        .route("/v1/social/conversations/unread-count", get(messaging::get_conversation_unread_count))
+        .route("/v1/social/conversations/{id}", get(messaging::get_conversation))
         .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message).layer(DefaultBodyLimit::max(24 * 1024)))
         .route("/v1/social/ws-ticket", post(messaging::issue_social_ws_ticket))
         .route("/v1/social/conversations/{id}/read", post(messaging::mark_conversation_read).layer(DefaultBodyLimit::max(4 * 1024)))
@@ -1042,6 +1046,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/invites/{token}/redeem", post(social::redeem_community_invite))
         // Task #35: Conversations & Messages
         .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation).layer(DefaultBodyLimit::max(32 * 1024)))
+        .route("/v1/social/conversations/unread-count", get(messaging::get_conversation_unread_count))
+        .route("/v1/social/conversations/{id}", get(messaging::get_conversation))
         .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message).layer(DefaultBodyLimit::max(24 * 1024)))
         // Social DM WebSocket: bearer-authenticated, one-use ticket exchange.
         .route("/v1/social/ws-ticket", post(messaging::issue_social_ws_ticket))
