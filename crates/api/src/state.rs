@@ -142,7 +142,15 @@ impl AppState {
             tracing::info!("clerk auth disabled (no CLERK_SECRET_KEY)");
         }
 
-        let db_path = workspace_dir.join(".cortex").join("cortex.db");
+        // CORTEX_DB_PATH keeps the database off the workspace path. The workspace is a
+        // git checkout on the VPS, and deploys reset it hard — a database living under it
+        // is destroyed on every deploy.
+        let db_path = std::env::var("CORTEX_DB_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| workspace_dir.join(".cortex").join("cortex.db"));
+        if let Some(parent) = db_path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
         let db = Database::open(&db_path);
         tracing::info!("database opened at {}", db_path.display());
 
