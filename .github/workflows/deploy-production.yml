@@ -32,24 +32,69 @@ jobs:
           oauth-secret: ${{ secrets.TS_OAUTH_SECRET }}
           tags: tag:ci
 
+      # `${{ }}` is expanded by Actions before the shell sees it, so a branch
+      # name carrying a quote escapes any string it is pasted into — including
+      # the remote command below, which runs on the production host. Every
+      # expansion is bound to an env var instead, and the branch is validated
+      # against a git-ref-safe charset before it is used at all.
+      - name: Validate branch input
+        env:
+          TARGET_BRANCH: ${{ inputs.branch }}
+        run: |
+          case "$TARGET_BRANCH" in
+            ''|*[!A-Za-z0-9._/-]*)
+              echo "::error::Refusing branch '$TARGET_BRANCH' — allowed: A-Z a-z 0-9 . _ / -"
+              exit 1 ;;
+          esac
+          echo "branch ok: $TARGET_BRANCH"
+
       - name: Sync GitHub commit to server mirror
         env:
           DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
           TAILSCALE_HOST: ${{ vars.TAILSCALE_HOST }}
+          TARGET_BRANCH: ${{ inputs.branch }}
         run: |
           test -n "$TAILSCALE_HOST"
           export GIT_SSH_COMMAND="ssh -o StrictHostKeyChecking=accept-new"
           git remote add server-mirror "ssh://${DEPLOY_USER}@${TAILSCALE_HOST}/home/${DEPLOY_USER}/claw-net.git"
-          git push --force server-mirror "HEAD:refs/heads/${{ inputs.branch }}"
+          git push --force server-mirror "HEAD:refs/heads/${TARGET_BRANCH}"
 
       - name: Deploy ClawNet
         env:
           DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
           TAILSCALE_HOST: ${{ vars.TAILSCALE_HOST }}
+          TARGET_BRANCH: ${{ inputs.branch }}
+          RUN_ID: ${{ github.run_id }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+          WORKFLOW_NAME: ${{ github.workflow }}
+          EVENT_NAME: ${{ github.event_name }}
+          SERVER_URL: ${{ github.server_url }}
+          REPOSITORY: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          COMMIT_SHA: ${{ github.sha }}
         run: |
           test -n "$TAILSCALE_HOST"
-          ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" \
-            "cd /home/${DEPLOY_USER}/claw-net && git fetch origin '${{ inputs.branch }}' && git checkout '${{ inputs.branch }}' && git reset --hard 'origin/${{ inputs.branch }}' && DEPLOY_USER='${DEPLOY_USER}' GIT_BRANCH='${{ inputs.branch }}' AUTO_SWITCH_BRANCH=1 GITHUB_DEPLOY_RUN_ID='${{ github.run_id }}' GITHUB_DEPLOY_RUN_NUMBER='${{ github.run_number }}' GITHUB_DEPLOY_RUN_ATTEMPT='${{ github.run_attempt }}' GITHUB_DEPLOY_WORKFLOW='${{ github.workflow }}' GITHUB_DEPLOY_EVENT='${{ github.event_name }}' GITHUB_DEPLOY_SERVER_URL='${{ github.server_url }}' GITHUB_DEPLOY_REPOSITORY='${{ github.repository }}' GITHUB_DEPLOY_ACTOR='${{ github.actor }}' GITHUB_DEPLOY_SHA='${{ github.sha }}' bash scripts/deploy.sh"
+          # Build the remote script locally, then feed it over stdin. Nothing is
+          # pasted into an ssh argument, so quoting on the remote side cannot be
+          # broken by any value above.
+          # %q everywhere, with no exceptions. The validation step above should
+          # already make the branch harmless, but the two layers must hold
+          # independently — %s here would re-open the hole the moment anyone
+          # loosens that regex.
+          {
+            printf 'set -euo pipefail\n'
+            printf 'cd /home/%q/claw-net\n' "$DEPLOY_USER"
+            printf 'git fetch origin %q\n' "$TARGET_BRANCH"
+            printf 'git checkout %q\n' "$TARGET_BRANCH"
+            printf 'git reset --hard origin/%q\n' "$TARGET_BRANCH"
+            printf 'export DEPLOY_USER=%q GIT_BRANCH=%q AUTO_SWITCH_BRANCH=1\n' "$DEPLOY_USER" "$TARGET_BRANCH"
+            printf 'export GITHUB_DEPLOY_RUN_ID=%q GITHUB_DEPLOY_RUN_NUMBER=%q GITHUB_DEPLOY_RUN_ATTEMPT=%q\n' "$RUN_ID" "$RUN_NUMBER" "$RUN_ATTEMPT"
+            printf 'export GITHUB_DEPLOY_WORKFLOW=%q GITHUB_DEPLOY_EVENT=%q\n' "$WORKFLOW_NAME" "$EVENT_NAME"
+            printf 'export GITHUB_DEPLOY_SERVER_URL=%q GITHUB_DEPLOY_REPOSITORY=%q\n' "$SERVER_URL" "$REPOSITORY"
+            printf 'export GITHUB_DEPLOY_ACTOR=%q GITHUB_DEPLOY_SHA=%q\n' "$ACTOR" "$COMMIT_SHA"
+            printf 'exec bash scripts/deploy.sh\n'
+          } | ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" 'bash -s'
 
       - name: Verify production APIs
         env:
