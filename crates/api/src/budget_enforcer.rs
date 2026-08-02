@@ -377,21 +377,29 @@ mod tests {
         let db = test_db();
         let enforcer = BudgetEnforcer::new(&db);
 
-        // Create some test sessions
+        // Create some test sessions.
+        //
+        // session_start must be `now`, not `now - 1000`. get_current_spending
+        // computes daily_start as midnight UTC today, and get_user_cost_breakdown
+        // filters on `session_start >= since`. Backdating by 1000s puts the row
+        // in yesterday whenever the test runs within 16m40s of UTC midnight, so
+        // daily comes back 0.0 and the assertion below fails. That window is
+        // Dependabot's PR window, which made the one honest gate in CI look
+        // unreliable.
         let now = Utc::now().timestamp();
         let session = crate::db::CostSession {
             id: uuid::Uuid::new_v4().to_string(),
             user_id: "user1".to_string(),
             provider: "claude".to_string(),
             cost_type: "byok".to_string(),
-            session_start: now - 1000,
+            session_start: now,
             session_end: Some(now),
             estimated_cost: 0.05,
             actual_cost: Some(0.048),
             tokens_in: 1000,
             tokens_out: 750,
             model: Some("claude-3-sonnet".to_string()),
-            created_at: now - 1000,
+            created_at: now,
         };
 
         db.create_cost_session(&session);
