@@ -279,23 +279,48 @@ pub async fn stream_chat_cli(
     user_message: &str,
     tx: mpsc::Sender<String>,
 ) -> Result<(), String> {
-    // Check if we should try API fallback for this provider
-    let api_key_available = match provider {
-        Provider::Claude => std::env::var("ANTHROPIC_API_KEY").is_ok(),
-        Provider::Openai => std::env::var("OPENAI_API_KEY").is_ok(),
-    };
+    // Check if we should try API fallback for this provider.
+    //
+    // ANTHROPIC_API_KEY / OPENAI_API_KEY here are the OPERATOR's keys, not the
+    // caller's. This is the subscription path, so falling back to them means
+    // Cortex pays for a request the user intended to run on their own
+    // subscription — triggered precisely when that user's auth is broken.
+    //
+    // Nothing on this path calls check_budget_before_request (chat.rs only
+    // budgets ProviderPath::ApiKey), no cost session is opened, and
+    // CostEstimator::get_cost_type has no value to record operator spend under.
+    // So this is uncapped, unattributed, and invisible.
+    //
+    // It is currently dormant only because neither key is set in production.
+    // It arms the moment they are. Require an explicit opt-in so that adding
+    // keys — for the credit product, on a different code path — does not
+    // silently turn user auth failures into operator spend.
+    let fallback_enabled = std::env::var("CORTEX_PLATFORM_FALLBACK")
+        .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+        .unwrap_or(false);
+
+    let api_key_available = fallback_enabled
+        && match provider {
+            Provider::Claude => std::env::var("ANTHROPIC_API_KEY").is_ok(),
+            Provider::Openai => std::env::var("OPENAI_API_KEY").is_ok(),
+        };
 
     let result = match provider {
         Provider::Claude => stream_claude_cli(model, system_prompt, user_message, tx.clone()).await,
         Provider::Openai => stream_codex_cli(model, system_prompt, user_message, tx.clone()).await,
     };
 
-    // If CLI failed and we have API keys available, try API fallback
+    // If CLI failed and operator-funded fallback is explicitly enabled, use it.
     if let Err(cli_error) = result {
         if api_key_available {
+            // Logged at warn, not debug: every line here is money leaving the
+            // operator's account for a request that was supposed to be on the
+            // user's own subscription. Until platform spend is metered, this
+            // log is the only record that it happened.
             tracing::warn!(
-                "CLI auth failed for {}, attempting API fallback: {cli_error}",
-                provider.name()
+                provider = provider.name(),
+                cost_type = "platform",
+                "CLI auth failed; falling back to OPERATOR-FUNDED API key (unmetered): {cli_error}"
             );
 
             let api_key = match provider {
@@ -310,18 +335,26 @@ pub async fn stream_chat_cli(
 
             stream_chat_api(provider, &api_key, model, system_prompt, &messages, tx).await
         } else {
-            Err(format!(
-                "{cli_error} - No API key available for fallback. \
-                 Set {}_API_KEY environment variable or authenticate CLI with: {}",
-                match provider {
-                    Provider::Claude => "ANTHROPIC",
-                    Provider::Openai => "OPENAI",
-                },
-                match provider {
-                    Provider::Claude => "claude auth login",
-                    Provider::Openai => "codex login --device-auth",
-                }
-            ))
+            let (env_var, cli_login) = match provider {
+                Provider::Claude => ("ANTHROPIC_API_KEY", "claude auth login"),
+                Provider::Openai => ("OPENAI_API_KEY", "codex login --device-auth"),
+            };
+            // Distinguish "no key" from "key present but fallback withheld", so
+            // the operator is not told to set a variable that is already set.
+            if std::env::var(env_var).is_ok() {
+                Err(format!(
+                    "{cli_error} - Operator-funded fallback is disabled. \
+                     Re-authenticate the CLI with `{cli_login}`, or set \
+                     CORTEX_PLATFORM_FALLBACK=1 to bill this request to the \
+                     operator's {env_var}."
+                ))
+            } else {
+                Err(format!(
+                    "{cli_error} - No API key available for fallback. \
+                     Authenticate the CLI with `{cli_login}`, or set {env_var} \
+                     together with CORTEX_PLATFORM_FALLBACK=1."
+                ))
+            }
         }
     } else {
         result
