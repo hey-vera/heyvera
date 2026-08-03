@@ -25,21 +25,41 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  # Blocking. Fails only on dependencies this PR *introduces*, so it cannot be
-  # red because of pre-existing debt — safe to require from day one.
-  dependency-review:
-    if: github.event_name == 'pull_request'
+  # actions/dependency-review-action is NOT used here. It was tried and it
+  # cannot work on this repository:
+  #
+  #   "Dependency review is not supported on this repository. Please ensure
+  #    that Dependency graph is enabled along with GitHub Advanced Security"
+  #
+  # heyvera is private and `code_security` is disabled, so the action fails
+  # structurally on every PR rather than on any actual dependency problem.
+  # Enabling GHAS is a billing decision; until then, npm audit and cargo-deny
+  # cover the same ground without it.
+
+  # Advisory. Neither app has been audited, so the finding count is unknown and
+  # a blocking gate would be red on arrival — which is how the `web` job and the
+  # midnight flake taught this repo to ignore CI. Triage, then make it blocking.
+  npm-audit:
     runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [cortex, heyvera]
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
         with:
-          fail-on-severity: high
-          # Note: this has no path filter, so a PR touching archive/ manifests
-          # is still scanned. That is tolerable because it only fails on
-          # dependencies the PR *introduces* — pre-existing archive/ debt does
-          # not turn it red. #414 untracks archive/root-node-modules, which
-          # removes most of that surface anyway.
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+      # --omit=dev: a devDependency advisory does not reach production, and
+      # including them is what makes audit output unreadable and ignored.
+      - name: npm audit
+        run: npm audit --audit-level=high --omit=dev
 
   # Advisory. The workspace has never been checked against RustSec, so the
   # current advisory count is unknown and could not be measured before opening
