@@ -6,7 +6,8 @@ Two products, one Rust backend.
 
 ```
 cortex/            cortex.heyvera.org (AI coding platform)
-  plan/VISION.md   product vision (single source of truth)
+  plan/VISION.md   what Cortex is and who for (scope, not status)
+  plan/CREDITS.md  what a credit is — the metering decision
   src/             React frontend
 
 heyvera/           heyvera.org (social platform)
@@ -50,7 +51,8 @@ scripts/deploy-cortex.sh
 
 ## Key Docs
 
-- Product vision: [cortex/plan/VISION.md](cortex/plan/VISION.md)
-- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Product vision: [cortex/plan/VISION.md](cortex/plan/VISION.md) — scope and positioning
+- Credit unit & metering: [cortex/plan/CREDITS.md](cortex/plan/CREDITS.md) — read before touching billing
+- Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) — **see the 2026-08-02 amendment at the top before relying on any section**
 - Operations Room: [docs/reference/cortex-operations-room.md](docs/reference/cortex-operations-room.md)
 - CLI auth setup: [docs/operations/cli-auth-setup.md](docs/operations/cli-auth-setup.md)
