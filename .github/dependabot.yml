@@ -1,26 +1,53 @@
+# Previously this file targeted npm at `/` and `/dashboard`. Neither exists —
+# there is no root package.json and no dashboard directory — so both scheduled
+# jobs failed every day, and the two real apps (cortex, heyvera) plus the whole
+# Rust workspace got no scheduled updates at all.
+#
+# Note that repo-level "Dependabot security updates" scans every manifest in the
+# tree regardless of what is configured here. That is why PRs kept arriving
+# against archive/ — 357 package.json files live under a directory README.md
+# marks "reference only, do not build from". Untracking archive/root-node-modules
+# is what actually stops those; see the same PR as this change.
 version: 2
 updates:
   - package-ecosystem: npm
-    directory: /
+    directory: /cortex
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     groups:
-      backend-npm:
+      cortex-npm:
         patterns:
           - "*"
 
   - package-ecosystem: npm
-    directory: /dashboard
+    directory: /heyvera
     schedule:
       interval: weekly
-    open-pull-requests-limit: 10
+    open-pull-requests-limit: 5
     groups:
-      dashboard-npm:
+      heyvera-npm:
         patterns:
           - "*"
 
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      cargo:
+        patterns:
+          - "*"
+
+  # Grouped so action bumps arrive as one PR. Ungrouped, this produced five
+  # separate stale branches that were never merged.
   - package-ecosystem: github-actions
     directory: /
     schedule:
       interval: weekly
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns:
+          - "*"

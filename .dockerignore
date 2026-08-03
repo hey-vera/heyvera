@@ -10,6 +10,8 @@ node_modules/
 packages/
 pulse/
 web/
+# 152 MB of reference-only material that was entering every build context.
+archive/
 
 # Dev files
 *.md
