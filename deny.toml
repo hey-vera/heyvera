@@ -1,0 +1,49 @@
+# cargo-deny configuration.
+#
+# Starts permissive on purpose. The workspace has never been checked against
+# RustSec, so the real advisory and licence picture is unknown. The CI job is
+# advisory (continue-on-error) for the same reason. Read the first run, move
+# genuine problems into the lists below, then flip both to blocking.
+
+[advisories]
+# `deny` is the default in cargo-deny v2 for vulnerabilities; unmaintained
+# crates are warned about rather than failing the build, because a transitive
+# unmaintained dep is rarely actionable the day you find it.
+unmaintained = "workspace"
+yanked = "deny"
+ignore = [
+    # Add RustSec IDs here with a one-line reason and a date, e.g.
+    # { id = "RUSTSEC-0000-0000", reason = "no upgrade path yet; revisit 2026-10" },
+]
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+# Cargo.toml pins workspace deps with caret ranges, which is fine; wildcards
+# are not — they make the lockfile the only thing standing between you and an
+# unreviewed major bump.
+highlight = "all"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+
+[licenses]
+# The workspace itself is MIT (Cargo.toml). This list covers what a typical
+# axum/tokio/rusqlite tree pulls in. Anything outside it should be a
+# deliberate decision, not a silent one.
+version = 2
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-3.0",
+    "Zlib",
+    "MPL-2.0",
+    "CC0-1.0",
+]
+confidence-threshold = 0.9

@@ -1,0 +1,74 @@
+# Dependency-review and cargo-deny were deleted from main; repo-level code
+# scanning is disabled. That left a Rust workspace handling Ed25519 signing,
+# JWTs and payments with no dependency gating of any kind, while the repo
+# carries 115 open vulnerability alerts.
+#
+# CodeQL is deliberately NOT restored here. The previous CodeQL workflow was
+# already failing when it was removed, and re-adding a red check that nobody
+# can action is how gates get ignored — the same failure mode as the `web` job
+# and the midnight-UTC flake. Restore it separately, once someone can watch the
+# first run. cargo-deny is the idiomatic dependency gate for Rust regardless.
+name: Supply chain
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Advisory databases move without our code changing, so also run weekly.
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supply-chain-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # actions/dependency-review-action is NOT used here. It was tried and it
+  # cannot work on this repository:
+  #
+  #   "Dependency review is not supported on this repository. Please ensure
+  #    that Dependency graph is enabled along with GitHub Advanced Security"
+  #
+  # heyvera is private and `code_security` is disabled, so the action fails
+  # structurally on every PR rather than on any actual dependency problem.
+  # Enabling GHAS is a billing decision; until then, npm audit and cargo-deny
+  # cover the same ground without it.
+
+  # Advisory. Neither app has been audited, so the finding count is unknown and
+  # a blocking gate would be red on arrival — which is how the `web` job and the
+  # midnight flake taught this repo to ignore CI. Triage, then make it blocking.
+  npm-audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        app: [cortex, heyvera]
+    defaults:
+      run:
+        working-directory: ${{ matrix.app }}
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: ${{ matrix.app }}/package-lock.json
+      # --omit=dev: a devDependency advisory does not reach production, and
+      # including them is what makes audit output unreadable and ignored.
+      - name: npm audit
+        run: npm audit --audit-level=high --omit=dev
+
+  # Advisory. The workspace has never been checked against RustSec, so the
+  # current advisory count is unknown and could not be measured before opening
+  # this PR. Read the first run, triage into deny.toml, then make it blocking.
+  cargo-deny:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check advisories bans sources

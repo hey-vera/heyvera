@@ -116,14 +116,28 @@ jobs:
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install 1.88.0 --profile minimal
+          rustup toolchain install 1.88.0 --profile minimal --component clippy
           rustup default 1.88.0
           rustc --version
           cargo --version
+
+      # This job is the sole critical path and had no caching at all — every run
+      # recompiled the full dependency graph from scratch. Measured 3m04s-4m45s.
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
       - name: Check Rust workspace
         run: cargo check --workspace --locked
 
       - name: Test Rust workspace
         run: cargo test --workspace --locked
+
+      # Advisory until someone reads the output. clippy has never run against
+      # this workspace, so its warning count is unknown and could not be
+      # measured before opening this PR (no working linker on the authoring
+      # machine). Making it blocking sight-unseen would wedge every PR, which is
+      # how the `web` job and the midnight flake trained people to ignore CI.
+      # Read the first run, fix or allow, then drop continue-on-error.
+      - name: Clippy (advisory)
+        continue-on-error: true
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
