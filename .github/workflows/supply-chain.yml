@@ -1,0 +1,54 @@
+# Dependency-review and cargo-deny were deleted from main; repo-level code
+# scanning is disabled. That left a Rust workspace handling Ed25519 signing,
+# JWTs and payments with no dependency gating of any kind, while the repo
+# carries 115 open vulnerability alerts.
+#
+# CodeQL is deliberately NOT restored here. The previous CodeQL workflow was
+# already failing when it was removed, and re-adding a red check that nobody
+# can action is how gates get ignored — the same failure mode as the `web` job
+# and the midnight-UTC flake. Restore it separately, once someone can watch the
+# first run. cargo-deny is the idiomatic dependency gate for Rust regardless.
+name: Supply chain
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Advisory databases move without our code changing, so also run weekly.
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supply-chain-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Blocking. Fails only on dependencies this PR *introduces*, so it cannot be
+  # red because of pre-existing debt — safe to require from day one.
+  dependency-review:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/dependency-review-action@a1d282b36b6f3519aa1f3fc636f609c47dddb294 # v5.0.0
+        with:
+          fail-on-severity: high
+          # Note: this has no path filter, so a PR touching archive/ manifests
+          # is still scanned. That is tolerable because it only fails on
+          # dependencies the PR *introduces* — pre-existing archive/ debt does
+          # not turn it red. #414 untracks archive/root-node-modules, which
+          # removes most of that surface anyway.
+
+  # Advisory. The workspace has never been checked against RustSec, so the
+  # current advisory count is unknown and could not be measured before opening
+  # this PR. Read the first run, triage into deny.toml, then make it blocking.
+  cargo-deny:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
+        with:
+          command: check advisories bans sources
