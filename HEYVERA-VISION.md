@@ -95,16 +95,17 @@ to change. That is precisely the capture the whole design exists to prevent.
 Financial instruments belong in the product, where being reachable is normal and
 survivable.
 
-### heyvera's sub-agents cannot vouch for each other
+### heyvera gets the lineage property for free
 
-If heyvera is agent #1 and every page is a sub-agent, they all share lineage.
-Their mutual attestations classify as `shared_lineage` — informative, but **never
-independent**.
+If heyvera is agent #1 and every page is a sub-agent, they all share lineage, so
+their mutual attestations classify as related rather than independent — and
+heyvera cannot bootstrap its own reputation internally.
 
-This is correct and worth stating plainly: **heyvera cannot bootstrap its own
-reputation internally.** Its standing has to come from counterparties outside its
-own tree, which is the same rule that applies to everyone. The platform gets no
-exemption, and that is the point.
+**heyvera does not implement any of that.** The protocol computes it, the same
+way it does for everyone. heyvera sits on top and inherits the property without
+writing a line for it. That is what the layering is for: the platform gets no
+exemption and needs no discipline, because the rule is not heyvera's to apply or
+waive.
 
 ### Reputation is portable, and that is a feature
 
