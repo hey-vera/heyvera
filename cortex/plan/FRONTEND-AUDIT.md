@@ -119,11 +119,37 @@ run/receipt machinery should hold.
 That changes the F2 estimate in a useful direction — mission control is more
 a re-composition than a green-field build.
 
+## The IA skeleton (built, and checked in a browser)
+
+`components/mission/MissionControl.tsx` is a layout route wrapping six panes
+at `/runs`, `/receipts`, `/ledger`, `/leases`, `/admin`, and `/` (chat).
+`Ledger` and `Admin` mount the components that already exist; `Runs`,
+`Receipts`, and `Leases` render an honest stub naming the task that fills
+them — an empty pane that explains itself beats a screen of numbers the
+ledger cannot back.
+
+Verified against a running dev server, not just the compiler: every pane
+routes, the nav renders all six links, and the chat shell still loads inside
+the layout. (`/api` calls 502 locally — there is no Rust backend on this
+machine — which is expected and unrelated.)
+
+Two things the live check surfaced that the file tree did not:
+
+- **Two sidebars.** `CortexShell` brings its own full-height sidebar
+  (GROUPS / Task managers / Projects), so the chat doorway now renders a nav
+  inside a nav. This is the visible form of the problem SURFACE.md describes:
+  chat still behaves like the identity of the app. F2 resolves it by moving
+  chat's own navigation into the pane nav.
+- **Subscription-era copy is still live.** The shell renders *"You're in
+  Preview mode. Subscribe to unlock full AI agent capabilities."* — a
+  BYOK/subscription-tier string that contradicts the credit model. It should
+  die with the pricing surface rewrite, and it is a good example of why Josh
+  reading the real screens catches what a file audit does not.
+
 ## What F1 leaves for the next session
 
-1. **The IA skeleton.** Six routed panes with the existing components moved
-   under them, chat demoted to a doorway. `App.tsx` is 1,089 lines and holds
-   the routing, the shell, and the modals; splitting it is the first step.
+1. **Splitting `App.tsx`.** It is still ~1,100 lines holding routing, the
+   shell, and every modal. The pane routes are extracted; the shell is not.
 2. **Ledger consolidation** — one pane reading `credit_transactions` (the
    real table name — see CREDITS.md's reconciliation note), replacing five
    views that invent numbers.
