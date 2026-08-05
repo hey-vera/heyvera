@@ -119,6 +119,12 @@ pub fn token_budget(provider: ProviderId, tier: Tier) -> u64 {
         (ProviderId::Gemini, Tier::Search) => 600_000,
         (ProviderId::Gemini, Tier::Execute) => 300_000,
         (ProviderId::Gemini, Tier::Think) => 300_000,
+
+        // Mirrors OpenAI until measured usage says otherwise — Zen is the
+        // cheap tier, so the budget should never be the binding constraint.
+        (ProviderId::Zen, Tier::Search) => 1_000_000,
+        (ProviderId::Zen, Tier::Execute) => 500_000,
+        (ProviderId::Zen, Tier::Think) => 500_000,
     }
 }
 

@@ -857,7 +857,12 @@ fn route_step(
         .collect();
 
     // Build candidate scores for all available providers × requested tier
-    let providers = [ProviderId::Claude, ProviderId::Openai, ProviderId::Gemini];
+    let providers = [
+        ProviderId::Claude,
+        ProviderId::Openai,
+        ProviderId::Gemini,
+        ProviderId::Zen,
+    ];
     let mut candidates = Vec::new();
 
     for &provider in &providers {
@@ -1567,6 +1572,7 @@ fn parse_provider_id(s: &str) -> Option<ProviderId> {
         "claude" => Some(ProviderId::Claude),
         "openai" => Some(ProviderId::Openai),
         "gemini" => Some(ProviderId::Gemini),
+        "zen" => Some(ProviderId::Zen),
         _ => None,
     }
 }
