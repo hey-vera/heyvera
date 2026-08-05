@@ -31,11 +31,22 @@ reconciliation table; the decisions are unchanged, only the names.
   reserved for the verifier tables (V3). Never mint a migration number
   without checking `apply_migrations` on main AND every open PR that touches
   `crates/api/src/db.rs`. Merge order: #438 before #437 before any v61 work.
-- **CI is the only verifier.** The authoring machine cannot compile Rust
-  (no MSVC Build Tools; broken MinGW). Do not burn time trying. Push a
-  branch, open a PR, read the `rust` job. The three advisory jobs
-  (cargo-deny, npm-audit ×2) fail on every PR until their triage lands —
-  they are not your failure.
+- **CI is the only verifier for Rust — re-tested 2026-08-05, still true, and
+  here is exactly why so nobody re-tests it a third time.** `rustc`/`cargo`
+  1.97.1 *are* installed and work; what fails is linking:
+  `lld: error: unable to find library -lgcc_eh` / `-lgcc` (MinGW GNU
+  toolchain present, its GCC support libraries are not). `cargo check` does
+  not save you — the workspace's proc-macro and build-script crates
+  (`proc-macro2`, `getrandom`) must be *linked and executed* before checking
+  can proceed, so `cargo check -p cortex-engine` dies in the same place.
+  Fixing this means installing MSVC Build Tools and switching to the
+  `x86_64-pc-windows-msvc` target. Until someone does, push a branch, open a
+  PR, read the `rust` job. The three advisory jobs (cargo-deny, npm-audit ×2)
+  fail on every PR until their triage lands — they are not your failure.
+- **The frontend, by contrast, verifies locally and should.** `npm ci` and
+  `npm run build` (which is `tsc -b && vite build`) work in `cortex/`, and
+  the dev server runs — F1 was checked in a real browser. Never push
+  frontend work you have not built.
 - **Commit early, push WIP.** Task #7 survived a quota cutoff only because
   its scratchpad happened to survive (backup:
   `C:\Users\Josh\Desktop\GitHub\task7-credit-idempotency-base2bfa7a9.patch`).
@@ -100,16 +111,16 @@ gate on Lane A as SURFACE.md's dependency column specifies)**
 
 | # | Task | Done when |
 |---|---|---|
-| C-F1 | Frontend audit + BYOK-era amputation; mission-control IA skeleton | six-pane IA on main; ReplitProjects and marketing relics gone |
+| ~~C-F1~~ | ~~Frontend audit + BYOK-era amputation; mission-control IA skeleton~~ | **Done** — #445 (audit + amputation, 22 files/~3k lines) and #448 (six-pane IA). Findings in [FRONTEND-AUDIT.md](FRONTEND-AUDIT.md); the one that matters is that the settings UI defaulted users to a *subscription* credential flow, closed in the UI, still live in the backend `startAuth` |
 | C-F2…F7 | Follow SURFACE.md's table and dependencies exactly | per-row criteria in SURFACE.md |
 
 **Lane B — hygiene (cheap sessions)**
 
 | # | Task | Done when |
 |---|---|---|
-| B1 | Dependabot triage: #435 (`rust` fails), #427 (`cortex` fails), #425 (`heyvera` fails) — find the offending bump in each, fix or `@dependabot ignore` it | all three merged or closed with reasons |
+| ~~B1~~ | Dependabot triage | **Done for this lane** (#449). #435 was the pinned Rust 1.88.0 predating `cfg_select!` in libsqlite3-sys's build script — toolchain bumped to 1.97.1, CI green including `clippy -D warnings`. #427 was `typescript@7` against typescript-eslint's `<6.1.0` peer range — ignored until that widens. #425 is a HeyVera-lane `vite.config.ts` TS2769; diagnosis posted on the PR, fix belongs to that session |
 | B2 | Advisory triage: cargo-deny findings + npm audit for both apps, one PR with justified fixes/ignores | advisory jobs green on a fresh PR |
-| B3 | Stale PR sweep if Josh has not: close #397 #408 #409 #410 (archive-targeting) and #105 (superseded) | open-PR list contains only live work |
+| ~~B3~~ | Stale PR sweep | **Done** — #397, #408, #409, #410 closed (they target `archive/dashboard`, removed in Phase 0.6). **#105 deliberately left open**: it is Socials, so closing it is the HeyVera session's call, not this lane's |
 
 **Josh's own list — see [JOSH-ACTIONS.md](JOSH-ACTIONS.md).** His role is two
 things: **using the product as a real user**, and holding credentials. Agents
@@ -144,9 +155,14 @@ nothing looks like a surprise later:
 | #437 credits (v60) | draft, mergeable, waits on #438 | **yours (A1)** |
 | #438 Socials (v53–v59) | draft, mergeable, CI-green | HeyVera session |
 | #411 db out of git tree | draft, mergeable | host step, then merge |
-| #435 / #427 / #425 dependabot | open, checks failing | yours (B1) |
-| #410 / #409 / #408 / #397 | open, archive-targeting | close (B3) |
-| #105 Socials P09 | open, superseded | close (B3) |
+| #435 cargo group | open | should pass now that #449 bumped the toolchain — rerun it |
+| #427 cortex npm | open | dependabot will recreate it without the TS 7 bump |
+| #425 heyvera npm | open | HeyVera session (diagnosis on the PR) |
+| #105 Socials P09 | open, superseded | HeyVera session's call |
+
+Merged this session: #443 (reground), #444 (consistency + launch definition),
+#445 + #448 (F1), #449 (toolchain + dependabot ignores). #397/#408/#409/#410
+closed.
 
 Production: zero users, June 3 binary, decisions still free — that stops
 being true at the first payment, which is why Lane A runs in the order it
