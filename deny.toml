@@ -1,9 +1,14 @@
 # cargo-deny configuration.
 #
-# Starts permissive on purpose. The workspace has never been checked against
-# RustSec, so the real advisory and licence picture is unknown. The CI job is
-# advisory (continue-on-error) for the same reason. Read the first run, move
-# genuine problems into the lists below, then flip both to blocking.
+# Triaged 2026-08-05 (task B2), and the result was better than expected: across
+# the whole workspace cargo-deny reported **no vulnerabilities, no unmaintained
+# crates, no licence violations and no unknown sources**. Every error was
+# `wildcard`, and all six were our own path dependencies (see [bans] below).
+#
+# The job is therefore blocking from now on. It is worth being precise about
+# why that is safe: a gate that has been read once and found clean is a gate
+# that will be believed the first time it goes red — which is the opposite of
+# what the `web` job and the midnight flake taught this repo.
 
 [advisories]
 # `deny` is the default in cargo-deny v2 for vulnerabilities; unmaintained
@@ -22,6 +27,13 @@ wildcards = "deny"
 # Cargo.toml pins workspace deps with caret ranges, which is fine; wildcards
 # are not — they make the lockfile the only thing standing between you and an
 # unreviewed major bump.
+#
+# That reasoning is about registry dependencies. It does not apply to a sibling
+# crate in this repo: `cortex-core = { path = "../core" }` has no version, which
+# cargo-deny reads as `*`, but it is pinned by being in the same commit. All six
+# wildcard errors in the first triaged run were exactly this, so allowing them
+# is what lets the check block on the case it was actually written for.
+allow-wildcard-paths = true
 highlight = "all"
 
 [sources]
