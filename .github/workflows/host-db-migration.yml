@@ -15,6 +15,19 @@
 # why deploys have been frozen, and why this must run BEFORE #411 merges and
 # before the next deploy.
 #
+# THE SERVICE IS LEFT STOPPED AFTER A LIVE RUN, ON PURPOSE.
+#
+# The deployed binary is from June 3 and does not read CORTEX_DB_PATH — that
+# code arrives with #411. Restarting it after the move would point it at
+# .cortex/cortex.db, which no longer exists, and SQLite would helpfully create
+# a fresh empty one. Production would look wiped (the real data is safe in
+# /var/lib/cortex), and any write during that window would be stranded in a
+# database the new binary never opens.
+#
+# So the runbook is: migrate (service stops) -> merge #411 -> deploy (service
+# starts on a binary that reads the new paths). Production has zero users, so
+# the downtime in between costs nothing and removes the failure mode entirely.
+#
 # Defaults to a dry run. Nothing moves until someone types the confirmation
 # phrase, because this relocates a live database.
 
@@ -119,24 +132,42 @@ jobs:
             printf 'shopt -s nullglob\n'
             printf 'for f in "$SRC"/cortex.db*; do mv "$f" /var/lib/cortex/; done\n'
             printf 'if [ -f "$SRC/ledger.jsonl" ]; then mv "$SRC/ledger.jsonl" /var/lib/cortex/; fi\n'
+            # routing.db is untracked, so `git clean -fd` deletes it rather than
+            # reverting it, and losing it discards every UCB statistic the
+            # router has learned. Relocating it needs CORTEX_ROUTING_DB_PATH,
+            # added to #411 alongside this change.
+            printf 'for f in "$SRC"/routing.db*; do mv "$f" /var/lib/cortex/; done\n'
             printf 'sudo -n mkdir -p /etc/cortex\n'
-            printf "printf 'CORTEX_DB_PATH=/var/lib/cortex/cortex.db\\\\nCORTEX_LEDGER_PATH=/var/lib/cortex/ledger.jsonl\\\\n' | sudo -n tee -a /etc/cortex/cortex.env >/dev/null\n"
-            printf 'sudo -n systemctl start cortex\n'
-            printf 'echo "migration complete"\n'
+            printf "printf 'CORTEX_DB_PATH=/var/lib/cortex/cortex.db\\\\nCORTEX_LEDGER_PATH=/var/lib/cortex/ledger.jsonl\\\\nCORTEX_ROUTING_DB_PATH=/var/lib/cortex/routing.db\\\\n' | sudo -n tee -a /etc/cortex/cortex.env >/dev/null\n"
+            # The service is deliberately left STOPPED. See the runbook note at
+            # the top of this file.
+            printf 'echo "migration complete — service intentionally left stopped"\n'
           } | ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" 'bash -s'
 
-      - name: Verify service came back
+      - name: Verify the data landed
         if: ${{ !inputs.dry_run }}
         env:
           DEPLOY_USER: ${{ vars.DEPLOY_USER || 'deploy' }}
           TAILSCALE_HOST: ${{ vars.TAILSCALE_HOST }}
         run: |
-          ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" \
-            "systemctl is-active cortex && ls -la /var/lib/cortex/ && curl --fail --silent --show-error --retry 12 --retry-delay 5 --retry-all-errors http://localhost:3001/v1/health"
+          # Deliberately does NOT check the service is up: it is meant to be
+          # down until the deploy brings up a binary that reads these paths.
+          {
+            printf 'set -euo pipefail\n'
+            printf 'echo "== relocated =="; ls -la /var/lib/cortex/\n'
+            printf 'echo "== env =="; sudo -n grep -c CORTEX_ /etc/cortex/cortex.env\n'
+            printf 'echo "== checkout should now be empty of databases =="; ls -la "$HOME"/claw-net/.cortex/ 2>/dev/null || echo "(gone)"\n'
+            printf 'test -s /var/lib/cortex/cortex.db\n'
+            printf 'echo "database present and non-empty at its new home"\n'
+          } | ssh -o StrictHostKeyChecking=accept-new "${DEPLOY_USER}@${TAILSCALE_HOST}" 'bash -s'
 
       - name: What happens next
         run: |
           echo "Dry run: ${{ inputs.dry_run }}"
-          echo "If this was a live run and it passed:"
-          echo "  1. Mark PR #411 ready and merge it (host first, merge second)."
-          echo "  2. Deploys are then safe to run again — Deploy Production, branch main."
+          echo ""
+          echo "The service is DOWN on purpose after a live run. Finish the sequence:"
+          echo "  1. Mark PR #411 ready and merge it."
+          echo "  2. Run Deploy Production (branch main) — this starts the service"
+          echo "     on a binary that reads CORTEX_DB_PATH and friends."
+          echo ""
+          echo "Production has zero users, so the gap between 1 and 2 costs nothing."
