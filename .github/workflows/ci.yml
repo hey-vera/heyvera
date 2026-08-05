@@ -116,8 +116,13 @@ jobs:
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install 1.88.0 --profile minimal --component clippy
-          rustup default 1.88.0
+          # 1.88.0 (June 2025) predates the `cfg_select!` macro, which
+          # libsqlite3-sys's build script now uses — that is why the cargo
+          # group bump in PR #435 failed to compile before reaching any of
+          # our own code. Pinned rather than `stable` so a toolchain release
+          # can never break CI unannounced.
+          rustup toolchain install 1.97.1 --profile minimal --component clippy
+          rustup default 1.97.1
           rustc --version
           cargo --version
 
