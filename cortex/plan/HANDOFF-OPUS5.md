@@ -12,7 +12,17 @@
 4. [CONTEXT.md](CONTEXT.md) — the context engine; build plan C1–C5
 5. [SURFACE.md](SURFACE.md) — where customers meet Cortex; build plan F1–F7
 6. [PACKAGING.md](PACKAGING.md) — how Cortex is bought; credits pooled, seats never metered
-7. This file — sequencing, standing rules, stop conditions
+7. `docs/ARCHITECTURE.md` — the implementation spec. **Read its
+   "Amendment 2026-08-02" table first**: it marks section by section what
+   survives operator-funded keys, what is revised, and what the code
+   refuted. Trust the amendment over any section below it.
+8. This file — sequencing, standing rules, stop conditions
+
+Two names that will not match your memory of the docs: the authoritative
+ledger table is **`credit_transactions`** (rebuilt as integers by v60), not
+`credit_ledger` as CREDITS.md's draft SQL called it, and its columns are
+`amount` / `balance_type` / `clerk_user_id`. CREDITS.md now carries the
+reconciliation table; the decisions are unchanged, only the names.
 
 ## Standing rules (violating any of these is how sessions get lost)
 
@@ -43,6 +53,32 @@
   wait, not as work.
 - **Pricing and customer-facing decisions belong to Josh.** Flag, don't decide.
 
+## Definition of done — "ready for external users"
+
+The lanes below are not the goal; this is. Every task exists to move a row
+here from no to yes, and a lane that is "finished" while a row is still no
+is not finished.
+
+| # | A stranger can… | Gated on |
+|---|---|---|
+| 1 | reach a Cortex that is running current code | A0 (deploy unfrozen and firing) |
+| 2 | sign up and land somewhere coherent | F1, F4, WorkOS (3.6) |
+| 3 | connect a repo and start a task | F3 (GitHub App), C1–C2 |
+| 4 | see what it will cost before it runs | SURFACE cost-confidence section |
+| 5 | get work back with a receipt they believe | V1–V5 |
+| 6 | be charged correctly, and refunded when it fails | #437 live, V4, **V7 before refund copy ships** |
+| 7 | pay Cortex at all | JOSH-ACTIONS §5 — entity, ToS, Stripe |
+| 8 | trust it with a real repo | 3.4 sandboxes, 2.7 secret scanning, red-team pass |
+
+Row 7 is a Josh gate with multi-day external lead times, so it starts in
+parallel with the build, not after it. Row 6's V7 dependency is the one
+place where shipping early is actively harmful — a refund promise on an
+unhardened verifier either leaks money or breaks trust.
+
+**Josh is the acceptance test for rows 2–5** ([JOSH-ACTIONS.md](JOSH-ACTIONS.md)
+§6). Ask for his pass before calling those done; an agent cannot judge whether
+a first-time user is confused, because it already knows the answer.
+
 ## The queue
 
 Work strictly in order inside each lane. Lane B may run parallel to Lane A
@@ -52,6 +88,7 @@ in cheap sessions.
 
 | # | Task | Done when |
 |---|---|---|
+| A0 | Ship it. Once #411 lands, verify the deploy path actually fires and production runs current `main` — note PLAN §5's finding that auto-merge commits as `app/github-actions`, so `deploy-frontend.yml` has not triggered since 2026-07-23 (`GITHUB_TOKEN` pushes do not start workflows). Fix that trigger too | `/health` or equivalent on the VPS reports a build from this week, frontend included; Josh can log in |
 | A1 | Land #437 (credits, v60). **#438 is HeyVera Socials — not this lane's work**; it is reviewed and merged in a HeyVera session. Your job is only to wait for it, because the migration counter forces #438 → #437. When #438 is on main: mark #437 ready, merge | `main` has migrations through v60 |
 | A2 | Task 1.4: instrument real token cost on 3–5 representative tasks (~$300 budget) | measured $/task table committed as `cortex/plan/COSTS-MEASURED.md`; pricing handed to Josh |
 | A3 | VERIFIER.md V1→V7, in the sequencing that file specifies (V3 = migration v61) | verdicts computed from Cortex-run checks; refund copy still withheld until V7 passes |
@@ -74,9 +111,9 @@ gate on Lane A as SURFACE.md's dependency column specifies)**
 | B2 | Advisory triage: cargo-deny findings + npm audit for both apps, one PR with justified fixes/ignores | advisory jobs green on a fresh PR |
 | B3 | Stale PR sweep if Josh has not: close #397 #408 #409 #410 (archive-targeting) and #105 (superseded) | open-PR list contains only live work |
 
-**Blocked on Josh — see [JOSH-ACTIONS.md](JOSH-ACTIONS.md), where each item
-is pre-compressed to minutes (commands pasted, emails drafted,
-recommendations made). Surface these when relevant; never work around them.**
+**Josh's own list — see [JOSH-ACTIONS.md](JOSH-ACTIONS.md).** His role is two
+things: **using the product as a real user**, and holding credentials. Agents
+do the rest. Surface these when relevant; never work around them.
 
 - #411 host commands + merge (unfreezes deploys). Gated on a Tailscale
   authorization click, not on Josh running commands — once authorized, an

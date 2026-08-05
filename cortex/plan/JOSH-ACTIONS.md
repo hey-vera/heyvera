@@ -1,12 +1,35 @@
 # Josh's queue, compressed
 
-> Written 2026-08-05, corrected the same day. Four items were parked as
+> Written 2026-08-05, corrected twice the same day. Four items were parked as
 > "blocked on Josh." Fair challenge received: most of each is research and
-> drafting an agent can do. That work is now done below, and the challenge
-> shrank the list further — item 1 is mostly an authorization click, and
-> item 2's first half turned out to be optional. What remains genuinely
-> yours is the thin layer no agent should hold: sudo, signature, payment,
-> and mail under your name. Estimated total: **~15 minutes.**
+> drafting an agent can do, and that work is now done below.
+
+## What Josh's role actually is
+
+Two things, and agents own everything else:
+
+1. **Being the first user.** Sign up, open the chat interface, start a run,
+   watch a task come back, check the receipt, spend a credit, hit a wall.
+   This is not QA theatre — it is the only signal that catches what tests
+   cannot: the thing that is confusing, the step that takes too long, the
+   screen that lies. No agent can supply it, and nothing else on this list
+   matters if the product is unpleasant to use.
+2. **Credentials and authorizations.** API keys, Tailscale, Stripe, the
+   accounts that only an owner can create. Agents cannot mint these and
+   should not hold them.
+
+The residue — signatures, payments, mail under your name — attaches to
+launch gates below, not to daily work.
+
+**The dependency nobody should miss: (1) is currently impossible.** Production
+runs the June 3 binary, deploys are frozen behind #411, and the surface a user
+would meet is still the BYOK-era chat shell (SURFACE.md F1). So the sequence is
+unfreeze → ship → amputate the old surface → *then* Josh uses it as a customer
+would. Item 1 below is what starts that chain, which is why it is first.
+
+**Target state, so nothing gets parked by accident: a complete product an
+external user can sign up for and use.** Items below are ordered by when they
+block that, not by how uncomfortable they are.
 
 ---
 
@@ -108,10 +131,14 @@ $7–15k audit.
 customer pays or the first enterprise inquiry lands — whichever comes
 first. Until then it's a line item, not a task.
 
-## 5. Before the first dollar moves — entity, terms, Stripe (~1 hour, when payments get built)
+## 5. Entity, terms, Stripe — a launch gate, not a someday item (~1 hour)
 
-Not urgent today; blocking the moment F2's ledger meets real money. Listed
-so it is never a surprise:
+**Not parked.** "Ready for external users" includes "an external user can
+pay you," and none of this can be done at the last minute: entity filing takes
+days, Stripe onboarding can take days more and sometimes asks for documents,
+and terms want a lawyer's pass. Start it in parallel with the build rather
+than discovering it on launch week. Agents draft everything; the filing,
+the signature, and the account creation are yours.
 
 - **Legal entity.** Stripe onboards a business identity, not a person, and
   customers need someone to contract with. Filing is yours; an agent can
@@ -125,9 +152,28 @@ so it is never a surprise:
 - **Stripe account + tax settings.** Yours to create; the integration is
   agent work once it exists.
 
+## 6. The dogfood loop — Josh's standing job once deploys unfreeze
+
+Not a one-off. Each time a lane lands something a user would touch, Josh
+uses it as a customer, and the agent that shipped it asks for that pass
+before calling the task done. Concretely, in the order the build reaches
+them:
+
+| After | Josh does | Watching for |
+|---|---|---|
+| #411 + a fresh deploy | log in to the live app at all | does the deployed binary actually serve the current build |
+| F1 (surface amputation) | click every pane of mission control | anything that is still BYOK-era, or a screen with no purpose |
+| V1–V5 (verifier) | run a real task on a real repo end to end | is the receipt legible; would you believe it |
+| #437 live + F2 (ledger) | spend credits, watch the balance | does the number shown match what you think you spent |
+| Cost-confidence work (SURFACE) | start a run and read the price first | is the quote clear enough that you'd press go without anxiety |
+| Onboarding (F4) | sign up as a stranger, from zero | the 10-minute install-to-verified-PR target, measured on a human |
+
+The last row is the one that decides launch readiness, and it cannot be
+faked by an agent: an agent already knows how the product works.
+
 ---
 
-*Standing division of labor this file encodes: agents research, draft, and
-compress; Josh spends identity, money, and sudo. If an item on a future
-"blocked on Josh" list can't be compressed to that thin layer, it wasn't
+*Standing division of labor this file encodes: agents research, draft,
+build, and verify; Josh uses the product and holds the credentials. If an
+item on a future "blocked on Josh" list is neither of those, it wasn't
 compressed hard enough.*
