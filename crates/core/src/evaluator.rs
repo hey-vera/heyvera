@@ -378,7 +378,8 @@ fn profile_bias(profile: Profile, provider: ProviderId, tier: Tier, risk: RiskLe
         },
         Profile::Balanced | Profile::Auto => match provider {
             ProviderId::Claude | ProviderId::Openai => 2.0,
-            ProviderId::Gemini => 0.0,
+            // Neutral until outcome data earns Zen a bias either way.
+            ProviderId::Gemini | ProviderId::Zen => 0.0,
         },
     }
 }
@@ -529,6 +530,7 @@ fn provider_order(p: ProviderId) -> u8 {
         ProviderId::Claude => 0,
         ProviderId::Openai => 1,
         ProviderId::Gemini => 2,
+        ProviderId::Zen => 3,
     }
 }
 
@@ -549,6 +551,11 @@ fn default_model(provider: ProviderId, tier: Tier) -> String {
         (ProviderId::Gemini, Tier::Search) => "gemini-2.5-flash",
         (ProviderId::Gemini, Tier::Execute) => "gemini-2.5-pro",
         (ProviderId::Gemini, Tier::Think) => "gemini-2.5-pro",
+
+        // Must agree with the engine registry (crates/engine/src/models.rs).
+        (ProviderId::Zen, Tier::Search) => "glm-5",
+        (ProviderId::Zen, Tier::Execute) => "glm-5.2",
+        (ProviderId::Zen, Tier::Think) => "kimi-k3",
     }
     .to_string()
 }
