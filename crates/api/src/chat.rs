@@ -99,6 +99,10 @@ fn byok_model(provider: &Provider, tier: Option<&str>) -> String {
         (Provider::Openai, "powerful") => "gpt-4.1".into(),
         (Provider::Openai, "balanced") => "gpt-4.1".into(),
         (Provider::Openai, _) => "gpt-4.1-mini".into(),
+        // Zen model IDs per opencode.ai/docs/zen; uncalibrated defaults.
+        (Provider::Zen, "powerful") => "kimi-k3".into(),
+        (Provider::Zen, "balanced") => "glm-5.2".into(),
+        (Provider::Zen, _) => "glm-5".into(),
     }
 }
 
@@ -135,11 +139,23 @@ async fn resolve_provider(state: &AppState, user_id: &str, model_tier: Option<&s
                             };
                         }
                         "subscription" => {
+                            // Zen has no subscription auth — a "subscription"
+                            // credential for it is a data error; fall back to
+                            // treating the secret as an API key.
+                            if matches!(provider, Provider::Zen) {
+                                let model = byok_model(&provider, model_tier);
+                                return ProviderPath::ApiKey {
+                                    provider,
+                                    api_key: decrypted,
+                                    model,
+                                };
+                            }
                             let model = match (&provider, model_tier.unwrap_or("fast")) {
                                 (Provider::Claude, "powerful") => "claude-sonnet-4-6".into(),
                                 (Provider::Claude, _) => "claude-sonnet-4-6".into(),
                                 (Provider::Openai, "powerful") => "gpt-4.1".into(),
                                 (Provider::Openai, _) => "gpt-4.1-mini".into(),
+                                (Provider::Zen, _) => unreachable!("handled above"),
                             };
                             return ProviderPath::Subscription { provider, model, credential_data: decrypted };
                         }
