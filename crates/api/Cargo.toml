@@ -46,15 +46,15 @@ base64.workspace = true
 aes-gcm.workspace = true
 rand.workspace = true
 futures-util.workspace = true
-which = "6"
-bollard = "0.18"
-socket2 = "0.5"
+which = "8"
+bollard = "0.21"
+socket2 = "0.6"
 prometheus.workspace = true
 once_cell.workspace = true
-sentry = { version = "0.35", features = ["tracing"], optional = true }
-opentelemetry = { version = "0.27", optional = true }
-opentelemetry-otlp = { version = "0.27", optional = true, features = ["tonic"] }
-tracing-opentelemetry = { version = "0.28", optional = true }
+sentry = { version = "0.49", features = ["tracing"], optional = true }
+opentelemetry = { version = "0.32", optional = true }
+opentelemetry-otlp = { version = "0.32", optional = true, features = ["tonic"] }
+tracing-opentelemetry = { version = "0.33", optional = true }
 
 [features]
 sentry-tracking = ["sentry"]
@@ -64,6 +64,6 @@ otel = ["opentelemetry", "opentelemetry-otlp", "tracing-opentelemetry"]
 tempfile = "3"
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
-tokio-tungstenite = "0.26"
+tokio-tungstenite = "0.29"
 futures-util = "0.3"
 uuid = { version = "1", features = ["v4"] }
