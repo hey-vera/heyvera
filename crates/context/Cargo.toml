@@ -1,0 +1,15 @@
+[package]
+name = "cortex-context"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+description = "Repo map and symbol graph — the context engine for Cortex planning"
+
+[dependencies]
+serde.workspace = true
+streaming-iterator = "0.1.9"
+tracing.workspace = true
+tree-sitter = "0.26.11"
+tree-sitter-javascript = "0.25.0"
+tree-sitter-rust = "0.24.2"
+tree-sitter-typescript = "0.23.2"
