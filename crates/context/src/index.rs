@@ -129,6 +129,13 @@ impl Index {
         Ok(index)
     }
 
+    /// Read access for sibling modules that query the index (C3's retrieval).
+    /// Crate-internal: the connection is an implementation detail, and callers
+    /// outside this crate go through typed methods.
+    pub(crate) fn conn(&self) -> &Connection {
+        &self.conn
+    }
+
     fn set_schema_tag(&self) -> Result<(), String> {
         self.conn
             .execute(
