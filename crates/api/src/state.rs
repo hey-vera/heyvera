@@ -57,6 +57,10 @@ pub struct AppState {
     pub providers: RwLock<Vec<ProviderStatus>>,
     pub ledger: Ledger,
     pub workspace_dir: PathBuf,
+    /// Rendered repo maps, cached per workspace and token budget so the steps
+    /// of one run share a single parse of the tree (CONTEXT.md C1). Replaced
+    /// by the persistent incremental index in C2.
+    pub repo_map_cache: cortex_context::cache::RepoMapCache,
     pub clerk_secret_key: Option<String>,
     pub jwks_cache: RwLock<JwksCache>,
     pub jwks_stampede: JwksStampedeGuard,
@@ -286,6 +290,7 @@ impl AppState {
             providers: RwLock::new(providers),
             ledger: Ledger::new(ledger_path),
             workspace_dir,
+            repo_map_cache: cortex_context::cache::RepoMapCache::new(),
             clerk_secret_key,
             jwks_cache: RwLock::new(JwksCache::empty()),
             jwks_stampede: JwksStampedeGuard::new(),
