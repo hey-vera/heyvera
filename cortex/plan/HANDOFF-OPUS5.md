@@ -11,7 +11,8 @@
 3. [VERIFIER.md](VERIFIER.md) — what "verified" means; build plan V1–V7
 4. [CONTEXT.md](CONTEXT.md) — the context engine; build plan C1–C5
 5. [SURFACE.md](SURFACE.md) — where customers meet Cortex; build plan F1–F7
-6. This file — sequencing, standing rules, stop conditions
+6. [PACKAGING.md](PACKAGING.md) — how Cortex is bought; credits pooled, seats never metered
+7. This file — sequencing, standing rules, stop conditions
 
 ## Standing rules (violating any of these is how sessions get lost)
 
@@ -69,17 +70,16 @@ gate on Lane A as SURFACE.md's dependency column specifies)**
 | B2 | Advisory triage: cargo-deny findings + npm audit for both apps, one PR with justified fixes/ignores | advisory jobs green on a fresh PR |
 | B3 | Stale PR sweep if Josh has not: close #397 #408 #409 #410 (archive-targeting) and #105 (superseded) | open-PR list contains only live work |
 
-**Blocked on Josh (surface these when relevant, never work around them)**
+**Blocked on Josh — see [JOSH-ACTIONS.md](JOSH-ACTIONS.md), where each item
+is pre-compressed to minutes (commands pasted, emails drafted,
+recommendations made). Surface these when relevant; never work around them.**
 
-- #411: run the host commands in its description, then merge — deploys stay
-  frozen until this lands (prod runs a June 3 binary)
-- Anthropic conversation: §D.4 written clarification + rate-tier increase
-- UNVERIFIED pricing row sign-off (VERIFIER.md gate table)
+- #411 host commands + merge (unfreezes deploys)
+- Anthropic messages: §A.1 comfort check + rate-tier request (drafted)
+- UNVERIFIED pricing row: approve/reject (recommendation: approve)
+- SOC 2 clock: trigger condition + concrete path are in the doc
 - `OPENCODE_ZEN_API_KEY` on the VPS for live Zen testing
 - GHAS billing decision (blocks dependency-review restoration)
-- Enterprise business track: SOC 2 / ISO certifications, IP-indemnity
-  posture, index data-handling page (SURFACE.md) — months of lead time,
-  gates six-figure deals, not an engineering task
 
 ## State as of this handoff
 
