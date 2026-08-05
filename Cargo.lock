@@ -660,7 +660,9 @@ dependencies = [
 name = "cortex-context"
 version = "0.1.0"
 dependencies = [
+ "rusqlite",
  "serde",
+ "sha2",
  "streaming-iterator",
  "tracing",
  "tree-sitter",
