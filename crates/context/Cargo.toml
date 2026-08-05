@@ -6,7 +6,9 @@ license.workspace = true
 description = "Repo map and symbol graph — the context engine for Cortex planning"
 
 [dependencies]
+rusqlite.workspace = true
 serde.workspace = true
+sha2.workspace = true
 streaming-iterator = "0.1.9"
 tracing.workspace = true
 tree-sitter = "0.26.11"

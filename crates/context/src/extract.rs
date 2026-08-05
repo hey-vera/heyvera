@@ -86,11 +86,24 @@ fn grammar_for(path: &Path) -> Option<GrammarSpec> {
     }
 }
 
+/// Every source file under `root` a grammar can read, as
+/// `(absolute, repo-relative)` pairs, in a stable order.
+///
+/// Public so the incremental index can walk without extracting: most files in
+/// a sync are unchanged and must not be reparsed.
+pub fn source_files(root: &Path) -> Vec<(PathBuf, String)> {
+    let mut files = Vec::new();
+    collect_files(root, root, &mut files);
+    // Sorted so a sync visits files in the same order every time, which makes
+    // the reference-promotion path deterministic and its tests meaningful.
+    files.sort_by(|a, b| a.1.cmp(&b.1));
+    files
+}
+
 /// Walk `root` and extract every symbol and reference we can parse.
 pub fn extract_repo(root: &Path) -> Extraction {
     let mut extraction = Extraction::default();
-    let mut files = Vec::new();
-    collect_files(root, root, &mut files);
+    let files = source_files(root);
 
     for (absolute, relative) in files {
         match std::fs::read_to_string(&absolute) {
