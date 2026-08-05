@@ -16,6 +16,7 @@ path = "src/main.rs"
 [dependencies]
 cortex-core = { path = "../core" }
 cortex-engine = { path = "../engine" }
+cortex-context = { path = "../context" }
 cortex-worker = { path = "../worker" }
 soma = { path = "../soma" }
 soma-core = { path = "../soma-core" }

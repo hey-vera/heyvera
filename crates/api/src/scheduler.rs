@@ -490,8 +490,9 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
     // Record score evidence per evaluator
     record_evidence(db, &decision_id, &evidence);
 
-    // Build step context from predecessors
+    // Build step context from predecessors, then orient it in the repository.
     let context = build_step_context(db, &step.run_id, &step.step_id);
+    let context = with_repo_map(context, state, decision.provider, decision.tier);
 
     // Workspace context: use run_id as logical workspace, look up latest commit
     // from predecessor steps, and pass file_paths from the run's goal
@@ -1117,6 +1118,14 @@ fn issue_step_delegation(
 
 // --- Step context builder ---
 
+/// Share of a step's token budget the repo map may occupy.
+///
+/// The map is orientation, not content: it should tell the model what the
+/// repository *is* and then get out of the way. Five percent of a 500k
+/// Execute budget is ~25k tokens, which fits a skeleton of a large monorepo
+/// while leaving the step's actual context untouched.
+const REPO_MAP_BUDGET_FRACTION: u64 = 20;
+
 fn build_step_context(db: &Database, run_id: &str, step_id: &str) -> StepContext {
     let goal = db
         .get_run_goal(run_id)
@@ -1152,7 +1161,28 @@ fn build_step_context(db: &Database, run_id: &str, step_id: &str) -> StepContext
         predecessor_summaries: summaries,
         user_goal: goal,
         conversation_excerpt: None,
+        repo_map: None,
     }
+}
+
+/// Attach the repo map (CONTEXT.md C1) so planning is not blind to code the
+/// user did not think to name.
+///
+/// Failure is silent by design. A repository we cannot parse, or a workspace
+/// that is not there yet, should cost a step its orientation and nothing
+/// else — never its dispatch.
+fn with_repo_map(
+    mut context: StepContext,
+    state: &AppState,
+    provider: ProviderId,
+    tier: Tier,
+) -> StepContext {
+    let budget = token_budget(provider, tier) / REPO_MAP_BUDGET_FRACTION;
+    context.repo_map = state
+        .repo_map_cache
+        .get(&state.workspace_dir, budget as usize)
+        .map(|rendered| rendered.to_string());
+    context
 }
 
 // --- Load ready steps ---
