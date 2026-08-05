@@ -250,10 +250,11 @@ pub struct SubscriptionRecord {
     pub current_period_end: Option<String>,
 }
 
+/// Whole credits. Never floating point — see cortex/plan/CREDITS.md.
 pub struct CreditBalanceRecord {
-    pub subscription_remaining: f64,
-    pub subscription_total: f64,
-    pub pack_remaining: f64,
+    pub subscription_remaining: i64,
+    pub subscription_total: i64,
+    pub pack_remaining: i64,
 }
 
 pub struct BillingHistoryRecord {
@@ -480,6 +481,13 @@ fn apply_migrations(conn: &Connection) {
     }
     if current < 52 {
         migrate_v52(conn);
+    }
+    // v60, not v53: fix/socials-message-integrity has already claimed v53–v59
+    // on its branch, and schema_version is a single counter — a collision means
+    // whichever branch merges second gets its migration silently skipped. That
+    // branch must merge before this one.
+    if current < 60 {
+        migrate_v60(conn);
     }
 }
 
@@ -2411,6 +2419,101 @@ fn migrate_v52(conn: &Connection) {
     .expect("migration v52 failed creating social_x402_receipts");
     tracing::info!(
         "applied migration v52: social_x402_receipts (x402 verify receipts; pending|verified|failed)"
+    );
+}
+
+fn migrate_v60(conn: &Connection) {
+    // Credits become integers, and the transaction log becomes the authority.
+    // See cortex/plan/CREDITS.md.
+    //
+    // Numbered v60 because fix/socials-message-integrity holds v53–v59; the
+    // counter in schema_version cannot express out-of-order application, so
+    // that branch merges first and this block keeps the tail.
+    //
+    // Money was REAL. Binary floating point cannot represent decimal fractions
+    // exactly, so a mutable balance column drifts from the sum of its own
+    // transaction log — and because the column was authoritative, that drift
+    // was both invisible and unrecoverable. Whole credits, stored as INTEGER.
+    //
+    // The rebuild is safe: SQLite cannot ALTER a column type, and both tables
+    // are empty in production. ROUND() is there for dev databases that may
+    // hold fractional values; whole values round-trip exactly.
+    //
+    // credit_transactions gains idempotency_key UNIQUE. That single constraint
+    // is the exactly-once mechanism — the orchestrator retries by design
+    // (max_attempts 3, orphaned steps requeue on lease expiry), so without it a
+    // step that charges and is then rejected for a stale lease_gen is charged
+    // again. Same pattern as social_x402_receipts in v52.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS credit_balances_v60 (
+            clerk_user_id          TEXT PRIMARY KEY,
+            subscription_remaining INTEGER NOT NULL DEFAULT 200,
+            subscription_total     INTEGER NOT NULL DEFAULT 200,
+            pack_remaining         INTEGER NOT NULL DEFAULT 0,
+            last_reset_at          TEXT
+        );
+        INSERT OR IGNORE INTO credit_balances_v60
+            (clerk_user_id, subscription_remaining, subscription_total, pack_remaining, last_reset_at)
+        SELECT clerk_user_id,
+               CAST(ROUND(subscription_remaining) AS INTEGER),
+               CAST(ROUND(subscription_total)     AS INTEGER),
+               CAST(ROUND(pack_remaining)         AS INTEGER),
+               last_reset_at
+        FROM credit_balances;
+        DROP TABLE credit_balances;
+        ALTER TABLE credit_balances_v60 RENAME TO credit_balances;
+
+        CREATE TABLE IF NOT EXISTS credit_transactions_v60 (
+            id              TEXT PRIMARY KEY,
+            clerk_user_id   TEXT NOT NULL,
+            amount          INTEGER NOT NULL,
+            balance_type    TEXT NOT NULL,
+            reason          TEXT NOT NULL DEFAULT 'legacy',
+            description     TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL UNIQUE,
+            run_id          TEXT,
+            step_id         TEXT,
+            created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+        INSERT OR IGNORE INTO credit_transactions_v60
+            (id, clerk_user_id, amount, balance_type, reason, description, idempotency_key, created_at)
+        SELECT id, clerk_user_id, CAST(ROUND(amount) AS INTEGER), balance_type,
+               'legacy', description, 'legacy:' || id, created_at
+        FROM credit_transactions;
+        DROP TABLE credit_transactions;
+        ALTER TABLE credit_transactions_v60 RENAME TO credit_transactions;
+
+        CREATE INDEX IF NOT EXISTS idx_credit_transactions_user
+            ON credit_transactions(clerk_user_id, created_at DESC);
+
+        -- COGS. Token-denominated and internal; never a customer balance.
+        -- Kept separate from credit_transactions on purpose: a credit priced as
+        -- a function of tokens consumed is token resale with an exchange rate,
+        -- which is the reading Anthropic's commercial terms D.4 prohibits.
+        CREATE TABLE IF NOT EXISTS provider_spend (
+            id               TEXT PRIMARY KEY,
+            user_id          TEXT NOT NULL,
+            run_id           TEXT,
+            step_id          TEXT,
+            provider         TEXT NOT NULL,
+            model            TEXT NOT NULL,
+            cost_type        TEXT NOT NULL,
+            tokens_in        INTEGER NOT NULL DEFAULT 0,
+            tokens_out       INTEGER NOT NULL DEFAULT 0,
+            tokens_cached_in INTEGER NOT NULL DEFAULT 0,
+            cost_micro_usd   INTEGER NOT NULL DEFAULT 0,
+            created_at       INTEGER NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_provider_spend_user
+            ON provider_spend(user_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_provider_spend_run
+            ON provider_spend(run_id);
+
+        UPDATE schema_version SET version = 60;",
+    )
+    .expect("migration v60 failed converting credits to integers");
+    tracing::info!(
+        "applied migration v60: integer credits, idempotent credit_transactions, provider_spend"
     );
 }
 
@@ -9674,35 +9777,65 @@ impl Database {
     pub fn get_credit_balance(&self, clerk_user_id: &str) -> CreditBalanceRecord {
         self.get_credit_balance_row(clerk_user_id)
             .unwrap_or(CreditBalanceRecord {
-                subscription_remaining: 200.0,
-                subscription_total: 200.0,
-                pack_remaining: 0.0,
+                subscription_remaining: 200,
+                subscription_total: 200,
+                pack_remaining: 0,
             })
     }
 
-    /// Deduct credits from an **existing** balance row. Does not invent a row
-    /// or default balance — returns an error when no ledger row exists.
+    /// Deduct whole credits from an **existing** balance row. Does not invent a
+    /// row or a default balance — returns an error when no balance row exists.
+    ///
+    /// **Exactly-once.** `idempotency_key` must uniquely identify the unit of
+    /// work being charged; for task work use `run_id:step_id:attempt_id`.
+    /// Replaying a key that has already been charged is a no-op that returns the
+    /// current balance, because the orchestrator retries by design — steps carry
+    /// `max_attempts: 3` and orphaned steps requeue on lease expiry, so without
+    /// this a step charged and then rejected for a stale `lease_gen` is charged
+    /// twice.
+    ///
+    /// A deduction can span both buckets, and two rows cannot share one UNIQUE
+    /// key, so each bucket records under a derived key (`<key>:subscription`,
+    /// `<key>:pack`). The UNIQUE constraint is the real guarantee; the explicit
+    /// replay check below exists to return a balance rather than an error.
     pub fn deduct_credits(
         &self,
         clerk_user_id: &str,
-        amount: f64,
+        amount: i64,
         description: &str,
+        idempotency_key: &str,
     ) -> Result<CreditBalanceRecord, String> {
-        if amount < 0.0 {
+        if amount < 0 {
             return Err("credit amount must be non-negative".into());
         }
+        if idempotency_key.trim().is_empty() {
+            return Err("idempotency key is required for a credit deduction".into());
+        }
+
+        let sub_key = format!("{idempotency_key}:subscription");
+        let pack_key = format!("{idempotency_key}:pack");
 
         let conn = self.conn.lock().unwrap();
 
         conn.execute("BEGIN IMMEDIATE", [])
             .map_err(|e| format!("failed to begin transaction: {e}"))?;
 
-        let (sub_rem, pack_rem, sub_total) = match conn.query_row(
-            "SELECT subscription_remaining, pack_remaining, subscription_total
-             FROM credit_balances WHERE clerk_user_id = ?1",
-            params![clerk_user_id],
-            |row| Ok((row.get::<_, f64>(0)?, row.get::<_, f64>(1)?, row.get::<_, f64>(2)?)),
-        ) {
+        let read_balance = |conn: &Connection| {
+            conn.query_row(
+                "SELECT subscription_remaining, pack_remaining, subscription_total
+                 FROM credit_balances WHERE clerk_user_id = ?1",
+                params![clerk_user_id],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+        };
+
+        let (sub_rem, pack_rem, sub_total) = match read_balance(&conn) {
             Ok(v) => v,
             Err(_) => {
                 conn.execute("ROLLBACK", []).ok();
@@ -9712,21 +9845,56 @@ impl Database {
             }
         };
 
+        // Replay check, inside the transaction so it cannot race a concurrent
+        // charge of the same key.
+        let already: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM credit_transactions
+                 WHERE idempotency_key = ?1 OR idempotency_key = ?2",
+                params![sub_key, pack_key],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if already > 0 {
+            conn.execute("ROLLBACK", []).ok();
+            tracing::debug!(
+                user_id = clerk_user_id,
+                idempotency_key,
+                "credit deduction replayed; balance unchanged"
+            );
+            return Ok(CreditBalanceRecord {
+                subscription_remaining: sub_rem,
+                subscription_total: sub_total,
+                pack_remaining: pack_rem,
+            });
+        }
+
+        if amount == 0 {
+            conn.execute("ROLLBACK", []).ok();
+            return Ok(CreditBalanceRecord {
+                subscription_remaining: sub_rem,
+                subscription_total: sub_total,
+                pack_remaining: pack_rem,
+            });
+        }
+
         let total_available = sub_rem + pack_rem;
         if total_available < amount {
             conn.execute("ROLLBACK", []).ok();
             return Err(format!(
-                "insufficient credits: need {amount:.2}, have {total_available:.2}"
+                "insufficient credits: need {amount}, have {total_available}"
             ));
         }
 
+        // Spend the monthly allotment before purchased packs — the allotment
+        // expires, packs do not.
         let from_sub = amount.min(sub_rem);
         let from_pack = amount - from_sub;
 
         let new_sub_rem = sub_rem - from_sub;
         let new_pack_rem = pack_rem - from_pack;
 
-        // UPDATE only — never INSERT invent a balance via deduction.
+        // UPDATE only — a deduction must never create an account.
         let updated = conn
             .execute(
                 "UPDATE credit_balances
@@ -9745,30 +9913,29 @@ impl Database {
             );
         }
 
-        if from_sub > 0.0 {
+        let insert_tx = |bucket: &str, delta: i64, key: &str| -> Result<(), String> {
             let tx_id = Uuid::new_v4().to_string();
             conn.execute(
-                "INSERT INTO credit_transactions (id, clerk_user_id, amount, balance_type, description)
-                 VALUES (?1, ?2, ?3, 'subscription', ?4)",
-                params![tx_id, clerk_user_id, -from_sub, description],
+                "INSERT INTO credit_transactions
+                    (id, clerk_user_id, amount, balance_type, reason, description, idempotency_key)
+                 VALUES (?1, ?2, ?3, ?4, 'spend', ?5, ?6)",
+                params![tx_id, clerk_user_id, delta, bucket, description, key],
             )
-            .map_err(|e| {
-                conn.execute("ROLLBACK", []).ok();
-                format!("failed to record subscription transaction: {e}")
-            })?;
-        }
+            .map_err(|e| format!("failed to record {bucket} transaction: {e}"))?;
+            Ok(())
+        };
 
-        if from_pack > 0.0 {
-            let tx_id = Uuid::new_v4().to_string();
-            conn.execute(
-                "INSERT INTO credit_transactions (id, clerk_user_id, amount, balance_type, description)
-                 VALUES (?1, ?2, ?3, 'pack', ?4)",
-                params![tx_id, clerk_user_id, -from_pack, description],
-            )
-            .map_err(|e| {
+        if from_sub > 0 {
+            if let Err(e) = insert_tx("subscription", -from_sub, &sub_key) {
                 conn.execute("ROLLBACK", []).ok();
-                format!("failed to record pack transaction: {e}")
-            })?;
+                return Err(e);
+            }
+        }
+        if from_pack > 0 {
+            if let Err(e) = insert_tx("pack", -from_pack, &pack_key) {
+                conn.execute("ROLLBACK", []).ok();
+                return Err(e);
+            }
         }
 
         conn.execute("COMMIT", [])
@@ -9781,34 +9948,67 @@ impl Database {
         })
     }
 
-    pub fn reset_subscription_credits(&self, clerk_user_id: &str, total: f64) {
+    /// Sum of the append-only transaction log per bucket, for reconciling
+    /// against `credit_balances`. The balance columns are a cache; this is the
+    /// derivation they must agree with.
+    pub fn credit_ledger_totals(&self, clerk_user_id: &str) -> (i64, i64) {
+        let conn = self.conn.lock().unwrap();
+        let sum = |bucket: &str| -> i64 {
+            conn.query_row(
+                "SELECT COALESCE(SUM(amount), 0) FROM credit_transactions
+                 WHERE clerk_user_id = ?1 AND balance_type = ?2",
+                params![clerk_user_id, bucket],
+                |r| r.get(0),
+            )
+            .unwrap_or(0)
+        };
+        (sum("subscription"), sum("pack"))
+    }
+
+    /// Returns `Result` rather than panicking: these run in request paths, and
+    /// `.expect()` on a database error took the handler down with it.
+    pub fn reset_subscription_credits(
+        &self,
+        clerk_user_id: &str,
+        total: i64,
+    ) -> Result<(), String> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining, last_reset_at)
-             VALUES (?1, ?2, ?2, 0.0, datetime('now'))
+             VALUES (?1, ?2, ?2, 0, datetime('now'))
              ON CONFLICT(clerk_user_id) DO UPDATE SET
                 subscription_remaining = ?2, subscription_total = ?2, last_reset_at = datetime('now')",
             params![clerk_user_id, total],
-        ).expect("failed to reset subscription credits");
+        )
+        .map_err(|e| format!("failed to reset subscription credits: {e}"))?;
+        Ok(())
     }
 
-    pub fn init_credit_balance(&self, clerk_user_id: &str, subscription_total: f64) {
+    pub fn init_credit_balance(
+        &self,
+        clerk_user_id: &str,
+        subscription_total: i64,
+    ) -> Result<(), String> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT OR IGNORE INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining)
-             VALUES (?1, ?2, ?2, 0.0)",
+             VALUES (?1, ?2, ?2, 0)",
             params![clerk_user_id, subscription_total],
-        ).expect("failed to init credit balance");
+        )
+        .map_err(|e| format!("failed to init credit balance: {e}"))?;
+        Ok(())
     }
 
-    pub fn add_pack_credits(&self, clerk_user_id: &str, amount: f64) {
+    pub fn add_pack_credits(&self, clerk_user_id: &str, amount: i64) -> Result<(), String> {
         let conn = self.conn.lock().unwrap();
         conn.execute(
             "INSERT INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining)
-             VALUES (?1, 200.0, 200.0, ?2)
+             VALUES (?1, 200, 200, ?2)
              ON CONFLICT(clerk_user_id) DO UPDATE SET pack_remaining = pack_remaining + ?2",
             params![clerk_user_id, amount],
-        ).expect("failed to add pack credits");
+        )
+        .map_err(|e| format!("failed to add pack credits: {e}"))?;
+        Ok(())
     }
 
     pub fn record_billing_event(
