@@ -1,6 +1,7 @@
 [package]
 name = "soma"
 version.workspace = true
+publish = false  # proprietary; never goes to crates.io
 edition.workspace = true
 license.workspace = true
 description = "Soma protocol primitives — Ed25519 identity, delegation, heartbeats, spend tracking"
