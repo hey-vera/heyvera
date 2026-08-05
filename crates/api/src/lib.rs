@@ -20,6 +20,7 @@ mod deploy_status;
 pub mod db;
 pub mod credentials;
 pub mod check_runner;
+pub mod ecosystem_probe;
 pub mod docker;
 pub mod github;
 pub mod github_repos;
