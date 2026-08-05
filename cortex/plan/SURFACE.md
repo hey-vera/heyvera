@@ -93,6 +93,30 @@ verified PR — target under 10 minutes.**
    draws down per CREDITS.md — the receipt and the charge reference each
    other
 
+## Cost confidence (a surface requirement, not a nicety)
+
+Developers' strongest objection to agentic tools is not capability, it is
+**bill anxiety** — the fear of a runaway loop turning into a surprise
+invoice. Cortex's pricing model already removes the cause: prices attach to
+task classes, so token variance is Cortex's COGS problem and never reaches
+the customer, a run that fails verification refunds, and infra failures
+never charge (CREDITS.md). But *structural* safety that a user cannot see
+does not calm anyone. Every surface must therefore show it:
+
+- **Pre-run confirmation.** Before a run starts: task class, credits it will
+  cost, balance after. Rendered in the web launcher, as an issue comment
+  from the GitHub App, and in the CLI. No run begins on an unseen price.
+- **A per-run ceiling.** A run that would exceed its quoted class stops and
+  asks rather than continuing — the user's worst case is bounded by the
+  number they already saw.
+- **Org spend caps, visible.** Per-team caps exist in the backend (2.6);
+  Admin must expose them and the Ledger must show consumption against them.
+- **No estimate the ledger cannot back.** The quoted price and the charged
+  price are the same number, or it is a bug.
+
+Applies across F2 (launcher), F3 (GitHub App comments), and F6 (Slack) —
+the same quoted-price object, three renderings, like the receipt.
+
 Enterprise gates that are business work, not code — tracked so nobody
 mistakes them for engineering backlog: SOC 2 / ISO certification track,
 IP-indemnity posture, data-handling page for the index (CONTEXT.md's
