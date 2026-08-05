@@ -193,7 +193,18 @@ impl AppState {
             tracing::info!("GitHub API client not available (no GITHUB_TOKEN), will fall back to gh CLI");
         }
 
-        let cortex_store_path = workspace_dir.join(".cortex").join("routing.db");
+        // routing.db is in the same danger as cortex.db, and slightly worse:
+        // it is *untracked*, so `git clean -fd` in the deploy path deletes it
+        // outright rather than reverting it. Losing it silently discards every
+        // UCB arm statistic the router has learned in production — the system
+        // keeps working and quietly gets worse at choosing, which is the least
+        // debuggable kind of loss.
+        let cortex_store_path = std::env::var("CORTEX_ROUTING_DB_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| workspace_dir.join(".cortex").join("routing.db"));
+        if let Some(parent) = cortex_store_path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
         let (cortex_store, ucb_scorer) = match CortexStore::open(&cortex_store_path) {
             Ok(store) => {
                 let arm_stats = store.load_arm_stats().unwrap_or_default();
