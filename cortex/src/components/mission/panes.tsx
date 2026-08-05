@@ -15,16 +15,9 @@ function Loading() {
   return <div className="p-8 text-sm text-[var(--muted)]">Loading…</div>;
 }
 
-export function RunsPane() {
-  return (
-    <PaneStub title="Runs" blockedOn="F2 — mission control on real APIs">
-      A DAG view of every step in a run, live over SSE, each completed step
-      showing the receipt that verified it. The machinery exists — RunPanel and
-      the operations graph — but it is still wired to the chat shell rather
-      than to the run API. F2 rewires it.
-    </PaneStub>
-  );
-}
+/// Runs is real now — see RunsPane.tsx. Re-exported here so the route table in
+/// App.tsx keeps importing every pane from one place.
+export { default as RunsPane } from './RunsPane';
 
 export function ReceiptsPane() {
   return (
