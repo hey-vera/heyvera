@@ -108,11 +108,18 @@ mod tests {
     use super::*;
     use std::fs;
 
-    fn workspace() -> PathBuf {
+    /// `Instant::now().elapsed()` is ~0 by construction, so the first version
+    /// of this helper handed every test in this module the *same* directory.
+    /// They run in parallel, so one test deleted the tree another was mid-way
+    /// through reading — which is exactly how it failed in CI, and only in CI.
+    fn workspace(tag: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "cortex-map-cache-{}-{}",
+            "cortex-map-cache-{tag}-{}-{}",
             std::process::id(),
-            Instant::now().elapsed().as_nanos()
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock after epoch")
+                .as_nanos()
         ));
         fs::create_dir_all(&dir).expect("create workspace");
         dir
@@ -120,7 +127,7 @@ mod tests {
 
     #[test]
     fn an_empty_workspace_contributes_no_section() {
-        let dir = workspace();
+        let dir = workspace("empty");
         let cache = RepoMapCache::new();
         assert!(cache.get(&dir, 1000).is_none());
         fs::remove_dir_all(&dir).ok();
@@ -128,7 +135,7 @@ mod tests {
 
     #[test]
     fn a_built_map_is_returned_and_reused() {
-        let dir = workspace();
+        let dir = workspace("reuse");
         fs::write(dir.join("lib.rs"), "pub fn exported() {}\n").unwrap();
 
         let cache = RepoMapCache::new();
@@ -142,7 +149,7 @@ mod tests {
 
     #[test]
     fn different_budgets_do_not_share_an_entry() {
-        let dir = workspace();
+        let dir = workspace("budgets");
         fs::write(dir.join("lib.rs"), "pub fn exported() {}\n").unwrap();
 
         let cache = RepoMapCache::new();
@@ -158,7 +165,7 @@ mod tests {
 
     #[test]
     fn an_expired_entry_is_rebuilt() {
-        let dir = workspace();
+        let dir = workspace("expiry");
         fs::write(dir.join("lib.rs"), "pub fn first() {}\n").unwrap();
 
         let cache = RepoMapCache::new();
