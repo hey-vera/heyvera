@@ -44,7 +44,23 @@ pub struct Extraction {
 
 struct GrammarSpec {
     language: Language,
-    tags_query: &'static str,
+    tags_query: String,
+}
+
+/// TypeScript's own tags query covers only TypeScript-specific constructs —
+/// signatures, interfaces, abstract classes. Plain `function` and `class`
+/// declarations are JavaScript nodes, and the TS grammar is a superset of the
+/// JS one, so a TypeScript file needs **both** queries or an ordinary
+/// `export function foo()` produces no symbol at all.
+///
+/// Caught by a test, not by reading: the first version of this file used the
+/// TypeScript query alone and found nothing in `export function fetchUser`.
+fn typescript_tags_query() -> String {
+    format!(
+        "{}\n{}",
+        tree_sitter_javascript::TAGS_QUERY,
+        tree_sitter_typescript::TAGS_QUERY
+    )
 }
 
 fn grammar_for(path: &Path) -> Option<GrammarSpec> {
@@ -52,19 +68,19 @@ fn grammar_for(path: &Path) -> Option<GrammarSpec> {
     match extension {
         "rs" => Some(GrammarSpec {
             language: tree_sitter_rust::LANGUAGE.into(),
-            tags_query: tree_sitter_rust::TAGS_QUERY,
+            tags_query: tree_sitter_rust::TAGS_QUERY.to_string(),
         }),
         "ts" => Some(GrammarSpec {
             language: tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-            tags_query: tree_sitter_typescript::TAGS_QUERY,
+            tags_query: typescript_tags_query(),
         }),
         "tsx" => Some(GrammarSpec {
             language: tree_sitter_typescript::LANGUAGE_TSX.into(),
-            tags_query: tree_sitter_typescript::TAGS_QUERY,
+            tags_query: typescript_tags_query(),
         }),
         "js" | "jsx" | "mjs" | "cjs" => Some(GrammarSpec {
             language: tree_sitter_javascript::LANGUAGE.into(),
-            tags_query: tree_sitter_javascript::TAGS_QUERY,
+            tags_query: tree_sitter_javascript::TAGS_QUERY.to_string(),
         }),
         _ => None,
     }
@@ -110,7 +126,7 @@ pub fn extract_file(
         tracing::debug!(path = %relative, "file did not parse; skipping");
         return;
     };
-    let Ok(query) = Query::new(&spec.language, spec.tags_query) else {
+    let Ok(query) = Query::new(&spec.language, &spec.tags_query) else {
         tracing::warn!(path = %relative, "tags query failed to compile; skipping");
         return;
     };
