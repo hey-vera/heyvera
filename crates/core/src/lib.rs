@@ -9,3 +9,4 @@ pub mod failure;
 pub mod usage;
 pub mod contamination;
 pub mod autonomy;
+pub mod verification;
