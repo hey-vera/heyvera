@@ -1,6 +1,7 @@
 [package]
 name = "cortex-server-bin"
 version.workspace = true
+publish = false  # proprietary; never goes to crates.io
 edition.workspace = true
 license.workspace = true
 description = "cortex.heyvera.org backend binary"
