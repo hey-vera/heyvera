@@ -10,6 +10,10 @@ import type {
   Message,
   ConversationPage,
   MessagePage,
+  MessageRequest,
+  MessageRequestBucket,
+  MessageRequestPage,
+  PendingMessageRequestReceipt,
   Community as LegacyCommunity,
   TrendingTopic,
   FeedResponse,
@@ -27,7 +31,11 @@ export type {
   ConversationPage,
   Message,
   MessagePage,
+  MessageRequest,
+  MessageRequestBucket,
+  MessageRequestPage,
   TrendingTopic,
+  PendingMessageRequestReceipt,
   FeedResponse,
   SearchResults,
 };
@@ -1749,6 +1757,129 @@ export async function getConversationUnreadCount(token: string): Promise<number>
     token,
   );
   return response.unread_count ?? 0;
+}
+export type DirectMessageStartResult =
+  | {
+      kind: 'conversation';
+      conversation: Conversation;
+      message: Message;
+      replayed: boolean;
+    }
+  | {
+      kind: 'request';
+      request: PendingMessageRequestReceipt;
+      replayed: boolean;
+    };
+
+/** Start a direct conversation or create one pending message request atomically. */
+export async function startDirectMessage(
+  token: string,
+  input: { recipientId: string; content: string; clientRequestId: string },
+): Promise<DirectMessageStartResult> {
+  return apiAuthFetch<DirectMessageStartResult>('/direct-message-starts', {
+    method: 'POST',
+    token,
+    body: {
+      recipient_id: input.recipientId,
+      content: input.content,
+      client_request_id: input.clientRequestId,
+    },
+  });
+}
+
+/** List one stable page of pending or spam-filtered inbound message requests. */
+export async function getMessageRequests(
+  token: string,
+  options: { bucket?: MessageRequestBucket; limit?: number; cursor?: string | null } = {},
+): Promise<MessageRequestPage> {
+  const bucket = options.bucket ?? 'inbox';
+  const limit = options.limit ?? 30;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error('Message request page limit must be between 1 and 100');
+  }
+  const params = new URLSearchParams({ bucket, limit: String(limit) });
+  if (options.cursor) params.set('cursor', options.cursor);
+  const response = await apiAuthFetch<Partial<MessageRequestPage>>(
+    `/message-requests?${params.toString()}`,
+    { method: 'GET', token },
+  );
+  const nextCursor = response.next_cursor ?? null;
+  return {
+    requests: response.requests ?? [],
+    total_pending_count: response.total_pending_count ?? 0,
+    next_cursor: nextCursor,
+    has_more: response.has_more ?? nextCursor !== null,
+  };
+}
+
+export type ResolvedMessageRequestReceipt = {
+  id: string;
+  state: 'accepted' | 'declined' | 'spam' | 'cancelled';
+  created_at: string;
+  resolved_at: string | null;
+};
+
+export type AcceptMessageRequestResult = {
+  request: ResolvedMessageRequestReceipt;
+  conversation: Conversation;
+  message: Message;
+  replayed: boolean;
+};
+
+/** Accept a pending inbound request and return the now-active conversation. */
+export async function acceptMessageRequest(
+  token: string,
+  requestId: string,
+): Promise<AcceptMessageRequestResult> {
+  return apiAuthFetch<AcceptMessageRequestResult>(
+    `/message-requests/${encodeURIComponent(requestId)}/accept`,
+    { method: 'POST', token },
+  );
+}
+
+export type ResolveMessageRequestResult = {
+  request: ResolvedMessageRequestReceipt;
+  conversation: null;
+  message: null;
+  replayed: boolean;
+};
+
+export type CancelMessageRequestResult = {
+  request: ResolvedMessageRequestReceipt;
+  replayed: boolean;
+};
+
+/** Decline a pending inbound request without creating a conversation. */
+export async function declineMessageRequest(
+  token: string,
+  requestId: string,
+): Promise<ResolveMessageRequestResult> {
+  return apiAuthFetch<ResolveMessageRequestResult>(
+    `/message-requests/${encodeURIComponent(requestId)}/decline`,
+    { method: 'POST', token },
+  );
+}
+
+/** Mark a pending inbound request as spam and remove it from the inbox. */
+export async function markMessageRequestSpam(
+  token: string,
+  requestId: string,
+): Promise<ResolveMessageRequestResult> {
+  return apiAuthFetch<ResolveMessageRequestResult>(
+    `/message-requests/${encodeURIComponent(requestId)}/spam`,
+    { method: 'POST', token },
+  );
+}
+
+/** Cancel one pending request created by the authenticated sender. */
+export async function cancelMessageRequest(
+  token: string,
+  requestId: string,
+): Promise<CancelMessageRequestResult> {
+  return apiAuthFetch<CancelMessageRequestResult>(
+    `/message-requests/${encodeURIComponent(requestId)}`,
+    { method: 'DELETE', token },
+  );
 }
 /**
  * Start or open a DM. POST /v1/social/conversations with participant_ids

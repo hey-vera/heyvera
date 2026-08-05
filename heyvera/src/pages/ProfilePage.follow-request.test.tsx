@@ -10,6 +10,7 @@ const apiMocks = vi.hoisted(() => ({
   fetchMyProfile: vi.fn(),
   followProfile: vi.fn(),
   unfollowProfile: vi.fn(),
+  startDirectMessage: vi.fn(),
 }));
 
 const authMocks = vi.hoisted(() => ({
@@ -78,6 +79,11 @@ describe('ProfilePage protected follow state', () => {
       state: 'pending',
     });
     apiMocks.unfollowProfile.mockResolvedValue({ ok: true, state: 'not_following' });
+    apiMocks.startDirectMessage.mockResolvedValue({
+      kind: 'request',
+      replayed: false,
+      request: { id: 'message-request-1', state: 'pending', created_at: '2026-08-01T00:00:00Z' },
+    });
   });
 
   it('shows Requested for a pending follow and lets the viewer cancel it', async () => {
@@ -92,9 +98,7 @@ describe('ProfilePage protected follow state', () => {
     fireEvent.click(await screen.findByRole('button', { name: 'Follow' }));
 
     expect(
-      (await screen.findByRole('button', { name: 'Requested' })).getAttribute(
-        'aria-pressed',
-      ),
+      (await screen.findByRole('button', { name: 'Requested' })).getAttribute('aria-pressed'),
     ).toBe('false');
     expect(apiMocks.followProfile).toHaveBeenCalledWith('viewer-token', 'protected');
 
@@ -104,5 +108,62 @@ describe('ProfilePage protected follow state', () => {
       expect(apiMocks.unfollowProfile).toHaveBeenCalledWith('viewer-token', 'protected');
       expect(screen.getByRole('button', { name: 'Follow' })).toBeTruthy();
     });
+  });
+
+  it('sends one first message and reports a pending request honestly', async () => {
+    render(
+      <MemoryRouter initialEntries={['/profile/protected']}>
+        <Routes>
+          <Route path="/profile/:handle" element={<ProfilePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Message @protected' }));
+    expect(screen.getByRole('dialog', { name: 'Message Protected Person' })).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('First message'), {
+      target: { value: 'A thoughtful introduction' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => {
+      expect(apiMocks.startDirectMessage).toHaveBeenCalledWith('viewer-token', {
+        recipientId: 'profile-target',
+        content: 'A thoughtful introduction',
+        clientRequestId: expect.any(String),
+      });
+      expect(screen.getByRole('status').textContent).toContain(
+        'Message request sent to @protected',
+      );
+    });
+    expect(screen.queryByRole('dialog', { name: 'Message Protected Person' })).toBeNull();
+  });
+
+  it('describes a terminal replay without exposing its resolution reason', async () => {
+    apiMocks.startDirectMessage.mockResolvedValue({
+      kind: 'request',
+      replayed: true,
+      request: { id: 'message-request-1', state: 'closed', created_at: '2026-08-01T00:00:00Z' },
+    });
+    render(
+      <MemoryRouter initialEntries={['/profile/protected']}>
+        <Routes>
+          <Route path="/profile/:handle" element={<ProfilePage />} />
+        </Routes>
+      </MemoryRouter>,
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Message @protected' }));
+    fireEvent.change(screen.getByLabelText('First message'), {
+      target: { value: 'A thoughtful introduction' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => {
+      expect(screen.getByRole('status').textContent).toContain(
+        'Your earlier message request to @protected is no longer active.',
+      );
+    });
+    expect(screen.queryByText(/declined|spam|blocked/i)).toBeNull();
   });
 });

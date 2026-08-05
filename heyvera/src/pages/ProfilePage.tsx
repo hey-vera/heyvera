@@ -5,7 +5,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   blockUser,
   bookmarkPost,
-  createConversation,
+  SOCIAL_DM_MAX_MESSAGE_CHARS,
+  startDirectMessage,
   createProfile,
   feedPostToPost,
   fetchFollowStatus,
@@ -78,6 +79,13 @@ function formatCount(count: number): string {
 function formatJoinedDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
+function newClientRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `dmr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+}
+
 
 export function ProfilePage() {
   const { handle } = useParams<{ handle?: string }>();
@@ -103,6 +111,9 @@ export function ProfilePage() {
   const [messageError, setMessageError] = useState<string | null>(null);
   const [moderationBusy, setModerationBusy] = useState(false);
   const [moderationNotice, setModerationNotice] = useState<string | null>(null);
+  const [messageComposerOpen, setMessageComposerOpen] = useState(false);
+  const [messageNotice, setMessageNotice] = useState<string | null>(null);
+  const pendingMessageStartRef = useRef<{ content: string; clientRequestId: string } | null>(null);
   const [reportPickerOpen, setReportPickerOpen] = useState(false);
   const [followListMode, setFollowListMode] = useState<FollowListMode>(null);
   const [followList, setFollowList] = useState<ProfileSummary[]>([]);
@@ -388,28 +399,54 @@ export function ProfilePage() {
     }
   };
 
-  const startMessage = async () => {
-    if (!profile || messageBusy || ownProfile) return;
+  const openMessageComposer = () => {
+    if (!profile || ownProfile) return;
     setMessageError(null);
-
+    setMessageNotice(null);
     if (!authEnabled || !isSignedIn) {
       setMessageError(authEnabled ? 'Sign in to send messages.' : 'Sign-in is not configured for this environment.');
       return;
     }
+    setMessageComposerOpen(true);
+  };
 
+  const submitFirstMessage = async (content: string) => {
+    if (!profile || messageBusy || ownProfile) return;
+    const cleanContent = content.trim();
+    if (!cleanContent) return;
     setMessageBusy(true);
+    setMessageError(null);
     try {
       const token = await getToken();
       if (!token) throw new Error('Sign in again to message.');
-
       try {
         await fetchMyProfile(token);
       } catch {
         throw new Error('Create your profile before messaging.');
       }
-
-      const conversation = await createConversation(token, [profile.id]);
-      navigate(`/messages?c=${encodeURIComponent(conversation.id)}`);
+      const existing = pendingMessageStartRef.current;
+      const pending = existing?.content === cleanContent
+        ? existing
+        : { content: cleanContent, clientRequestId: newClientRequestId() };
+      pendingMessageStartRef.current = pending;
+      const result = await startDirectMessage(token, {
+        recipientId: profile.id,
+        content: cleanContent,
+        clientRequestId: pending.clientRequestId,
+      });
+      pendingMessageStartRef.current = null;
+      if (result.kind === 'conversation') {
+        navigate(`/messages?c=${encodeURIComponent(result.conversation.id)}`);
+        return;
+      }
+      setMessageComposerOpen(false);
+      setMessageNotice(
+        result.request.state === 'closed'
+          ? `Your earlier message request to @${profile.handle} is no longer active.`
+          : result.replayed
+          ? `Your message request to @${profile.handle} is still pending.`
+          : `Message request sent to @${profile.handle}.`,
+      );
     } catch (err) {
       setMessageError(err instanceof Error ? err.message : 'Unable to start conversation.');
     } finally {
@@ -542,7 +579,7 @@ export function ProfilePage() {
             <>
               <button
                 type="button"
-                onClick={() => void startMessage()}
+                onClick={openMessageComposer}
                 disabled={messageBusy}
                 className="flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-[14px] font-bold transition-colors hover:opacity-90 disabled:opacity-50"
                 style={{
@@ -553,7 +590,7 @@ export function ProfilePage() {
                 aria-label={`Message @${profile.handle}`}
               >
                 <MessageCircle className="h-4 w-4" aria-hidden="true" />
-                {messageBusy ? 'Opening…' : 'Message'}
+                Message
               </button>
               <button
                 type="button"
@@ -667,8 +704,13 @@ export function ProfilePage() {
           </p>
         )}
         {messageError && (
-          <p className="mt-3 text-[14px]" style={{ color: 'var(--color-danger)' }}>
+          <p className="mt-3 text-[14px]" style={{ color: 'var(--color-danger)' }} role="alert">
             {messageError}
+          </p>
+        )}
+        {messageNotice && (
+          <p className="mt-3 text-[14px]" style={{ color: 'var(--text-secondary)' }} role="status">
+            {messageNotice}
           </p>
         )}
         {moderationNotice && (
@@ -787,6 +829,20 @@ export function ProfilePage() {
         ))
       )}
 
+      {!ownProfile && profile && messageComposerOpen && (
+        <DirectMessageComposer
+          recipientHandle={profile.handle}
+          recipientName={profile.displayName}
+          busy={messageBusy}
+          error={messageError}
+          onClose={() => {
+            if (!messageBusy) setMessageComposerOpen(false);
+          }}
+          onEdit={() => setMessageError(null)}
+          onSubmit={submitFirstMessage}
+        />
+      )}
+
       {ownProfile && editOpen && (
         <EditProfileModal
           profile={profile}
@@ -805,6 +861,125 @@ export function ProfilePage() {
 }
 
 export default ProfilePage;
+type DirectMessageComposerProps = {
+  recipientHandle: string;
+  recipientName: string;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onEdit: () => void;
+  onSubmit: (content: string) => Promise<void>;
+};
+
+function DirectMessageComposer({
+  recipientHandle,
+  recipientName,
+  busy,
+  error,
+  onClose,
+  onEdit,
+  onSubmit,
+}: DirectMessageComposerProps) {
+  const [content, setContent] = useState('');
+  const cleanContent = content.trim();
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [busy, onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onClose();
+      }}
+    >
+      <form
+        className="w-full max-w-lg rounded-2xl border p-5 shadow-2xl"
+        style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-primary)' }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="direct-message-composer-title"
+        aria-describedby={error ? 'direct-message-composer-error' : undefined}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (cleanContent && !busy) void onSubmit(cleanContent);
+        }}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="direct-message-composer-title" className="text-[20px] font-bold">
+              Message {recipientName}
+            </h2>
+            <p className="mt-1 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+              Send one first message. Depending on @{recipientHandle}'s preferences, it will open a conversation or wait for approval.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-full p-2 hover-overlay disabled:opacity-50 focus-visible:outline-none focus-ring"
+            aria-label="Close message composer"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </div>
+
+        <label className="mt-5 block">
+          <span className="mb-2 block text-[13px] font-semibold">First message</span>
+          <textarea
+            autoFocus
+            value={content}
+            maxLength={SOCIAL_DM_MAX_MESSAGE_CHARS}
+            disabled={busy}
+            onChange={(event) => {
+              setContent(event.target.value);
+              onEdit();
+            }}
+            className="min-h-32 w-full resize-y rounded-xl border px-4 py-3 text-[15px] leading-relaxed outline-none focus:border-[var(--accent)] focus-ring"
+            style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+            placeholder={`Write to @${recipientHandle}`}
+          />
+        </label>
+        <div className="mt-1 flex items-center justify-between gap-3 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+          <span>Your message is not sent until you press Send.</span>
+          <span>{content.length.toLocaleString()} / {SOCIAL_DM_MAX_MESSAGE_CHARS.toLocaleString()}</span>
+        </div>
+
+        {error && (
+          <p id="direct-message-composer-error" className="mt-3 text-[13px]" style={{ color: 'var(--color-danger)' }} role="alert">
+            {error}
+          </p>
+        )}
+
+        <div className="mt-5 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-full border px-4 py-2 text-[14px] font-semibold disabled:opacity-50"
+            style={{ borderColor: 'var(--border-primary)' }}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={!cleanContent || busy}
+            className="rounded-full px-5 py-2 text-[14px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+          >
+            {busy ? 'Sending…' : 'Send'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 function SignedOutProfilePrompt({ authEnabled }: { authEnabled: boolean }) {
   return (

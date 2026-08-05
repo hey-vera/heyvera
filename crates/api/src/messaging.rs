@@ -28,17 +28,20 @@ use crate::state::{AppState, DmSubscriber, DmSubscriberId};
 
 type ApiResponse = (
     StatusCode,
-    [(header::HeaderName, HeaderValue); 1],
+    [(header::HeaderName, HeaderValue); 2],
     Json<serde_json::Value>,
 );
 
 fn api_response(status: StatusCode, value: serde_json::Value) -> ApiResponse {
     (
         status,
-        [(
+        [
+            (
             header::CACHE_CONTROL,
             HeaderValue::from_static("private, no-store"),
-        )],
+            ),
+            (header::PRAGMA, HeaderValue::from_static("no-cache")),
+        ],
         Json(value),
     )
 }
@@ -74,6 +77,23 @@ fn unavailable() -> ApiResponse {
     )
 }
 
+fn rate_limited(retry_after_seconds: i64) -> ApiResponse {
+    (
+        StatusCode::TOO_MANY_REQUESTS,
+        [
+            (
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, no-store"),
+            ),
+            (
+                header::RETRY_AFTER,
+                HeaderValue::from_str(&retry_after_seconds.clamp(1, 86_400).to_string())
+                    .unwrap_or_else(|_| HeaderValue::from_static("60")),
+            ),
+        ],
+        Json(serde_json::json!({ "error": "Too many message starts", "code": "RATE_LIMITED" })),
+    )
+}
 const MAX_CONVERSATION_PARTICIPANTS: usize = 20;
 const MAX_PROFILE_ID_BYTES: usize = 128;
 const MAX_MESSAGE_CHARS: usize = 4_000;
@@ -92,6 +112,27 @@ pub struct CreateConversationRequest {
     pub client_request_id: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct StartDirectMessageRequest {
+    pub recipient_id: String,
+    pub content: String,
+    pub client_request_id: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct MessageRequestsQuery {
+    pub bucket: Option<String>,
+    pub limit: Option<i64>,
+    pub cursor: Option<String>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct MessageRequestCursor {
+    recipient_profile_id: String,
+    bucket: String,
+    before_activity_sequence: i64,
+    before_request_id: String,
+}
 #[derive(Debug, Deserialize)]
 pub struct SendMessageRequest {
     pub content: String,
@@ -156,6 +197,12 @@ fn valid_opaque_id(value: &str, max_bytes: usize) -> bool {
         && value
             .bytes()
             .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+}
+
+fn valid_client_message_id(value: &str) -> bool {
+    valid_opaque_id(value, MAX_CLIENT_ID_BYTES)
+        && !value.starts_with("dmr_")
+        && !value.starts_with("dms_")
 }
 
 fn normalize_message_content(content: &str) -> Result<String, &'static str> {
@@ -368,6 +415,73 @@ fn decode_conversation_cursor(encoded: &str, expected_profile_id: &str) -> Optio
         cursor.before_conversation_id,
     ))
 }
+fn message_request_cursor_key() -> Option<[u8; 32]> {
+    let secret = std::env::var("CLERK_SECRET_KEY")
+        .ok()
+        .filter(|value| !value.is_empty())
+        .or_else(|| {
+            std::env::var("CORTEX_KEY_ENCRYPTION_SECRET")
+                .ok()
+                .filter(|value| !value.is_empty())
+        })
+        .or_else(|| {
+            (!crate::is_production_env()).then(|| "heyvera-local-request-cursor-key".into())
+        })?;
+    let digest = Sha256::digest(
+        [
+            b"heyvera-social-message-request-cursor:v1:".as_slice(),
+            secret.as_bytes(),
+        ]
+        .concat(),
+    );
+    let mut key = [0u8; 32];
+    key.copy_from_slice(&digest);
+    Some(key)
+}
+
+const MESSAGE_REQUEST_CURSOR_PREFIX: &str = "hvr1.";
+
+fn encode_message_request_cursor(cursor: &MessageRequestCursor) -> Option<String> {
+    let cipher = Aes256Gcm::new_from_slice(&message_request_cursor_key()?).ok()?;
+    let mut nonce_bytes = [0u8; MESSAGE_CURSOR_NONCE_LEN];
+    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    let plaintext = serde_json::to_vec(cursor).ok()?;
+    let ciphertext = cipher
+        .encrypt(Nonce::from_slice(&nonce_bytes), plaintext.as_slice())
+        .ok()?;
+    let mut payload = nonce_bytes.to_vec();
+    payload.extend_from_slice(&ciphertext);
+    Some(format!(
+        "{MESSAGE_REQUEST_CURSOR_PREFIX}{}",
+        URL_SAFE_NO_PAD.encode(payload)
+    ))
+}
+
+fn decode_message_request_cursor(
+    encoded: &str,
+    expected_profile_id: &str,
+    expected_bucket: &str,
+) -> Option<(i64, String)> {
+    if encoded.len() > MAX_CURSOR_BYTES {
+        return None;
+    }
+    let payload = URL_SAFE_NO_PAD
+        .decode(encoded.strip_prefix(MESSAGE_REQUEST_CURSOR_PREFIX)?)
+        .ok()?;
+    if payload.len() <= MESSAGE_CURSOR_NONCE_LEN {
+        return None;
+    }
+    let cipher = Aes256Gcm::new_from_slice(&message_request_cursor_key()?).ok()?;
+    let (nonce, ciphertext) = payload.split_at(MESSAGE_CURSOR_NONCE_LEN);
+    let plaintext = cipher.decrypt(Nonce::from_slice(nonce), ciphertext).ok()?;
+    let cursor: MessageRequestCursor = serde_json::from_slice(&plaintext).ok()?;
+    (cursor.recipient_profile_id == expected_profile_id
+        && cursor.bucket == expected_bucket
+        && cursor.before_activity_sequence > 0
+        && valid_opaque_id(&cursor.before_request_id, MAX_PROFILE_ID_BYTES))
+    .then_some((cursor.before_activity_sequence, cursor.before_request_id))
+}
+
 /// GET /v1/social/conversations — list a confidential, bounded inbox page.
 pub async fn list_conversations(
     user: ClerkUser,
@@ -382,7 +496,7 @@ pub async fn list_conversations(
                 "next_cursor": null,
                 "has_more": false,
                 "total_unread_count": 0,
-            }))
+            }));
         }
     };
     let profile_id = profile["id"].as_str().unwrap_or("");
@@ -481,6 +595,255 @@ pub async fn get_conversation_unread_count(
         }
     }
 }
+pub async fn start_direct_message(
+    user: ClerkUser,
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<StartDirectMessageRequest>,
+) -> impl IntoResponse {
+    let recipient_id = body.recipient_id.trim();
+    if !valid_opaque_id(recipient_id, MAX_PROFILE_ID_BYTES)
+        || !valid_opaque_id(&body.client_request_id, MAX_CLIENT_ID_BYTES)
+    {
+        return bad_request("recipient_id or client_request_id is invalid");
+    }
+    let content = match normalize_message_content(&body.content) {
+        Ok(content) => content,
+        Err(error) => return bad_request(error),
+    };
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(profile) => profile,
+        None => return not_found("Recipient not found"),
+    };
+    let sender_id = profile["id"].as_str().unwrap_or("");
+    match db(&state).social_start_direct_message(
+        sender_id,
+        recipient_id,
+        &content,
+        &body.client_request_id,
+    ) {
+        Ok(crate::db::SocialDirectStartOutcome::Conversation {
+            conversation,
+            message,
+            replayed,
+        }) => {
+            if !replayed {
+                let conversation_id = conversation["id"].as_str().unwrap_or("");
+                state
+                    .broadcast_dm_message(conversation_id, message.clone())
+                    .await;
+            }
+            api_response(
+                if replayed {
+                    StatusCode::OK
+                } else {
+                    StatusCode::CREATED
+                },
+                serde_json::json!({
+                    "kind": "conversation",
+                    "conversation": conversation,
+                    "message": message,
+                    "replayed": replayed,
+                }),
+            )
+        }
+        Ok(crate::db::SocialDirectStartOutcome::Request { request, replayed }) => api_response(
+            if replayed {
+                StatusCode::OK
+            } else {
+                StatusCode::ACCEPTED
+            },
+            serde_json::json!({
+                "kind": "request",
+                "request": {
+                    "id": request["id"],
+                    "state": request["state"],
+                    "created_at": request["created_at"],
+                    "resolved_at": request["resolved_at"],
+                    "conversation_id": request["conversation_id"],
+                },
+                "replayed": replayed,
+            }),
+        ),
+        Err(crate::db::SocialMessagingError::NotFound) => not_found("Recipient not found"),
+        Err(crate::db::SocialMessagingError::Conflict) => {
+            conflict("client_request_id or pending request conflicts with existing state")
+        }
+        Err(crate::db::SocialMessagingError::RateLimited(seconds)) => rate_limited(seconds),
+        Err(crate::db::SocialMessagingError::Database(error)) => {
+            tracing::error!(%error, "failed to start Socials direct message");
+            unavailable()
+        }
+    }
+}
+
+pub async fn list_message_requests(
+    user: ClerkUser,
+    Query(params): Query<MessageRequestsQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(profile) => profile,
+        None => {
+            return ok(serde_json::json!({
+                "requests": [], "next_cursor": null, "has_more": false,
+                "total_pending_count": 0,
+            }));
+        }
+    };
+    let recipient_id = profile["id"].as_str().unwrap_or("");
+    let bucket = params.bucket.as_deref().unwrap_or("inbox");
+    if !matches!(bucket, "inbox" | "spam") {
+        return bad_request("bucket must be inbox or spam");
+    }
+    let limit = params.limit.unwrap_or(DEFAULT_CONVERSATION_PAGE_SIZE);
+    if !(1..=MAX_CONVERSATION_PAGE_SIZE).contains(&limit) {
+        return bad_request("limit must be between 1 and 100");
+    }
+    let before = match params.cursor.as_deref() {
+        Some(cursor) => match decode_message_request_cursor(cursor, recipient_id, bucket) {
+            Some(boundary) => Some(boundary),
+            None => return bad_request("cursor is invalid for this request inbox"),
+        },
+        None => None,
+    };
+    let page = match db(&state).social_list_message_requests(
+        recipient_id,
+        bucket,
+        limit,
+        before
+            .as_ref()
+            .map(|(sequence, id)| (*sequence, id.as_str())),
+    ) {
+        Ok(page) => page,
+        Err(error) => {
+            tracing::error!(?error, "failed to list Socials message requests");
+            return unavailable();
+        }
+    };
+    let next_cursor = match page.next_before {
+        Some((sequence, request_id)) => match encode_message_request_cursor(&MessageRequestCursor {
+            recipient_profile_id: recipient_id.to_string(),
+            bucket: bucket.to_string(),
+            before_activity_sequence: sequence,
+            before_request_id: request_id,
+        }) {
+            Some(cursor) => Some(cursor),
+            None => return unavailable(),
+        },
+        None => None,
+    };
+    ok(serde_json::json!({
+        "requests": page.requests,
+        "next_cursor": next_cursor,
+        "has_more": next_cursor.is_some(),
+        "total_pending_count": page.total_pending_count,
+    }))
+}
+
+async fn resolve_message_request(
+    user: ClerkUser,
+    request_id: String,
+    state: Arc<AppState>,
+    action: &'static str,
+) -> ApiResponse {
+    if !valid_opaque_id(&request_id, MAX_PROFILE_ID_BYTES) {
+        return not_found("Message request not found");
+    }
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(profile) => profile,
+        None => return not_found("Message request not found"),
+    };
+    let recipient_id = profile["id"].as_str().unwrap_or("");
+    match db(&state).social_resolve_message_request(&request_id, recipient_id, action) {
+        Ok(outcome) => {
+            if action == "accept" && !outcome.replayed {
+                if let (Some(conversation), Some(message)) =
+                    (outcome.conversation.as_ref(), outcome.message.as_ref())
+                {
+                    state
+                        .broadcast_dm_message(
+                            conversation["id"].as_str().unwrap_or(""),
+                            message.clone(),
+                        )
+                        .await;
+                }
+            }
+            ok(serde_json::json!({
+                "request": outcome.request,
+                "conversation": outcome.conversation,
+                "message": outcome.message,
+                "replayed": outcome.replayed,
+            }))
+        }
+        Err(crate::db::SocialMessagingError::NotFound) => not_found("Message request not found"),
+        Err(crate::db::SocialMessagingError::Conflict) => {
+            conflict("message request was already resolved differently")
+        }
+        Err(crate::db::SocialMessagingError::RateLimited(seconds)) => rate_limited(seconds),
+        Err(crate::db::SocialMessagingError::Database(error)) => {
+            tracing::error!(%error, %action, "failed to resolve Socials message request");
+            unavailable()
+        }
+    }
+}
+
+pub async fn accept_message_request(
+    user: ClerkUser,
+    Path(request_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    resolve_message_request(user, request_id, state, "accept").await
+}
+
+pub async fn decline_message_request(
+    user: ClerkUser,
+    Path(request_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    resolve_message_request(user, request_id, state, "decline").await
+}
+
+pub async fn spam_message_request(
+    user: ClerkUser,
+    Path(request_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    resolve_message_request(user, request_id, state, "spam").await
+}
+
+pub async fn cancel_message_request(
+    user: ClerkUser,
+    Path(request_id): Path<String>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    if !valid_opaque_id(&request_id, MAX_PROFILE_ID_BYTES) {
+        return not_found("Message request not found");
+    }
+    let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
+        Some(profile) => profile,
+        None => return not_found("Message request not found"),
+    };
+    let sender_id = profile["id"].as_str().unwrap_or("");
+    match db(&state).social_cancel_message_request(&request_id, sender_id) {
+        Ok((request, replayed)) => ok(serde_json::json!({
+            "request": {
+                "id": request["id"], "state": request["state"],
+                "created_at": request["created_at"], "resolved_at": request["resolved_at"],
+            },
+            "replayed": replayed,
+        })),
+        Err(crate::db::SocialMessagingError::NotFound) => not_found("Message request not found"),
+        Err(crate::db::SocialMessagingError::Conflict) => {
+            conflict("message request can no longer be cancelled")
+        }
+        Err(crate::db::SocialMessagingError::RateLimited(seconds)) => rate_limited(seconds),
+        Err(crate::db::SocialMessagingError::Database(error)) => {
+            tracing::error!(%error, "failed to cancel Socials message request");
+            unavailable()
+        }
+    }
+}
+
 pub async fn create_conversation(
     user: ClerkUser,
     State(state): State<Arc<AppState>>,
@@ -528,6 +891,7 @@ pub async fn create_conversation(
         Err(crate::db::SocialMessagingError::Conflict) => {
             conflict("client_request_id was already used for different participants")
         }
+        Err(crate::db::SocialMessagingError::RateLimited(seconds)) => rate_limited(seconds),
         Err(crate::db::SocialMessagingError::Database(error)) => {
             tracing::error!(%error, "failed to create Socials conversation");
             unavailable()
@@ -694,7 +1058,7 @@ pub async fn send_message(
     if !valid_opaque_id(&conversation_id, MAX_PROFILE_ID_BYTES) {
         return not_found("Conversation not found");
     }
-    if !valid_opaque_id(&body.client_message_id, MAX_CLIENT_ID_BYTES) {
+    if !valid_client_message_id(&body.client_message_id) {
         return bad_request("client_message_id is invalid");
     }
     let content = match normalize_message_content(&body.content) {
@@ -731,6 +1095,7 @@ pub async fn send_message(
         Err(crate::db::SocialMessagingError::Conflict) => {
             conflict("client_message_id was already used for different content")
         }
+        Err(crate::db::SocialMessagingError::RateLimited(seconds)) => rate_limited(seconds),
         Err(crate::db::SocialMessagingError::Database(error)) => {
             tracing::error!(%error, "failed to send Socials message");
             unavailable()
@@ -1302,6 +1667,40 @@ mod tests {
             None,
         );
     }
+    #[test]
+    fn internal_message_id_namespaces_are_reserved() {
+        assert!(valid_client_message_id("client-message-0001"));
+        assert!(!valid_client_message_id("dmr_request-0001"));
+        assert!(!valid_client_message_id("dms_start-0001"));
+    }
+
+    #[test]
+    fn message_request_cursor_is_randomized_viewer_and_bucket_bound() {
+        let cursor = MessageRequestCursor {
+            recipient_profile_id: "profile-1234".into(),
+            bucket: "inbox".into(),
+            before_activity_sequence: 42,
+            before_request_id: "request-1234".into(),
+        };
+        let first = encode_message_request_cursor(&cursor).expect("cursor key");
+        let second = encode_message_request_cursor(&cursor).expect("cursor key");
+        assert!(first.starts_with(MESSAGE_REQUEST_CURSOR_PREFIX));
+        assert_ne!(first, second);
+        assert_eq!(
+            decode_message_request_cursor(&first, "profile-1234", "inbox"),
+            Some((42, "request-1234".into())),
+        );
+        assert_eq!(
+            decode_message_request_cursor(&first, "other-profile", "inbox"),
+            None
+        );
+        assert_eq!(
+            decode_message_request_cursor(&first, "profile-1234", "spam"),
+            None
+        );
+        assert_eq!(decode_conversation_cursor(&first, "profile-1234"), None);
+    }
+
     #[test]
     fn messaging_json_responses_are_private_and_not_cached() {
         let response = ok(serde_json::json!({ "ok": true })).into_response();

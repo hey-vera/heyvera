@@ -274,7 +274,14 @@ Resolve these before an open beta. Security/privacy items also apply to an invit
   hydration supports deep links; uncapped unread aggregation keeps navigation badges truthful.
 - DM schema v58 repairs unknown legacy consent values to fail-closed `nobody`, constrains persisted
   values to the five canonical policies, and adds mutual-follow and nobody enforcement. The settings
-  copy describes conversation-start consent without implying a request inbox that is not built yet.
+  copy now distinguishes direct delivery from one-message requests requiring recipient approval.
+- DM schema v59 adds durable message requests as a state machine separate from conversations. The
+  unified first-message start is lifetime-idempotent, reauthorizes replays, conceals blocked/inactive/
+  nobody targets, applies a sliding 20/day start ledger plus atomic 50-pending sender and recipient
+  caps, and reserves server message-ID namespaces. Accept materializes exactly one message; spam and
+  ordinary blocks atomically revoke follows/follow requests and close both-direction pending rows.
+  Recipient request pages use randomized encrypted viewer/bucket-bound `hvr1` cursors, an uncapped
+  count, spam filtering, and relationship/shared-Guild context without leaking risk signals to senders.
 - DM authorization is rechecked inside create/send/read transactions and again for each local
   WebSocket delivery. Frames, subscriptions, identifiers, participant cardinality, and route bodies
   are bounded; sensitive JSON responses are `private, no-store`. A saturated consumer receives
@@ -658,7 +665,7 @@ and test plan.
 - [ ] Add overview, Signals, videos, live/replays, playlists, Guilds, about, and membership sections.
 - [ ] Let owners curate a trailer, featured series, pinned items, and newcomer path.
 - [ ] Use consistent Follow/Subscribe semantics or explain the difference.
-- [ ] Add safe message/contact, mutual/shared-Guild context, report, and block.
+- [x] Add safe message/contact, mutual/shared-Guild context, report, and block.
 - [ ] Add structured links/business contact with phishing defense.
 - [ ] Preview how each audience class sees the Page.
 - [ ] Generate SEO/social metadata only for truly public/indexable content.
@@ -689,8 +696,9 @@ and test plan.
 - [x] Validate/deduplicate participants; enforce existence and group maximum.
 - [x] Replace one global read bit with per-participant delivery/read cursors.
 - [x] Use newest/cursor pagination; do not return only the oldest page.
-- [ ] Add request inbox, spam filtering, shared context, accept, and decline.
-- [ ] Correctly enforce everyone/following/mutuals/nobody/custom DM policy.
+- [x] Add request inbox, spam filtering, shared context, accept, and decline.
+- [x] Correctly enforce everyone/verified/following/mutuals/nobody DM policy.
+- [ ] Define and implement custom DM policy semantics.
 - [ ] Add limits, reply, reaction, edit history, delete, pin, search, and link safety.
 - [ ] Send attachments through the trusted media pipeline.
 - [ ] Add typing, presence/last-seen privacy, delivery, and reconnect semantics.

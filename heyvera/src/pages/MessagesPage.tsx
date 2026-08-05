@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
-import { ArrowLeft, MessageCircle, Search, Send } from 'lucide-react';
+import { ArrowLeft, MessageCircle, Search, Send, ShieldAlert } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import type { Conversation, Message } from '../api/types';
+import type { Conversation, Message, MessageRequest } from '../api/types';
 import {
+  acceptMessageRequest,
+  declineMessageRequest,
+  getMessageRequests,
+  markMessageRequestSpam,
   getConversations,
   getConversation,
   getMessages,
@@ -38,6 +42,13 @@ import {
   mergeConversationHead,
   promoteConversation,
 } from '../utils/conversationList';
+import {
+  appendMessageRequestPage,
+  formatMessageRequestSharedContext,
+  mergeMessageRequestHead,
+  messageRequestCountLabel,
+  removeMessageRequest,
+} from '../utils/messageRequests';
 
 /** Soft-realtime: messages while a thread is open (honest intermediate before WS). */
 const MESSAGES_POLL_MS = 6_000;
@@ -108,6 +119,8 @@ function readNavigatorOnline(): boolean {
   return navigator.onLine !== false;
 }
 
+type InboxView = 'inbox' | 'requests';
+
 /* ─── Main Component ────────────────────────────────────────────────────────── */
 
 export function MessagesPage() {
@@ -118,6 +131,18 @@ export function MessagesPage() {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const deepLinkConversationId = searchParams.get('c');
+  const [inboxView, setInboxView] = useState<InboxView>(
+    deepLinkConversationId || searchParams.get('view') !== 'requests' ? 'inbox' : 'requests',
+  );
+  const [messageRequests, setMessageRequests] = useState<MessageRequest[]>([]);
+  const [requestPendingCount, setRequestPendingCount] = useState(0);
+  const [nextRequestCursor, setNextRequestCursor] = useState<string | null>(null);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  const [loadingMoreRequests, setLoadingMoreRequests] = useState(false);
+  const [requestsError, setRequestsError] = useState<string | null>(null);
+  const [requestActionError, setRequestActionError] = useState<string | null>(null);
+  const [requestNotice, setRequestNotice] = useState<string | null>(null);
+  const [requestBusyId, setRequestBusyId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [nextConversationCursor, setNextConversationCursor] = useState<string | null>(null);
   const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
@@ -168,8 +193,11 @@ export function MessagesPage() {
   const loadedOlderConversationsRef = useRef(false);
   const deepLinkHydrationRef = useRef<string | null>(null);
   const shouldScrollToEndRef = useRef(true);
+  const loadedOlderRequestsRef = useRef(false);
 
   const selectedConversation = conversations.find((c) => c.id === selectedId) ?? null;
+  const requestBadge = messageRequestCountLabel(requestPendingCount, false);
+
 
   /**
    * Status chip: honest about *data transport*.
@@ -266,6 +294,95 @@ export function MessagesPage() {
       setLoadingMoreConversations(false);
     }
   }, [getToken, loadingMoreConversations, nextConversationCursor]);
+  const loadMessageRequests = useCallback(async (opts?: { quiet?: boolean }) => {
+    if (!isSignedIn) return;
+    const quiet = opts?.quiet ?? false;
+    if (!quiet) {
+      loadedOlderRequestsRef.current = false;
+      setLoadingRequests(true);
+      setRequestsError(null);
+    }
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again to load message requests.');
+      const page = await getMessageRequests(token, { bucket: 'inbox' });
+      setMessageRequests((current) =>
+        quiet ? mergeMessageRequestHead(current, page.requests) : page.requests,
+      );
+      setRequestPendingCount(page.total_pending_count);
+      if (!quiet || !loadedOlderRequestsRef.current) setNextRequestCursor(page.next_cursor);
+    } catch (err) {
+      if (quiet) return;
+      setRequestsError(err instanceof Error ? err.message : 'Failed to load message requests');
+      setMessageRequests([]);
+      setNextRequestCursor(null);
+    } finally {
+      if (!quiet) setLoadingRequests(false);
+    }
+  }, [getToken, isSignedIn]);
+
+  useEffect(() => {
+    void loadMessageRequests();
+  }, [loadMessageRequests]);
+
+  const loadMoreMessageRequests = useCallback(async () => {
+    const cursor = nextRequestCursor;
+    if (!cursor || loadingMoreRequests) return;
+    setLoadingMoreRequests(true);
+    setRequestsError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again to load more requests.');
+      const page = await getMessageRequests(token, { bucket: 'inbox', cursor });
+      setMessageRequests((current) => appendMessageRequestPage(current, page.requests));
+      setRequestPendingCount(page.total_pending_count);
+      setNextRequestCursor(page.next_cursor);
+      loadedOlderRequestsRef.current = true;
+    } catch (err) {
+      setRequestsError(err instanceof Error ? err.message : 'Failed to load more requests');
+    } finally {
+      setLoadingMoreRequests(false);
+    }
+  }, [getToken, loadingMoreRequests, nextRequestCursor]);
+
+  const resolveMessageRequest = async (
+    request: MessageRequest,
+    action: 'accept' | 'decline' | 'spam',
+  ) => {
+    if (requestBusyId) return;
+    setRequestBusyId(request.id);
+    setRequestActionError(null);
+    setRequestNotice(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again to manage message requests.');
+      if (action === 'accept') {
+        const result = await acceptMessageRequest(token, request.id);
+        setMessageRequests((current) => removeMessageRequest(current, request.id));
+        setRequestPendingCount((count) => Math.max(0, count - 1));
+        setConversations((current) => mergeConversationHead(current, [result.conversation]));
+        setInboxView('inbox');
+        selectConversation(result.conversation.id);
+        void loadConversations({ quiet: true });
+      } else {
+        if (action === 'spam') await markMessageRequestSpam(token, request.id);
+        else await declineMessageRequest(token, request.id);
+        setMessageRequests((current) => removeMessageRequest(current, request.id));
+        setRequestPendingCount((count) => Math.max(0, count - 1));
+        setRequestNotice(
+          action === 'spam'
+            ? `Marked @${request.sender.handle}'s request as spam.`
+            : `Declined @${request.sender.handle}'s request.`,
+        );
+      }
+    } catch (err) {
+      setRequestActionError(
+        err instanceof Error ? err.message : 'Unable to update this message request.',
+      );
+    } finally {
+      setRequestBusyId(null);
+    }
+  };
 
   useEffect(() => {
     const conversationId = selectedId;
@@ -305,6 +422,7 @@ export function MessagesPage() {
     if (!deepLinkConversationId) return;
     deepLinkHydrationRef.current = null;
     setSelectedConversationError(null);
+    setInboxView('inbox');
     setSelectedId(deepLinkConversationId);
   }, [deepLinkConversationId]);
 
@@ -312,6 +430,7 @@ export function MessagesPage() {
     deepLinkHydrationRef.current = null;
     setSelectedConversationError(null);
     setSelectedId(id);
+    if (id) setInboxView('inbox');
     if (id) {
       setSearchParams({ c: id }, { replace: true });
     } else {
@@ -319,10 +438,30 @@ export function MessagesPage() {
     }
   };
 
+  const selectInboxView = (view: InboxView) => {
+    setInboxView(view);
+    setRequestActionError(null);
+    setRequestNotice(null);
+    if (view === 'requests') {
+      setSelectedId(null);
+      setSearchParams({ view: 'requests' }, { replace: true });
+    } else {
+      setSearchParams({}, { replace: true });
+    }
+  };
   // Soft-realtime: quiet conversation list poll while signed in.
   useVisibilityPoll(
     () => {
       void loadConversations({ quiet: true });
+    },
+    CONVERSATIONS_POLL_MS,
+    Boolean(isSignedIn),
+    { runOnVisible: true },
+  );
+
+  useVisibilityPoll(
+    () => {
+      void loadMessageRequests({ quiet: true });
     },
     CONVERSATIONS_POLL_MS,
     Boolean(isSignedIn),
@@ -1039,7 +1178,51 @@ export function MessagesPage() {
           Messages are early access — conversations load from the real API; polish and extras are still in progress.
         </div>
 
+        <div
+          className="flex border-b px-3"
+          style={{ borderColor: 'var(--border-primary)' }}
+          role="tablist"
+          aria-label="Message inbox"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={inboxView === 'inbox'}
+            onClick={() => selectInboxView('inbox')}
+            className="relative flex-1 px-3 py-3 text-[14px] font-semibold focus-visible:outline-none focus-ring"
+            style={{ color: inboxView === 'inbox' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+          >
+            Inbox
+            {inboxView === 'inbox' && (
+              <span className="absolute inset-x-4 bottom-0 h-1 rounded-full" style={{ backgroundColor: 'var(--accent)' }} aria-hidden="true" />
+            )}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={inboxView === 'requests'}
+            onClick={() => selectInboxView('requests')}
+            className="relative flex flex-1 items-center justify-center gap-2 px-3 py-3 text-[14px] font-semibold focus-visible:outline-none focus-ring"
+            style={{ color: inboxView === 'requests' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+          >
+            Requests
+            {requestBadge && (
+              <span
+                className="inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold"
+                style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+                aria-label={`${requestBadge} pending message requests`}
+              >
+                {requestBadge}
+              </span>
+            )}
+            {inboxView === 'requests' && (
+              <span className="absolute inset-x-4 bottom-0 h-1 rounded-full" style={{ backgroundColor: 'var(--accent)' }} aria-hidden="true" />
+            )}
+          </button>
+        </div>
+
         {/* Search */}
+        {inboxView === 'inbox' && (
         <div className="px-3 py-2">
           <div className="relative">
             <Search
@@ -1062,9 +1245,26 @@ export function MessagesPage() {
             />
           </div>
         </div>
+        )}
 
         {/* Conversation list */}
         <div className="flex-1 overflow-y-auto">
+          {inboxView === 'requests' ? (
+            <MessageRequestInbox
+              requests={messageRequests}
+              pendingCount={requestPendingCount}
+              loading={loadingRequests}
+              loadingMore={loadingMoreRequests}
+              error={requestsError}
+              actionError={requestActionError}
+              notice={requestNotice}
+              busyId={requestBusyId}
+              hasMore={nextRequestCursor != null}
+              onRetry={() => void loadMessageRequests()}
+              onLoadMore={() => void loadMoreMessageRequests()}
+              onAction={resolveMessageRequest}
+            />
+          ) : <>
           {loadingConversations && <LoadingState label="Loading conversations" />}
 
           {!loadingConversations && conversationsError && (
@@ -1195,6 +1395,7 @@ export function MessagesPage() {
               </button>
             </div>
           )}
+          </>}
         </div>
       </div>
 
@@ -1204,7 +1405,19 @@ export function MessagesPage() {
           selectedId ? 'flex' : 'hidden lg:flex'
         }`}
       >
-        {!selectedConversation ? (
+        {inboxView === 'requests' ? (
+          <div className="flex flex-1 items-center justify-center px-6 text-center">
+            <div className="max-w-sm">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border" style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
+                <ShieldAlert className="h-7 w-7" aria-hidden="true" />
+              </div>
+              <p className="text-[20px] font-bold">You decide who reaches your inbox</p>
+              <p className="mt-2 text-[15px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                Review the first message and shared context before accepting. Declining or marking spam never opens a conversation.
+              </p>
+            </div>
+          </div>
+        ) : !selectedConversation ? (
           /* Empty state — no conversation selected */
           <div className="flex flex-1 items-center justify-center px-6 text-center">
             <div>
@@ -1433,6 +1646,178 @@ export function MessagesPage() {
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+type MessageRequestInboxProps = {
+  requests: MessageRequest[];
+  pendingCount: number;
+  loading: boolean;
+  loadingMore: boolean;
+  error: string | null;
+  actionError: string | null;
+  notice: string | null;
+  busyId: string | null;
+  hasMore: boolean;
+  onRetry: () => void;
+  onLoadMore: () => void;
+  onAction: (request: MessageRequest, action: 'accept' | 'decline' | 'spam') => Promise<void>;
+};
+
+function MessageRequestInbox({
+  requests,
+  pendingCount,
+  loading,
+  loadingMore,
+  error,
+  actionError,
+  notice,
+  busyId,
+  hasMore,
+  onRetry,
+  onLoadMore,
+  onAction,
+}: MessageRequestInboxProps) {
+  if (loading) return <LoadingState label="Loading message requests" />;
+
+  if (error && requests.length === 0) {
+    return (
+      <div className="px-5 py-10 text-center" role="alert">
+        <p className="text-[16px] font-bold">Couldn't load message requests</p>
+        <p className="mt-2 text-[13px]" style={{ color: 'var(--text-secondary)' }}>{error}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-4 rounded-full px-4 py-2 text-[13px] font-bold focus-visible:outline-none focus-ring"
+          style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="border-b px-4 py-3" style={{ borderColor: 'var(--border-primary)' }}>
+        <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          A request contains one first message. The sender cannot continue until you accept.
+        </p>
+        {pendingCount > 0 && (
+          <p className="mt-1 text-[12px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+            {pendingCount.toLocaleString()} pending
+          </p>
+        )}
+      </div>
+
+      {actionError && (
+        <div className="border-b px-4 py-3 text-[13px]" style={{ borderColor: 'var(--border-primary)', color: 'var(--color-danger)' }} role="alert">
+          {actionError}
+        </div>
+      )}
+      {notice && (
+        <div className="border-b px-4 py-3 text-[13px]" style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }} role="status" aria-live="polite">
+          {notice}
+        </div>
+      )}
+      {error && requests.length > 0 && (
+        <div className="border-b px-4 py-3 text-[13px]" style={{ borderColor: 'var(--border-primary)', color: 'var(--color-danger)' }} role="status">
+          {error} <button type="button" onClick={onLoadMore} className="font-semibold underline focus-visible:outline-none focus-ring">Retry</button>
+        </div>
+      )}
+
+      {requests.length === 0 ? (
+        <EmptyState
+          title="No message requests"
+          detail="New requests from people outside your direct-message preferences will appear here."
+        />
+      ) : (
+        <ul aria-label="Pending message requests">
+          {requests.map((request) => {
+            const context = formatMessageRequestSharedContext(request);
+            const busy = busyId === request.id;
+            return (
+              <li key={request.id} className="border-b px-4 py-4" style={{ borderColor: 'var(--border-primary)' }}>
+                <article aria-labelledby={`message-request-${request.id}-sender`}>
+                  <div className="flex items-start gap-3">
+                    {request.sender.avatar_url ? (
+                      <img src={request.sender.avatar_url} alt="" className="h-10 w-10 flex-shrink-0 rounded-full object-cover" />
+                    ) : (
+                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-bold" style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }} aria-hidden="true">
+                        {request.sender.display_name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p id={`message-request-${request.id}-sender`} className="truncate text-[15px] font-bold">
+                            {request.sender.display_name}
+                          </p>
+                          <p className="truncate text-[13px]" style={{ color: 'var(--text-secondary)' }}>@{request.sender.handle}</p>
+                        </div>
+                        <time className="flex-shrink-0 text-[12px]" style={{ color: 'var(--text-secondary)' }} dateTime={request.created_at}>
+                          {formatTimestamp(request.created_at)}
+                        </time>
+                      </div>
+                      {context && <p className="mt-1 text-[12px]" style={{ color: 'var(--text-secondary)' }}>{context}</p>}
+                      <p className="mt-3 whitespace-pre-wrap break-words rounded-xl px-3 py-2 text-[14px] leading-relaxed" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+                        {request.content}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={busyId != null}
+                      onClick={() => void onAction(request, 'spam')}
+                      className="flex items-center gap-1 rounded-full px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50 focus-visible:outline-none focus-ring"
+                      style={{ color: 'var(--color-danger)' }}
+                      aria-label={`Mark message request from ${request.sender.display_name} as spam`}
+                    >
+                      <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" /> Spam
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId != null}
+                      onClick={() => void onAction(request, 'decline')}
+                      className="rounded-full border px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50 focus-visible:outline-none focus-ring"
+                      style={{ borderColor: 'var(--border-primary)' }}
+                      aria-label={`Decline message request from ${request.sender.display_name}`}
+                    >
+                      Decline
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId != null}
+                      onClick={() => void onAction(request, 'accept')}
+                      className="rounded-full px-3 py-1.5 text-[12px] font-bold disabled:opacity-50 focus-visible:outline-none focus-ring"
+                      style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+                      aria-label={`Accept message request from ${request.sender.display_name}`}
+                    >
+                      {busy ? 'Working…' : 'Accept'}
+                    </button>
+                  </div>
+                </article>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {hasMore && (
+        <div className="px-4 py-4 text-center">
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            className="rounded-full border px-4 py-2 text-[13px] font-semibold disabled:opacity-50 focus-visible:outline-none focus-ring"
+            style={{ borderColor: 'var(--border-primary)' }}
+          >
+            {loadingMore ? 'Loading…' : 'Load more requests'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
