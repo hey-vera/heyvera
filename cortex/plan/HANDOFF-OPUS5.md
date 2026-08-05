@@ -35,8 +35,12 @@
 - **Branch per task, PR to `main`, non-draft only when mergeable.**
   Auto-merge arms on non-draft PRs with green required checks
   (`cortex`, `heyvera`, `rust`).
-- **Do not touch the HeyVera Socials stream** beyond step 1 below — it is
-  ChatGPT's lane; coordination happens through PRs, not shared working trees.
+- **This repo holds two products; you own one.** Cortex sessions work
+  `cortex/**` and the Rust backend. HeyVera Socials (PR #438, branch
+  `fix/socials-message-integrity`) is handled in a HeyVera conversation —
+  never review, merge, or rebase it from a Cortex session. The only thing
+  that crosses the line is the shared migration counter, and it crosses as a
+  wait, not as work.
 - **Pricing and customer-facing decisions belong to Josh.** Flag, don't decide.
 
 ## The queue
@@ -48,7 +52,7 @@ in cheap sessions.
 
 | # | Task | Done when |
 |---|---|---|
-| A1 | Review PR #438 (Socials, migrations v53–v59; CI already green — review is for correctness, ~5k lines) and merge; then mark #437 ready and merge | `main` has migrations through v60; both PRs merged |
+| A1 | Land #437 (credits, v60). **#438 is HeyVera Socials — not this lane's work**; it is reviewed and merged in a HeyVera session. Your job is only to wait for it, because the migration counter forces #438 → #437. When #438 is on main: mark #437 ready, merge | `main` has migrations through v60 |
 | A2 | Task 1.4: instrument real token cost on 3–5 representative tasks (~$300 budget) | measured $/task table committed as `cortex/plan/COSTS-MEASURED.md`; pricing handed to Josh |
 | A3 | VERIFIER.md V1→V7, in the sequencing that file specifies (V3 = migration v61) | verdicts computed from Cortex-run checks; refund copy still withheld until V7 passes |
 | A4 | CONTEXT.md C1→C4 (C5 later) | repo map in planning prompts; semantic leases demo on a real monorepo |
@@ -74,18 +78,39 @@ gate on Lane A as SURFACE.md's dependency column specifies)**
 is pre-compressed to minutes (commands pasted, emails drafted,
 recommendations made). Surface these when relevant; never work around them.**
 
-- #411 host commands + merge (unfreezes deploys)
-- Anthropic messages: §A.1 comfort check + rate-tier request (drafted)
+- #411 host commands + merge (unfreezes deploys). Gated on a Tailscale
+  authorization click, not on Josh running commands — once authorized, an
+  agent with SSH runs the sequence; only a `/etc/cortex` write may bounce
+  back to him for sudo.
+- Anthropic **rate-tier / spend-cap request** — the one that matters
+  operationally (low tiers cap monthly spend and would strangle launch week).
+  The §A.1 commercial comfort check is *optional insurance*, not a blocker:
+  operator API keys powering a product is the API's intended use; §D.4
+  covers reselling access, which Cortex does not do. Its only real value is
+  as a saved answer for a future enterprise security review.
 - UNVERIFIED pricing row: approve/reject (recommendation: approve)
 - SOC 2 clock: trigger condition + concrete path are in the doc
+- Legal entity + Terms of Service + privacy policy before Stripe goes live
 - `OPENCODE_ZEN_API_KEY` on the VPS for live Zen testing
 - GHAS billing decision (blocks dependency-review restoration)
 
 ## State as of this handoff
 
-Merged today: #437's prerequisites chain intact; #439 (Zen provider — three
-providers wired, OpenAI-compatible seam ready for the next gateway); #440
-(VERIFIER.md). Open: #437 (draft, waits on #438), #438 (draft, CI-green,
-needs review), #411 (Josh). Production: zero users, June 3 binary, decisions
-still free — that stops being true at the first payment, which is why Lane A
-runs in the order it does.
+Merged: #439 (Zen provider — three providers wired, OpenAI-compatible seam
+ready for the next gateway), #440 (VERIFIER.md), #442 (this plan set).
+
+Open PRs, verified against GitHub at handoff time — the whole list, so
+nothing looks like a surprise later:
+
+| PR | State | Whose |
+|---|---|---|
+| #437 credits (v60) | draft, mergeable, waits on #438 | **yours (A1)** |
+| #438 Socials (v53–v59) | draft, mergeable, CI-green | HeyVera session |
+| #411 db out of git tree | draft, mergeable | host step, then merge |
+| #435 / #427 / #425 dependabot | open, checks failing | yours (B1) |
+| #410 / #409 / #408 / #397 | open, archive-targeting | close (B3) |
+| #105 Socials P09 | open, superseded | close (B3) |
+
+Production: zero users, June 3 binary, decisions still free — that stops
+being true at the first payment, which is why Lane A runs in the order it
+does.
