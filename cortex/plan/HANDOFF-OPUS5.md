@@ -10,7 +10,8 @@
 2. [CREDITS.md](CREDITS.md) — what a credit is; the two-ledger rule
 3. [VERIFIER.md](VERIFIER.md) — what "verified" means; build plan V1–V7
 4. [CONTEXT.md](CONTEXT.md) — the context engine; build plan C1–C5
-5. This file — sequencing, standing rules, stop conditions
+5. [SURFACE.md](SURFACE.md) — where customers meet Cortex; build plan F1–F7
+6. This file — sequencing, standing rules, stop conditions
 
 ## Standing rules (violating any of these is how sessions get lost)
 
@@ -52,6 +53,14 @@ in cheap sessions.
 | A4 | CONTEXT.md C1→C4 (C5 later) | repo map in planning prompts; semantic leases demo on a real monorepo |
 | A5 | Consult checkpoint: before Phase 3 cutover (Postgres/Temporal), request a Fable/xhigh review of the cutover plan | reviewed plan exists before any data moves |
 
+**Lane C — the surface (per SURFACE.md; F1 may start immediately, the rest
+gate on Lane A as SURFACE.md's dependency column specifies)**
+
+| # | Task | Done when |
+|---|---|---|
+| C-F1 | Frontend audit + BYOK-era amputation; mission-control IA skeleton | six-pane IA on main; ReplitProjects and marketing relics gone |
+| C-F2…F7 | Follow SURFACE.md's table and dependencies exactly | per-row criteria in SURFACE.md |
+
 **Lane B — hygiene (cheap sessions)**
 
 | # | Task | Done when |
@@ -68,6 +77,9 @@ in cheap sessions.
 - UNVERIFIED pricing row sign-off (VERIFIER.md gate table)
 - `OPENCODE_ZEN_API_KEY` on the VPS for live Zen testing
 - GHAS billing decision (blocks dependency-review restoration)
+- Enterprise business track: SOC 2 / ISO certifications, IP-indemnity
+  posture, index data-handling page (SURFACE.md) — months of lead time,
+  gates six-figure deals, not an engineering task
 
 ## State as of this handoff
 
