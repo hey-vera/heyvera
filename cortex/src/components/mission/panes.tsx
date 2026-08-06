@@ -39,16 +39,7 @@ export function LedgerPane() {
   );
 }
 
-export function LeasesPane() {
-  return (
-    <PaneStub title="Leases" blockedOn="C4 — semantic leases">
-      Who holds which surface, why, and until when. Lease enforcement is real
-      today, but a lease still claims the paths someone thought to list. C4
-      makes it claim the computed dependency closure of the edit — and this
-      pane becomes the enterprise demo.
-    </PaneStub>
-  );
-}
+export { default as LeasesPane } from './LeasesPane';
 
 export function AdminPane() {
   return (
