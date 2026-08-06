@@ -209,6 +209,12 @@ pub struct StepContext {
     pub predecessor_summaries: Vec<PredecessorSummary>,
     pub user_goal: String,
     pub conversation_excerpt: Option<String>,
+    /// A ranked skeleton of the repository (CONTEXT.md C1), already fitted to
+    /// the step's token budget. Optional and `serde(default)` so payloads
+    /// written before this field still deserialize — a worker mid-run must not
+    /// break because the brain learned to send more context.
+    #[serde(default)]
+    pub repo_map: Option<String>,
 }
 
 fn default_required_check() -> bool {
@@ -229,6 +235,7 @@ impl Default for StepContext {
             predecessor_summaries: Vec::new(),
             user_goal: String::new(),
             conversation_excerpt: None,
+            repo_map: None,
         }
     }
 }

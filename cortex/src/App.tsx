@@ -53,7 +53,8 @@ import OperationsRoom from './components/operations/OperationsRoom';
 import OnboardingFlow from './components/onboarding/OnboardingFlow';
 import NotFoundPage from './components/NotFoundPage';
 import ProjectsView from './components/project/ProjectsView';
-import ReplitProjects from './components/ReplitProjects';
+import MissionControl from './components/mission/MissionControl';
+import { RunsPane, ReceiptsPane, LedgerPane, LeasesPane, AdminPane } from './components/mission/panes';
 import {
   AUTH_CHANNEL_NAME,
   CortexApiError,
@@ -1074,13 +1075,22 @@ export default function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<CortexShell />} />
+        {/* Mission control — the six panes of cortex/plan/SURFACE.md.
+            Chat is the sixth pane and a doorway; it keeps "/" until F2 moves
+            the identity of the app onto runs and receipts. */}
+        <Route element={<MissionControl />}>
+          <Route path="/" element={<CortexShell />} />
+          <Route path="/runs" element={<RunsPane />} />
+          <Route path="/receipts" element={<ReceiptsPane />} />
+          <Route path="/ledger" element={<LedgerPane />} />
+          <Route path="/leases" element={<LeasesPane />} />
+          <Route path="/admin" element={<AdminPane />} />
+        </Route>
         <Route path="/app" element={<Navigate to="/" replace />} />
         <Route path="/app/groups/:groupId/tasks" element={<CortexShell />} />
         <Route path="/app/groups/:groupId/operations" element={<OperationsRoom />} />
         <Route path="/projects" element={<ProjectsView />} />
         <Route path="/projects/:projectId" element={<ProjectsView />} />
-        <Route path="/replit-projects" element={<ReplitProjects />} />
         {/* Legacy redirects */}
         <Route path="/groups/:groupId/tasks" element={<LegacyGroupRedirect />} />
         <Route path="*" element={<NotFoundPage />} />

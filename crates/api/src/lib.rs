@@ -19,6 +19,8 @@ mod crypto;
 mod deploy_status;
 pub mod db;
 pub mod credentials;
+pub mod check_runner;
+pub mod ecosystem_probe;
 pub mod docker;
 pub mod github;
 pub mod github_repos;
@@ -411,6 +413,7 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         .route("/api/context/runs/{run_id}/context", get(context_api::preview_context_for_run))
         .route("/api/context/stats", get(context_api::get_context_stats))
         .route("/api/context/health", get(context_api::get_context_health))
+        .route("/api/context/impact", get(context_api::get_impact_set))
         .route("/api/context/test", post(context_api::test_context_assembly))
         .route("/api/keys", get(api_keys::list_api_keys))
         .route("/api/keys/{provider}", put(api_keys::save_api_key).delete(api_keys::delete_api_key))
@@ -879,6 +882,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/context/runs/{run_id}/context", get(context_api::preview_context_for_run))
         .route("/api/context/stats", get(context_api::get_context_stats))
         .route("/api/context/health", get(context_api::get_context_health))
+        .route("/api/context/impact", get(context_api::get_impact_set))
         .route("/api/context/test", post(context_api::test_context_assembly))
         // API Keys (BYOK) — rate-limited
         .route("/api/keys", get(api_keys::list_api_keys))

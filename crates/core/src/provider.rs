@@ -6,6 +6,10 @@ pub enum ProviderId {
     Claude,
     Openai,
     Gemini,
+    /// OpenCode Zen — an OpenAI-compatible gateway carrying GLM, Kimi, Qwen,
+    /// and Grok models under one API key. API-only: it has no CLI, so any
+    /// CLI/subscription code path must reject it rather than spawn.
+    Zen,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -38,6 +42,8 @@ impl ProviderId {
             Self::Claude => "claude",
             Self::Openai => "codex",
             Self::Gemini => "gemini",
+            // No CLI exists; kept as a label so worker capability maps stay total.
+            Self::Zen => "zen",
         }
     }
 }
@@ -58,6 +64,7 @@ impl std::fmt::Display for ProviderId {
             Self::Claude => write!(f, "claude"),
             Self::Openai => write!(f, "openai"),
             Self::Gemini => write!(f, "gemini"),
+            Self::Zen => write!(f, "zen"),
         }
     }
 }

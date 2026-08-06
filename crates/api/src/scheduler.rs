@@ -3,6 +3,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
+use cortex_core::check_derivation::{DerivationInput, derive_checks};
 use cortex_core::evaluator::{
     AutoMode, BudgetEvidence, CandidateScore, DecisionEvidence, DefaultPolicy, IntentEvidence,
     PressureState, Profile, ProviderFitEvidence, RiskEvidence, WINDOW_SECS, token_budget,
@@ -489,8 +490,9 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
     // Record score evidence per evaluator
     record_evidence(db, &decision_id, &evidence);
 
-    // Build step context from predecessors
+    // Build step context from predecessors, then orient it in the repository.
     let context = build_step_context(db, &step.run_id, &step.step_id);
+    let context = with_repo_map(context, state, decision.provider, decision.tier);
 
     // Workspace context: use run_id as logical workspace, look up latest commit
     // from predecessor steps, and pass file_paths from the run's goal
@@ -603,51 +605,60 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum CheckIntent {
-    Test,
-    Build,
-    Lint,
+/// Whether this kind of step can change the delivered tree.
+///
+/// Verification attaches to steps that change trees; gating read-only work on
+/// it would spend sandbox time to prove nothing (VERIFIER.md, "what not to
+/// do"). This is the *only* remaining reason to derive no checks — risk level
+/// is no longer one, which is the entire point of V2.
+fn step_changes_the_tree(kind: StepKind) -> bool {
+    match kind {
+        StepKind::Execute
+        | StepKind::Test
+        | StepKind::Build
+        | StepKind::Lint
+        | StepKind::Heal => true,
+        StepKind::Search | StepKind::Think | StepKind::Review | StepKind::Gate => false,
+    }
 }
 
+/// Derive the required checks for a step.
+///
+/// Delegates every rule to `cortex_core::check_derivation`, which is pure and
+/// unit tested. What used to live here — an intent switch that returned an
+/// empty vec for any Execute step below High risk, and a single check chosen
+/// by sniffing file extensions — is gone. That rule is why "verified" has so
+/// far meant "the CLI exited 0, says the CLI".
+///
+/// The returned [`RequiredCheck`] is the wire shape the worker contract
+/// already speaks. `CheckSpec` carries argv; `RequiredCheck.command` is a
+/// display string, so the two are joined here and nowhere else — execution
+/// uses the argv, never this string.
 fn infer_required_checks(
     kind: StepKind,
     risk: RiskLevel,
     allowed_paths: &[String],
     workspace_dir: &Path,
 ) -> Vec<RequiredCheck> {
-    let intent = match kind {
-        StepKind::Test => CheckIntent::Test,
-        StepKind::Build => CheckIntent::Build,
-        StepKind::Lint => CheckIntent::Lint,
-        _ if risk >= RiskLevel::High => CheckIntent::Build,
-        _ => return Vec::new(),
+    if !step_changes_the_tree(kind) {
+        return Vec::new();
+    }
+
+    let input = DerivationInput {
+        facts: crate::ecosystem_probe::probe_ecosystem(workspace_dir),
+        contract_commands: Vec::new(),
+        risk,
+        has_allowed_paths: !allowed_paths.is_empty(),
     };
 
-    let prefer_cargo = allowed_paths
-        .iter()
-        .any(|path| path.ends_with(".rs") || path == "Cargo.toml" || path.starts_with("crates/"));
-    let prefer_npm = allowed_paths.iter().any(|path| {
-        path.ends_with(".ts")
-            || path.ends_with(".tsx")
-            || path.ends_with(".js")
-            || path.ends_with(".jsx")
-            || path == "package.json"
-            || path.starts_with("cortex/")
-            || path.starts_with("dashboard/")
-            || path.starts_with("site/")
-    });
-
-    let npm = || npm_required_check(workspace_dir, intent);
-    let cargo = || cargo_required_check(workspace_dir, intent);
-
-    let selected = if prefer_cargo && !prefer_npm {
-        cargo().or_else(npm)
-    } else {
-        npm().or_else(cargo)
-    };
-
-    selected.into_iter().collect()
+    derive_checks(&input)
+        .into_iter()
+        .map(|spec| RequiredCheck {
+            name: spec.id,
+            command: spec.command.join(" "),
+            required: spec.required,
+        })
+        .collect()
 }
 
 fn build_work_recipe(
@@ -750,63 +761,6 @@ fn infer_execute_work_kind(objective: &str) -> WorkKind {
     }
 }
 
-fn npm_required_check(workspace_dir: &Path, intent: CheckIntent) -> Option<RequiredCheck> {
-    let package_json = workspace_dir.join("package.json");
-    let raw = std::fs::read_to_string(package_json).ok()?;
-    let package: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    let scripts = package.get("scripts")?.as_object()?;
-
-    let script = match intent {
-        CheckIntent::Test => first_real_script(scripts, &["test:unit", "test"])?,
-        CheckIntent::Build => first_real_script(scripts, &["build", "typecheck"])?,
-        CheckIntent::Lint => first_real_script(scripts, &["lint", "typecheck"])?,
-    };
-
-    Some(RequiredCheck {
-        name: format!("npm:{script}"),
-        command: format!("npm run {script}"),
-        required: true,
-    })
-}
-
-fn first_real_script(
-    scripts: &serde_json::Map<String, serde_json::Value>,
-    names: &[&str],
-) -> Option<String> {
-    names.iter().find_map(|name| {
-        let value = scripts.get(*name)?.as_str()?;
-        if is_placeholder_script(value) {
-            None
-        } else {
-            Some((*name).to_string())
-        }
-    })
-}
-
-fn is_placeholder_script(script: &str) -> bool {
-    let lower = script.to_ascii_lowercase();
-    lower.contains("no test specified")
-        || lower.contains("echo") && lower.contains("error") && lower.contains("exit 1")
-}
-
-fn cargo_required_check(workspace_dir: &Path, intent: CheckIntent) -> Option<RequiredCheck> {
-    if !workspace_dir.join("Cargo.toml").is_file() {
-        return None;
-    }
-
-    let (name, command) = match intent {
-        CheckIntent::Test => ("cargo:test", "cargo test --workspace"),
-        CheckIntent::Build => ("cargo:check", "cargo check --workspace"),
-        CheckIntent::Lint => ("cargo:clippy", "cargo clippy --workspace --all-targets"),
-    };
-
-    Some(RequiredCheck {
-        name: name.to_string(),
-        command: command.to_string(),
-        required: true,
-    })
-}
-
 // --- Evaluator integration ---
 
 fn route_step(
@@ -857,7 +811,12 @@ fn route_step(
         .collect();
 
     // Build candidate scores for all available providers × requested tier
-    let providers = [ProviderId::Claude, ProviderId::Openai, ProviderId::Gemini];
+    let providers = [
+        ProviderId::Claude,
+        ProviderId::Openai,
+        ProviderId::Gemini,
+        ProviderId::Zen,
+    ];
     let mut candidates = Vec::new();
 
     for &provider in &providers {
@@ -1159,6 +1118,14 @@ fn issue_step_delegation(
 
 // --- Step context builder ---
 
+/// Share of a step's token budget the repo map may occupy.
+///
+/// The map is orientation, not content: it should tell the model what the
+/// repository *is* and then get out of the way. Five percent of a 500k
+/// Execute budget is ~25k tokens, which fits a skeleton of a large monorepo
+/// while leaving the step's actual context untouched.
+const REPO_MAP_BUDGET_FRACTION: u64 = 20;
+
 fn build_step_context(db: &Database, run_id: &str, step_id: &str) -> StepContext {
     let goal = db
         .get_run_goal(run_id)
@@ -1194,7 +1161,28 @@ fn build_step_context(db: &Database, run_id: &str, step_id: &str) -> StepContext
         predecessor_summaries: summaries,
         user_goal: goal,
         conversation_excerpt: None,
+        repo_map: None,
     }
+}
+
+/// Attach the repo map (CONTEXT.md C1) so planning is not blind to code the
+/// user did not think to name.
+///
+/// Failure is silent by design. A repository we cannot parse, or a workspace
+/// that is not there yet, should cost a step its orientation and nothing
+/// else — never its dispatch.
+fn with_repo_map(
+    mut context: StepContext,
+    state: &AppState,
+    provider: ProviderId,
+    tier: Tier,
+) -> StepContext {
+    let budget = token_budget(provider, tier) / REPO_MAP_BUDGET_FRACTION;
+    context.repo_map = state
+        .repo_map_cache
+        .get(&state.workspace_dir, budget as usize)
+        .map(|rendered| rendered.to_string());
+    context
 }
 
 // --- Load ready steps ---
@@ -1567,6 +1555,7 @@ fn parse_provider_id(s: &str) -> Option<ProviderId> {
         "claude" => Some(ProviderId::Claude),
         "openai" => Some(ProviderId::Openai),
         "gemini" => Some(ProviderId::Gemini),
+        "zen" => Some(ProviderId::Zen),
         _ => None,
     }
 }
@@ -1901,14 +1890,18 @@ mod tests {
             dir.path(),
         );
 
-        assert_eq!(checks.len(), 1);
-        assert_eq!(checks[0].name, "npm:test:unit");
-        assert_eq!(checks[0].command, "npm run test:unit");
-        assert!(checks[0].required);
+        // The floor installs from the lockfile before running anything, so
+        // the verdict describes the tree that was delivered.
+        let names: Vec<&str> = checks.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["ecosystem:npm-ci", "ecosystem:npm-test"]);
+        assert!(checks.iter().all(|c| c.required));
     }
 
     #[test]
-    fn build_step_prefers_cargo_for_rust_paths() {
+    fn a_polyglot_tree_checks_both_ecosystems() {
+        // The old rule picked ONE check by sniffing file extensions, so a Rust
+        // change in a repo that also ships a frontend never built the
+        // frontend. The floor is derived from what the tree is, so both run.
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join("Cargo.toml"), "[workspace]\n").unwrap();
         write_package_json(dir.path(), r#""build":"tsc""#);
@@ -1920,13 +1913,25 @@ mod tests {
             dir.path(),
         );
 
-        assert_eq!(checks.len(), 1);
-        assert_eq!(checks[0].name, "cargo:check");
-        assert_eq!(checks[0].command, "cargo check --workspace");
+        let names: Vec<&str> = checks.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec![
+                "ecosystem:cargo-check",
+                "ecosystem:cargo-test",
+                "ecosystem:npm-ci",
+                "ecosystem:npm-build",
+            ]
+        );
+        assert!(
+            checks
+                .iter()
+                .any(|c| c.command == "cargo check --locked --workspace")
+        );
     }
 
     #[test]
-    fn high_risk_execute_gets_build_check_when_discoverable() {
+    fn high_risk_execute_adds_the_path_overlay_on_top_of_the_floor() {
         let dir = tempfile::tempdir().unwrap();
         write_package_json(dir.path(), r#""build":"tsc""#);
 
@@ -1937,9 +1942,11 @@ mod tests {
             dir.path(),
         );
 
-        assert_eq!(checks.len(), 1);
-        assert_eq!(checks[0].name, "npm:build");
-        assert_eq!(checks[0].command, "npm run build");
+        let names: Vec<&str> = checks.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(
+            names,
+            vec!["ecosystem:npm-ci", "ecosystem:npm-build", "risk:allowed-paths"]
+        );
     }
 
     #[test]
@@ -2011,7 +2018,10 @@ mod tests {
     }
 
     #[test]
-    fn low_risk_execute_does_not_add_checks() {
+    fn low_risk_execute_is_checked_too() {
+        // This is the whole point of V2. The old rule returned nothing here,
+        // which meant that for most billable work "verified" amounted to
+        // "the CLI exited 0, and the CLI is the one telling us".
         let dir = tempfile::tempdir().unwrap();
         write_package_json(dir.path(), r#""build":"tsc""#);
 
@@ -2022,11 +2032,15 @@ mod tests {
             dir.path(),
         );
 
-        assert!(checks.is_empty());
+        let names: Vec<&str> = checks.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["ecosystem:npm-ci", "ecosystem:npm-build"]);
     }
 
     #[test]
-    fn placeholder_npm_test_is_ignored() {
+    fn placeholder_npm_test_never_becomes_a_required_check() {
+        // `npm test` on a generated package fails by design. A floor that
+        // always fails is as useless as one that always passes — but `npm ci`
+        // still applies, because the lockfile must still resolve.
         let dir = tempfile::tempdir().unwrap();
         write_package_json(
             dir.path(),
@@ -2037,6 +2051,48 @@ mod tests {
             StepKind::Test,
             RiskLevel::Medium,
             &["src/index.ts".to_string()],
+            dir.path(),
+        );
+
+        let names: Vec<&str> = checks.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, vec!["ecosystem:npm-ci"]);
+    }
+
+    #[test]
+    fn read_only_steps_are_not_gated_on_verification() {
+        // Verification attaches to steps that change trees. Gating a search
+        // on it would spend sandbox time to prove nothing.
+        let dir = tempfile::tempdir().unwrap();
+        write_package_json(dir.path(), r#""build":"tsc""#);
+
+        for kind in [
+            StepKind::Search,
+            StepKind::Think,
+            StepKind::Review,
+            StepKind::Gate,
+        ] {
+            let checks = infer_required_checks(
+                kind,
+                RiskLevel::Critical,
+                &["src/index.ts".to_string()],
+                dir.path(),
+            );
+            assert!(
+                checks.is_empty(),
+                "{kind:?} does not change the tree and must not be gated"
+            );
+        }
+    }
+
+    #[test]
+    fn a_tree_no_ecosystem_owns_derives_nothing_and_is_sold_as_unverified() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("README.md"), "# docs\n").unwrap();
+
+        let checks = infer_required_checks(
+            StepKind::Execute,
+            RiskLevel::Low,
+            &["README.md".to_string()],
             dir.path(),
         );
 

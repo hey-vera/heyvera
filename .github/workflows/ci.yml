@@ -15,72 +15,45 @@ concurrency:
 
 jobs:
 
-  web:
+  # The `web` job was deleted here. It gated every step on a diff grep for
+  # `^web/`, and no `web/` directory exists in this repository — so it skipped
+  # everything and reported success on every pull request ever opened, while
+  # being one of three required checks. PR #396 removed two jobs with this
+  # exact defect and left this one behind.
+  #
+  # `cortex` deliberately has no change-detection gate. A job that skips still
+  # reports success, which is how `web` stayed green for its whole life. It runs
+  # on every PR, unconditionally, so that a green check means something was
+  # actually built.
+  cortex:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: cortex
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
 
-      - name: Detect web changes
-        id: web_changes
-        working-directory: .
-        run: |
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            git fetch --no-tags --prune origin "${{ github.base_ref }}"
-            changed_files="$(git diff --name-only "origin/${{ github.base_ref }}"...HEAD)"
-          else
-            changed_files="$(git diff --name-only "${{ github.event.before }}" "${{ github.sha }}" || true)"
-          fi
-
-          printf '%s\n' "$changed_files"
-
-          if printf '%s\n' "$changed_files" | grep -q '^web/'; then
-            echo "run_web=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "run_web=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Skip web checks
-        if: steps.web_changes.outputs.run_web != 'true'
-        run: echo "No web/ changes detected; skipping web build and responsive tests."
-
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
-        if: steps.web_changes.outputs.run_web == 'true'
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: '22'
           cache: 'npm'
-          cache-dependency-path: web/package-lock.json
+          cache-dependency-path: cortex/package-lock.json
 
-      - name: Install web dependencies
-        if: steps.web_changes.outputs.run_web == 'true'
-        working-directory: web
+      - name: Install Cortex dependencies
         run: npm ci
 
-      - name: Install Playwright browser
-        if: steps.web_changes.outputs.run_web == 'true'
-        working-directory: web
-        run: npx playwright install --with-deps chromium
-
-      - name: Build web
-        if: steps.web_changes.outputs.run_web == 'true'
-        working-directory: web
+      # `build` is `tsc -b && vite build`, so this is the typecheck gate too.
+      # Verified green against main before this job was made required.
+      - name: Build Cortex
         run: npm run build
 
-      - name: Responsive regression tests
-        if: steps.web_changes.outputs.run_web == 'true'
-        working-directory: web
-        run: npm run test:responsive
-
-      - name: Upload responsive screenshots
-        if: always() && steps.web_changes.outputs.run_web == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: web-responsive-regression
-          path: |
-            web/test-results
-            web/playwright-report
-          if-no-files-found: ignore
+      # Advisory only: `eslint .` currently reports 12 errors and 3 warnings on
+      # main. Making it blocking today would wedge every PR in the repo, and a
+      # check that always fails gets switched off. Clean those up, then delete
+      # continue-on-error and this comment.
+      - name: Lint Cortex (advisory)
+        continue-on-error: true
+        run: npm run lint
 
   heyvera:
     runs-on: ubuntu-latest
@@ -88,7 +61,7 @@ jobs:
       run:
         working-directory: heyvera
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
         with:
           fetch-depth: 0
 
@@ -115,7 +88,7 @@ jobs:
         if: steps.heyvera_changes.outputs.run_heyvera != 'true'
         run: echo "No heyvera/ changes detected; skipping HeyVera build."
 
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         if: steps.heyvera_changes.outputs.run_heyvera == 'true'
         with:
           node-version: '22'
@@ -139,18 +112,37 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
 
       - name: Install Rust toolchain
         run: |
-          rustup toolchain install 1.88.0 --profile minimal
-          rustup default 1.88.0
+          # 1.88.0 (June 2025) predates the `cfg_select!` macro, which
+          # libsqlite3-sys's build script now uses — that is why the cargo
+          # group bump in PR #435 failed to compile before reaching any of
+          # our own code. Pinned rather than `stable` so a toolchain release
+          # can never break CI unannounced.
+          rustup toolchain install 1.97.1 --profile minimal --component clippy
+          rustup default 1.97.1
           rustc --version
           cargo --version
+
+      # This job is the sole critical path and had no caching at all — every run
+      # recompiled the full dependency graph from scratch. Measured 3m04s-4m45s.
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
 
       - name: Check Rust workspace
         run: cargo check --workspace --locked
 
       - name: Test Rust workspace
         run: cargo test --workspace --locked
+
+      # Advisory until someone reads the output. clippy has never run against
+      # this workspace, so its warning count is unknown and could not be
+      # measured before opening this PR (no working linker on the authoring
+      # machine). Making it blocking sight-unseen would wedge every PR, which is
+      # how the `web` job and the midnight flake trained people to ignore CI.
+      # Read the first run, fix or allow, then drop continue-on-error.
+      - name: Clippy (advisory)
+        continue-on-error: true
+        run: cargo clippy --workspace --all-targets --locked -- -D warnings
 

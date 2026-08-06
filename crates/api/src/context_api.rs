@@ -226,3 +226,120 @@ pub async fn get_context_health(
     let health = state.context_bus.get_health_status();
     (StatusCode::OK, Json(health))
 }
+// ─── Semantic leases: what a change actually touches (CONTEXT.md C4) ───
+
+#[derive(Debug, Deserialize)]
+pub struct ImpactQuery {
+    /// Comma-separated repo-relative paths the change edits.
+    pub files: String,
+    /// Closure depth. Defaults to CONTEXT.md's conservative single hop.
+    pub depth: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImpactedFileResponse {
+    pub file: String,
+    pub distance: usize,
+    /// The route that put this file in the set, already rendered for a human:
+    /// "auth.rs → checkout.rs → api.rs". A conflict nobody can explain is a
+    /// conflict they will route around.
+    pub via: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImpactResponse {
+    pub seed_files: Vec<String>,
+    pub depth: usize,
+    pub files: Vec<ImpactedFileResponse>,
+    /// True when the closure stopped at the depth limit with more to explore,
+    /// which means the lease is narrower than the real blast radius.
+    pub truncated: bool,
+    /// Index freshness, so a caller can tell "nothing depends on this" from
+    /// "we have not indexed anything yet" — two very different answers.
+    pub files_indexed: usize,
+}
+
+/// GET /api/context/impact?files=a.rs,b.rs&depth=1
+///
+/// The impact set for an edit surface: the bounded dependency closure a lease
+/// should claim, instead of the paths someone thought to list.
+pub async fn get_impact_set(
+    State(state): State<Arc<AppState>>,
+    Query(query): Query<ImpactQuery>,
+    _user: ClerkUser,
+) -> impl IntoResponse {
+    let seed_files: Vec<String> = query
+        .files
+        .split(',')
+        .map(|part| part.trim().to_string())
+        .filter(|part| !part.is_empty())
+        .collect();
+
+    if seed_files.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({ "error": "files is required" })),
+        );
+    }
+
+    let depth = query
+        .depth
+        .unwrap_or(cortex_context::impact::DEFAULT_DEPTH)
+        // A closure deeper than a handful of hops reaches the whole repository
+        // in any real monorepo, and a lease over everything is a global mutex
+        // with extra steps.
+        .min(5);
+
+    let index_path = state
+        .workspace_dir
+        .join(".cortex")
+        .join("context-index.sqlite");
+
+    let mut index = match cortex_context::index::Index::open(&index_path) {
+        Ok(index) => index,
+        Err(error) => {
+            return (
+                StatusCode::SERVICE_UNAVAILABLE,
+                Json(serde_json::json!({ "error": error })),
+            );
+        }
+    };
+
+    // Sync before answering. An impact set computed from a stale index is a
+    // lease over the wrong files, which is worse than no lease at all: it
+    // blocks work that is fine and permits work that collides.
+    let stats = match index.sync(&state.workspace_dir) {
+        Ok(stats) => stats,
+        Err(error) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": error })),
+            );
+        }
+    };
+
+    match index.impact_set(&seed_files, depth) {
+        Ok(set) => {
+            let response = ImpactResponse {
+                seed_files,
+                depth,
+                files: set
+                    .files
+                    .iter()
+                    .map(|file| ImpactedFileResponse {
+                        file: file.file.clone(),
+                        distance: file.distance,
+                        via: file.path.join(" → "),
+                    })
+                    .collect(),
+                truncated: set.truncated,
+                files_indexed: stats.files_indexed + stats.files_unchanged,
+            };
+            (StatusCode::OK, Json(serde_json::json!(response)))
+        }
+        Err(error) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(serde_json::json!({ "error": error })),
+        ),
+    }
+}

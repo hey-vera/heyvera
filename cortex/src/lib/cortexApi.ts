@@ -2298,3 +2298,26 @@ export async function removeCredentialAssignment(assignmentId: string): Promise<
     method: 'DELETE',
   });
 }
+
+// ─── Semantic leases (CONTEXT.md C4) ───
+
+export interface ImpactedFile {
+  file: string;
+  distance: number;
+  /** Rendered route, e.g. "auth.rs → checkout.rs → api.rs". */
+  via: string;
+}
+
+export interface ImpactResponse {
+  seed_files: string[];
+  depth: number;
+  files: ImpactedFile[];
+  truncated: boolean;
+  files_indexed: number;
+}
+
+export async function getImpactSet(files: string[], depth?: number): Promise<ImpactResponse> {
+  const params = new URLSearchParams({ files: files.join(',') });
+  if (depth !== undefined) params.set('depth', String(depth));
+  return requestJson<ImpactResponse>(`/api/context/impact?${params.toString()}`);
+}

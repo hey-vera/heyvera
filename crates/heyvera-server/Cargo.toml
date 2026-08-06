@@ -1,6 +1,7 @@
 [package]
 name = "heyvera-server-bin"
 version.workspace = true
+publish = false  # proprietary; never goes to crates.io
 edition.workspace = true
 license.workspace = true
 description = "heyvera.org backend binary"
