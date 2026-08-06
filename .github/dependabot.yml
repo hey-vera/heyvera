@@ -57,6 +57,17 @@ updates:
       # #474, and key generation no longer goes through rand_core, so a future
       # rand major cannot reach the crypto path the way this one did.
       #
+      # x25519-dalek 2 -> 3 moves to rand_core 0.10 while our hybrid key
+      # agreement is written against 0.6, and the compiler reports two type
+      # mismatches beyond the RNG, so the API moved in more than one place.
+      # The single call site is `X25519Secret::random_from_rng(rand_core::OsRng)`
+      # in crates/soma-crypto/src/agreement.rs. The fix is likely the same
+      # trick #474 used for ed25519 — generate 32 bytes and construct from
+      # them, so no rand_core version can reach the crypto path — but this is
+      # post-quantum hybrid key agreement and deserves a PR someone reads
+      # rather than a line buried in thirty dependency bumps.
+      - dependency-name: x25519-dalek
+        update-types: ["version-update:semver-major"]
       # rusqlite 0.35 -> 0.40 spans several breaking releases and every
       # database call site in the workspace goes through it.
       - dependency-name: rusqlite
