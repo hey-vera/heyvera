@@ -99,11 +99,11 @@ in cheap sessions.
 
 | # | Task | Done when |
 |---|---|---|
-| A0 | Ship it. Once #411 lands, verify the deploy path actually fires and production runs current `main` — note PLAN §5's finding that auto-merge commits as `app/github-actions`, so `deploy-frontend.yml` has not triggered since 2026-07-23 (`GITHUB_TOKEN` pushes do not start workflows). Fix that trigger too | `/health` or equivalent on the VPS reports a build from this week, frontend included; Josh can log in |
+| A0 | Ship the **backend**. The three-click runbook is under "Josh's own list" below. **Correction to PLAN §5: the frontend was never frozen.** `deploy-frontend.yml` has indeed not fired since 2026-07-23, but Cloudflare Pages has its own Git integration and has been deploying `cortex/` from `main` continuously — verified 2026-08-05 by finding this session's strings in the live bundle at cortex.heyvera.org. The freeze is backend-only, which is why the web app has drifted ahead of a VPS still running the June 3 binary | `/v1/health` on the VPS reports a build from this week; Josh can log in and the panes talk to a backend that knows the new endpoints |
 | A1 | Land #437 (credits, v60). **#438 is HeyVera Socials — not this lane's work**; it is reviewed and merged in a HeyVera session. Your job is only to wait for it, because the migration counter forces #438 → #437. When #438 is on main: mark #437 ready, merge | `main` has migrations through v60 |
 | A2 | Task 1.4: instrument real token cost on 3–5 representative tasks (~$300 budget) | measured $/task table committed as `cortex/plan/COSTS-MEASURED.md`; pricing handed to Josh |
-| A3 | VERIFIER.md V1→V7, in the sequencing that file specifies (V3 = migration v61) | verdicts computed from Cortex-run checks; refund copy still withheld until V7 passes |
-| A4 | CONTEXT.md C1→C4 (C5 later) | repo map in planning prompts; semantic leases demo on a real monorepo |
+| A3 | VERIFIER.md V1→V7. **V1 and V2 are done** (#453, #454, #455, #456): the `CheckRunner` contract, `compute_verdict`, the container runner, check derivation, and the scheduler wiring that killed the empty-vec default. **V3–V7 are blocked on the migration counter** — V3 needs v61, which needs v60 (#437), which needs v53–v59 (#438, HeyVera lane). Nothing in the verifier is waiting on verifier work | verdicts computed from Cortex-run checks; refund copy still withheld until V7 passes |
+| ~~A4~~ | CONTEXT.md C1→C4 | **Done** — #457 (repo map), #458 (into every dispatched step), #459 (persistent index), #460 (hybrid retrieval), #461 (impact sets), #468 (impact API + Leases pane). C5 (MCP surface) still later |
 | A5 | Consult checkpoint: before Phase 3 cutover (Postgres/Temporal), request a Fable/xhigh review of the cutover plan | reviewed plan exists before any data moves |
 
 **Lane C — the surface (per SURFACE.md; F1 may start immediately, the rest
@@ -112,7 +112,9 @@ gate on Lane A as SURFACE.md's dependency column specifies)**
 | # | Task | Done when |
 |---|---|---|
 | ~~C-F1~~ | ~~Frontend audit + BYOK-era amputation; mission-control IA skeleton~~ | **Done** — #445 (audit + amputation, 22 files/~3k lines) and #448 (six-pane IA). Findings in [FRONTEND-AUDIT.md](FRONTEND-AUDIT.md); the one that matters is that the settings UI defaulted users to a *subscription* credential flow, closed in the UI, still live in the backend `startAuth` |
-| C-F2…F7 | Follow SURFACE.md's table and dependencies exactly | per-row criteria in SURFACE.md |
+| C-F2 | Runs pane **done** (#464) — live on the real run API over SSE. Ledger and Receipts panes still wait on #437 and V3–V4 respectively | per-row criteria in SURFACE.md |
+| C-F5 | Leases pane **done** (#468) — a query tool over C4's impact sets, not a board of held leases (that needs an endpoint which does not exist) | |
+| C-F3/F4/F6/F7 | Follow SURFACE.md's table and dependencies exactly. F3 (GitHub App) additionally needs Josh to create the app | per-row criteria in SURFACE.md |
 
 **Lane B — hygiene (cheap sessions)**
 
@@ -126,10 +128,26 @@ gate on Lane A as SURFACE.md's dependency column specifies)**
 things: **using the product as a real user**, and holding credentials. Agents
 do the rest. Surface these when relevant; never work around them.
 
-- #411 host commands + merge (unfreezes deploys). Gated on a Tailscale
-  authorization click, not on Josh running commands — once authorized, an
-  agent with SSH runs the sequence; only a `/etc/cortex` write may bounce
-  back to him for sudo.
+- **#411 — now three clicks in the Actions tab, not a terminal session.**
+  `.github/workflows/host-db-migration.yml` runs the host steps over the
+  same Tailscale credentials the deploy already uses. A dry run on
+  2026-08-05 confirmed passwordless sudo works, so nothing needs a shell.
+  Order: **run the migration (dry run first) → merge #411 → Deploy
+  Production, branch `main`.**
+  Two corrections that runbook encodes, both found by inspecting the live
+  host rather than by reading:
+  1. **The service is left stopped after migrating, deliberately.** The
+     June 3 binary does not read `CORTEX_DB_PATH` — that code arrives with
+     #411 — so restarting it after the move points it at a path that no
+     longer exists and SQLite creates a fresh empty database. Production
+     would look wiped while the real data sat safe in `/var/lib/cortex`.
+     The deploy is what brings it back up, on a binary that knows the new
+     paths. Zero users, so the gap costs nothing.
+  2. **`routing.db` moves too.** #411's original command list missed it. It
+     is *untracked*, so `git clean -fd` deletes rather than reverts it, and
+     losing it discards every UCB statistic the router learned in
+     production — nothing breaks, the router just quietly gets worse.
+     `CORTEX_ROUTING_DB_PATH` was added to #411's branch for this.
 - Anthropic **rate-tier / spend-cap request** — the one that matters
   operationally (low tiers cap monthly spend and would strangle launch week).
   The §A.1 commercial comfort check is *optional insurance*, not a blocker:
