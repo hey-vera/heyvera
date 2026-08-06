@@ -187,6 +187,22 @@ pub struct VerdictReport {
 ///
 /// Advisory (`required: false`) checks are executed and recorded but never
 /// change the outcome.
+/// Combine two outcomes for the same check, pessimistically.
+///
+/// Ordering: a failure beats everything, then "could not run", then a pass.
+/// Failing closed is the only defensible direction here — the alternative is a
+/// verdict that depends on which duplicate row arrived first.
+fn worst_of(a: CheckOutcome, b: CheckOutcome) -> CheckOutcome {
+    fn severity(outcome: CheckOutcome) -> u8 {
+        match outcome {
+            CheckOutcome::Failed | CheckOutcome::TimedOut => 2,
+            CheckOutcome::NotExecuted => 1,
+            CheckOutcome::Passed => 0,
+        }
+    }
+    if severity(b) > severity(a) { b } else { a }
+}
+
 pub fn compute_verdict(specs: &[CheckSpec], executions: &[CheckExecution]) -> VerdictReport {
     let required: Vec<&CheckSpec> = specs.iter().filter(|spec| spec.required).collect();
 
@@ -205,11 +221,28 @@ pub fn compute_verdict(specs: &[CheckSpec], executions: &[CheckExecution]) -> Ve
     let mut not_executed = Vec::new();
 
     for spec in &required {
-        // A required check with no execution row is indistinguishable from
-        // one the runner could not run, and is treated the same way. Silently
-        // dropping it would be the hollow-gate failure mode.
-        let execution = executions.iter().find(|exec| exec.spec_id == spec.id);
-        match execution.map(|exec| exec.outcome) {
+        // Fold over EVERY execution for this spec, worst outcome winning —
+        // not `find`, which takes the first.
+        //
+        // One verdict per attempt is supposed to be guaranteed by the CAS on
+        // (run_id, step_id, attempt), so duplicate rows for one spec should
+        // be impossible. "Should be impossible" is not a security property:
+        // a retry that re-ran a check and appended, a runner emitting twice,
+        // or a replay concatenating attempts all produce duplicates without
+        // anyone acting maliciously — and with `find`, whichever landed first
+        // decided the verdict. A passing row ahead of a failing one would
+        // have masked a genuine failure and charged the customer for it.
+        //
+        // A required check with no execution row at all is treated as one the
+        // runner could not run. Silently dropping it is the hollow-gate
+        // failure mode.
+        let outcome = executions
+            .iter()
+            .filter(|exec| exec.spec_id == spec.id)
+            .map(|exec| exec.outcome)
+            .reduce(worst_of);
+
+        match outcome {
             Some(CheckOutcome::Passed) => passed += 1,
             Some(CheckOutcome::Failed | CheckOutcome::TimedOut) => failed.push(spec.id.clone()),
             Some(CheckOutcome::NotExecuted) | None => not_executed.push(spec.id.clone()),
@@ -354,5 +387,132 @@ mod tests {
         assert!(Verdict::Failed.has_billing_effect());
         assert!(Verdict::Unverified.has_billing_effect());
         assert!(!Verdict::Inconclusive.has_billing_effect());
+    }
+}
+
+/// V7 red-team: the ways a worker or a bug could try to buy a passing verdict.
+///
+/// These are properties rather than examples. Each one names an attack, so a
+/// future change that reopens it fails with the reason attached instead of an
+/// assertion nobody can interpret.
+#[cfg(test)]
+mod adversarial {
+    use super::*;
+
+    fn spec(id: &str, required: bool) -> CheckSpec {
+        CheckSpec {
+            id: id.to_string(),
+            source: CheckSource::Ecosystem,
+            command: vec!["cargo".into(), "test".into()],
+            timeout_secs: 600,
+            required,
+        }
+    }
+
+    fn execution(spec_id: &str, outcome: CheckOutcome) -> CheckExecution {
+        CheckExecution {
+            spec_id: spec_id.to_string(),
+            exit_code: Some(0),
+            outcome,
+            duration_ms: 1,
+            output_digest: "sha256:x".into(),
+            output_tail: String::new(),
+            runner_image: "img@sha256:y".into(),
+        }
+    }
+
+    /// Attack: get a passing execution recorded ahead of the real, failing one
+    /// — by retrying, by emitting twice, or by replaying an earlier attempt —
+    /// so the first row read wins.
+    #[test]
+    fn a_duplicate_pass_cannot_mask_a_failure_regardless_of_order() {
+        let specs = vec![spec("a", true)];
+
+        for executions in [
+            vec![
+                execution("a", CheckOutcome::Passed),
+                execution("a", CheckOutcome::Failed),
+            ],
+            vec![
+                execution("a", CheckOutcome::Failed),
+                execution("a", CheckOutcome::Passed),
+            ],
+        ] {
+            assert_eq!(
+                compute_verdict(&specs, &executions).verdict,
+                Verdict::Failed,
+                "ordering of duplicate executions must not decide the verdict"
+            );
+        }
+    }
+
+    /// Attack: bury an unrunnable check under a passing duplicate to turn an
+    /// INCONCLUSIVE (no billing) into a VERIFIED (charge).
+    #[test]
+    fn a_duplicate_pass_cannot_hide_a_check_that_never_ran() {
+        let specs = vec![spec("a", true)];
+        let executions = vec![
+            execution("a", CheckOutcome::Passed),
+            execution("a", CheckOutcome::NotExecuted),
+        ];
+        assert_eq!(
+            compute_verdict(&specs, &executions).verdict,
+            Verdict::Inconclusive
+        );
+    }
+
+    /// Attack: propose extra checks that trivially pass, hoping they dilute or
+    /// outvote the real ones. The gate is a conjunction, so they cannot — but
+    /// only as long as it stays a conjunction.
+    #[test]
+    fn adding_trivially_passing_checks_cannot_rescue_a_failure() {
+        let mut specs = vec![spec("real", true)];
+        let mut executions = vec![execution("real", CheckOutcome::Failed)];
+        for i in 0..50 {
+            let id = format!("padding_{i}");
+            specs.push(spec(&id, true));
+            executions.push(execution(&id, CheckOutcome::Passed));
+        }
+        assert_eq!(compute_verdict(&specs, &executions).verdict, Verdict::Failed);
+    }
+
+    /// Attack: mark the checks that would fail as advisory so they cannot
+    /// bite. Permitted by construction — advisory checks never gate — which is
+    /// exactly why `required` must be set during derivation, before the worker
+    /// sees the task, and never afterwards. This test pins the consequence so
+    /// the constraint cannot be quietly relaxed.
+    #[test]
+    fn advisory_downgrades_are_only_safe_because_derivation_is_frozen() {
+        let specs = vec![spec("a", false)];
+        let executions = vec![execution("a", CheckOutcome::Failed)];
+        let report = compute_verdict(&specs, &executions);
+        assert_eq!(report.verdict, Verdict::Unverified);
+        assert_eq!(
+            report.required_total, 0,
+            "a step with no required checks is UNVERIFIED — sold without the \
+             badge and without the refund promise, never silently VERIFIED"
+        );
+    }
+
+    /// Attack: report executions for checks nobody asked for, hoping the count
+    /// of passes is what gets compared.
+    #[test]
+    fn unsolicited_executions_do_not_satisfy_required_checks() {
+        let specs = vec![spec("required", true)];
+        let executions = vec![
+            execution("something_else", CheckOutcome::Passed),
+            execution("also_not_it", CheckOutcome::Passed),
+        ];
+        let report = compute_verdict(&specs, &executions);
+        assert_eq!(report.verdict, Verdict::Inconclusive);
+        assert_eq!(report.required_passed, 0);
+    }
+
+    /// Attack: submit no executions at all and hope an empty set reads as
+    /// "nothing failed".
+    #[test]
+    fn silence_is_not_success() {
+        let specs = vec![spec("a", true)];
+        assert_eq!(compute_verdict(&specs, &[]).verdict, Verdict::Inconclusive);
     }
 }
