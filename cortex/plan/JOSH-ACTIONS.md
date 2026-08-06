@@ -171,6 +171,38 @@ them:
 The last row is the one that decides launch readiness, and it cannot be
 faked by an agent: an agent already knows how the product works.
 
+## 7. Five decisions from the research pass (~10 min; added 2026-08-06)
+
+[RESEARCH-2026-08.md](RESEARCH-2026-08.md) surfaced five product/positioning
+calls. Each is yours because it is customer-facing; each has a recommendation
+so a yes is one word. Engineering recommendations from the same brief went
+into VERIFIER.md/CONTEXT.md amendments and need nothing from you.
+
+1. **Position against the H1-2026 repricing wave, by name.** Copilot, Codex,
+   and Cursor all converted to effort metering within four months; bill-shock
+   is the category's dominant press right now. Proposed artifact: a "your
+   invoice, reconciled" page — every line item links a charge to a replayable
+   receipt. *Recommendation: approve; timing window is live.*
+2. **The Plan Receipt.** Sell verified decomposition: the plan DAG posted for
+   approval with per-leaf derived checks, VERIFIED/UNVERIFIED label, credit
+   price, and lease claim; archived with run evidence; re-planning always
+   free. Nobody sells this; Kiro's tasks.md is closest and has none of the
+   four. *Recommendation: approve as a SURFACE.md F3/F4-era feature, new
+   PLAN-RECEIPT.md decision record when picked up.*
+3. **Public, shareable receipt URLs.** A receipt page a developer links in PR
+   discussion or a CFO cites in audit — the viral unit of the trust story.
+   Read-only view of V6's renderer. *Recommendation: approve, post-V7 only
+   (a public receipt on an unhardened verifier cuts the other way).*
+4. **Kiro interop.** Accept EARS-format acceptance criteria as contract-check
+   input — teams already writing Kiro-style specs hand them to Cortex
+   unchanged: their spec, our sandbox, our receipt. *Recommendation: approve
+   in principle; schedule after F3.*
+5. **Agent HQ posture.** GitHub's multi-vendor dashboard commoditizes "watch
+   your agents run"; cortex.heyvera.org must lead with receipts/ledger/leases
+   (which Agent HQ cannot render). Separately: evaluate listing Cortex as an
+   Agent HQ agent for distribution. *Recommendation: adopt the differentiation
+   framing now; defer the listing evaluation until F3 exists.*
+
 ---
 
 *Standing division of labor this file encodes: agents research, draft,
