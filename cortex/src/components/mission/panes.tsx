@@ -21,12 +21,14 @@ export { default as RunsPane } from './RunsPane';
 
 export function ReceiptsPane() {
   return (
-    <PaneStub title="Receipts" blockedOn="V1–V5 — the verifier">
-      The trust page: every verification, with the commands that ran, their
-      exit codes, and enough output to settle a dispute. This pane is empty
-      because the verifier does not execute anything yet — it summarizes
-      evidence the worker reports about itself. Until that changes, a receipts
-      screen here would be theatre.
+    <PaneStub title="Receipts" blockedOn="V3 — persisting verdicts (migration v61)">
+      The trust page: every verification, with the commands that ran, their exit
+      codes, and enough output to settle a dispute. The verifier now computes
+      verdicts from checks Cortex executed itself (V1, V2, V5) and the renderer
+      for them ships in <code>Receipt.tsx</code> — but nothing is stored yet, so
+      there is nothing to list. Deliberately no sample receipt here: a screen
+      that shows a plausible verification which never happened is exactly the
+      thing this pane exists to make impossible.
     </PaneStub>
   );
 }
