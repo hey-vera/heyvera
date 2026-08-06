@@ -53,12 +53,10 @@ updates:
       # Ignoring the majors here is not "never upgrade": it is "upgrade these
       # deliberately, in their own PR, where the diff is reviewable".
       #
-      # rand 0.9 renamed thread_rng() to rng() and moved OsRng; 0.10 goes
-      # further. Call sites: crates/soma/src/crypto.rs, crates/api/src/
-      # {agent_auth,crypto,social}.rs. Signing keys are generated through it,
-      # so this one deserves its own careful PR rather than a blind bump.
-      - dependency-name: rand
-        update-types: ["version-update:semver-major"]
+      # rand's ignore is lifted: the 0.10 migration landed deliberately in
+      # #474, and key generation no longer goes through rand_core, so a future
+      # rand major cannot reach the crypto path the way this one did.
+      #
       # rusqlite 0.35 -> 0.40 spans several breaking releases and every
       # database call site in the workspace goes through it.
       - dependency-name: rusqlite
