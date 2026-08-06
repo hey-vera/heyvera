@@ -17,7 +17,7 @@ use crate::clerk::ClerkUser;
 use crate::db::SocialFollowOutcome;
 use crate::state::AppState;
 use crate::social_policy::{PostAction, PostAudience, PolicyDecision, ProfileAction};
-use rand::RngCore;
+use rand::Rng;
 use sha2::{Digest, Sha256};
 
 type ApiResponse = (StatusCode, Json<serde_json::Value>);
@@ -632,7 +632,7 @@ fn encode_offset_cursor(offset: i64) -> Option<String> {
     let key = connection_cursor_key()?;
     let cipher = Aes256Gcm::new_from_slice(&key).ok()?;
     let mut nonce_bytes = [0u8; CONNECTION_CURSOR_NONCE_LEN];
-    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    rand::rng().fill_bytes(&mut nonce_bytes);
     let ciphertext = cipher
         .encrypt(
             Nonce::from_slice(&nonce_bytes),
@@ -2336,7 +2336,7 @@ fn hash_community_invite_token(token: &str) -> String {
 /// Generate invite token: `hvinv_` + 24 CSPRNG bytes base64url. Returns (plaintext, hash).
 fn generate_community_invite_token() -> (String, String) {
     let mut bytes = [0u8; 24];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     let secret = format!("hvinv_{}", URL_SAFE_NO_PAD.encode(bytes));
     let hash = hash_community_invite_token(&secret);
     (secret, hash)
