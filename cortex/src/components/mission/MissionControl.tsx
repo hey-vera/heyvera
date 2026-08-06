@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router';
 import { Activity, BadgeCheck, Coins, GitBranch, MessageSquare, Shield } from 'lucide-react';
 import { useAuthGate } from '../../lib/useAuthGate';
 import SignInScreen from '../auth/SignInScreen';

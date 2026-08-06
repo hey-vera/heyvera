@@ -1,5 +1,5 @@
 import { Plus, UsersRound, FolderOpen } from 'lucide-react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink, useLocation } from 'react-router';
 import type { BillingStatus } from '../../lib/cortexApi';
 import type { CortexGroup } from '../../lib/groups';
 import Sidebar from '../Sidebar';
