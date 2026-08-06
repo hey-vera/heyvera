@@ -894,8 +894,10 @@ pub struct BillingUsageResponse {
     pub access_state: AccessState,
     pub plan: Option<PlanInfo>,
     /// Real ledger total when a balance row exists; `null` when unmetered.
+    /// Whole credits — JSON-wise `200` rather than `200.0`, which parses
+    /// identically in JS, so this is not a breaking change for the frontend.
     #[serde(rename = "creditsBalance")]
-    pub credits_balance: Option<f64>,
+    pub credits_balance: Option<i64>,
     pub usage: BillingUsageSummary,
     pub history: Vec<BillingHistoryEntry>,
     pub note: String,
@@ -905,12 +907,12 @@ pub struct BillingUsageResponse {
 /// `None` row → `None` (never invent). `Some` → sub + pack remaining.
 pub fn credit_balance_for_api(
     row: Option<&crate::db::CreditBalanceRecord>,
-) -> Option<f64> {
+) -> Option<i64> {
     row.map(|r| r.subscription_remaining + r.pack_remaining)
 }
 
 /// Default subscription allotment when a paid subscription checkout completes.
-pub const DEFAULT_SUBSCRIPTION_CREDITS: f64 = 200.0;
+pub const DEFAULT_SUBSCRIPTION_CREDITS: i64 = 200;
 
 /// Pure decision: whether checkout.session.completed should init a credit ledger row.
 /// Only subscription mode (not one-time payment packs).
@@ -1074,7 +1076,7 @@ mod credit_balance_api_tests {
         assert!(should_init_credits_on_checkout("Subscription"));
         assert!(!should_init_credits_on_checkout("payment"));
         assert!(!should_init_credits_on_checkout(""));
-        assert_eq!(DEFAULT_SUBSCRIPTION_CREDITS, 200.0);
+        assert_eq!(DEFAULT_SUBSCRIPTION_CREDITS, 200);
     }
     use crate::db::CreditBalanceRecord;
 
@@ -1087,23 +1089,23 @@ mod credit_balance_api_tests {
     #[test]
     fn credit_balance_for_api_sums_sub_and_pack() {
         let row = CreditBalanceRecord {
-            subscription_remaining: 12.5,
-            subscription_total: 200.0,
-            pack_remaining: 7.5,
+            subscription_remaining: 12,
+            subscription_total: 200,
+            pack_remaining: 8,
         };
-        assert_eq!(credit_balance_for_api(Some(&row)), Some(20.0));
+        assert_eq!(credit_balance_for_api(Some(&row)), Some(20));
         assert_eq!(billing_usage_note(true), "metered");
     }
 
     #[test]
     fn credit_balance_for_api_zero_row_is_zero_not_null() {
         let row = CreditBalanceRecord {
-            subscription_remaining: 0.0,
-            subscription_total: 200.0,
-            pack_remaining: 0.0,
+            subscription_remaining: 0,
+            subscription_total: 200,
+            pack_remaining: 0,
         };
         // Zero is a real metered balance — not "unmetered".
-        assert_eq!(credit_balance_for_api(Some(&row)), Some(0.0));
+        assert_eq!(credit_balance_for_api(Some(&row)), Some(0));
     }
 }
 
@@ -1217,7 +1219,11 @@ pub async fn stripe_webhook(
                     };
                     db.upsert_subscription(&sub);
                     // Batch B3 — meter paid subscribers; free/unmetered stays null until row exists.
-                    db.init_credit_balance(user_id, DEFAULT_SUBSCRIPTION_CREDITS);
+                    if let Err(e) = db.init_credit_balance(user_id, DEFAULT_SUBSCRIPTION_CREDITS) {
+                        // Do not panic in a Stripe webhook handler — a failure
+                        // here must not stop the subscription being recorded.
+                        tracing::error!(user_id, "failed to init credit balance: {e}");
+                    }
                     db.record_billing_event(user_id, event_id, 0, "Subscription created", "completed");
                     tracing::info!("subscription created + credits init for user {user_id}");
                 }
