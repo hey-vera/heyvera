@@ -13,7 +13,7 @@ use serde::Deserialize;
 use crate::agent_auth::{generate_agent_api_key, SocialWriteAuth};
 use crate::clerk::ClerkUser;
 use crate::state::AppState;
-use rand::RngCore;
+use rand::Rng;
 use sha2::{Digest, Sha256};
 
 type ApiResponse = (StatusCode, Json<serde_json::Value>);
@@ -1626,7 +1626,7 @@ fn hash_community_invite_token(token: &str) -> String {
 /// Generate invite token: `hvinv_` + 24 CSPRNG bytes base64url. Returns (plaintext, hash).
 fn generate_community_invite_token() -> (String, String) {
     let mut bytes = [0u8; 24];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     let secret = format!("hvinv_{}", URL_SAFE_NO_PAD.encode(bytes));
     let hash = hash_community_invite_token(&secret);
     (secret, hash)
