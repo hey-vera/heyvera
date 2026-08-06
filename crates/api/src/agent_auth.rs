@@ -14,7 +14,7 @@ use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::Json;
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use rand::RngCore;
+use rand::Rng;
 use sha2::{Digest, Sha256};
 
 use crate::clerk::ClerkUser;
@@ -60,7 +60,7 @@ impl SocialWriteAuth {
 /// Returns `(plaintext_secret, display_prefix, sha256_hex_hash)`.
 pub fn generate_agent_api_key() -> (String, String, String) {
     let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    rand::rng().fill_bytes(&mut bytes);
     let secret = format!("hvak_{}", URL_SAFE_NO_PAD.encode(bytes));
     let prefix = agent_key_prefix(&secret);
     let hash = hash_agent_api_key(&secret);

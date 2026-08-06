@@ -1,7 +1,7 @@
+use aes_gcm::aead::rand_core::RngCore;
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
 use base64::Engine;
-use rand::RngCore;
 use sha2::{Sha256, Digest};
 
 const NONCE_LEN: usize = 12;
