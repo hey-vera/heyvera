@@ -82,6 +82,44 @@ commands the worker believes prove the work) and a fast-fail signal (a worker
 reporting its own failure short-circuits straight to FAILED without spending
 sandbox time). It just never substitutes for execution.
 
+### The gap this table does not close: untrusted as a *witness* is not untrusted as an *executor*
+
+Added 2026-08-05. The table above solves who may produce a verdict. It says
+nothing about what the worker may *do while producing the work*, and that is a
+separate and currently open problem.
+
+The worker executes LLM-authored code, on infrastructure Cortex owns, holding
+operator provider credentials. Under BYOK that risk was the user's — their
+machine, their key. Operator-funded keys move it onto us, and
+`ARCHITECTURE.md`'s amendment already flags that worktrees migrating onto our
+infrastructure is "new cost and a **new security boundary**". The verifier
+work hardened the *check runner* thoroughly — fresh container, `--network
+none`, read-only tree, `cap_drop: ALL`, empty environment — and gave the
+*execution* sandbox none of that treatment. PLAN task 3.4 says egress-denied
+by default and never put upstream keys in the sandbox env; that is a plan, not
+code.
+
+Stated plainly so it cannot be mistaken for solved: **an execution sandbox
+that can reach the network and read our provider keys is the "unattended
+laptop" inside our own architecture.** It does not affect verdict integrity —
+a compromised worker still cannot manufacture a pass — but it is the thing an
+enterprise security review will ask about first, and it precedes SOC 2 rather
+than being part of it.
+
+Useful external framing, from the 3Cs (Sekaran & Aleyner, Feb 2026):
+*contain, curate, control*. Mapping honestly onto what exists:
+
+| | Where Cortex stands |
+|---|---|
+| **Contain** | Done for verification (V1). **Not done for execution** (3.4) — the gap above. |
+| **Curate** | Strongest of the three, and arrived from the other direction: CONTEXT.md's C1–C4 restrict what a step sees for *quality* reasons and get the security property free. Tool-surface curation per step does not exist. |
+| **Control** | Partial. Resource leases (now claiming computed impact sets, C4), `budget_enforcer`, per-tenant spend caps (2.6), risk overlays. Outbound secret scanning (2.7) is unbuilt. **No general policy engine, deliberately** — building one speculatively is how a control plane becomes shelfware. |
+
+The framework's blind spot is worth noting too, because it is our product:
+containment bounds what a failure *costs*; it says nothing about whether the
+work was *correct*. A receipt does. Prevention is table stakes; proof is the
+thing a customer pays for.
+
 ---
 
 ## The gate
