@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router';
 import { BadgeCheck, RefreshCw } from 'lucide-react';
 import {
+  getReceipt,
   getRun,
   getVerifierReport,
   listRuns,
@@ -55,6 +56,15 @@ export default function ReceiptsPane() {
   const [scanError, setScanError] = useState<string | null>(null);
   const [payload, setPayload] = useState<VerifierReportPayload | null>(null);
   const [payloadError, setPayloadError] = useState<string | null>(null);
+  /**
+   * The independently-executed receipt, when V3 has one for this step.
+   *
+   * Fetched separately from the legacy report rather than read out of it:
+   * V3 stores verdicts in their own tables and serves them from their own
+   * endpoint, so the evidence blob on a `verifier_reports` row will never
+   * carry them.
+   */
+  const [receipt, setReceipt] = useState<Receipt | null>(null);
   const [loadingPayload, setLoadingPayload] = useState(false);
 
   const selected = useMemo(() => {
@@ -115,9 +125,23 @@ export default function ReceiptsPane() {
   useEffect(() => {
     setPayload(null);
     setPayloadError(null);
+    setReceipt(null);
     if (!selected) return;
     let cancelled = false;
     setLoadingPayload(true);
+
+    // Independent of the legacy fetch: a step can have a V3 receipt, a legacy
+    // report, or both, and neither failing should hide the other. A null here
+    // is the ordinary answer for anything verified before V3 shipped.
+    void getReceipt(selected.runId, selected.stepId)
+      .then((next) => {
+        if (!cancelled) setReceipt(next);
+      })
+      .catch(() => {
+        // Leave `receipt` null and let the legacy report render. A receipt
+        // that cannot be loaded must never be shown as a verdict.
+      });
+
     void getVerifierReport(selected.runId, selected.stepId, selected.reportId)
       .then((next) => {
         if (!cancelled) setPayload(next);
@@ -135,7 +159,10 @@ export default function ReceiptsPane() {
     };
   }, [selected]);
 
-  const v6 = payload ? asV6Receipt(payload) : null;
+  // Prefer the independently-executed receipt. `asV6Receipt` remains as the
+  // fallback for evidence blobs that embedded a gate before V3 had its own
+  // tables, so no already-rendered receipt regresses.
+  const v6 = receipt ?? (payload ? asV6Receipt(payload) : null);
 
   return (
     <>

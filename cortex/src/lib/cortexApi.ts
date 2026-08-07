@@ -1676,6 +1676,64 @@ export async function getVerifierReport(
   );
 }
 
+// --- V3 receipts: checks Cortex executed itself -------------------------
+//
+// Distinct from getVerifierReport above, which serves worker-reported
+// evidence. This is the artifact a charge is bound to, and the only one that
+// can honestly be called independent.
+
+/** One check as Cortex executed it. Mirrors `cortex_core::verification`. */
+export interface ReceiptCheckExecution {
+  spec_id: string;
+  exit_code: number | null;
+  outcome: 'passed' | 'failed' | 'timed_out' | 'not_executed';
+  duration_ms: number;
+  output_digest: string;
+  output_tail: string;
+  runner_image: string;
+}
+
+/** The gate, recomputed server-side from the frozen specs and executions. */
+export interface ReceiptVerdictReport {
+  verdict: 'verified' | 'failed' | 'inconclusive' | 'unverified';
+  required_total: number;
+  required_passed: number;
+  failed: string[];
+  not_executed: string[];
+}
+
+/** `crates/api/src/db.rs::Receipt`, as served. */
+export interface ReceiptPayload {
+  verification_id: string;
+  run_id: string;
+  step_id: string;
+  attempt: number;
+  tree_hash: string;
+  gate: ReceiptVerdictReport;
+  executions: ReceiptCheckExecution[];
+}
+
+/**
+ * The receipt for a step, or `null` when no verification exists for it.
+ *
+ * A 404 is the normal answer for any step verified before V3 shipped, or one
+ * whose verification has not finished. It is not an error state and must not
+ * be rendered as one — the caller falls back to the legacy report.
+ */
+export async function getReceipt(
+  runId: string,
+  stepId: string,
+): Promise<ReceiptPayload | null> {
+  try {
+    return await requestJson<ReceiptPayload>(
+      `/api/runs/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepId)}/receipt`,
+    );
+  } catch (err) {
+    if (err instanceof CortexApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
 export async function getTaskProjection(groupId: string, taskId: string): Promise<TaskProjection> {
   return requestJson<TaskProjection>(
     `/api/groups/${encodeURIComponent(groupId)}/tasks/${encodeURIComponent(taskId)}/projection`,
