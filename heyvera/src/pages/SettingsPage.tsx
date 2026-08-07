@@ -27,7 +27,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router';
 import { useAuth } from '../hooks/useAuth';
 import { useMyProfile } from '../hooks/useMyProfile';
 import {

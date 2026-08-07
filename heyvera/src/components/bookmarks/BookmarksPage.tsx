@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import type { FeedPost } from "../../api/social";
 import type { ShellState } from "../../hooks/useShellState";
 

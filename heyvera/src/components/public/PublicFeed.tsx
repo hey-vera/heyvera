@@ -1,5 +1,5 @@
 import { useState, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import { FeedCard } from "../shared/FeedCard";
 import { ComposePost } from "../shared/ComposePost";
 import { useHomeFeed } from "../../hooks/useHomeFeed";

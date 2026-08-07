@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import { AtSign, Heart, MessageCircle, Repeat2, UserPlus } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import {
   approveFollowRequest,
   fetchFollowRequests,

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router";
 import { useProfiles } from "../../hooks/useProfiles";
 import { useCommunities } from "../../hooks/useCommunities";
 import type { ShellState } from "../../hooks/useShellState";

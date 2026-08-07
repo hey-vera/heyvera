@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import { ArrowLeft, MessageCircle, Search, Send, ShieldAlert } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import type { Conversation, Message, MessageRequest } from '../api/types';
 import {
   acceptMessageRequest,

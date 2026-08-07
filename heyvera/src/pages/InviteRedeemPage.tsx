@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 import { SignInButton } from '@clerk/clerk-react';
 import { redeemCommunityInvite } from '../api/social';
 import type { Community } from '../api/social';
