@@ -175,3 +175,27 @@ consumers are real.
 Sequencing: C1 is standalone and ships first. C2→C3→C4 in order. C4 is the
 enterprise demo. Embeddings get a number only after C3 has a measured recall
 gap to cite.
+
+---
+
+## Amendments — 2026-08-06 (grounding in [RESEARCH-2026-08.md](RESEARCH-2026-08.md))
+
+**A1 — C3 packing is a correctness requirement, not an optimization.** The
+research pass upgrades C3's status: long-context degradation begins well
+before window limits (Chroma "Context Rot"; lost-in-the-middle), and
+scoped-per-step contexts are the strongest reliability lever in the 2025–26
+agent literature (−39% multi-turn penalty when state accumulates,
+arXiv 2505.06120). Two concrete additions to C3's scope: (a) a per-attempt
+context budget with mandatory compaction at the boundary, and (b) **packed
+context size recorded in run evidence** — a step that needed an outsized
+context is both a margin problem and a quality risk, and correlating verdicts
+against context size is a dataset only a product with verdicts can build.
+
+**A2 — Plan lint, a future fifth consumer (after C4; advisory only).** Between
+decompose and execute: deterministic structural rules first (a leaf with an
+empty check union not labeled UNVERIFIED; a leaf whose impact set exceeds its
+lease claim; a DAG edge with no data dependency), then at most one
+fresh-context model pass flagging specification-class defects — ambiguity,
+missing constraints, the 41.8% top failure class in production multi-agent
+systems (MAST, arXiv 2503.13657). Output is *annotations* on the plan,
+never a block — models propose, never grade, including about plans.
