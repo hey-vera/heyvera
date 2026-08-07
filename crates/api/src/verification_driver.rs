@@ -122,6 +122,21 @@ pub async fn verify_delivery<R: CheckRunner>(
 ) -> Option<Verdict> {
     let specs = db.load_check_specs(&facts.run_id, &facts.step_id);
 
+    // Nothing was frozen for this step, so it is not a step this machinery
+    // attaches to — read-only work (Search/Think/Review/Gate) never has specs
+    // frozen for it. Claiming a verification here would mint a verdict of
+    // `Unverified`, and `Unverified` *is* billable, so a Think step would
+    // charge. Verification attaches to steps that change trees and to nothing
+    // else (VERIFIER.md, "what not to do").
+    if specs.is_empty() {
+        tracing::debug!(
+            run_id = %facts.run_id,
+            step_id = %facts.step_id,
+            "no frozen checks for this step; nothing to verify"
+        );
+        return None;
+    }
+
     let verification_id = db.claim_verification(
         &facts.run_id,
         &facts.step_id,
@@ -129,14 +144,6 @@ pub async fn verify_delivery<R: CheckRunner>(
         &facts.head_commit,
         runner.runner_image(),
     )?;
-
-    // No derivable checks is a real product state (`Unverified`), not an
-    // error, and it must still produce a receipt. Skip the container entirely.
-    if specs.is_empty() {
-        let verdict = cortex_core::verification::compute_verdict(&[], &[]).verdict;
-        finish_and_bill(db, &verification_id, verdict, facts).await;
-        return Some(verdict);
-    }
 
     let checkout = match TreeCheckout::create(&facts.workspace_dir, &facts.head_commit) {
         Ok(c) => c,
