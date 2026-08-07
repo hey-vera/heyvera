@@ -47,15 +47,23 @@ async fn main() {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| ".".into()));
 
-    let clerk_secret_key = std::env::var("CLERK_SECRET_KEY").ok().filter(|s| !s.is_empty());
+    let auth_config = cortex_api::clerk::load_heyvera_auth_config().unwrap_or_else(|error| {
+        tracing::error!(%error, "invalid HeyVera authentication configuration");
+        std::process::exit(78);
+    });
 
-    if clerk_secret_key.is_some() {
-        tracing::info!("auth: Clerk JWT verification enabled");
-    } else {
-        tracing::info!("auth: disabled (no CLERK_SECRET_KEY)");
+    match auth_config.mode {
+        cortex_api::clerk::HeyVeraAuthMode::Clerk => {
+            tracing::info!("auth: Clerk JWT verification enabled");
+        }
+        cortex_api::clerk::HeyVeraAuthMode::LocalDevelopment => {
+            tracing::warn!(
+                "auth: local development identity enabled; never use this mode in production"
+            );
+        }
     }
 
-    let state = AppState::new(ledger_path, workspace_dir, clerk_secret_key).await;
+    let state = AppState::new(ledger_path, workspace_dir, auth_config.clerk_secret_key).await;
 
     let app = cortex_api::build_heyvera_router(state.clone());
 

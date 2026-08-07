@@ -16,7 +16,7 @@ import {
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { fetchUnreadNotificationCount, getConversations } from "../../api/social";
+import { fetchUnreadNotificationCount, getConversationUnreadCount } from "../../api/social";
 import { useAuth } from "../../hooks/useAuth";
 import { useVisibilityPoll } from "../../hooks/useVisibilityPoll";
 import { inboxAriaLabel } from "../../utils/inboxAriaLabel";
@@ -113,9 +113,8 @@ export function TopBar({ activeRoute, onNavigate, onCreateAction, onProfileClick
         setDmUnreadCount(0);
         return;
       }
-      const convos = await getConversations(token);
-      const sum = convos.reduce((acc, c) => acc + (c.unread_count ?? 0), 0);
-      setDmUnreadCount(sum);
+      const count = await getConversationUnreadCount(token);
+      setDmUnreadCount(count);
     } catch {
       // quiet poll
     }

@@ -335,7 +335,11 @@ function CredentialsTab({ isAdmin }: { isAdmin?: boolean }) {
   const [credentials, setCredentials] = useState<ProviderAuthInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [addingProvider, setAddingProvider] = useState<string | null>(null);
-  const [addType, setAddType] = useState<'subscription' | 'api_key'>('subscription');
+  // Operator-funded model: credentials are operator API keys. Subscription
+  // (OAuth) credentials are not a supported path — Anthropic's Feb 2026 terms
+  // update prohibits subscription tokens in third-party tools (enforced from
+  // 2026-04-04). See cortex/plan/PLAN-2026-08.md §3.
+  const addType: 'subscription' | 'api_key' = 'api_key';
   const [codeInput, setCodeInput] = useState('');
   const [labelInput, setLabelInput] = useState('');
   const [submitting, setSubmitting] = useState(false);
@@ -579,25 +583,10 @@ function CredentialsTab({ isAdmin }: { isAdmin?: boolean }) {
         {!addingProvider ? (
           <div className="flex flex-col gap-3">
             {isAdmin && (
-              <div className="flex items-center gap-2 mb-2">
-                <label className="text-xs text-[var(--muted)]">Type:</label>
-                <button
-                  onClick={() => setAddType('subscription')}
-                  className={`rounded px-2 py-1 text-xs transition ${
-                    addType === 'subscription' ? 'bg-[var(--accent)] text-white' : 'bg-white/6 text-[var(--muted)] hover:text-white'
-                  }`}
-                >
-                  Subscription
-                </button>
-                <button
-                  onClick={() => setAddType('api_key')}
-                  className={`rounded px-2 py-1 text-xs transition ${
-                    addType === 'api_key' ? 'bg-[var(--accent)] text-white' : 'bg-white/6 text-[var(--muted)] hover:text-white'
-                  }`}
-                >
-                  API Key (Admin)
-                </button>
-              </div>
+              <p className="mb-2 text-xs text-[var(--muted)]">
+                Operator API keys. Subscription credentials are not supported —
+                provider terms prohibit subscription tokens in third-party tools.
+              </p>
             )}
             <div className="flex gap-2">
               <button
@@ -618,9 +607,7 @@ function CredentialsTab({ isAdmin }: { isAdmin?: boolean }) {
           <div className="rounded-lg border border-white/8 bg-white/[0.02] p-4">
             <div className="flex items-center justify-between mb-3">
               <span className="text-sm font-medium text-white">
-                {addType === 'subscription'
-                  ? `Connect ${addingProvider === 'claude' ? 'Claude' : 'OpenAI'} Subscription`
-                  : `Add ${addingProvider === 'claude' ? 'Claude' : 'OpenAI'} API Key`}
+                {`Add ${addingProvider === 'claude' ? 'Claude' : 'OpenAI'} API Key`}
               </span>
               <button onClick={handleCancelAdd} className="text-xs text-[var(--muted)] hover:text-white">
                 Cancel
@@ -642,9 +629,7 @@ function CredentialsTab({ isAdmin }: { isAdmin?: boolean }) {
                   rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 rounded-lg bg-[var(--accent)] px-4 py-2.5 text-sm font-medium text-white hover:opacity-90 transition"
                 >
-                  {addType === 'subscription'
-                    ? `Sign in to ${addingProvider === 'claude' ? 'Claude' : 'OpenAI'}`
-                    : `Open ${addingProvider === 'claude' ? 'Anthropic Console' : 'OpenAI Platform'}`}
+                  {`Open ${addingProvider === 'claude' ? 'Anthropic Console' : 'OpenAI Platform'}`}
                   <ExternalLink className="h-3.5 w-3.5" />
                 </a>
               </div>

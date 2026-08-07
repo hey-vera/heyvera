@@ -67,11 +67,16 @@ Copy from `heyvera/.env.example`.
 
 | Variable | Required | Notes |
 |---|---|---|
-| `CLERK_SECRET_KEY` | For real auth | Without it, server logs auth disabled (dev-friendly). |
-| `HEYVERA_ENV` | Prod | Use `production` (or set `HEYVERA_REQUIRE_AUTH`) so missing Clerk fails closed. Also reads `APP_ENV` / `RUST_ENV`. |
+| `CLERK_SECRET_KEY` | Production | Clerk backend secret used to retrieve JWT verification keys. |
+| `CLERK_ISSUER` | Production | Exact HTTPS Clerk issuer. Missing/malformed values stop production startup. |
+| `CLERK_AUTHORIZED_PARTY` | Production | Exact HTTPS frontend origin expected in JWT `azp`. Missing/malformed values stop production startup. |
+| `HEYVERA_ENV` | Production | Use `production` (or `HEYVERA_REQUIRE_AUTH=1`). Also reads `APP_ENV`, `RUST_ENV`, `CORTEX_ENV`, and `ENVIRONMENT`. |
 | `HEYVERA_PORT` | Optional | Default `3002`. Use `3402` with local Vite proxy. |
 | `HEYVERA_LEDGER_PATH` | Optional | Default `.heyvera/ledger.jsonl`. |
 | `HEYVERA_WORKSPACE` | Optional | Workspace dir for the process. |
+
+`CORTEX_AUTH_DISABLED=1` is a local-development convenience only. The server rejects it in every
+strict/production auth posture and exits before opening a port.
 
 ### Storage (optional — media upload / public URLs)
 
@@ -137,7 +142,7 @@ Dark is the product default. Light mode is an optional preference (`localStorage
 ### No sign-in UI
 
 - Set `VITE_CLERK_PUBLISHABLE_KEY` for the frontend.
-- Set `CLERK_SECRET_KEY` on the server for JWT verification.
+- Set `CLERK_SECRET_KEY`, `CLERK_ISSUER`, and `CLERK_AUTHORIZED_PARTY` on the server.
 
 ### Wrong directory
 

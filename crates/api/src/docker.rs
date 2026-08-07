@@ -20,6 +20,11 @@ const BYOS_IMAGE: &str = "cortex-byos:latest";
 const IDLE_TIMEOUT_SECS: i64 = 900;
 const CONTAINER_CPU_QUOTA: i64 = 100_000;
 const CONTAINER_MEMORY: i64 = 512 * 1024 * 1024;
+/// Enough for a provider CLI and the processes it spawns, far short of a fork
+/// bomb. Unlike the other limits this one cannot break a workload that was
+/// behaving — a container legitimately needing 512 processes to log in does
+/// not exist.
+const CONTAINER_PIDS_LIMIT: i64 = 512;
 
 pub struct ContainerManager {
     docker: Docker,
@@ -147,7 +152,27 @@ impl ContainerManager {
                 cpu_quota: Some(CONTAINER_CPU_QUOTA),
                 memory: Some(CONTAINER_MEMORY),
                 memory_swap: Some(CONTAINER_MEMORY),
+                pids_limit: Some(CONTAINER_PIDS_LIMIT),
                 security_opt: Some(vec!["no-new-privileges:true".into()]),
+                // Two hardening measures the check runner has and this
+                // deliberately does not, because they would change behaviour
+                // that cannot be tested from CI (there is no Docker daemon in
+                // the `rust` job) and this path is how a user connects their
+                // credentials — breaking it breaks onboarding:
+                //
+                //   network_mode "none" — impossible here by design. A
+                //     provider CLI has to reach the provider. What this needs
+                //     instead is an egress allowlist per provider (PLAN 3.4),
+                //     which means a proxy or a custom network, not a flag.
+                //   cap_drop ALL — almost certainly safe for a userspace CLI,
+                //     but "almost certainly" is not a claim to ship untested
+                //     onto the credential path. It wants one manual run
+                //     against a real daemon first.
+                //
+                // Recorded rather than silently omitted: VERIFIER.md's
+                // executor trust gap is about exactly this container, and the
+                // gap between "the check runner is hardened" and "the executor
+                // is hardened" should be visible where the executor is built.
                 ..Default::default()
             }),
             ..Default::default()

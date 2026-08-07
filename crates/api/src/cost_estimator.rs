@@ -138,6 +138,9 @@ impl CostEstimator {
             ("gemini", m) if m.contains("flash") => (0.00015, 0.0006),
             ("gemini", m) if m.contains("pro") => (0.00125, 0.005),
             ("gemini", _) => (0.00035, 0.001),
+            // Deliberately frontier-priced until measured against a real Zen
+            // invoice — overestimating COGS is the safe direction. Task 1.4.
+            ("zen", _) => (0.003, 0.015),
             _ => (0.003, 0.015),
         }
     }

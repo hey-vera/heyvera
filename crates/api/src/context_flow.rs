@@ -305,6 +305,7 @@ impl ContextBus {
                 predecessor_summaries: Vec::new(),
                 user_goal: user_goal.to_string(),
                 conversation_excerpt,
+                repo_map: None,
             };
         }
 
@@ -325,6 +326,7 @@ impl ContextBus {
                             predecessor_summaries: Vec::new(),
                             user_goal: user_goal.to_string(),
                             conversation_excerpt,
+                            repo_map: None,
                         }
                     }
                 }
@@ -340,6 +342,7 @@ impl ContextBus {
                     predecessor_summaries: Vec::new(),
                     user_goal: user_goal.to_string(),
                     conversation_excerpt,
+                    repo_map: None,
                 }
             }
         }
@@ -486,6 +489,7 @@ impl ContextBus {
             predecessor_summaries,
             user_goal: user_goal.to_string(),
             conversation_excerpt,
+            repo_map: None,
         };
 
         tracing::debug!(

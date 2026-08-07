@@ -10,6 +10,12 @@ const REGISTRY: &[(ProviderId, Tier, &str, &str)] = &[
     (ProviderId::Gemini, Tier::Search, "gemini-2.5-flash", "gemini"),
     (ProviderId::Gemini, Tier::Execute, "gemini-2.5-pro", "gemini"),
     (ProviderId::Gemini, Tier::Think, "gemini-2.5-pro", "gemini"),
+    // OpenCode Zen model IDs (opencode.ai/docs/zen). "zen" is a label, not a
+    // CLI — the provider is API-only. Picks are uncalibrated defaults; Phase
+    // 2.5's eval suite owns revising them.
+    (ProviderId::Zen, Tier::Search, "glm-5", "zen"),
+    (ProviderId::Zen, Tier::Execute, "glm-5.2", "zen"),
+    (ProviderId::Zen, Tier::Think, "kimi-k3", "zen"),
 ];
 
 pub fn resolve_model(provider: ProviderId, tier: Tier) -> Option<ProviderModel> {
@@ -40,5 +46,14 @@ mod tests {
         let m = resolve_model(ProviderId::Openai, Tier::Think).unwrap();
         assert_eq!(m.model_id, "gpt-5.5");
         assert_eq!(m.cli_command, "codex");
+    }
+
+    #[test]
+    fn resolves_zen_for_every_tier() {
+        for tier in [Tier::Search, Tier::Execute, Tier::Think] {
+            let m = resolve_model(ProviderId::Zen, tier).unwrap();
+            assert!(!m.model_id.is_empty());
+            assert_eq!(m.cli_command, "zen");
+        }
     }
 }

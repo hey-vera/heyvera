@@ -1,6 +1,7 @@
 [package]
 name = "cortex-api"
 version.workspace = true
+publish = false  # proprietary; never goes to crates.io
 edition.workspace = true
 license.workspace = true
 description = "HTTP API server for Cortex orchestration engine"
@@ -16,6 +17,7 @@ path = "src/main.rs"
 [dependencies]
 cortex-core = { path = "../core" }
 cortex-engine = { path = "../engine" }
+cortex-context = { path = "../context" }
 cortex-worker = { path = "../worker" }
 soma = { path = "../soma" }
 soma-core = { path = "../soma-core" }

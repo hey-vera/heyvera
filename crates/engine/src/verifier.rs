@@ -59,7 +59,7 @@ impl VerifierWorkContract {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct StructuredStepEvidence {
     pub step_id: Option<String>,
     pub attempt_id: Option<String>,
@@ -906,5 +906,191 @@ mod tests {
             .evidence_floor
             .missing
             .contains(&"Independent review required for critical code".to_string()));
+    }
+}
+
+// ─── V5: verdicts from Cortex-run executions, not from worker claims ───
+
+use cortex_core::verification::{
+    compute_verdict, CheckExecution, CheckSpec, Verdict, VerdictReport,
+};
+
+/// A verdict computed from checks Cortex executed itself, with the worker's
+/// own account of events retained only as a hint.
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct ExecutedVerification {
+    pub verdict: VerifierVerdict,
+    pub next_action: VerifierNextAction,
+    /// The deterministic result, with its reasoning, exactly as
+    /// `compute_verdict` produced it.
+    pub gate: VerdictReport,
+    /// Everything the worker said, summarized. Present because it is useful
+    /// for debugging and short-circuiting, and *only* for that: nothing in
+    /// here can change `verdict`.
+    pub worker_hints: VerifierReport,
+}
+
+/// Verify a step from executed checks.
+///
+/// This is the V5 boundary. `verify_contract_evidence` grades what the worker
+/// reported about itself — the least trustworthy witness available, since in
+/// the server-held-key model that worker is executing LLM-authored output.
+/// This function grades what Cortex ran, and demotes the worker's account to
+/// a hint that travels alongside the verdict without influencing it.
+///
+/// The mapping to the existing `VerifierVerdict` vocabulary is deliberate:
+///
+/// - `Verified` → `Success`, accept.
+/// - `Failed` → `Failed`, fix and retry.
+/// - `Inconclusive` → `Blocked`. Not `Failed`: a dead runner must never refund
+///   a customer or charge one. Blocked is the only existing variant that means
+///   "stop, this is ours to fix", which is exactly right.
+/// - `Unverified` → `NeedsEvidence`. The work may still be sold at the normal
+///   rate, but without the badge and without the refund promise, and calling
+///   it `Success` here would quietly launder an unverifiable task into a
+///   verified one.
+pub fn verify_from_executions(
+    contract: &VerifierWorkContract,
+    worker_evidence: &StructuredStepEvidence,
+    specs: &[CheckSpec],
+    executions: &[CheckExecution],
+) -> ExecutedVerification {
+    let gate = compute_verdict(specs, executions);
+
+    let (verdict, next_action) = match gate.verdict {
+        Verdict::Verified => (VerifierVerdict::Success, VerifierNextAction::Accept),
+        Verdict::Failed => (VerifierVerdict::Failed, VerifierNextAction::FixAndRetry),
+        Verdict::Inconclusive => (VerifierVerdict::Blocked, VerifierNextAction::FixAndRetry),
+        Verdict::Unverified => (
+            VerifierVerdict::NeedsEvidence,
+            VerifierNextAction::AddEvidence,
+        ),
+    };
+
+    ExecutedVerification {
+        verdict,
+        next_action,
+        gate,
+        worker_hints: verify_contract_evidence(contract, worker_evidence),
+    }
+}
+
+#[cfg(test)]
+mod executed_tests {
+    use super::*;
+    use cortex_core::routing::RiskLevel;
+    use cortex_core::verification::{CheckOutcome, CheckSource};
+
+    fn contract() -> VerifierWorkContract {
+        VerifierWorkContract {
+            task_id: None,
+            objective: "do the thing".into(),
+            risk: RiskLevel::Low,
+            acceptance_criteria: Vec::new(),
+            allowed_paths: Vec::new(),
+            expected_base_commit: None,
+        }
+    }
+
+    fn spec(id: &str) -> CheckSpec {
+        CheckSpec {
+            id: id.into(),
+            source: CheckSource::Ecosystem,
+            command: vec!["cargo".into(), "test".into()],
+            timeout_secs: 600,
+            required: true,
+        }
+    }
+
+    fn execution(id: &str, outcome: CheckOutcome) -> CheckExecution {
+        CheckExecution {
+            spec_id: id.into(),
+            exit_code: Some(if matches!(outcome, CheckOutcome::Passed) { 0 } else { 1 }),
+            outcome,
+            duration_ms: 10,
+            output_digest: "sha256:x".into(),
+            output_tail: String::new(),
+            runner_image: "img@sha256:y".into(),
+        }
+    }
+
+    /// The whole point of V5: a worker claiming success cannot produce one.
+    #[test]
+    fn a_lying_worker_cannot_manufacture_a_pass() {
+        let mut evidence = StructuredStepEvidence::default();
+        evidence.exit_code = Some(0);
+        evidence.checks = vec![CheckEvidence {
+            name: "cargo:test".into(),
+            status: CheckStatus::Passed,
+            summary: Some("all green, honest".into()),
+        }];
+
+        let result = verify_from_executions(
+            &contract(),
+            &evidence,
+            &[spec("ecosystem:cargo-test")],
+            &[execution("ecosystem:cargo-test", CheckOutcome::Failed)],
+        );
+
+        assert_eq!(result.verdict, VerifierVerdict::Failed);
+        assert_eq!(result.gate.failed, vec!["ecosystem:cargo-test".to_string()]);
+    }
+
+    #[test]
+    fn executed_passes_produce_success() {
+        let result = verify_from_executions(
+            &contract(),
+            &StructuredStepEvidence::default(),
+            &[spec("a")],
+            &[execution("a", CheckOutcome::Passed)],
+        );
+        assert_eq!(result.verdict, VerifierVerdict::Success);
+        assert_eq!(result.next_action, VerifierNextAction::Accept);
+    }
+
+    #[test]
+    fn an_unrunnable_check_blocks_rather_than_failing() {
+        // A dead runner must never refund a customer or charge one.
+        let result = verify_from_executions(
+            &contract(),
+            &StructuredStepEvidence::default(),
+            &[spec("a")],
+            &[execution("a", CheckOutcome::NotExecuted)],
+        );
+        assert_eq!(result.verdict, VerifierVerdict::Blocked);
+        assert!(!result.gate.verdict.has_billing_effect());
+    }
+
+    #[test]
+    fn nothing_derivable_is_not_quietly_a_success() {
+        let result = verify_from_executions(
+            &contract(),
+            &StructuredStepEvidence::default(),
+            &[],
+            &[],
+        );
+        assert_eq!(result.verdict, VerifierVerdict::NeedsEvidence);
+        assert_eq!(result.gate.verdict, Verdict::Unverified);
+    }
+
+    #[test]
+    fn worker_evidence_survives_as_a_hint() {
+        let mut evidence = StructuredStepEvidence::default();
+        evidence.commands = vec![CommandEvidence {
+            command: "cargo test".into(),
+            exit_code: Some(0),
+            summary: None,
+        }];
+
+        let result = verify_from_executions(
+            &contract(),
+            &evidence,
+            &[spec("a")],
+            &[execution("a", CheckOutcome::Passed)],
+        );
+
+        // Retained for debugging, and demonstrably not load-bearing: the
+        // verdict above came from the execution, not from this.
+        assert_eq!(result.worker_hints.command_summary.total, 1);
     }
 }

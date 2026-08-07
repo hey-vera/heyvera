@@ -133,6 +133,27 @@ request path that takes down the handler. Return `Result`.
 
 ## Target schema
 
+> **Reconciliation — read this before writing code against the names below.**
+> The SQL in this section was the *design draft*. PR #437 (migration v60)
+> implemented the decision differently in naming and shape, and **the
+> implementation is what you build against**:
+>
+> | Drafted here | Actually shipped in v60 |
+> |---|---|
+> | new table `credit_ledger` | `credit_transactions` itself, rebuilt (`credit_transactions_v60` → renamed in place) |
+> | `delta INTEGER` | `amount INTEGER` |
+> | `bucket` | `balance_type` |
+> | `user_id` | `clerk_user_id` |
+> | `credit_balances.*_remaining_i` | `credit_balances` rebuilt as `credit_balances_v60` → renamed, integer columns keep their original names |
+>
+> `idempotency_key TEXT NOT NULL UNIQUE`, the `reason` column, and `run_id` /
+> `step_id` all shipped as designed; pre-existing rows carry
+> `reason = 'legacy'` and `idempotency_key = 'legacy:' || id`. `provider_spend`
+> shipped as written. **Every decision in this document holds** — integers,
+> idempotency, append-only ledger, two-ledger separation — only the names
+> changed, and rebuild-in-place replaced the additive-column approach below.
+> [VERIFIER.md](VERIFIER.md)'s billing binding already uses the shipped name.
+
 Additive migration. Nothing below drops a column; the existing REAL columns are
 kept until the integer columns are backfilled and reconciled.
 

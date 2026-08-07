@@ -187,6 +187,10 @@ pub struct ChatMessage {
 pub enum Provider {
     Claude,
     Openai,
+    /// OpenCode Zen — OpenAI-compatible gateway (GLM, Kimi, Qwen, Grok under
+    /// one key). API-only: no CLI, no subscription auth. Every CLI path below
+    /// must reject it; only the API paths may serve it.
+    Zen,
 }
 
 impl Provider {
@@ -194,6 +198,7 @@ impl Provider {
         match s {
             "claude" | "anthropic" => Some(Self::Claude),
             "openai" | "codex" | "gpt" => Some(Self::Openai),
+            "zen" | "opencode" | "opencode-zen" => Some(Self::Zen),
             _ => None,
         }
     }
@@ -202,6 +207,7 @@ impl Provider {
         match self {
             Self::Claude => "claude",
             Self::Openai => "openai",
+            Self::Zen => "zen",
         }
     }
 
@@ -209,9 +215,24 @@ impl Provider {
         match self {
             Self::Claude => "claude-sonnet-4-6",
             Self::Openai => "gpt-4.1-mini",
+            Self::Zen => "glm-5.2",
+        }
+    }
+
+    /// Environment variable holding the OPERATOR's API key for this provider.
+    pub fn api_key_env(&self) -> &'static str {
+        match self {
+            Self::Claude => "ANTHROPIC_API_KEY",
+            Self::Openai => "OPENAI_API_KEY",
+            Self::Zen => "OPENCODE_ZEN_API_KEY",
         }
     }
 }
+
+/// OpenAI-compatible chat-completions endpoints, one per provider that
+/// speaks the dialect. Claude is deliberately absent — it uses /v1/messages.
+const OPENAI_CHAT_COMPLETIONS_URL: &str = "https://api.openai.com/v1/chat/completions";
+const ZEN_CHAT_COMPLETIONS_URL: &str = "https://opencode.ai/zen/v1/chat/completions";
 
 // --- tmpfs credential isolation ---
 
@@ -299,15 +320,15 @@ pub async fn stream_chat_cli(
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
 
-    let api_key_available = fallback_enabled
-        && match provider {
-            Provider::Claude => std::env::var("ANTHROPIC_API_KEY").is_ok(),
-            Provider::Openai => std::env::var("OPENAI_API_KEY").is_ok(),
-        };
+    let api_key_available =
+        fallback_enabled && std::env::var(provider.api_key_env()).is_ok();
 
     let result = match provider {
         Provider::Claude => stream_claude_cli(model, system_prompt, user_message, tx.clone()).await,
         Provider::Openai => stream_codex_cli(model, system_prompt, user_message, tx.clone()).await,
+        // API-only: falls through to the fallback arm below, which is the
+        // only way a Zen request can be served on this path.
+        Provider::Zen => Err("OpenCode Zen is API-only — no CLI to spawn".to_string()),
     };
 
     // If CLI failed and operator-funded fallback is explicitly enabled, use it.
@@ -323,10 +344,7 @@ pub async fn stream_chat_cli(
                 "CLI auth failed; falling back to OPERATOR-FUNDED API key (unmetered): {cli_error}"
             );
 
-            let api_key = match provider {
-                Provider::Claude => std::env::var("ANTHROPIC_API_KEY").unwrap(),
-                Provider::Openai => std::env::var("OPENAI_API_KEY").unwrap(),
-            };
+            let api_key = std::env::var(provider.api_key_env()).unwrap();
 
             let messages = vec![ChatMessage {
                 role: "user".to_string(),
@@ -335,9 +353,17 @@ pub async fn stream_chat_cli(
 
             stream_chat_api(provider, &api_key, model, system_prompt, &messages, tx).await
         } else {
+            if matches!(provider, Provider::Zen) {
+                return Err(format!(
+                    "{cli_error} - Set OPENCODE_ZEN_API_KEY together with \
+                     CORTEX_PLATFORM_FALLBACK=1 to run Zen models on the \
+                     operator's key, or supply a Zen key via the BYOK API path."
+                ));
+            }
             let (env_var, cli_login) = match provider {
                 Provider::Claude => ("ANTHROPIC_API_KEY", "claude auth login"),
                 Provider::Openai => ("OPENAI_API_KEY", "codex login --device-auth"),
+                Provider::Zen => unreachable!("returned above: Zen has no CLI"),
             };
             // Distinguish "no key" from "key present but fallback withheld", so
             // the operator is not told to set a variable that is already set.
@@ -392,6 +418,11 @@ pub async fn stream_chat_cli_isolated(
                 .map_err(|e| format!("failed to create .codex dir: {e}"))?;
             tmpdir.write_credential_file(".codex/auth.json", credential_data)?;
         }
+        Provider::Zen => {
+            return Err(
+                "OpenCode Zen is API-only — no CLI credentials to isolate".to_string(),
+            );
+        }
     }
 
     let model_str = model.unwrap_or(provider.default_model());
@@ -437,6 +468,7 @@ pub async fn stream_chat_cli_isolated(
 
             spawn_and_stream_codex(cmd, &cli_path, timeout, tx).await
         }
+        Provider::Zen => unreachable!("rejected above: Zen has no CLI"),
     };
 
     // tmpdir drops here, wiping credentials from tmpfs
@@ -463,6 +495,11 @@ pub async fn stream_chat_via_container(
     let timeout = cli_timeout();
 
     let cmd: Vec<String> = match provider {
+        Provider::Zen => {
+            return Err(
+                "OpenCode Zen is API-only — it cannot run in a CLI container".to_string(),
+            )
+        }
         Provider::Claude => vec![
             "claude".into(),
             "-p".into(),
@@ -513,7 +550,9 @@ pub async fn stream_chat_via_container(
                         }
                     }
                 }
-                Provider::Openai => {
+                // Zen is unreachable (rejected before spawn); raw lines is the
+                // safe behavior for any OpenAI-compatible output regardless.
+                Provider::Openai | Provider::Zen => {
                     while let Some(chunk) = raw_rx.recv().await {
                         for line in chunk.lines() {
                             let trimmed = line.trim();
@@ -856,22 +895,22 @@ pub async fn chat_completion(
         Provider::Claude => {
             complete_anthropic_api(api_key, model, system_prompt, messages).await
         }
-        Provider::Openai => complete_openai_api(api_key, model, system_prompt, messages).await,
+        Provider::Openai | Provider::Zen => {
+            complete_openai_compatible_api(provider, api_key, model, system_prompt, messages)
+                .await
+        }
     }
 }
 
 /// Resolve server-side LLM credentials for Pulse tools_v2 (honest: None if no keys).
+/// Order is preference order: Claude, then OpenAI, then Zen.
 pub fn resolve_server_llm() -> Option<(Provider, String)> {
-    if let Ok(key) = std::env::var("ANTHROPIC_API_KEY") {
-        let key = key.trim().to_string();
-        if !key.is_empty() {
-            return Some((Provider::Claude, key));
-        }
-    }
-    if let Ok(key) = std::env::var("OPENAI_API_KEY") {
-        let key = key.trim().to_string();
-        if !key.is_empty() {
-            return Some((Provider::Openai, key));
+    for provider in [Provider::Claude, Provider::Openai, Provider::Zen] {
+        if let Ok(key) = std::env::var(provider.api_key_env()) {
+            let key = key.trim().to_string();
+            if !key.is_empty() {
+                return Some((provider, key));
+            }
         }
     }
     None
@@ -938,14 +977,26 @@ async fn complete_anthropic_api(
     Ok(text)
 }
 
-async fn complete_openai_api(
+/// Chat-completions endpoint for a provider that speaks the OpenAI dialect.
+/// Panics on Claude by design — that is a wiring bug, not a runtime condition.
+fn openai_compat_endpoint(provider: &Provider) -> &'static str {
+    match provider {
+        Provider::Openai => OPENAI_CHAT_COMPLETIONS_URL,
+        Provider::Zen => ZEN_CHAT_COMPLETIONS_URL,
+        Provider::Claude => unreachable!("Claude speaks /v1/messages, not chat/completions"),
+    }
+}
+
+async fn complete_openai_compatible_api(
+    provider: &Provider,
     api_key: &str,
     model: Option<&str>,
     system_prompt: &str,
     messages: &[ChatMessage],
 ) -> Result<String, String> {
     let client = reqwest::Client::new();
-    let model = model.unwrap_or("gpt-4.1-mini");
+    let label = provider.name();
+    let model = model.unwrap_or(provider.default_model());
 
     let mut api_messages = vec![serde_json::json!({"role": "system", "content": system_prompt})];
     for m in messages {
@@ -959,26 +1010,26 @@ async fn complete_openai_api(
     });
 
     let resp = client
-        .post("https://api.openai.com/v1/chat/completions")
+        .post(openai_compat_endpoint(provider))
         .header("Authorization", format!("Bearer {api_key}"))
         .header("content-type", "application/json")
         .timeout(Duration::from_secs(45))
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("openai request failed: {e}"))?;
+        .map_err(|e| format!("{label} request failed: {e}"))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        tracing::error!(provider = "openai", %status, "API error: {body}");
-        return Err(format!("OpenAI API error ({status})"));
+        tracing::error!(provider = label, %status, "API error: {body}");
+        return Err(format!("{label} API error ({status})"));
     }
 
     let value: serde_json::Value = resp
         .json()
         .await
-        .map_err(|e| format!("openai parse failed: {e}"))?;
+        .map_err(|e| format!("{label} parse failed: {e}"))?;
 
     let text = value
         .pointer("/choices/0/message/content")
@@ -987,7 +1038,7 @@ async fn complete_openai_api(
         .to_string();
 
     if text.trim().is_empty() {
-        return Err("openai returned empty content".to_string());
+        return Err(format!("{label} returned empty content"));
     }
     Ok(text)
 }
@@ -1004,7 +1055,10 @@ pub async fn stream_chat_api(
 ) -> Result<(), String> {
     match provider {
         Provider::Claude => stream_anthropic_api(api_key, model, system_prompt, messages, tx).await,
-        Provider::Openai => stream_openai_api(api_key, model, system_prompt, messages, tx).await,
+        Provider::Openai | Provider::Zen => {
+            stream_openai_compatible_api(provider, api_key, model, system_prompt, messages, tx)
+                .await
+        }
     }
 }
 
@@ -1086,7 +1140,8 @@ async fn stream_anthropic_api(
     Ok(())
 }
 
-async fn stream_openai_api(
+async fn stream_openai_compatible_api(
+    provider: &Provider,
     api_key: &str,
     model: Option<&str>,
     system_prompt: &str,
@@ -1096,7 +1151,13 @@ async fn stream_openai_api(
     use futures_util::StreamExt;
 
     let client = reqwest::Client::new();
-    let model = model.unwrap_or("gpt-4.1-mini");
+    let label = provider.name();
+    let display = match provider {
+        Provider::Openai => "OpenAI",
+        Provider::Zen => "OpenCode Zen",
+        Provider::Claude => unreachable!("Claude does not stream chat/completions"),
+    };
+    let model = model.unwrap_or(provider.default_model());
 
     let mut api_messages = vec![serde_json::json!({"role": "system", "content": system_prompt})];
     for m in messages {
@@ -1110,24 +1171,24 @@ async fn stream_openai_api(
     });
 
     let resp = client
-        .post("https://api.openai.com/v1/chat/completions")
+        .post(openai_compat_endpoint(provider))
         .header("Authorization", format!("Bearer {api_key}"))
         .header("content-type", "application/json")
         .json(&body)
         .send()
         .await
-        .map_err(|e| format!("openai request failed: {e}"))?;
+        .map_err(|e| format!("{label} request failed: {e}"))?;
 
     if !resp.status().is_success() {
         let status = resp.status();
         let body = resp.text().await.unwrap_or_default();
-        tracing::error!(provider = "openai", %status, "API error: {body}");
+        tracing::error!(provider = label, %status, "API error: {body}");
         let user_msg = match status.as_u16() {
-            401 => "Invalid API key — check your OpenAI key in Settings.",
-            429 => "Rate limited by OpenAI — try again in a moment.",
-            _ => "OpenAI API returned an error. Check your key and try again.",
+            401 => format!("Invalid API key — check your {display} key in Settings."),
+            429 => format!("Rate limited by {display} — try again in a moment."),
+            _ => format!("{display} API returned an error. Check your key and try again."),
         };
-        return Err(user_msg.to_string());
+        return Err(user_msg);
     }
 
     let mut stream = resp.bytes_stream();
@@ -1190,4 +1251,38 @@ fn extract_claude_text(value: &serde_json::Value) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod provider_tests {
+    use super::*;
+
+    #[test]
+    fn from_str_parses_zen_aliases() {
+        assert!(matches!(Provider::from_str("zen"), Some(Provider::Zen)));
+        assert!(matches!(Provider::from_str("opencode"), Some(Provider::Zen)));
+        assert!(matches!(Provider::from_str("opencode-zen"), Some(Provider::Zen)));
+        assert!(Provider::from_str("not-a-provider").is_none());
+    }
+
+    #[test]
+    fn openai_compatible_endpoints_are_distinct() {
+        assert_eq!(openai_compat_endpoint(&Provider::Zen), ZEN_CHAT_COMPLETIONS_URL);
+        assert_eq!(
+            openai_compat_endpoint(&Provider::Openai),
+            OPENAI_CHAT_COMPLETIONS_URL
+        );
+    }
+
+    #[test]
+    fn api_key_env_is_distinct_per_provider() {
+        assert_eq!(Provider::Claude.api_key_env(), "ANTHROPIC_API_KEY");
+        assert_eq!(Provider::Openai.api_key_env(), "OPENAI_API_KEY");
+        assert_eq!(Provider::Zen.api_key_env(), "OPENCODE_ZEN_API_KEY");
+    }
+
+    #[test]
+    fn zen_default_model_is_a_zen_model() {
+        assert_eq!(Provider::Zen.default_model(), "glm-5.2");
+    }
 }

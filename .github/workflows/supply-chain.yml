@@ -39,36 +39,41 @@ jobs:
   # Advisory. Neither app has been audited, so the finding count is unknown and
   # a blocking gate would be red on arrival — which is how the `web` job and the
   # midnight flake taught this repo to ignore CI. Triage, then make it blocking.
+  # Triaged 2026-08-05 (task B2). Cortex is now BLOCKING: its high-severity
+  # findings were reviewed one by one, one was fixed, and the rest are recorded
+  # with a reason and a review date in .github/npm-audit-allowlist.json. An
+  # advisory nobody has justified fails the build; so does a justification
+  # nobody has revisited.
+  #
+  # heyvera stays advisory (continue-on-error) because it belongs to the
+  # HeyVera lane — blocking someone else's merges on a triage they did not do
+  # is how a gate gets resented and then bypassed. Its allowlist is stubbed and
+  # ready; that session flips the switch.
   npm-audit:
     runs-on: ubuntu-latest
-    continue-on-error: true
+    continue-on-error: ${{ matrix.app == 'heyvera' }}
     strategy:
       fail-fast: false
       matrix:
         app: [cortex, heyvera]
-    defaults:
-      run:
-        working-directory: ${{ matrix.app }}
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
-      - uses: actions/setup-node@53b83947a5a98c8d113130e565377fae1a50d02f # v6
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v6
         with:
           node-version: '22'
           cache: 'npm'
           cache-dependency-path: ${{ matrix.app }}/package-lock.json
-      # --omit=dev: a devDependency advisory does not reach production, and
-      # including them is what makes audit output unreadable and ignored.
-      - name: npm audit
-        run: npm audit --audit-level=high --omit=dev
+      - name: npm audit gate
+        run: node scripts/npm-audit-gate.mjs ${{ matrix.app }} --level=high
 
-  # Advisory. The workspace has never been checked against RustSec, so the
-  # current advisory count is unknown and could not be measured before opening
-  # this PR. Read the first run, triage into deny.toml, then make it blocking.
+  # Blocking as of the B2 triage (2026-08-05). The first read was clean: no
+  # vulnerabilities, no unmaintained crates, no licence violations, no unknown
+  # sources. The only errors were wildcard path dependencies between our own
+  # crates, now allowed in deny.toml with the reasoning written down.
   cargo-deny:
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
-      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
       - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2.1.1
         with:
           command: check advisories bans sources
