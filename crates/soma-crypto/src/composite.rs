@@ -1,4 +1,6 @@
 use ed25519_dalek::{Signer, Verifier};
+use rand_core::RngCore;
+
 use fips204::ml_dsa_65;
 use fips204::traits::{SerDes, Signer as PqSigner, Verifier as PqVerifier};
 
@@ -31,7 +33,21 @@ pub struct CompositeSignature {
 
 impl CompositeKeypair {
     pub fn generate() -> crate::Result<Self> {
-        let ed25519_sk = ed25519_dalek::SigningKey::generate(&mut rand_core::OsRng);
+        // Not `SigningKey::generate(&mut rng)`. That signature pins this call
+        // to whichever `rand_core` ed25519-dalek happens to depend on, which
+        // is exactly what turns a routine `rand` bump into a workspace-wide
+        // breaking change — ed25519-dalek 3 in the cargo group bump fails here
+        // with `OsRng: CryptoRng is not satisfied`, for no cryptographic
+        // reason at all.
+        //
+        // An Ed25519 secret key is 32 uniformly random bytes, so filling them
+        // ourselves and calling `from_bytes` is cryptographically identical
+        // and leaves the RNG choice ours. Same treatment `crates/soma/src/
+        // crypto.rs` already gives `generate_keypair`, and the same decoupling
+        // #481 applied to x25519-dalek.
+        let mut seed = [0u8; 32];
+        rand_core::OsRng.fill_bytes(&mut seed);
+        let ed25519_sk = ed25519_dalek::SigningKey::from_bytes(&seed);
         let ed25519_pk = ed25519_sk.verifying_key();
 
         let (mldsa65_pk, mldsa65_sk) =
