@@ -189,14 +189,38 @@ describe('api social (legacy-compatible functions)', () => {
     });
 
     const { sendMessage } = await import('./social');
-    const msg = await sendMessage('token-dm', 'conv_1', 'hello');
+    const msg = await sendMessage('token-dm', 'conv/1', 'hello', 'client-msg-1');
     expect(msg.id).toBe('msg_1');
 
     expect(fetchMock).toHaveBeenCalledWith(
-      '/v1/social/conversations/conv_1/messages',
+      '/v1/social/conversations/conv%2F1/messages',
       expect.objectContaining({
         method: 'POST',
-        body: JSON.stringify({ content: 'hello' }),
+        body: JSON.stringify({ content: 'hello', client_message_id: 'client-msg-1' }),
+        headers: expect.objectContaining({ Authorization: 'Bearer token-dm' }),
+      }),
+    );
+  });
+
+  it('exchanges a bearer token for a one-use DM WebSocket ticket', async () => {
+    vi.stubEnv('VITE_API_URL', '/v1');
+    const fetchMock = mockFetch();
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 201,
+      json: vi.fn().mockResolvedValue({
+        ticket: 'hvws_abcdefghijklmnopqrstuvwxyz0123456789ABCDEF',
+        expiresInSeconds: 30,
+      }),
+    });
+
+    const { issueSocialDmWsTicket } = await import('./social');
+    const ticket = await issueSocialDmWsTicket('token-dm');
+    expect(ticket).toMatch(/^hvws_/);
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/v1/social/ws-ticket',
+      expect.objectContaining({
+        method: 'POST',
         headers: expect.objectContaining({ Authorization: 'Bearer token-dm' }),
       }),
     );

@@ -157,7 +157,10 @@ Endpoint: `POST /v1/pulse/schedules/process` on heyvera-server (via api.heyvera.
 
 ## Soft-realtime (notifications / DMs)
 
-**Today (client soft-poll, not push):** visibility-aware polling on Notifications (~15s) and Messages (~5–20s). Full WebSocket/SSE push remains future work.
+**Today:** Notifications use visibility-aware soft polling (~15s). Messages retain a polling fallback
+(~5–20s) and use a ticket-authenticated WebSocket for process-local new-message push. After the
+subscription acknowledgement, encrypted forward cursors recover missed durable messages; an explicit
+slow-consumer gap forces a fresh ticket and catch-up. Presence and horizontal fan-out remain future work.
 
 ## Related files
 

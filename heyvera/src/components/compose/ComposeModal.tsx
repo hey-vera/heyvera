@@ -9,7 +9,7 @@ import {
   publishDraft,
   type PulseDraft
 } from "../../api/pulse";
-import type { LinkedAgent, Community } from "../../api/social";
+import type { LinkedAgent, Community, PostAudience } from "../../api/social";
 
 type ComposeModalProps = {
   isOpen: boolean;
@@ -19,7 +19,7 @@ type ComposeModalProps = {
 };
 
 type AuthorMode = "person" | "agent";
-type VisibilityMode = "public" | "followers";
+type VisibilityMode = Exclude<PostAudience, "guild" | "circle">;
 type ComposeMode = "post" | "agent-assist" | "bot-post";
 
 const MAX_CHAR_COUNT = 500;
@@ -318,7 +318,7 @@ export function ComposeModal({
       // Handle direct posting (existing logic)
       const payload: {
         body: string;
-        visibility: string;
+        visibility: PostAudience;
         authorMode: string;
         linkedAgentId?: string;
         replyToPostId?: string;
@@ -697,6 +697,22 @@ export function ComposeModal({
                   disabled={submitting}
                 >
                   Followers only
+                </button>
+                <button
+                  type="button"
+                  className={`compose-modal-toggle${visibility === "mutuals" ? " compose-modal-toggle-active" : ""}`}
+                  onClick={() => setVisibility("mutuals")}
+                  disabled={submitting}
+                >
+                  Mutuals
+                </button>
+                <button
+                  type="button"
+                  className={`compose-modal-toggle${visibility === "author-only" ? " compose-modal-toggle-active" : ""}`}
+                  onClick={() => setVisibility("author-only")}
+                  disabled={submitting}
+                >
+                  Only me
                 </button>
               </div>
             </div>

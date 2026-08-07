@@ -2,8 +2,16 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import { AtSign, Heart, MessageCircle, Repeat2, UserPlus } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
-import { fetchNotifications, markNotificationsRead, type SocialNotification } from '../api/social';
+import { useNavigate } from 'react-router';
+import {
+  approveFollowRequest,
+  fetchFollowRequests,
+  fetchNotifications,
+  markNotificationsRead,
+  rejectFollowRequest,
+  type FollowRequest,
+  type SocialNotification,
+} from '../api/social';
 import { EmptyState, ErrorState, LoadingState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';
 import { useVisibilityPoll } from '../hooks/useVisibilityPoll';
@@ -24,6 +32,8 @@ const notificationIcons: Record<NotificationType, { icon: LucideIcon; color: str
   like: { icon: Heart, color: 'var(--color-like)' },
   repost: { icon: Repeat2, color: 'var(--color-repost)' },
   follow: { icon: UserPlus, color: 'var(--accent)' },
+  follow_request: { icon: UserPlus, color: 'var(--accent)' },
+  follow_accepted: { icon: UserPlus, color: 'var(--accent)' },
   reply: { icon: MessageCircle, color: 'var(--color-reply)' },
   mention: { icon: AtSign, color: 'var(--accent)' },
   quote: { icon: MessageCircle, color: 'var(--color-reply)' },
@@ -39,6 +49,10 @@ function notificationText(notification: ApiNotification): string {
       return `${name} reposted your post`;
     case 'follow':
       return `${name} followed you`;
+    case 'follow_request':
+      return `${name} requested to follow you`;
+    case 'follow_accepted':
+      return `${name} accepted your follow request`;
     case 'reply':
       return `${name} replied to your post`;
     case 'mention':
@@ -80,6 +94,9 @@ export function NotificationsPage() {
   const { authEnabled, isSignedIn, getToken } = useAuth();
   const navigate = useNavigate();
   const [notifications, setNotifications] = useState<ApiNotification[]>([]);
+  const [followRequests, setFollowRequests] = useState<FollowRequest[]>([]);
+  const [followRequestBusyId, setFollowRequestBusyId] = useState<string | null>(null);
+  const [followRequestError, setFollowRequestError] = useState<string | null>(null);
   const [cursor, setCursor] = useState<string | null>(null);
   const [hasMore, setHasMore] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -98,8 +115,12 @@ export function NotificationsPage() {
     try {
       const token = await getToken();
       if (!token) return;
-      const result = await fetchNotifications(token, PAGE_SIZE);
+      const [result, requestResult] = await Promise.all([
+        fetchNotifications(token, PAGE_SIZE),
+        fetchFollowRequests(token, 50),
+      ]);
       setNotifications((current) => mergeFirstPage(current, result.notifications));
+      setFollowRequests(requestResult.requests);
       setError(null);
       setLastUpdatedAt(Date.now());
     } catch {
@@ -135,9 +156,13 @@ export function NotificationsPage() {
           if (!cancelled) setNotifications([]);
           return;
         }
-        const result = await fetchNotifications(token, PAGE_SIZE);
+        const [result, requestResult] = await Promise.all([
+          fetchNotifications(token, PAGE_SIZE),
+          fetchFollowRequests(token, 50),
+        ]);
         if (!cancelled) {
           setNotifications(result.notifications);
+          setFollowRequests(requestResult.requests);
           setCursor(result.cursor);
           setHasMore(result.has_more && result.cursor != null);
           setError(null);
@@ -222,6 +247,28 @@ export function NotificationsPage() {
     }
   };
 
+  const resolveFollowRequest = async (requestId: string, approve: boolean) => {
+    if (followRequestBusyId) return;
+    setFollowRequestBusyId(requestId);
+    setFollowRequestError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again to manage follow requests.');
+      if (approve) {
+        await approveFollowRequest(token, requestId);
+      } else {
+        await rejectFollowRequest(token, requestId);
+      }
+      setFollowRequests((current) => current.filter((request) => request.id !== requestId));
+    } catch (err) {
+      setFollowRequestError(
+        err instanceof Error ? err.message : 'Unable to update the follow request.',
+      );
+    } finally {
+      setFollowRequestBusyId(null);
+    }
+  };
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: 'var(--bg-primary)', color: 'var(--text-primary)' }}>
       <div className="sticky top-[var(--top-bar-height)] z-10 border-b sticky-header-bg backdrop-blur-md" style={{ borderColor: 'var(--border-primary)' }}>
@@ -272,7 +319,56 @@ export function NotificationsPage() {
           onRetry={() => setReloadKey((key) => key + 1)}
         />
       )}
-      {!loading && !(authEnabled && !isSignedIn) && !error && filtered.length === 0 && (
+      {!loading && !error && followRequests.length > 0 && (
+        <section className="border-b px-4 py-4" style={{ borderColor: 'var(--border-primary)' }}>
+          <h2 className="text-[15px] font-bold">Follow requests</h2>
+          <p className="mt-1 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+            Approve only people you want to see protected and followers-only posts.
+          </p>
+          {followRequestError && (
+            <p className="mt-3 text-[13px]" role="alert" style={{ color: 'var(--danger, #f4212e)' }}>
+              {followRequestError}
+            </p>
+          )}
+          <ul className="mt-3 space-y-3">
+            {followRequests.map((request) => (
+              <li key={request.id} className="flex items-center gap-3">
+                <button
+                  type="button"
+                  className="min-w-0 flex-1 text-left"
+                  onClick={() => navigate(`/profile/${request.requester.handle}`)}
+                >
+                  <span className="block truncate text-[14px] font-semibold">
+                    {request.requester.displayName || request.requester.handle}
+                  </span>
+                  <span className="block truncate text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+                    @{request.requester.handle}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  disabled={followRequestBusyId != null}
+                  onClick={() => void resolveFollowRequest(request.id, false)}
+                  className="rounded-full border px-3 py-1.5 text-[13px] font-semibold disabled:opacity-50"
+                  style={{ borderColor: 'var(--border-primary)' }}
+                >
+                  Decline
+                </button>
+                <button
+                  type="button"
+                  disabled={followRequestBusyId != null}
+                  onClick={() => void resolveFollowRequest(request.id, true)}
+                  className="rounded-full px-3 py-1.5 text-[13px] font-bold disabled:opacity-50"
+                  style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+                >
+                  Approve
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {!loading && !(authEnabled && !isSignedIn) && !error && filtered.length === 0 && followRequests.length === 0 && (
         <EmptyState
           title="Nothing yet"
           detail={activeFilter === 'Mentions' ? 'Mentions and replies will appear here.' : 'Likes, reposts, follows, and replies will appear here.'}

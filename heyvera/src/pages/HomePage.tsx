@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { SignInButton } from '@clerk/clerk-react';
 import {
   bookmarkPost,
@@ -104,6 +104,7 @@ export function HomePage() {
   const [actionBusyId, setActionBusyId] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
   const [followedHandles, setFollowedHandles] = useState<Set<string>>(new Set());
+  const [requestedHandles, setRequestedHandles] = useState<Set<string>>(new Set());
   const [joinedCommunityIds, setJoinedCommunityIds] = useState<Set<string>>(new Set());
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const touchStartY = useRef<number | null>(null);
@@ -211,8 +212,9 @@ export function HomePage() {
       setSuggestionsLoading(true);
       setSuggestionsError(null);
       try {
+        const token = authEnabled && isSignedIn ? await getToken() : null;
         const [profilesRes, communitiesRes, trendingRes] = await Promise.all([
-          fetchProfiles(12).catch(() => ({ profiles: [] as never[] })),
+          fetchProfiles(12, token).catch(() => ({ profiles: [] as never[] })),
           fetchCommunities(12).catch(() => ({ communities: [] as never[] })),
           fetchTrending().catch(() => ({ topics: [] as never[] })),
         ]);
@@ -240,10 +242,10 @@ export function HomePage() {
     return () => {
       cancelled = true;
     };
-  }, [activeTab, loading, error, posts.length]);
+  }, [activeTab, loading, error, posts.length, authEnabled, isSignedIn, getToken]);
 
   const handleFollowSuggestion = async (handle: string) => {
-    if (actionBusyId || followedHandles.has(handle)) return;
+    if (actionBusyId || followedHandles.has(handle) || requestedHandles.has(handle)) return;
     setActionNotice(null);
     if (!authEnabled || !isSignedIn) {
       setActionNotice(authEnabled ? 'Sign in to follow.' : 'Sign-in is not configured.');
@@ -256,9 +258,14 @@ export function HomePage() {
     }
     setActionBusyId(`profile:${handle}`);
     try {
-      await followProfile(token, handle);
-      setFollowedHandles((prev) => new Set(prev).add(handle));
-      setActionNotice(`Following @${handle}`);
+      const result = await followProfile(token, handle);
+      if (result.state === 'pending') {
+        setRequestedHandles((prev) => new Set(prev).add(handle));
+        setActionNotice(`Follow request sent to @${handle}`);
+      } else {
+        setFollowedHandles((prev) => new Set(prev).add(handle));
+        setActionNotice(`Following @${handle}`);
+      }
     } catch (err) {
       setActionNotice(err instanceof Error ? err.message : 'Follow failed');
     } finally {
@@ -691,6 +698,7 @@ export function HomePage() {
                 if (item.kind === 'profile') {
                   const busy = actionBusyId === `profile:${item.handle}`;
                   const followed = followedHandles.has(item.handle);
+                  const requested = requestedHandles.has(item.handle);
                   return (
                     <li
                       key={item.id}
@@ -713,16 +721,16 @@ export function HomePage() {
                       </div>
                       <button
                         type="button"
-                        disabled={busy || followed}
+                        disabled={busy || followed || requested}
                         onClick={() => void handleFollowSuggestion(item.handle)}
                         className="shrink-0 rounded-full px-4 py-1.5 text-[13px] font-bold transition-opacity hover:opacity-90 disabled:opacity-60"
                         style={{
-                          backgroundColor: followed ? 'transparent' : 'var(--accent)',
-                          color: followed ? 'var(--text-primary)' : 'var(--bg-primary)',
-                          border: followed ? '1px solid var(--border-primary)' : undefined,
+                          backgroundColor: followed || requested ? 'transparent' : 'var(--accent)',
+                          color: followed || requested ? 'var(--text-primary)' : 'var(--bg-primary)',
+                          border: followed || requested ? '1px solid var(--border-primary)' : undefined,
                         }}
                       >
-                        {busy ? '…' : followed ? 'Following' : 'Follow'}
+                        {busy ? '…' : followed ? 'Following' : requested ? 'Requested' : 'Follow'}
                       </button>
                     </li>
                   );

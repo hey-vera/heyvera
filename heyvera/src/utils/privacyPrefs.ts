@@ -2,7 +2,7 @@
  * Batch B1 — pure mappers between API social prefs and Settings UI state.
  */
 
-export type DmPolicy = 'everyone' | 'verified' | 'following';
+export type DmPolicy = 'everyone' | 'verified' | 'following' | 'mutuals' | 'nobody';
 export type ProfileVisibility = 'public' | 'signed_in' | 'followers';
 
 /** Canonical API shape (camelCase). */
@@ -36,6 +36,8 @@ const DM_POLICY_LABELS: Record<DmPolicy, string> = {
   everyone: 'Everyone',
   verified: 'Verified users',
   following: 'People you follow',
+  mutuals: 'Mutual follows',
+  nobody: 'Nobody',
 };
 
 const VISIBILITY_LABELS: Record<ProfileVisibility, string> = {
@@ -51,6 +53,8 @@ export function dmPolicyToLabel(policy: DmPolicy): string {
 export function labelToDmPolicy(label: string): DmPolicy {
   const lower = label.trim().toLowerCase();
   if (lower.startsWith('everyone') || lower === 'all') return 'everyone';
+  if (lower.includes('mutual')) return 'mutuals';
+  if (lower === 'nobody' || lower === 'none') return 'nobody';
   if (lower.includes('follow')) return 'following';
   if (lower.includes('verified')) return 'verified';
   return 'verified';
@@ -84,6 +88,8 @@ function normalize_dm(raw: string): DmPolicy | null {
   if (s === 'everyone' || s === 'all' || s === 'open') return 'everyone';
   if (s === 'verified' || s === 'verified_users') return 'verified';
   if (s === 'following' || s === 'people_you_follow' || s === 'followers') return 'following';
+  if (s === 'mutuals' || s === 'mutual_follow' || s === 'mutual_follows') return 'mutuals';
+  if (s === 'nobody' || s === 'none' || s === 'closed') return 'nobody';
   return null;
 }
 

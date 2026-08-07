@@ -27,7 +27,7 @@ import {
   Zap,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router';
 import { useAuth } from '../hooks/useAuth';
 import { useMyProfile } from '../hooks/useMyProfile';
 import {
@@ -218,10 +218,10 @@ const SECTIONS: SectionMeta[] = [
       {
         id: 'message-requests',
         kind: 'choice',
-        label: 'Direct message requests',
-        description: 'Decide who can start a new conversation with you.',
+        label: 'Who can message you directly',
+        description: 'Others may send one request for your approval. Nobody disables all new contact.',
         Icon: MessageCircle,
-        options: ['Everyone', 'Verified users', 'People you follow'],
+        options: ['Everyone', 'Verified users', 'People you follow', 'Mutual follows', 'Nobody'],
         selected: 'Verified users',
       },
       {

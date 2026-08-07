@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { RefreshCw, Send, Sparkles, Zap } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { useAuth } from '../hooks/useAuth';
 import {
   listDrafts,

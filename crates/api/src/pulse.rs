@@ -10,6 +10,7 @@ use serde_json::json;
 
 use crate::agent_auth::SocialWriteAuth;
 use crate::clerk::ClerkUser;
+use crate::social_policy::PostAudience;
 use crate::state::AppState;
 
 type ApiResponse = (StatusCode, Json<serde_json::Value>);
@@ -117,6 +118,7 @@ pub fn try_pulse_transition(
 pub enum PulsePublishError {
     NotFound,
     Illegal { status: String },
+    InvalidAudience,
 }
 
 impl PulsePublishError {
@@ -126,6 +128,7 @@ impl PulsePublishError {
             Self::Illegal { status } => format!(
                 "Draft must be approved before publishing (status is '{status}')"
             ),
+            Self::InvalidAudience => "Draft has an invalid or unsupported audience".into(),
         }
     }
 }
@@ -145,7 +148,11 @@ pub fn publish_approved_pulse_draft(
     }
 
     let body = draft["body"].as_str().unwrap_or("").to_string();
-    let visibility = draft["visibility"].as_str().unwrap_or("public").to_string();
+    let visibility = draft["visibility"]
+        .as_str()
+        .and_then(PostAudience::from_storage)
+        .filter(|audience| !matches!(audience, PostAudience::Guild | PostAudience::Circle))
+        .ok_or(PulsePublishError::InvalidAudience)?;
     let author_mode = draft["authorMode"].as_str().unwrap_or("person").to_string();
     let linked_agent_id = draft["linkedAgentId"].as_str().map(|s| s.to_string());
 
@@ -164,7 +171,7 @@ pub fn publish_approved_pulse_draft(
     let post = database.social_create_post(
         profile_id,
         &body,
-        &visibility,
+        visibility.as_str(),
         &author_mode,
         linked_agent_id.as_deref(),
         None,
@@ -182,7 +189,8 @@ pub fn publish_approved_pulse_draft(
 }
 
 /// Fixed credit cost for creating a Pulse draft when a ledger row exists.
-pub const PULSE_DRAFT_CREDIT_COST: f64 = 1.0;
+/// Whole credits — see cortex/plan/CREDITS.md.
+pub const PULSE_DRAFT_CREDIT_COST: i64 = 1;
 
 /// Decision for whether a Pulse draft create should charge credits.
 #[derive(Debug, Clone, PartialEq)]
@@ -190,15 +198,15 @@ pub enum PulseDraftMeterDecision {
     /// No credit_balances row — free / unmetered path.
     AllowFree,
     /// Row exists with sufficient balance — charge `cost`.
-    AllowAndCharge { cost: f64, have: f64 },
+    AllowAndCharge { cost: i64, have: i64 },
     /// Row exists but balance is insufficient.
-    DenyInsufficient { need: f64, have: f64 },
+    DenyInsufficient { need: i64, have: i64 },
 }
 
 /// Pure helper: decide metering from optional (sub_remaining, pack_remaining).
 pub fn pulse_draft_meter_decision(
-    balance_row: Option<(f64, f64)>,
-    cost: f64,
+    balance_row: Option<(i64, i64)>,
+    cost: i64,
 ) -> PulseDraftMeterDecision {
     match balance_row {
         None => PulseDraftMeterDecision::AllowFree,
@@ -220,7 +228,7 @@ pub fn pulse_draft_meter_decision(
 pub fn meter_pulse_draft_create(
     database: &crate::db::Database,
     clerk_user_id: &str,
-) -> Result<Option<f64>, String> {
+) -> Result<Option<i64>, String> {
     let row = database.get_credit_balance_row(clerk_user_id);
     let decision = pulse_draft_meter_decision(
         row.as_ref()
@@ -230,10 +238,18 @@ pub fn meter_pulse_draft_create(
     match decision {
         PulseDraftMeterDecision::AllowFree => Ok(None),
         PulseDraftMeterDecision::DenyInsufficient { need, have } => Err(format!(
-            "insufficient credits: need {need:.2}, have {have:.2}"
+            "insufficient credits: need {need}, have {have}"
         )),
         PulseDraftMeterDecision::AllowAndCharge { cost, .. } => {
-            let bal = database.deduct_credits(clerk_user_id, cost, "pulse draft create")?;
+            // Each call really is a new unit of work — neither caller has a
+            // retry loop, and a user creating two drafts owes two charges — so
+            // the key is minted per attempt. Replay protection under the same
+            // key is for the orchestrator's `run_id:step_id:attempt_id` path;
+            // this key exists to satisfy the ledger's exactly-once contract,
+            // not to fake one here.
+            let unit_key = format!("pulse-draft:{}", uuid::Uuid::new_v4());
+            let bal =
+                database.deduct_credits(clerk_user_id, cost, "pulse draft create", &unit_key)?;
             // Record activity so Premium usage windows show Pulse drafts (tokens can be 0).
             database.record_usage(
                 clerk_user_id,
@@ -268,7 +284,7 @@ pub struct ListDraftsQuery {
 #[derive(Debug, Deserialize)]
 pub struct CreateDraftRequest {
     pub body: String,
-    pub visibility: Option<String>,
+    pub visibility: Option<PostAudience>,
     #[serde(rename = "authorMode")]
     pub author_mode: Option<String>,
     #[serde(rename = "linkedAgentId")]
@@ -349,10 +365,14 @@ pub async fn create_draft(
         }
     }
 
+    let visibility = req.visibility.unwrap_or(PostAudience::Public);
+    if matches!(visibility, PostAudience::Guild | PostAudience::Circle) {
+        return bad_request("Pulse drafts require public, followers, mutuals, or author-only visibility");
+    }
     let draft = db(&state).pulse_create_draft(
         &profile_id,
         &req.body,
-        req.visibility.as_deref().unwrap_or("public"),
+        visibility.as_str(),
         &author_mode,
         linked_agent_id.as_deref(),
     );
@@ -439,6 +459,7 @@ pub async fn publish_draft(
         }
         Err(PulsePublishError::NotFound) => not_found("Draft not found"),
         Err(e @ PulsePublishError::Illegal { .. }) => conflict_transition(&e.message()),
+        Err(PulsePublishError::InvalidAudience) => bad_request("Draft has an invalid or unsupported audience"),
     }
 }
 
@@ -981,6 +1002,12 @@ pub(crate) fn execute_pulse_tool(
                         extra,
                     }
                 }
+                Err(PulsePublishError::InvalidAudience) => PulseToolOutcome {
+                    reply: "That draft has an invalid or unsupported audience. Create a new draft with a supported audience.".into(),
+                    tools_used: vec!["publish_draft".into()],
+                    draft: database.pulse_get_draft(id, profile_id),
+                    extra: serde_json::Map::new(),
+                },
             }
         }
         "list_my_posts" => {
@@ -2015,10 +2042,10 @@ mod tests {
     #[test]
     fn pulse_draft_meter_decision_charges_when_row_has_balance() {
         assert_eq!(
-            pulse_draft_meter_decision(Some((5.0, 0.0)), PULSE_DRAFT_CREDIT_COST),
+            pulse_draft_meter_decision(Some((5, 0)), PULSE_DRAFT_CREDIT_COST),
             PulseDraftMeterDecision::AllowAndCharge {
                 cost: PULSE_DRAFT_CREDIT_COST,
-                have: 5.0
+                have: 5
             }
         );
     }
@@ -2026,10 +2053,10 @@ mod tests {
     #[test]
     fn pulse_draft_meter_decision_denies_insufficient() {
         assert_eq!(
-            pulse_draft_meter_decision(Some((0.0, 0.5)), PULSE_DRAFT_CREDIT_COST),
+            pulse_draft_meter_decision(Some((0, 0)), PULSE_DRAFT_CREDIT_COST),
             PulseDraftMeterDecision::DenyInsufficient {
                 need: PULSE_DRAFT_CREDIT_COST,
-                have: 0.5
+                have: 0
             }
         );
     }
@@ -2063,7 +2090,7 @@ mod tests {
         let db = test_db();
         let profile = db.social_create_profile("clerk_metered", "metered", "Metered", "");
         let profile_id = profile["id"].as_str().unwrap();
-        db.init_credit_balance("clerk_metered", 10.0);
+        db.init_credit_balance("clerk_metered", 10).expect("init");
 
         let mut args = serde_json::Map::new();
         args.insert("body".into(), json!("Metered draft body text"));
@@ -2077,7 +2104,7 @@ mod tests {
         );
         assert!(created.draft.is_some());
         let bal = db.get_credit_balance_row("clerk_metered").expect("row");
-        assert!((bal.subscription_remaining - (10.0 - PULSE_DRAFT_CREDIT_COST)).abs() < 1e-9);
+        assert_eq!(bal.subscription_remaining, 10 - PULSE_DRAFT_CREDIT_COST);
 
         let now_ms = chrono::Utc::now().timestamp_millis();
         let summary = db.get_user_usage_summary("clerk_metered", now_ms - 60_000);
@@ -2100,7 +2127,7 @@ mod tests {
         let db = test_db();
         let profile = db.social_create_profile("clerk_broke", "brokuser", "Broke User", "");
         let profile_id = profile["id"].as_str().unwrap();
-        db.init_credit_balance("clerk_broke", 0.0);
+        db.init_credit_balance("clerk_broke", 0).expect("init");
 
         let mut args = serde_json::Map::new();
         args.insert("body".into(), json!("Should not be saved"));
@@ -2120,7 +2147,7 @@ mod tests {
         );
         assert_eq!(db.pulse_list_drafts(profile_id, None).len(), 0);
         let bal = db.get_credit_balance_row("clerk_broke").expect("row");
-        assert_eq!(bal.subscription_remaining, 0.0);
+        assert_eq!(bal.subscription_remaining, 0);
     }
 
     #[test]
@@ -2129,16 +2156,16 @@ mod tests {
         assert!(db.get_credit_balance_row("nobody").is_none());
         // Legacy get_credit_balance still invents 200 — product path must not use it.
         let invented = db.get_credit_balance("nobody");
-        assert_eq!(invented.subscription_remaining, 200.0);
+        assert_eq!(invented.subscription_remaining, 200);
 
         assert_eq!(meter_pulse_draft_create(&db, "nobody"), Ok(None));
 
-        db.init_credit_balance("somebody", 3.0);
+        db.init_credit_balance("somebody", 3).expect("init");
         let remaining = meter_pulse_draft_create(&db, "somebody").expect("ok");
-        assert_eq!(remaining, Some(2.0));
-        db.init_credit_balance("empty", 0.0);
+        assert_eq!(remaining, Some(2));
+        db.init_credit_balance("empty", 0).expect("init");
         // init is INSERT OR IGNORE — force zero via reset
-        db.reset_subscription_credits("empty", 0.0);
+        db.reset_subscription_credits("empty", 0).expect("reset");
         let err = meter_pulse_draft_create(&db, "empty").unwrap_err();
         assert!(err.contains("insufficient credits"));
     }

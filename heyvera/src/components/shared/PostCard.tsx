@@ -20,7 +20,7 @@ import {
   X,
 } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { blockUser, deletePost, fetchMyProfile, muteUser, reportContent } from '../../api/social';
 import type { Post } from '../../api/types';
 import { useAuth } from '../../hooks/useAuth';

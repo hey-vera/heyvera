@@ -5,7 +5,7 @@
  */
 import { Component, lazy, Suspense } from "react";
 import type { ErrorInfo, ReactNode } from "react";
-import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useNavigate, useLocation } from "react-router";
 import { ApiErrorBanner } from "./components/shared/ApiErrorBanner";
 import { PageShell } from "./components/layout/PageShell";
 import { AuthProviderSafe } from "./hooks/AuthProviderSafe";

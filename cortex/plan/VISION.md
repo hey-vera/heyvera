@@ -1,457 +1,183 @@
-# Cortex — Product Vision & Master Plan
+# Cortex — Product Vision
 
-> This is the single source of truth for what Cortex is, what's built, and what we're building.
-> If another doc contradicts this one, this one wins.
-> Last updated: 2026-05-29
-
----
-
-## What Cortex Is
-
-Cortex is a **development environment** users own that includes a mobile-first AI coding partner. Every user gets their own hosted container with pre-installed AI tools (Claude CLI, OpenAI CLI) and Cortex orchestration software. It's not a chatbot service — it's your personal AI-enabled development workspace.
-
-**Primary audience:** Vibe coders. People with a $20/mo Claude or ChatGPT subscription who want to build things faster. They don't want to manage infrastructure or think about tokens.
-
-**Secondary audience:** Teams and dev orgs. Multiple people sharing repos, coordinating work, sharing subscription access without sharing passwords.
-
-**Business Model:** $6.99/mo unlimited BYOK platform. Users bring their own API keys, Cortex provides orchestration, mobile-first interface, and coordination. Optional container integration via Replit API where users pay Replit directly for compute when needed — Cortex handles provisioning but stays out of compute billing.
-
-**Cortex stands alone.** No external protocol dependencies. Identity is Clerk. Billing is Stripe. Orchestration is Cortex's own engine. If/when Soma protocol matures, Cortex becomes the first agent to use it — but Cortex never requires it.
+> What Cortex is and who it is for.
+> Last updated: 2026-08-02. Supersedes [VISION-2026-05-BYOK.superseded.md](VISION-2026-05-BYOK.superseded.md).
+>
+> **This doc is scope, not status.** For what is actually built, read
+> [PLAN-2026-08.md](PLAN-2026-08.md) and the audit files under
+> `~/.claude/projects/C--Users-Josh-Desktop-GitHub/cortex-audit/`.
+> The previous version carried a self-reported "what's working" table that
+> independent review contradicted in several places. Status claims belong where a
+> check can falsify them, not in a vision doc.
 
 ---
 
-## The Three Surfaces
+## What Cortex is
 
-Every user interacts through three connected surfaces. They're views of one engine, not separate products.
+**Cortex delivers verified engineering work at roughly half the frontier bill, and
+shows you the tests that prove it.**
 
-### 1. Project Chat (Private — per user, per project)
+You describe a task. Cortex decomposes it, routes each piece to whichever model
+suits that piece, executes in an isolated sandbox, and **runs real checks against
+the result** before calling it done. You pay in credits, per unit of completed
+work. You never see a token count, never manage an API key, and are not billed for
+a task that failed its checks.
 
-Your private workspace with Cortex for a specific project/repo. This is where you vibe and code. Nobody else sees your conversation.
+## What Cortex is not
 
-**What you do:**
-- Talk about your codebase — fix bugs, add features, refactor, review
-- Brainstorm architecture, challenge ideas, think out loud
-- Vibe — "I'm stuck, what do you think?"
-- Cortex challenges back — "that'll work but have you considered X?"
+**Not a model gateway.** OpenRouter, Vercel AI Gateway, and Cloudflare already
+pass provider tokens through at zero markup. That business is commoditised;
+Cortex should not enter it.
 
-**Under the hood:**
-- Intent classification routes to the right model tier (cheap vibing, expensive coding)
-- When real work is requested, creates a Task visible to your Task Manager
-- Code work runs in isolated git branches — never touches main directly
-- Cortex remembers your style across sessions
+**Not "smarter than the best model."** The 2026 evidence does not support that
+claim. Routers reach *parity* with frontier models at roughly half the cost — the
+best measured result is 75/100 against 74/100 for unrouted Opus, which is inside
+the noise band — and a badly calibrated router costs **three times more** than no
+router at all. One commercial router measured **−24.7%** against simply using the
+best single model.
 
-**Rules:**
-- Chat is NOT the source of truth for task status — Task Manager is
-- Chat attaches to a project, not scattered across retries
-- Private means private — teammates see your tasks, never your chat
+Claiming "best at everything" would mean selling something we cannot demonstrate.
+"Same result, half the bill, and here is the test output" is defensible,
+differentiated, and true.
 
-### 2. Personal Task Manager (Your command center)
-
-Your hub across ALL projects and teams. You talk to it like a capable assistant who sees everything you're involved in.
-
-**What you do:**
-- "Start a new project" → creates project, links repo
-- "How's my team's sprint going?" → aggregates status across that team
-- "Did Alice finish the auth fix?" → checks task status (not her private chat)
-- "Share my Claude subscription with Team B for 1 week or 1M tokens" → creates scoped delegation
-- "What did I ship this week?" → activity summary
-- "Create a new team called Backend" → team setup
-
-**What you see:**
-- Inbox: tasks needing your attention across all projects/teams
-- Projects: all your projects with status
-- Teams: all teams you belong to
-- Live Map: your active work being orchestrated (text-based first, visual later)
-
-**Rules:**
-- Can READ team status, but team writes go through Team Task Manager
-- Credential delegations managed here (you share YOUR subscriptions)
-- Queries like "how's my team?" are database lookups, not LLM calls — free
-
-### 3. Team Task Manager (Shared orchestration)
-
-The shared surface for a team. Every member can see it. This is where private work becomes visible and coordination happens.
-
-**What everyone sees:**
-- All tasks across the team's projects
-- Who's working on what
-- Status of every run (planned, running, blocked, done)
-- Dependencies and blockers
-- Live Map: all members' work in real time
-
-**Roles:**
-- **Lead:** Full control — add tasks, prioritize, assign, approve, cancel, manage delegations
-- **Member:** Work on tasks, suggest new ones (lead approves), view everything
-- **Viewer:** Read-only
-
-**How conflicts are prevented:**
-- Alice's Cortex starts work on auth → creates Task in Team Task Manager
-- Task Manager acquires a lock on affected files
-- Bob's Cortex tries auth too → Task Manager says "Alice is already on this, here's her task"
-- Code runs in isolated git branches, merged only after review
-- No two people can hold a lock on the same resource
-
-**How private connects to shared:**
-- Private chats emit task status (created, progress, done, blocked)
-- The conversation stays private — only the WORK OUTPUT is shared
-- Like git: your local branches are private, pushed commits are shared
+**Not BYOK.** Users do not bring keys. Cortex holds the provider accounts and
+sells access to *outcomes*, which is a different product from selling access to
+*models* — see [CREDITS.md](CREDITS.md) for why that distinction is load-bearing
+rather than cosmetic.
 
 ---
 
-## How The Surfaces Connect
+## The wedge: verification
 
-```
-User
- ├── Personal Task Manager (one per user)
- │    ├── sees all teams and projects
- │    ├── manages subscription delegations
- │    └── personal Live Map
- │
- ├── Team Memberships
- │    ├── Team A (role: lead)
- │    │    ├── Team Task Manager (shared)
- │    │    └── Projects
- │    │         ├── Project X → your private chat
- │    │         └── Project Y → your private chat
- │    └── Team B (role: member)
- │         ├── Team Task Manager (shared, limited write)
- │         └── Projects
- │              └── Project Z → your private chat
- │
- └── Personal Projects (no team)
-      └── Side Project → your private chat
-```
+Competitors forward your request to a model and return what comes back. None of
+them run your test suite and refuse to charge you when it fails.
 
-Communication:
-```
-You ←chat→ Your Cortex (private, per project)
-                ↓ emits tasks
-         Team Task Manager (shared)
-                ↓ queried by
-         Your Personal Task Manager
-                ↓ also queried by
-         Teammate's Personal Task Manager
-```
+That gap is the product, and it is the one lever the research consistently
+supports: best-of-N sampling only beats single-shot when something can *identify*
+the winner. Without an execution-based verifier, parallel attempts give
+diminishing returns, because the theoretical ceiling rises with N while your
+actual success rate stays gated on picking the right answer. With a verifier,
+cheaper models become good enough — which is also what makes the economics work.
+
+So verification is not a feature bolted onto a router. **It is the thing that
+makes the router safe to point at a cheaper model.**
+
+This carries a pricing consequence, deliberately accepted: **a task that fails
+verification is refunded.** That is what stops "verified" from being a marketing
+word, and it aligns incentives — routing cheap and failing costs Cortex twice.
+
+⚠️ Refund-on-failure must not ship before the verifier gates on real checks.
+Today `infer_required_checks` (`crates/api/src/scheduler.rs:619`) returns empty for
+Execute steps below High risk, so "verified" currently means "the CLI exited 0".
 
 ---
 
-## Chat Economics
+## Who it is for
 
-Core promise: **cheap endless vibing, expensive thinking only when needed.**
+**Primary: developers who want the work done, not the tokens managed.** People who
+would otherwise drive Claude Code or Codex directly, and who care about the result
+and the bill rather than which model produced it.
 
-| Interaction | Route | Cost | Example |
-|---|---|---|---|
-| Vibing, chatting, brainstorming | Fast model (Haiku / GPT-4.1-mini) | Near-zero | "What do you think about this?" |
-| Task Manager queries | Database lookup + template | Free | "How's my team doing?" |
-| Architecture, review, analysis | Balanced model (Sonnet / GPT-4.1) | Moderate | "Review this for security" |
-| Code execution, complex work | Powerful model (Opus / GPT-5.5) | Expensive | "Implement the auth refactor" |
+**Secondary: teams.** Shared projects, visible task state, and no credential
+sharing — because there are no user credentials to share.
 
-Intent classifier determines tier. User can override via session controls. Model transitions are seamless — user just notices Cortex thinking harder sometimes.
-
----
-
-## Cortex Personality
-
-NOT a generic AI assistant. The best work partner a person could ask for.
-
-- **Vibes** — doesn't just execute, actually engages
-- **Cares** — "you seem stuck, want to step back?"
-- **Challenges** — "that'll work but X is simpler"
-- **Learns** — remembers your style, preferences, domain
-- **Opinionated** — has recommendations, doesn't just list options
-
-Personality is consistent across model tiers (system prompt carries it). Personality is per-user, not per-project — YOUR Cortex everywhere.
+> **Josh's call, not settled here:** price points, whether the free NPX tool from
+> the old vision still ships, and how hard to lean on teams versus individuals at
+> launch. The old `$6.99/mo unlimited` is void — unlimited plans against agentic
+> usage produced every public repricing of 2025–26 — but what replaces it depends
+> on measured cost (task 1.4 in PLAN-2026-08.md).
 
 ---
 
-## Current State (What's Actually Built)
+## The three surfaces
 
-### Backend (Rust — `crates/api/`)
+Carried forward from the previous vision, and still right. Three views of one
+engine, not three products.
 
-| System | Status | Notes |
-|--------|--------|-------|
-| **Database** | WORKING | 15K line SQLite layer, 100+ methods, all migrations |
-| **Clerk Auth** | WORKING | JWT verification, JWKS caching, admin bypass |
-| **Stripe Billing** | WORKING | Checkout, portal, usage gates, promo codes |
-| **Docker/BYOS** | PARTIALLY WORKING | Container create/start/stop works. Auth flow (CLI OAuth) broken — container exec doesn't reliably return OAuth URL |
-| **Chat + SSE** | WORKING | Streaming responses, intent classification, tier routing |
-| **LLM Client** | WORKING | Claude CLI + OpenAI Codex CLI spawning, API key mode |
-| **Scheduler** | WORKING | Step orchestration, leasing, worker registration |
-| **WebSocket** | WORKING | Worker connections, step streaming, lease management |
-| **Rate Limiting** | WORKING | Per-user, per-endpoint |
-| **Metrics** | WORKING | Prometheus, subsystem health |
-| **GitHub** | PARTIALLY WORKING | Repo listing + import endpoints exist, untested on prod |
-| **Admin** | WORKING | Workers, containers, promo codes, audit log |
-| **Social** | WORKING | Full social network (profiles, posts, follows) — this is HeyVera Social, not Cortex core |
-| **Conversations** | WORKING | Basic CRUD, message storage |
-| **Credentials** | WORKING | Multi-credential, encryption, CRUD |
+### 1. Project chat — private, per user, per project
 
-### Frontend (React — `cortex/src/`)
+Where you work. Talk about the codebase, argue about approach, ask for things.
+Cortex classifies intent and routes accordingly: conversation is cheap, real work
+costs credits and says so before spending them.
 
-| Component | Status | Notes |
-|-----------|--------|-------|
-| **App Shell** | WORKING | Routing, auth gate, sidebar, header, modals |
-| **Chat** | WORKING | SSE streaming, messages, timeline, composer |
-| **Onboarding** | BUILT (needs rework) | 4-step wizard — should become tutorial + mock demo |
-| **Settings** | PARTIALLY WORKING | Provider auth UI works, budget/notifications scaffolded |
-| **Billing** | WORKING | Pricing cards, trial banner, Stripe checkout |
-| **Task Manager** | WORKING | Kanban board, drag-drop, evidence, approvals |
-| **Operations Room** | WORKING | Summary, graph, approval queue |
-| **Personal Task Manager** | WORKING | Cross-group overview |
-| **Admin** | WORKING | Stats, promo codes, workers |
-| **Projects** | PLACEHOLDER | Shell exists, backend incomplete |
+Code work runs in isolated branches and never touches `main` directly.
 
-### What's Broken Right Now
+### 2. Personal task manager — your command centre
 
-1. **Container-as-Service model** — current architecture treats Cortex as a service that manages user containers, which violates AI provider ToS. Need to pivot to Container-as-Product model where users own their development environments.
-2. **Auth flow architecture** — current OAuth flow has Cortex routing subscription credentials, which is prohibited. Need frictionless auth where Cortex helps users authenticate their tools inside their own containers.
-3. **Frontend tests on cortex.heyvera.org only** — Replit webview is unreliable, never use it.
-4. **Chat personality** — generic "AI assistant" system prompts. Needs the Cortex personality.
-5. **Project system** — frontend shell exists but no real project lifecycle in backend.
+Everything in flight, across every project and team. Status queries are database
+reads rather than model calls, so "how is my week going" is free and instant.
 
-### What Works But Isn't Cortex Core
+### 3. Team task manager — shared orchestration
 
-- Social features (profiles, posts, follows) — HeyVera Social, separate binary (`heyvera-server`)
-- Soma identity endpoints — real code, but Cortex doesn't depend on it
-- Vera observation layer — real code, but not needed for Cortex v1
+Where private work becomes visible. Everyone sees tasks, status, blockers, and who
+holds what. Conversations stay private; **only the work output is shared** — the
+git model applied to agent work.
 
-### Backend Architecture
-
-Two separate binaries from the same workspace:
-```
-./target/release/cortex-server    ← cortex.heyvera.org (port 3001)
-./target/release/heyvera-server   ← heyvera.org (port 3002)
-```
-
-- `crates/cortex-server/` — Cortex binary (chat, docker, runs, scheduler, GitHub)
-- `crates/heyvera-server/` — HeyVera Social binary (posts, follows, profiles, messaging)
-- `crates/api/` — shared library (db, auth, billing, crypto, metrics)
-- `crates/shared/` — future home of truly shared infra (migration target)
-
-Each binary mounts only its own routes. They can be deployed, scaled, and updated independently.
+Conflicts are prevented by resource lock: two people cannot hold the same files at
+once, and the second is told who has them.
 
 ---
 
-## Data Model (What Cortex Needs)
+## Personality
 
-### Already Exists
-```
-users, conversations, messages — basic chat
-runs, steps, step_dependencies, step_attempts — task orchestration
-user_credentials, credential_data — encrypted credential storage
-workers, worker_sessions — agent registration
-decisions, outcomes — routing history
-usage_events — token/cost tracking
-```
+Cortex is opinionated. It pushes back, notices when you are stuck, remembers how
+you work, and recommends rather than enumerating options.
 
-### Needs to Be Added
-```sql
--- Teams
-teams (id, name, owner_id, created_at)
-team_members (team_id, user_id, role, joined_at)
-
--- Projects (link repos to teams or personal)
-projects (id, team_id NULL, name, repo_url, created_at)
-
--- Link conversations to projects
-conversations.project_id → projects.id
-
--- Link runs to projects and source chats
-runs.project_id → projects.id
-runs.source_conversation_id → conversations.id
-
--- Subscription delegation (Cortex-native, no Soma dependency)
-subscription_delegations (
-    id, credential_id, delegated_to_team_id,
-    max_tokens, tokens_used,
-    expires_at, status, created_at
-)
-
--- User memory (what Cortex learns about you)
-user_memory (
-    id, user_id, category,  -- style, preference, domain, correction
-    content, created_at, updated_at
-)
-
--- Resource locks (conflict prevention)
-resource_locks (
-    id, resource_type, resource_key,
-    holder_user_id, holder_run_id,
-    acquired_at, expires_at,
-    UNIQUE(resource_type, resource_key)
-)
-```
+Personality is per-user and constant across model tiers — the system prompt
+carries it, so the voice does not change when the router does. That matters more
+under outcome pricing than it did under BYOK: if the user cannot see which model
+ran, the experience must not visibly change when it switches.
 
 ---
 
-## Build Sequence
+## What makes it defensible
 
-### Phase 0: $6.99 BYOK Platform + NPX Tool (NOW)
+1. **Verification nobody else does.** Gateways forward; Cortex checks. The
+   evidence — diffs, test output, exit codes — is the product surface.
+2. **Outcome pricing.** Routing savings accrue to Cortex rather than to a token
+   passthrough. This is the only unit where efficiency is worth building.
+3. **Provider neutrality.** No incentive to favour a model — which disappears the
+   day a lab invests, and is a reason to be careful who funds this.
+4. **Eval data.** Which model actually resolves which class of task, measured on
+   real work. That compounds, and cannot be copied in a quarter.
 
-**Goal:** Ship dual approach - standalone NPX tool for subscriptions + hosted BYOK platform.
+1 and 4 are durable. 2 and 3 are structural but contingent.
 
-**NPX Tool (Free):**
-- [ ] Extract dual-brain system from archives
-- [ ] Rebuild as `npx cortex` without data-tools dependency  
-- [ ] Persistent conversation + dual orchestration (Claude + GPT)
-- [ ] Works in any shell (Replit, local, cloud containers)
-- [ ] Zero ToS issues (user runs tool themselves)
-
-**Hosted Platform ($6.99/mo):**
-- [ ] BYOK API key orchestration 
-- [ ] Mobile-first interface
-- [ ] Optional Replit container integration (user pays Replit directly)
-- [ ] File storage + coordination covered by $6.99
-- [ ] Deploy to cortex.heyvera.org
-
-### Phase 1: Project Chat Perfect (Week 1-2)
-
-**Goal:** One user, one project, private chat that feels amazing.
-
-- [ ] Chat routes correctly to BYOS container or BYOK API
-- [ ] SSE streaming smooth, no buffering
-- [ ] Intent classification: `/fix`, `/explore`, `/review`, `/think` + automatic detection
-- [ ] Tier routing: vibing = cheap, thinking = moderate, coding = powerful
-- [ ] Conversation CRUD: create, list, load, delete, auto-title
-- [ ] Cortex personality in system prompts — vibes, challenges, cares
-- [ ] Personality consistent across model tiers
-- [ ] Glass morphism, animations, premium dark theme
-- [ ] Markdown + syntax-highlighted code blocks + copy
-- [ ] Slash commands with autocomplete
-- [ ] Loading states, error states, empty states all polished
-- [ ] Mobile responsive
-
-### Phase 2: Personal Task Manager (Week 2-3)
-
-**Goal:** User can create projects, see tasks, manage their work from one place.
-
-- [ ] `projects` table + CRUD endpoints
-- [ ] `conversations.project_id` column
-- [ ] Create project from chat ("start a new project")
-- [ ] GitHub repo import → project created
-- [ ] Project list in sidebar with status
-- [ ] Personal Task Manager chat: talk about all your work
-- [ ] "How are my projects?" → DB query, formatted response (free)
-- [ ] "What did I ship this week?" → activity summary
-- [ ] Tasks created from Project Chat appear in Task Manager
-- [ ] Task status lifecycle: inbox → ready → active → blocked → review → done
-
-### Phase 3: Billing & First Impression (Week 3-4)
-
-**Goal:** People can pay, and the first experience converts them.
-
-- [ ] Stripe checkout: $6.99/mo or $69/yr
-- [ ] Subscription gates product access
-- [ ] Mock data demo: prospects see fake project, fake chat, fake tasks — spectacular
-- [ ] Tutorial for paying users: link subscription → import repo → first message → coding in 60 seconds
-- [ ] Tutorial button always accessible
-- [ ] Promo codes + referral links
-- [ ] Usage tracking visible but not anxiety-inducing
-
-### Phase 4: Teams (Week 4-6)
-
-**Goal:** Multiple people collaborate on shared repos without conflicts.
-
-- [ ] `teams` + `team_members` tables
-- [ ] Create team, invite members
-- [ ] Projects belong to teams
-- [ ] Team Task Manager: shared surface, shows all members' tasks
-- [ ] Private chat → task emission to team
-- [ ] Resource locks: Task Manager prevents overlapping work
-- [ ] Role-based permissions: lead / member / viewer
-- [ ] "How's my team doing?" via Personal Task Manager
-- [ ] Cross-team task creation ("add this bug to all teams")
-
-### Phase 5: Subscription Delegation (Week 6-7)
-
-**Goal:** Share subscription access with teams, scoped and bounded.
-
-- [ ] `subscription_delegations` table
-- [ ] "Share my Claude sub with Team B for 1 week or 1M tokens"
-- [ ] Token counting per delegation
-- [ ] Auto-expiry (time or tokens, whichever first)
-- [ ] Manual revoke with graceful in-flight handling
-- [ ] Delegation visible in Personal and Team Task Manager
-- [ ] Team members use delegated credentials in their containers
-
-### Phase 6: Agent Memory (Week 7-8)
-
-**Goal:** Cortex learns your style and gets better over time.
-
-- [ ] `user_memory` table
-- [ ] Cortex learns coding style, preferences, domain from chat patterns
-- [ ] User can tell Cortex things: "I prefer functional style"
-- [ ] Memory view: see what Cortex knows about you
-- [ ] Edit/delete memories
-- [ ] Memory injected as context in every message
-- [ ] Consistent across projects (it's YOUR Cortex)
-
-### Phase 7: Visual Live Maps (Week 8+)
-
-**Goal:** See your work and your team's work orchestrated visually.
-
-- [ ] Network graph: spatial topology of projects, tasks, agents
-- [ ] Timeline: left-to-right flow of work
-- [ ] Board: kanban status columns
-- [ ] Real-time updates via SSE
-- [ ] Personal and team scoped views
-- [ ] Click-to-inspect: task detail, logs, artifacts
-
-### Phase 8: Advanced Orchestration (Week 10+)
-
-**Goal:** Cortex autonomously decomposes, executes, tests, and heals work.
-
-**Hierarchical AI Org Chart:**
-- [ ] Bidirectional model hierarchy: Search (workers) ↔ Execute (ICs) ↔ Think (managers)
-- [ ] DELEGATE DOWN: Execute → Search for mechanical work (grep, tests, renames)
-- [ ] ESCALATE UP: Execute → Think when stuck/low confidence via self-assessment tokens
-- [ ] BOUNCE DOWN: Think → Execute with critique and work orders
-- [ ] Asymmetric context envelopes: Work Orders (200 tokens) down, Escalation Packets up
-- [ ] Bandit-learned escalation thresholds: system learns when to skip doomed attempts
-- [ ] Only successful, reconciled work reaches user after internal bounces/fixes
-
-**Traditional Orchestration:**
-- [ ] DAG decomposition: "build auth" → search → design → implement → test → review  
-- [ ] Git branch-per-task isolation
-- [ ] Dynamic heal: test fails → auto-fix → re-test
-- [ ] Evidence-backed completion: done = diff + tests + verifier
-- [ ] Multi-worker scheduling with fairness
-- [ ] Lock enforcement: no two workers on same files
+Explicitly **not** a moat: unified API, provider failover, model breadth, per-token
+price, observability dashboards. All commoditised, several free.
 
 ---
 
-## What Cortex Does NOT Depend On
+## The risks that shape the design
 
-| Thing | Relationship | Why |
-|-------|-------------|-----|
-| **Soma Protocol** | Future integration, not dependency | Soma isn't finished. Cortex uses Clerk for identity, its own DB for trust/evidence |
-| **Vera Network** | Future integration, not dependency | Vera is 0% done. Cortex tracks its own interactions |
-| **ClawNet** | Separate product | ClawNet is API infrastructure. Cortex is a coding platform. Different products. |
-| **DualBrain** | Foundation | Archived dual-brain system (v4.6.0) provides foundation for NPX tool - sophisticated orchestration with Claude + GPT |
-| **Social features** | HeyVera Social, not Cortex | Posts, follows, communities are a different product sharing the same backend |
+**Provider terms.** Anthropic §D.4 bars reselling the Services except as approved;
+§A.1 permits powering your own product. This is precisely why credits are
+denominated in verified work rather than tokens — the schema is the argument.
+Written clarification from Anthropic is worth having before scaling.
 
-When Soma matures, Cortex becomes the first agent to use it — Soma Hearts for agent identity, delegation for credential sharing, receipts for proof-of-work. But that's Phase 10+, not now.
+**Rate limits arrive before revenue.** Anthropic's monthly spend caps run Start
+$500 / Build $1,000 / Scale $200,000. A $1,000 cap supports roughly 4–8 active
+customers, and acceleration limits mean a successful launch day looks like abuse.
+Start that conversation before there are customers.
+
+**Margin is real but not SaaS-shaped.** Roughly 45–55% gross before infrastructure
+and 35–45% after, compressing as model prices fall. Competing bundles already sell
+at $10–18/month, so Cortex must be worth more than a bundle — which returns to
+verification.
+
+**Untrusted code on our infrastructure.** Operator-funded execution moves sandboxes
+from the user's machine to ours, running model-authored code beside our own
+provider keys. That is a genuine cost centre and the strictest isolation
+requirement in the system.
 
 ---
 
-## What Success Looks Like
+## Sequencing
 
-**Free NPX User:**
-1. Opens any shell → `npx cortex` → persistent AI chat with dual orchestration
-2. Uses their own Claude + GPT subscriptions seamlessly
-3. Conversation persists across sessions, works anywhere
-4. Zero setup, zero hosting costs, zero ToS issues
+Not here. [PLAN-2026-08.md](PLAN-2026-08.md) holds the phased plan, verified
+current state, and per-task effort levels. [CREDITS.md](CREDITS.md) holds the
+credit unit decision and metering schema.
 
-**$6.99 Platform User:**
-1. Lands on cortex.heyvera.org → signs up → pastes API keys
-2. Mobile-first AI coding with smart orchestration
-3. When needs containers → seamless Replit integration (user pays Replit directly)
-4. Teams coordinate through shared projects, individual billing
-
-**Developer/Team Experience:**
-1. Serious vibe coders get sophisticated AI orchestration with their subscriptions
-2. Teams get coordination without subscription sharing complexity  
-3. Transparent costs, no markup on AI usage
-4. Mobile-first experience unavailable elsewhere
-
-**The moat:** Only tool that provides both free subscription orchestration (NPX) AND premium BYOK platform, with mobile-first UX and team coordination that doesn't require users to trust third parties with their AI spend.
+Splitting vision, plan, and money across three documents is deliberate. The
+previous single doc mixed all three, went stale in the status section first, and
+then could not be trusted anywhere.

@@ -16,9 +16,11 @@ pub fn sha256_bytes(data: &[u8]) -> Vec<u8> {
 }
 
 pub fn random_bytes(n: usize) -> Vec<u8> {
-    use rand::RngCore;
+    use rand::Rng;
     let mut buf = vec![0u8; n];
-    rand::thread_rng().fill_bytes(&mut buf);
+    // ThreadRng is a reseeding ChaCha CSPRNG seeded from the OS — the RNG
+    // `rand` documents for cryptographic use.
+    rand::rng().fill_bytes(&mut buf);
     buf
 }
 
@@ -45,7 +47,18 @@ pub fn verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> Result<boo
 }
 
 pub fn generate_keypair() -> (Vec<u8>, Vec<u8>) {
-    let signing_key = SigningKey::generate(&mut rand::thread_rng());
+    // Not `SigningKey::generate(&mut rng)`. That takes a `rand_core 0.6`
+    // CryptoRngCore, which pins this call to whatever rand_core ed25519-dalek
+    // happens to depend on — the coupling that made bumping `rand` a breaking
+    // change across the whole workspace.
+    //
+    // An Ed25519 secret key is 32 uniformly random bytes, so generating them
+    // ourselves and calling `from_bytes` is cryptographically identical and
+    // leaves the RNG choice ours. Three rand_core versions currently coexist
+    // in the lockfile; none of them needs to reach this line.
+    let mut secret = [0u8; 32];
+    secret.copy_from_slice(&random_bytes(32));
+    let signing_key = SigningKey::from_bytes(&secret);
     let public_key = signing_key.verifying_key();
     (signing_key.to_bytes().to_vec(), public_key.to_bytes().to_vec())
 }

@@ -9,7 +9,7 @@ import {
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { useCallback, useEffect, useState } from 'react';
-import { getConversations } from '../../api/social';
+import { getConversationUnreadCount } from '../../api/social';
 import { useAuth } from '../../hooks/useAuth';
 import { useVisibilityPoll } from '../../hooks/useVisibilityPoll';
 import { inboxAriaLabel } from '../../utils/inboxAriaLabel';
@@ -55,9 +55,8 @@ export function BottomBar({ activeRoute, onNavigate, onCompose }: BottomBarProps
         setDmUnreadCount(0);
         return;
       }
-      const convos = await getConversations(token);
-      const sum = convos.reduce((acc, c) => acc + (c.unread_count ?? 0), 0);
-      setDmUnreadCount(sum);
+      const count = await getConversationUnreadCount(token);
+      setDmUnreadCount(count);
     } catch {
       // quiet poll
     }

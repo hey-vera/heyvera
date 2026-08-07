@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { SignInButton } from '@clerk/clerk-react';
 import { ArrowLeft } from 'lucide-react';
 import {
@@ -298,7 +298,7 @@ export function CommunitiesPage() {
       if (!community) return;
 
       const isMember = joinedIds.has(community.id);
-      if (isPrivateGuild(community.visibility) && !isMember) {
+      if (!isMember) {
         setMembers([]);
         setMembersError(null);
         setMembersLoading(false);
@@ -769,7 +769,7 @@ export function CommunitiesPage() {
           )}
 
           {/* Members list */}
-          {(!isPrivateGuild(selectedCommunity.visibility) || joinedIds.has(selectedCommunity.id)) && (
+          {joinedIds.has(selectedCommunity.id) && (
             <div className="border-b px-4 py-4" style={{ borderColor: 'var(--border-primary)' }}>
               <h3 className="text-[15px] font-bold">Members</h3>
               {membersLoading && <LoadingState label="Loading members" />}

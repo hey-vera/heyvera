@@ -184,6 +184,9 @@ impl Executor {
                         extract_gemini_files(&line, &mut files_changed);
                         extract_gemini_text(&line)
                     }
+                    // Unreachable in practice — build_command rejects Zen
+                    // before a process exists — but total for the compiler.
+                    ProviderId::Zen => Some(line.clone()),
                 };
                 if let Some(text) = output {
                     if text != last_text {
@@ -515,6 +518,9 @@ fn build_command(decision: &RoutingDecision) -> Result<(String, Vec<String>), Co
             ],
         )),
         ProviderId::Gemini => Ok(("gemini".to_string(), vec![])),
+        // API-only: the worker executes CLIs, and Zen has none. Routing must
+        // send Zen work down the HTTP path, never to a worker.
+        ProviderId::Zen => Err(CortexError::ProviderNotAuthenticated(ProviderId::Zen)),
     }
 }
 

@@ -369,6 +369,7 @@ fn parse_provider(s: &str) -> cortex_core::provider::ProviderId {
         "claude" => cortex_core::provider::ProviderId::Claude,
         "openai" => cortex_core::provider::ProviderId::Openai,
         "gemini" => cortex_core::provider::ProviderId::Gemini,
+        "zen" => cortex_core::provider::ProviderId::Zen,
         _ => cortex_core::provider::ProviderId::Claude,
     }
 }

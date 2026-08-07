@@ -35,6 +35,8 @@ HEYVERA_LEDGER_PATH=$HEYVERA_LEDGER
 RUST_LOG=info
 # Auth — required in production
 # CLERK_SECRET_KEY=
+# CLERK_ISSUER=https://your-clerk-instance.clerk.accounts.dev
+# CLERK_AUTHORIZED_PARTY=https://heyvera.org
 # CORS
 # CORTEX_ALLOWED_ORIGINS=https://heyvera.org,https://www.heyvera.org
 # Object storage (required for media in production — mock is fail-closed)

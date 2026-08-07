@@ -30,3 +30,8 @@ cortex/.cortex/
 
 target-gnullvm/
 target-msvc/
+
+# A verbatim node_modules tree that escaped the `node_modules/` rule above by
+# being renamed. 6,290 files / 145 MB — 89% of this repo's bytes — under a
+# directory README.md marks "reference only, do not build from".
+archive/root-node-modules/

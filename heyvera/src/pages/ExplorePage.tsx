@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Search } from 'lucide-react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router';
 import {
   bookmarkPost,
   feedPostToPost,
@@ -45,7 +45,7 @@ const EMPTY_SEARCH_RESULTS: SearchState = {
 };
 
 export function ExplorePage() {
-  const { authEnabled, isSignedIn } = useAuth();
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const initialQuery = searchParams.get('q') ?? '';
@@ -97,7 +97,8 @@ export function ExplorePage() {
         }
 
         if (trimmedQuery) {
-          const result = await searchSocial(trimmedQuery, filterMeta.searchType);
+          const token = authEnabled && isSignedIn ? await getToken() : null;
+          const result = await searchSocial(trimmedQuery, filterMeta.searchType, token);
           if (!cancelled) {
             setSearchResults({
               posts: result.posts.map(feedPostToPost),
@@ -116,7 +117,7 @@ export function ExplorePage() {
     return () => {
       cancelled = true;
     };
-  }, [authEnabled, isSignedIn, reloadKey, trimmedQuery, activeFilter, filterMeta.searchType]);
+  }, [authEnabled, getToken, isSignedIn, reloadKey, trimmedQuery, activeFilter, filterMeta.searchType]);
 
   const hasSearchResults =
     searchResults.posts.length > 0 ||

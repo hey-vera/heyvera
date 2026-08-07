@@ -1,6 +1,7 @@
 [package]
 name = "cortex-worker"
 version.workspace = true
+publish = false  # proprietary; never goes to crates.io
 edition.workspace = true
 license.workspace = true
 description = "CLI session spawner for Cortex — executes work through authenticated provider tools"

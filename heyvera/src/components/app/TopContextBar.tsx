@@ -1,7 +1,7 @@
 import type { AppRegion } from "./BottomRegionNav";
 import type { ShellState } from "../../hooks/useShellState";
 import { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router";
 
 const regionMeta: Record<
   AppRegion,

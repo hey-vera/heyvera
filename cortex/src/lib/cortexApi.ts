@@ -1536,6 +1536,204 @@ export async function getRunEvents(runId: string, limit = 200): Promise<RunEvent
   return requestJson<RunEventsResponse>(`/api/runs/${runId}/events?limit=${limit}`);
 }
 
+// --- Verifier reports (receipts) -----------------------------------------
+//
+// GET /api/runs/{run}/steps/{step}/verifier-report/{id} returns the stored
+// verifier_reports row plus its evidence JSON. Two evidence generations
+// exist:
+//
+//  - Today ("engine_verifier"): the server-side verifier evaluated evidence
+//    the worker reported about itself. Real, but not independent.
+//  - V6 (migration v61, in flight): checks Cortex re-executed in an isolated
+//    runner — `gate` + `executions`, mirroring cortex_core::verification.
+//
+// The renderer distinguishes the two honestly; nothing here converts one
+// into the other.
+
+/** The verifier_reports row, as stored. */
+export interface VerifierReportRow {
+  id: string;
+  step_id: string;
+  run_id: string;
+  lease_gen: number;
+  worker_id: string | null;
+  verifier: string;
+  status: string;
+  verdict: string;
+  created_at: number;
+  updated_at: number;
+}
+
+/** One check as the worker reported it (engine-verifier generation). */
+export interface EngineCheckEvidence {
+  name: string;
+  status: 'passed' | 'failed' | 'skipped' | 'unknown' | string;
+  summary?: string | null;
+}
+
+/** crates/engine verifier.rs VerifierReport, as serialized into evidence. */
+export interface EngineVerifierReport {
+  verdict: 'success' | 'needs_evidence' | 'failed' | 'blocked' | string;
+  risk?: string;
+  evidence_floor?: { satisfied: boolean; signals_met: string[]; missing: string[] };
+  allowed_path_violations?: Array<{ path: string; reason: string }>;
+  command_summary?: {
+    total: number;
+    succeeded: number;
+    failed: number;
+    unknown: number;
+    failures: Array<{ command: string; exit_code?: number | null; summary?: string | null }>;
+  };
+  check_summary?: {
+    total: number;
+    passed: number;
+    failed: number;
+    skipped: number;
+    unknown: number;
+    failures: Array<{ name: string; summary?: string | null }>;
+  };
+  required_check_summary?: {
+    total: number;
+    satisfied: number;
+    expected: EngineCheckEvidence[];
+    missing: EngineCheckEvidence[];
+    failed: EngineCheckEvidence[];
+    skipped: EngineCheckEvidence[];
+    unknown: EngineCheckEvidence[];
+  };
+  acceptance_coverage?: {
+    evaluated: boolean;
+    total: number;
+    covered: number;
+    uncovered: string[];
+    note: string;
+  };
+  stale_base_notes?: Array<{
+    expected_base_commit?: string | null;
+    observed_base_commit?: string | null;
+    note: string;
+  }>;
+  next_action?: string;
+}
+
+/** V6 wire shapes (cortex_core::verification), present once v61 persists them. */
+export interface CheckExecutionWire {
+  spec_id: string;
+  exit_code: number | null;
+  outcome: 'passed' | 'failed' | 'timed_out' | 'not_executed';
+  duration_ms: number;
+  output_digest: string;
+  output_tail: string;
+  runner_image: string;
+}
+
+export interface VerdictReportWire {
+  verdict: 'verified' | 'failed' | 'inconclusive' | 'unverified';
+  required_total: number;
+  required_passed: number;
+  failed: string[];
+  not_executed: string[];
+}
+
+export interface VerifierEvidence {
+  source?: string;
+  message_id?: string;
+  worker_completed?: {
+    exit_code?: number | null;
+    summary?: string | null;
+    files_changed?: string[];
+    base_commit?: string | null;
+    head_commit?: string | null;
+    branch?: string | null;
+  };
+  verifier_input?: {
+    evidence?: {
+      checks?: EngineCheckEvidence[];
+      files_changed?: string[];
+    };
+  };
+  verifier_report?: EngineVerifierReport;
+  // V6 generation:
+  gate?: VerdictReportWire;
+  executions?: CheckExecutionWire[];
+  tree_hash?: string;
+  attempt?: number;
+  verification_id?: string;
+}
+
+export interface VerifierReportPayload {
+  report: VerifierReportRow;
+  evidence: VerifierEvidence;
+}
+
+export async function getVerifierReport(
+  runId: string,
+  stepId: string,
+  reportId: string,
+): Promise<VerifierReportPayload> {
+  return requestJson<VerifierReportPayload>(
+    `/api/runs/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepId)}/verifier-report/${encodeURIComponent(reportId)}`,
+  );
+}
+
+// --- V3 receipts: checks Cortex executed itself -------------------------
+//
+// Distinct from getVerifierReport above, which serves worker-reported
+// evidence. This is the artifact a charge is bound to, and the only one that
+// can honestly be called independent.
+
+/** One check as Cortex executed it. Mirrors `cortex_core::verification`. */
+export interface ReceiptCheckExecution {
+  spec_id: string;
+  exit_code: number | null;
+  outcome: 'passed' | 'failed' | 'timed_out' | 'not_executed';
+  duration_ms: number;
+  output_digest: string;
+  output_tail: string;
+  runner_image: string;
+}
+
+/** The gate, recomputed server-side from the frozen specs and executions. */
+export interface ReceiptVerdictReport {
+  verdict: 'verified' | 'failed' | 'inconclusive' | 'unverified';
+  required_total: number;
+  required_passed: number;
+  failed: string[];
+  not_executed: string[];
+}
+
+/** `crates/api/src/db.rs::Receipt`, as served. */
+export interface ReceiptPayload {
+  verification_id: string;
+  run_id: string;
+  step_id: string;
+  attempt: number;
+  tree_hash: string;
+  gate: ReceiptVerdictReport;
+  executions: ReceiptCheckExecution[];
+}
+
+/**
+ * The receipt for a step, or `null` when no verification exists for it.
+ *
+ * A 404 is the normal answer for any step verified before V3 shipped, or one
+ * whose verification has not finished. It is not an error state and must not
+ * be rendered as one — the caller falls back to the legacy report.
+ */
+export async function getReceipt(
+  runId: string,
+  stepId: string,
+): Promise<ReceiptPayload | null> {
+  try {
+    return await requestJson<ReceiptPayload>(
+      `/api/runs/${encodeURIComponent(runId)}/steps/${encodeURIComponent(stepId)}/receipt`,
+    );
+  } catch (err) {
+    if (err instanceof CortexApiError && err.status === 404) return null;
+    throw err;
+  }
+}
+
 export async function getTaskProjection(groupId: string, taskId: string): Promise<TaskProjection> {
   return requestJson<TaskProjection>(
     `/api/groups/${encodeURIComponent(groupId)}/tasks/${encodeURIComponent(taskId)}/projection`,
@@ -2297,4 +2495,27 @@ export async function removeCredentialAssignment(assignmentId: string): Promise<
   return requestJson<{ deleted: boolean }>(`/api/credentials/assignments/${encodeURIComponent(assignmentId)}`, {
     method: 'DELETE',
   });
+}
+
+// ─── Semantic leases (CONTEXT.md C4) ───
+
+export interface ImpactedFile {
+  file: string;
+  distance: number;
+  /** Rendered route, e.g. "auth.rs → checkout.rs → api.rs". */
+  via: string;
+}
+
+export interface ImpactResponse {
+  seed_files: string[];
+  depth: number;
+  files: ImpactedFile[];
+  truncated: boolean;
+  files_indexed: number;
+}
+
+export async function getImpactSet(files: string[], depth?: number): Promise<ImpactResponse> {
+  const params = new URLSearchParams({ files: files.join(',') });
+  if (depth !== undefined) params.set('depth', String(depth));
+  return requestJson<ImpactResponse>(`/api/context/impact?${params.toString()}`);
 }

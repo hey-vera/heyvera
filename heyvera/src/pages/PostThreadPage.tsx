@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { ArrowLeft } from 'lucide-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import {
   bookmarkPost,
   createPost,
@@ -90,7 +90,8 @@ export function PostThreadPage() {
       setLoading(true);
       setError(null);
       try {
-        const response = await fetchSinglePost(id);
+        const token = authEnabled && isSignedIn ? await getToken() : null;
+        const response = await fetchSinglePost(id, token);
         const postResponse = feedPostToPost(response.post);
         // Flat descendant list from BE; tree built client-side.
         const allReplies = response.replies.map(feedPostToPost);
@@ -120,7 +121,7 @@ export function PostThreadPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, reloadKey]);
+  }, [authEnabled, getToken, id, isSignedIn, reloadKey]);
 
   // Related discovery loads after the thread is available (honest heuristic, not ML).
   useEffect(() => {
@@ -137,7 +138,8 @@ export function PostThreadPage() {
       setRelatedLoading(true);
       setRelatedError(null);
       try {
-        const response = await fetchRelatedPosts(id, 8);
+        const token = authEnabled && isSignedIn ? await getToken() : null;
+        const response = await fetchRelatedPosts(id, 8, token);
         if (!cancelled) {
           setRelatedPosts((response.posts ?? []).map(feedPostToPost));
         }
@@ -157,7 +159,7 @@ export function PostThreadPage() {
     return () => {
       cancelled = true;
     };
-  }, [id, post?.id, relatedReloadKey]);
+  }, [authEnabled, getToken, id, isSignedIn, post?.id, relatedReloadKey]);
 
   const repliesById = useMemo(() => {
     const map = new Map<string, Post>();

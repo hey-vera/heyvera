@@ -4,7 +4,60 @@
 > Pressure-tested via adversarial GPT 5.5 review — all CRITICAL/HIGH findings resolved.
 > This document is the source of truth for the Rust implementation.
 
-## Core Principle
+---
+
+## ⚠️ Amendment 2026-08-02 — read before relying on any section below
+
+This document was written for a model where **the user supplies provider access**.
+Cortex is moving to **operator-funded keys sold as credits**, which inverts the
+core principle. Most of this spec survives that change; some of it is now wrong,
+and two parts were refuted by reading the code.
+
+Sections are marked below. Where a section says REFUTED, the spec describes
+something the implementation does not do — trust the note, not the section.
+
+| § | Subject | Status under operator-funded keys |
+|---|---|---|
+| 1 | State layer / tables | **Keep.** Add `credit_ledger` + `provider_spend` per [CREDITS.md](../cortex/plan/CREDITS.md). |
+| 2 | Deterministic intent resolution | **Keep**, with a caveat — see "sentence splitting" below. |
+| 3 | Evaluator + policy split | **Keep the shape.** Constants need re-deriving against measured cost. |
+| 4 | Failure taxonomy | **Revise.** `CliNotFound` / `CliNotAuthenticated` / `CliAuthExpired` are user-machine failures. Operator-funded execution fails with HTTP status codes, provider error bodies, and 429s. The *scope* model (Provider / Worker / Task / Workspace) survives; the *kinds* do not. |
+| 5 | Ship Captain / DAG / leases | **Keep — and it is real.** Kahn cycle detection, round-robin fairness, `max_concurrent: 5`, per-step `tokio::spawn` all verified present. |
+| 6 | Profiles | **Keep**, re-derive budget numbers once cost is measured. |
+| 7 | Wire protocol v2 | **Mostly keep.** `ProviderClaim { provider, cli_version }` becomes meaningless when the operator holds the keys — capability is central, not per-worker. |
+| 8 | Test strategy | **Keep.** Note all three e2e tests on the live path are `#[ignore]`, and the routing integration test asserts `OK \|\| BAD_REQUEST`, which cannot fail. |
+| 9 | Workspace isolation | **Keep, and it becomes load-bearing.** Worktrees move from the user's machine onto Cortex infrastructure. That is a new cost centre and a new security boundary — untrusted LLM-authored code running next to operator API keys. See the sandbox decision in PLAN-2026-08.md §6. |
+| 10 | Scheduler | **Keep.** |
+| 11 | Scoring constants | **Keep — implemented, with two bugs.** `crates/core/src/evaluator.rs:399-518` implements this faithfully and is live via `scheduler.rs:962`. But `evaluator.rs:339` returns `+18` where this spec says `-18` (sign flip, biases toward OpenAI), and the per-tier token budgets are 4× off spec. |
+| 12 | Step context selection | **Keep.** |
+| 13 | SQLite performance | **REFUTED.** This section specifies a single write actor plus an r2d2 read pool via `spawn_blocking`. The code has a bare `Mutex<Connection>` with 376 blocking lock sites, no pool and no actor. Two replicas would double-dispatch — pay twice, bill once. Either implement §13 or move to Postgres; do not ship metered billing on what exists. |
+| 14 | Security model | **Revise.** "Workers own user-provider access" and "User's CLI tools are untrusted" both assume the user's credentials. Under operator funding the trust boundary moves: the *worker* becomes the untrusted party executing model-authored code, and the keys never leave Brain. |
+| 15 | Admin API | **Keep.** |
+| 16 | Monitoring alerts | **Keep.** Add per-tenant spend-rate and credit-drawdown alerts. |
+| 17 | Deferred list | **Stale.** "x402 billing — log usage events, wire later" is now the product. |
+
+**Two implementation facts this spec does not capture:**
+
+1. **There are two routers.** `crates/engine/src/scorer.rs:55` —
+   `compute_score(provider, _tier, _risk)` — discards tier and risk entirely and
+   returns `100 + (1 - pressure) * 50`. That is the source of the constant `150.0`
+   and the unconditional `best_available_for_tier` rationale in old ledger files.
+   It is **dead**: `state.providers` is initialised empty (`state.rs:135`) and
+   never written, so `/api/route` and `/api/execute` return 400 unconditionally.
+   The live path is §11's evaluator. Delete the dead one.
+2. **§2's decomposition is thinner than it reads.** The DAG is built by splitting
+   the user's sentence on `" and then "` / `" also "`, capped at 5 segments.
+   "Fix the login bug" produces one node. The orchestration machinery is real;
+   the thing feeding it is a string split.
+
+### Amended core principle
+
+**Brain owns decisions, state, policy, recovery — and provider access.**
+**Workers own sandboxed execution of model-authored code, and nothing else.**
+
+---
+
+## Core Principle (original — superseded, retained for diff context)
 
 **Brain owns decisions, state, policy, and recovery. Workers own local execution and user-provider access.**
 

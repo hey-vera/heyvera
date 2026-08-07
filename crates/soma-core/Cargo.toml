@@ -1,6 +1,7 @@
 [package]
 name = "soma-core"
 version = "0.1.0"
+publish = false  # proprietary; never goes to crates.io
 edition = "2021"
 
 [dependencies]
