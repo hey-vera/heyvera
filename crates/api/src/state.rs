@@ -76,14 +76,28 @@ pub struct ConnectedWorker {
     pub tx: mpsc::Sender<BrainMessage>,
 }
 
-/// Where the Cortex database lives for a given workspace.
+/// Where the Cortex database lives.
 ///
 /// A function rather than a literal because background work — verification in
 /// particular — opens its own connection instead of borrowing `AppState`'s,
 /// and two spellings of this path that drift apart would silently split the
-/// database in two.
+/// database in two. That is exactly why the `CORTEX_DB_PATH` override belongs
+/// here and not at the single call site that introduced it: in production the
+/// database is deliberately *outside* the workspace, so a second caller
+/// defaulting to `workspace_dir` would write verdicts into a different file
+/// than the API reads.
+///
+/// The override exists because the workspace is a git checkout on the VPS and
+/// deploys reset it hard — a database living under it is destroyed on every
+/// deploy.
 pub fn cortex_db_path(workspace_dir: &std::path::Path) -> PathBuf {
-    workspace_dir.join(".cortex").join("cortex.db")
+    let db_path = std::env::var("CORTEX_DB_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| workspace_dir.join(".cortex").join("cortex.db"));
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    db_path
 }
 
 pub struct AppState {
@@ -222,7 +236,18 @@ impl AppState {
             tracing::info!("GitHub API client not available (no GITHUB_TOKEN), will fall back to gh CLI");
         }
 
-        let cortex_store_path = workspace_dir.join(".cortex").join("routing.db");
+        // routing.db is in the same danger as cortex.db, and slightly worse:
+        // it is *untracked*, so `git clean -fd` in the deploy path deletes it
+        // outright rather than reverting it. Losing it silently discards every
+        // UCB arm statistic the router has learned in production — the system
+        // keeps working and quietly gets worse at choosing, which is the least
+        // debuggable kind of loss.
+        let cortex_store_path = std::env::var("CORTEX_ROUTING_DB_PATH")
+            .map(PathBuf::from)
+            .unwrap_or_else(|_| workspace_dir.join(".cortex").join("routing.db"));
+        if let Some(parent) = cortex_store_path.parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
         let (cortex_store, ucb_scorer) = match CortexStore::open(&cortex_store_path) {
             Ok(store) => {
                 let arm_stats = store.load_arm_stats().unwrap_or_default();

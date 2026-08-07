@@ -48,6 +48,25 @@ if [ -f "$ENV_FILE" ]; then
   echo "[env] Loaded $ENV_FILE"
 fi
 
+# ── protect live data before any destructive git op ──
+# The database must live outside REPO_DIR (set CORTEX_DB_PATH). If a legacy
+# in-tree database is still present, snapshot it — the reset below would
+# otherwise revert or delete it, and that snapshot is the only way back.
+LEGACY_DB="$REPO_DIR/.cortex/cortex.db"
+DATA_BACKUP_DIR="/home/guardian/backups/pre-deploy"
+if [ -f "$LEGACY_DB" ]; then
+  mkdir -p "$DATA_BACKUP_DIR"
+  SNAPSHOT="$DATA_BACKUP_DIR/cortex_$(date +%Y%m%d_%H%M%S).db"
+  if command -v sqlite3 >/dev/null 2>&1; then
+    sqlite3 "$LEGACY_DB" ".backup '$SNAPSHOT'"
+  else
+    cp -p "$LEGACY_DB" "$SNAPSHOT"
+  fi
+  echo "[data] WARNING: in-tree database found at $LEGACY_DB"
+  echo "[data] Snapshotted to $SNAPSHOT before reset."
+  echo "[data] Move it out of the repo and set CORTEX_DB_PATH — see docs/operations/."
+fi
+
 # ── git (bulletproof) ───────────────────────────
 echo "[git] Nuclear reset to $BRANCH..."
 

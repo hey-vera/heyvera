@@ -17,8 +17,11 @@ packages/dual-brain/
 cortex/.dual-brain/
 .cache/claude-cli-nodejs/
 
-# Local dev databases
+# Runtime state — never commit. A tracked database is reverted by `git reset
+# --hard` during deploy, so committing one turns every deploy into data loss.
 .cortex/
+cortex/.cortex/
+*.db
 *.db-shm
 *.db-wal
 
