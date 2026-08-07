@@ -2,7 +2,8 @@ use std::collections::HashSet;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::aead::rand_core::RngCore;
+use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
 use axum::{
     extract::{
@@ -15,7 +16,6 @@ use axum::{
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
 use chrono::Utc;
-use rand::RngCore;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use tokio::sync::mpsc;
@@ -252,7 +252,7 @@ const MESSAGE_CURSOR_NONCE_LEN: usize = 12;
 fn encode_message_cursor(cursor: &MessageCursor) -> Option<String> {
     let cipher = Aes256Gcm::new_from_slice(&message_cursor_key()?).ok()?;
     let mut nonce_bytes = [0u8; MESSAGE_CURSOR_NONCE_LEN];
-    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    OsRng.fill_bytes(&mut nonce_bytes);
     let plaintext = serde_json::to_vec(cursor).ok()?;
     let ciphertext = cipher
         .encrypt(Nonce::from_slice(&nonce_bytes), plaintext.as_slice())
@@ -315,7 +315,7 @@ const MESSAGE_SYNC_CURSOR_PREFIX: &str = "hvs1.";
 fn encode_message_sync_cursor(cursor: &MessageSyncCursor) -> Option<String> {
     let cipher = Aes256Gcm::new_from_slice(&message_sync_cursor_key()?).ok()?;
     let mut nonce_bytes = [0u8; MESSAGE_CURSOR_NONCE_LEN];
-    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    OsRng.fill_bytes(&mut nonce_bytes);
     let plaintext = serde_json::to_vec(cursor).ok()?;
     let ciphertext = cipher
         .encrypt(Nonce::from_slice(&nonce_bytes), plaintext.as_slice())
@@ -380,7 +380,7 @@ const CONVERSATION_CURSOR_PREFIX: &str = "hvc1.";
 fn encode_conversation_cursor(cursor: &ConversationCursor) -> Option<String> {
     let cipher = Aes256Gcm::new_from_slice(&conversation_cursor_key()?).ok()?;
     let mut nonce_bytes = [0u8; MESSAGE_CURSOR_NONCE_LEN];
-    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    OsRng.fill_bytes(&mut nonce_bytes);
     let plaintext = serde_json::to_vec(cursor).ok()?;
     let ciphertext = cipher
         .encrypt(Nonce::from_slice(&nonce_bytes), plaintext.as_slice())
@@ -444,7 +444,7 @@ const MESSAGE_REQUEST_CURSOR_PREFIX: &str = "hvr1.";
 fn encode_message_request_cursor(cursor: &MessageRequestCursor) -> Option<String> {
     let cipher = Aes256Gcm::new_from_slice(&message_request_cursor_key()?).ok()?;
     let mut nonce_bytes = [0u8; MESSAGE_CURSOR_NONCE_LEN];
-    rand::rngs::OsRng.fill_bytes(&mut nonce_bytes);
+    OsRng.fill_bytes(&mut nonce_bytes);
     let plaintext = serde_json::to_vec(cursor).ok()?;
     let ciphertext = cipher
         .encrypt(Nonce::from_slice(&nonce_bytes), plaintext.as_slice())
@@ -1118,7 +1118,7 @@ fn hash_social_ws_ticket(ticket: &str) -> String {
 
 fn generate_social_ws_ticket() -> String {
     let mut bytes = [0u8; 32];
-    rand::rngs::OsRng.fill_bytes(&mut bytes);
+    OsRng.fill_bytes(&mut bytes);
     format!("hvws_{}", URL_SAFE_NO_PAD.encode(bytes))
 }
 
