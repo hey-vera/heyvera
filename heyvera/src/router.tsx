@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate, Outlet, useLocation, useRouteError } from 'react-router-dom';
+import { createBrowserRouter, Navigate, Outlet, useLocation, useRouteError } from 'react-router';
 import { lazy, Suspense } from 'react';
 import { AppShell } from './components/layout/AppShell';
 

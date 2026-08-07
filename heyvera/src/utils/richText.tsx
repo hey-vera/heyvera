@@ -1,5 +1,5 @@
 import { type ReactNode } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { ExternalLink } from 'lucide-react';
 
 const TOKEN_RE = /(@\w+|#\w+|https?:\/\/\S+)/g;

@@ -5,7 +5,7 @@ import {
   Navigate,
   NavLink,
   Outlet,
-} from "react-router-dom";
+} from "react-router";
 import { useAuthContext } from "../../hooks/useAuthContext";
 import type { ShellState } from "../../hooks/useShellState";
 
