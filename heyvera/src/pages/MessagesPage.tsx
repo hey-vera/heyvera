@@ -1,9 +1,21 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
-import { ArrowLeft, MessageCircle, Search, Send } from 'lucide-react';
+import { ArrowLeft, MessageCircle, Search, Send, ShieldAlert } from 'lucide-react';
 import { useSearchParams } from 'react-router';
-import type { Conversation, Message } from '../api/types';
-import { getConversations, getMessages, sendMessage } from '../api/social';
+import type { Conversation, Message, MessageRequest } from '../api/types';
+import {
+  acceptMessageRequest,
+  declineMessageRequest,
+  getMessageRequests,
+  markMessageRequestSpam,
+  getConversations,
+  getConversation,
+  getMessages,
+  issueSocialDmWsTicket,
+  markConversationRead,
+  sendMessage,
+  SOCIAL_DM_MAX_MESSAGE_CHARS,
+} from '../api/social';
 import { LoadingState, EmptyState } from '../components/shared/AsyncStates';
 import { useAuth } from '../hooks/useAuth';
 import { useAuthContext } from '../hooks/useAuthContext';
@@ -22,7 +34,21 @@ import {
   pingPayload,
   socialDmWsUrl,
   subscribePayload,
+  unsubscribePayload,
 } from '../utils/socialDmWs';
+import { mergeMessageHistory } from '../utils/messageHistory';
+import {
+  appendConversationPage,
+  mergeConversationHead,
+  promoteConversation,
+} from '../utils/conversationList';
+import {
+  appendMessageRequestPage,
+  formatMessageRequestSharedContext,
+  mergeMessageRequestHead,
+  messageRequestCountLabel,
+  removeMessageRequest,
+} from '../utils/messageRequests';
 
 /** Soft-realtime: messages while a thread is open (honest intermediate before WS). */
 const MESSAGES_POLL_MS = 6_000;
@@ -58,22 +84,23 @@ function getOtherParticipant(conversation: Conversation, currentProfileId: strin
   return conversation.participants[0];
 }
 
-function sameMessageIds(a: Message[], b: Message[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i]?.id !== b[i]?.id) return false;
-  }
-  return true;
+function updateUnreadLocal(
+  list: Conversation[],
+  conversationId: string,
+  unreadCount: number,
+): Conversation[] {
+  return list.map((conversation) =>
+    conversation.id === conversationId
+      ? { ...conversation, unread_count: unreadCount }
+      : conversation,
+  );
 }
 
-function clearUnreadLocal(list: Conversation[], conversationId: string): Conversation[] {
-  let changed = false;
-  const next = list.map((c) => {
-    if (c.id !== conversationId || c.unread_count === 0) return c;
-    changed = true;
-    return { ...c, unread_count: 0 };
-  });
-  return changed ? next : list;
+function newClientMessageId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `msg_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
 }
 
 function bumpUnreadLocal(
@@ -81,20 +108,18 @@ function bumpUnreadLocal(
   conversationId: string,
   message: Message,
 ): Conversation[] {
-  return list.map((c) => {
-    if (c.id !== conversationId) return c;
-    return {
-      ...c,
-      unread_count: (c.unread_count ?? 0) + 1,
-      last_message: message,
-    };
-  });
+  return promoteConversation(list, conversationId, (conversation) => ({
+    ...conversation,
+    unread_count: (conversation.unread_count ?? 0) + 1,
+    last_message: message,
+  }));
 }
-
 function readNavigatorOnline(): boolean {
   if (typeof navigator === 'undefined') return true;
   return navigator.onLine !== false;
 }
+
+type InboxView = 'inbox' | 'requests';
 
 /* ─── Main Component ────────────────────────────────────────────────────────── */
 
@@ -106,11 +131,29 @@ export function MessagesPage() {
 
   const [searchParams, setSearchParams] = useSearchParams();
   const deepLinkConversationId = searchParams.get('c');
+  const [inboxView, setInboxView] = useState<InboxView>(
+    deepLinkConversationId || searchParams.get('view') !== 'requests' ? 'inbox' : 'requests',
+  );
+  const [messageRequests, setMessageRequests] = useState<MessageRequest[]>([]);
+  const [requestPendingCount, setRequestPendingCount] = useState(0);
+  const [nextRequestCursor, setNextRequestCursor] = useState<string | null>(null);
+  const [loadingRequests, setLoadingRequests] = useState(false);
+  const [loadingMoreRequests, setLoadingMoreRequests] = useState(false);
+  const [requestsError, setRequestsError] = useState<string | null>(null);
+  const [requestActionError, setRequestActionError] = useState<string | null>(null);
+  const [requestNotice, setRequestNotice] = useState<string | null>(null);
+  const [requestBusyId, setRequestBusyId] = useState<string | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [nextConversationCursor, setNextConversationCursor] = useState<string | null>(null);
+  const [loadingMoreConversations, setLoadingMoreConversations] = useState(false);
+  const [moreConversationsError, setMoreConversationsError] = useState<string | null>(null);
   const [filteredConversations, setFilteredConversations] = useState<Conversation[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(deepLinkConversationId);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [nextMessagesCursor, setNextMessagesCursor] = useState<string | null>(null);
+  const [loadingOlderMessages, setLoadingOlderMessages] = useState(false);
+  const [olderMessagesError, setOlderMessagesError] = useState<string | null>(null);
   const [loadingConversations, setLoadingConversations] = useState(false);
   const [loadingMessages, setLoadingMessages] = useState(false);
   const [conversationsError, setConversationsError] = useState<string | null>(null);
@@ -119,7 +162,8 @@ export function MessagesPage() {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [lastUpdatedAt, setLastUpdatedAt] = useState<number | null>(null);
-  /** Wave 8b/9b: true only when social DM WebSocket is open. */
+  const [selectedConversationError, setSelectedConversationError] = useState<string | null>(null);
+  /** True only after the socket subscription is acknowledged and durable catch-up completes. */
   const [wsConnected, setWsConnected] = useState(false);
   /** Wave 9b: browser offline (navigator.onLine). */
   const [navigatorOnline, setNavigatorOnline] = useState(readNavigatorOnline);
@@ -127,14 +171,33 @@ export function MessagesPage() {
   const [reconnecting, setReconnecting] = useState(false);
 
   const messagesEndRef = useRef<HTMLDivElement | null>(null);
+  const messagesScrollerRef = useRef<HTMLDivElement | null>(null);
   const selectedIdRef = useRef<string | null>(null);
   selectedIdRef.current = selectedId;
   const wsRef = useRef<WebSocket | null>(null);
+  const viewerProfileIdRef = useRef<string | null>(viewerProfileId);
+  viewerProfileIdRef.current = viewerProfileId;
   const loadMessagesForRef = useRef<
     ((conversationId: string, opts?: { quiet?: boolean }) => Promise<void>) | null
   >(null);
 
+  const recoverMessagesForRef = useRef<
+    ((conversationId: string) => Promise<void>) | null
+  >(null);
+  const messageSyncCursorsRef = useRef(new Map<string, string>());
+  const readAckRef = useRef<string | null>(null);
+  const pendingSendRef = useRef<
+    { conversationId: string; content: string; clientMessageId: string } | null
+  >(null);
+  const subscribedConversationRef = useRef<string | null>(null);
+  const loadedOlderConversationsRef = useRef(false);
+  const deepLinkHydrationRef = useRef<string | null>(null);
+  const shouldScrollToEndRef = useRef(true);
+  const loadedOlderRequestsRef = useRef(false);
+
   const selectedConversation = conversations.find((c) => c.id === selectedId) ?? null;
+  const requestBadge = messageRequestCountLabel(requestPendingCount, false);
+
 
   /**
    * Status chip: honest about *data transport*.
@@ -175,42 +238,199 @@ export function MessagesPage() {
     pollActive,
   });
 
-  /* Load conversations (quiet = background poll: no LoadingState flash). */
+  /* Load conversations (quiet = background head refresh without discarding older pages). */
   const loadConversations = useCallback(async (opts?: { quiet?: boolean }) => {
     if (!isSignedIn) return;
     const quiet = opts?.quiet ?? false;
     if (!quiet) {
+      loadedOlderConversationsRef.current = false;
       setLoadingConversations(true);
       setConversationsError(null);
+      setMoreConversationsError(null);
     }
     try {
       const token = await getToken();
       if (!token) return;
-      const result = await getConversations(token);
-      setConversations(result);
+      const page = await getConversations(token);
+      setConversations((current) =>
+        quiet ? mergeConversationHead(current, page.conversations) : page.conversations,
+      );
+      if (!quiet || !loadedOlderConversationsRef.current) {
+        setNextConversationCursor(page.next_cursor);
+      }
       setLastUpdatedAt(Date.now());
     } catch (err) {
       if (quiet) return;
       setConversationsError(err instanceof Error ? err.message : 'Failed to load conversations');
       setConversations([]);
       setFilteredConversations([]);
+      setNextConversationCursor(null);
     } finally {
       if (!quiet) setLoadingConversations(false);
     }
   }, [getToken, isSignedIn]);
-
   useEffect(() => {
     void loadConversations();
   }, [loadConversations]);
 
+  const loadMoreConversations = useCallback(async () => {
+    const cursor = nextConversationCursor;
+    if (!cursor || loadingMoreConversations) return;
+    setLoadingMoreConversations(true);
+    setMoreConversationsError(null);
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const page = await getConversations(token, { cursor });
+      setConversations((current) => appendConversationPage(current, page.conversations));
+      setNextConversationCursor(page.next_cursor);
+      loadedOlderConversationsRef.current = true;
+      setLastUpdatedAt(Date.now());
+    } catch (err) {
+      setMoreConversationsError(
+        err instanceof Error ? err.message : 'Failed to load more conversations',
+      );
+    } finally {
+      setLoadingMoreConversations(false);
+    }
+  }, [getToken, loadingMoreConversations, nextConversationCursor]);
+  const loadMessageRequests = useCallback(async (opts?: { quiet?: boolean }) => {
+    if (!isSignedIn) return;
+    const quiet = opts?.quiet ?? false;
+    if (!quiet) {
+      loadedOlderRequestsRef.current = false;
+      setLoadingRequests(true);
+      setRequestsError(null);
+    }
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again to load message requests.');
+      const page = await getMessageRequests(token, { bucket: 'inbox' });
+      setMessageRequests((current) =>
+        quiet ? mergeMessageRequestHead(current, page.requests) : page.requests,
+      );
+      setRequestPendingCount(page.total_pending_count);
+      if (!quiet || !loadedOlderRequestsRef.current) setNextRequestCursor(page.next_cursor);
+    } catch (err) {
+      if (quiet) return;
+      setRequestsError(err instanceof Error ? err.message : 'Failed to load message requests');
+      setMessageRequests([]);
+      setNextRequestCursor(null);
+    } finally {
+      if (!quiet) setLoadingRequests(false);
+    }
+  }, [getToken, isSignedIn]);
+
+  useEffect(() => {
+    void loadMessageRequests();
+  }, [loadMessageRequests]);
+
+  const loadMoreMessageRequests = useCallback(async () => {
+    const cursor = nextRequestCursor;
+    if (!cursor || loadingMoreRequests) return;
+    setLoadingMoreRequests(true);
+    setRequestsError(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again to load more requests.');
+      const page = await getMessageRequests(token, { bucket: 'inbox', cursor });
+      setMessageRequests((current) => appendMessageRequestPage(current, page.requests));
+      setRequestPendingCount(page.total_pending_count);
+      setNextRequestCursor(page.next_cursor);
+      loadedOlderRequestsRef.current = true;
+    } catch (err) {
+      setRequestsError(err instanceof Error ? err.message : 'Failed to load more requests');
+    } finally {
+      setLoadingMoreRequests(false);
+    }
+  }, [getToken, loadingMoreRequests, nextRequestCursor]);
+
+  const resolveMessageRequest = async (
+    request: MessageRequest,
+    action: 'accept' | 'decline' | 'spam',
+  ) => {
+    if (requestBusyId) return;
+    setRequestBusyId(request.id);
+    setRequestActionError(null);
+    setRequestNotice(null);
+    try {
+      const token = await getToken();
+      if (!token) throw new Error('Sign in again to manage message requests.');
+      if (action === 'accept') {
+        const result = await acceptMessageRequest(token, request.id);
+        setMessageRequests((current) => removeMessageRequest(current, request.id));
+        setRequestPendingCount((count) => Math.max(0, count - 1));
+        setConversations((current) => mergeConversationHead(current, [result.conversation]));
+        setInboxView('inbox');
+        selectConversation(result.conversation.id);
+        void loadConversations({ quiet: true });
+      } else {
+        if (action === 'spam') await markMessageRequestSpam(token, request.id);
+        else await declineMessageRequest(token, request.id);
+        setMessageRequests((current) => removeMessageRequest(current, request.id));
+        setRequestPendingCount((count) => Math.max(0, count - 1));
+        setRequestNotice(
+          action === 'spam'
+            ? `Marked @${request.sender.handle}'s request as spam.`
+            : `Declined @${request.sender.handle}'s request.`,
+        );
+      }
+    } catch (err) {
+      setRequestActionError(
+        err instanceof Error ? err.message : 'Unable to update this message request.',
+      );
+    } finally {
+      setRequestBusyId(null);
+    }
+  };
+
+  useEffect(() => {
+    const conversationId = selectedId;
+    if (
+      !isSignedIn ||
+      !conversationId ||
+      conversations.some((conversation) => conversation.id === conversationId) ||
+      deepLinkHydrationRef.current === conversationId
+    ) {
+      return;
+    }
+    let cancelled = false;
+    deepLinkHydrationRef.current = conversationId;
+    setSelectedConversationError(null);
+    void (async () => {
+      try {
+        const token = await getToken();
+        if (!token || cancelled) return;
+        const conversation = await getConversation(token, conversationId);
+        if (!cancelled && selectedIdRef.current === conversationId) {
+          setConversations((current) => mergeConversationHead(current, [conversation]));
+        }
+      } catch (err) {
+        if (!cancelled && selectedIdRef.current === conversationId) {
+          setSelectedConversationError(
+            err instanceof Error ? err.message : 'Conversation is unavailable',
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [conversations, getToken, isSignedIn, selectedId]);
   // Deep link from Profile "Message" → /messages?c=<conversationId>
   useEffect(() => {
     if (!deepLinkConversationId) return;
+    deepLinkHydrationRef.current = null;
+    setSelectedConversationError(null);
+    setInboxView('inbox');
     setSelectedId(deepLinkConversationId);
   }, [deepLinkConversationId]);
 
   const selectConversation = (id: string | null) => {
+    deepLinkHydrationRef.current = null;
+    setSelectedConversationError(null);
     setSelectedId(id);
+    if (id) setInboxView('inbox');
     if (id) {
       setSearchParams({ c: id }, { replace: true });
     } else {
@@ -218,10 +438,30 @@ export function MessagesPage() {
     }
   };
 
+  const selectInboxView = (view: InboxView) => {
+    setInboxView(view);
+    setRequestActionError(null);
+    setRequestNotice(null);
+    if (view === 'requests') {
+      setSelectedId(null);
+      setSearchParams({ view: 'requests' }, { replace: true });
+    } else {
+      setSearchParams({}, { replace: true });
+    }
+  };
   // Soft-realtime: quiet conversation list poll while signed in.
   useVisibilityPoll(
     () => {
       void loadConversations({ quiet: true });
+    },
+    CONVERSATIONS_POLL_MS,
+    Boolean(isSignedIn),
+    { runOnVisible: true },
+  );
+
+  useVisibilityPoll(
+    () => {
+      void loadMessageRequests({ quiet: true });
     },
     CONVERSATIONS_POLL_MS,
     Boolean(isSignedIn),
@@ -248,6 +488,41 @@ export function MessagesPage() {
     );
   }, [searchQuery, conversations, viewerProfileId]);
 
+  const acknowledgeVisibleMessages = useCallback(
+    async (conversationId: string, history: Message[]) => {
+      if (
+        selectedIdRef.current !== conversationId ||
+        document.visibilityState !== 'visible' ||
+        history.length === 0
+      ) {
+        return;
+      }
+      const throughMessageId = history[history.length - 1]!.id;
+      const acknowledgementKey = `${conversationId}:${throughMessageId}`;
+      if (readAckRef.current === acknowledgementKey) return;
+      readAckRef.current = acknowledgementKey;
+      try {
+        const token = await getToken();
+        if (
+          !token ||
+          selectedIdRef.current !== conversationId ||
+          document.visibilityState !== 'visible'
+        ) {
+          readAckRef.current = null;
+          return;
+        }
+        const result = await markConversationRead(token, conversationId, throughMessageId);
+        if (selectedIdRef.current === conversationId) {
+          setConversations((current) =>
+            updateUnreadLocal(current, conversationId, result.unread_count),
+          );
+        }
+      } catch {
+        if (readAckRef.current === acknowledgementKey) readAckRef.current = null;
+      }
+    },
+    [getToken],
+  );
   /* Load messages for selected conversation (initial = full load; poll = quiet). */
   const loadMessagesFor = useCallback(
     async (conversationId: string, opts?: { quiet?: boolean }) => {
@@ -259,30 +534,87 @@ export function MessagesPage() {
       try {
         const token = await getToken();
         if (!token) return;
-        const result = await getMessages(conversationId, token);
+        const page = await getMessages(conversationId, token);
+        if (selectedIdRef.current !== conversationId) return;
+        if (page.sync_cursor) messageSyncCursorsRef.current.set(conversationId, page.sync_cursor);
         // Avoid re-render/scroll churn when nothing changed.
-        setMessages((prev) => (sameMessageIds(prev, result) ? prev : result));
-        // Server marks read on GET — clear list badge locally.
-        setConversations((prev) => clearUnreadLocal(prev, conversationId));
+        const scroller = messagesScrollerRef.current;
+        shouldScrollToEndRef.current = Boolean(
+          scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80,
+        );
+        setMessages((current) => mergeMessageHistory(current, page.messages));
+        void acknowledgeVisibleMessages(conversationId, page.messages);
         setMessagesError(null);
         setLastUpdatedAt(Date.now());
       } catch (err) {
-        if (quiet) return;
+        if (quiet || selectedIdRef.current !== conversationId) return;
         setMessagesError(err instanceof Error ? err.message : 'Failed to load messages');
-        setMessages([]);
       } finally {
-        if (!quiet) setLoadingMessages(false);
+        if (!quiet && selectedIdRef.current === conversationId) setLoadingMessages(false);
       }
     },
-    [getToken],
+    [acknowledgeVisibleMessages, getToken],
   );
   loadMessagesForRef.current = loadMessagesFor;
 
+  const recoverMessagesFor = useCallback(
+    async (conversationId: string) => {
+      const token = await getToken();
+      if (!token || selectedIdRef.current !== conversationId) return;
+
+      let syncCursor = messageSyncCursorsRef.current.get(conversationId) ?? null;
+      let newestRecovered: Message[] = [];
+
+      if (!syncCursor) {
+        const page = await getMessages(conversationId, token, { limit: 100 });
+        if (selectedIdRef.current !== conversationId) return;
+        setMessages((current) => mergeMessageHistory(current, page.messages));
+        newestRecovered = page.messages;
+        syncCursor = page.sync_cursor;
+        if (syncCursor) messageSyncCursorsRef.current.set(conversationId, syncCursor);
+      } else {
+        for (let pageNumber = 0; pageNumber < 1_000; pageNumber += 1) {
+          const page = await getMessages(conversationId, token, {
+            limit: 100,
+            afterCursor: syncCursor,
+          });
+          if (selectedIdRef.current !== conversationId) return;
+          if (page.messages.length > 0) {
+            newestRecovered = page.messages;
+            setMessages((current) => mergeMessageHistory(current, page.messages));
+          }
+
+          const nextSyncCursor = page.sync_cursor;
+          if (nextSyncCursor) messageSyncCursorsRef.current.set(conversationId, nextSyncCursor);
+          if (!page.has_more) break;
+          if (!nextSyncCursor || nextSyncCursor === syncCursor) {
+            throw new Error('Message recovery cursor did not advance');
+          }
+          syncCursor = nextSyncCursor;
+
+          if (pageNumber === 999) throw new Error('Message recovery exceeded its safety limit');
+        }
+      }
+
+      if (selectedIdRef.current !== conversationId) return;
+      setMessagesError(null);
+      setLastUpdatedAt(Date.now());
+      if (newestRecovered.length > 0) {
+        void acknowledgeVisibleMessages(conversationId, newestRecovered);
+      }
+    },
+    [acknowledgeVisibleMessages, getToken],
+  );
+  recoverMessagesForRef.current = recoverMessagesFor;
+
   useEffect(() => {
-    if (!selectedId || !isSignedIn) {
-      setMessages([]);
-      return;
-    }
+    setMessages([]);
+    setNextMessagesCursor(null);
+    setOlderMessagesError(null);
+    readAckRef.current = null;
+    shouldScrollToEndRef.current = true;
+    if (!selectedId || !isSignedIn) return;
+    const conversationId = selectedId;
     let cancelled = false;
 
     async function load() {
@@ -291,20 +623,20 @@ export function MessagesPage() {
       try {
         const token = await getToken();
         if (!token || cancelled) return;
-        const result = await getMessages(selectedId!, token);
-        if (!cancelled) {
-          setMessages(result);
-          // Server marks read on GET — clear list badge locally.
-          setConversations((prev) => clearUnreadLocal(prev, selectedId!));
+        const page = await getMessages(conversationId, token);
+        if (!cancelled && selectedIdRef.current === conversationId) {
+          if (page.sync_cursor) messageSyncCursorsRef.current.set(conversationId, page.sync_cursor);
+          setMessages((current) => mergeMessageHistory(current, page.messages));
+          setNextMessagesCursor(page.next_cursor);
           setLastUpdatedAt(Date.now());
+          void acknowledgeVisibleMessages(conversationId, page.messages);
         }
       } catch (err) {
-        if (!cancelled) {
+        if (!cancelled && selectedIdRef.current === conversationId) {
           setMessagesError(err instanceof Error ? err.message : 'Failed to load messages');
-          setMessages([]);
         }
       } finally {
-        if (!cancelled) setLoadingMessages(false);
+        if (!cancelled && selectedIdRef.current === conversationId) setLoadingMessages(false);
       }
     }
 
@@ -312,9 +644,44 @@ export function MessagesPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedId, getToken, isSignedIn]);
+  }, [acknowledgeVisibleMessages, selectedId, getToken, isSignedIn]);
 
   // Soft-realtime fallback: quiet message poll when WS is down (Wave 8b/9b).
+
+  const loadOlderMessages = useCallback(async () => {
+    const conversationId = selectedIdRef.current;
+    const cursor = nextMessagesCursor;
+    if (!conversationId || !cursor || loadingOlderMessages) return;
+
+    setLoadingOlderMessages(true);
+    setOlderMessagesError(null);
+    const scroller = messagesScrollerRef.current;
+    const previousHeight = scroller?.scrollHeight ?? 0;
+    try {
+      const token = await getToken();
+      if (!token) return;
+      const page = await getMessages(conversationId, token, { cursor });
+      if (selectedIdRef.current !== conversationId) return;
+      shouldScrollToEndRef.current = false;
+      setMessages((current) => mergeMessageHistory(current, page.messages));
+      setNextMessagesCursor(page.next_cursor);
+      setLastUpdatedAt(Date.now());
+      requestAnimationFrame(() => {
+        const activeScroller = messagesScrollerRef.current;
+        if (activeScroller && selectedIdRef.current === conversationId) {
+          activeScroller.scrollTop += activeScroller.scrollHeight - previousHeight;
+        }
+      });
+    } catch (err) {
+      if (selectedIdRef.current === conversationId) {
+        setOlderMessagesError(
+          err instanceof Error ? err.message : 'Failed to load earlier messages',
+        );
+      }
+    } finally {
+      if (selectedIdRef.current === conversationId) setLoadingOlderMessages(false);
+    }
+  }, [getToken, loadingOlderMessages, nextMessagesCursor]);
   useVisibilityPoll(
     () => {
       const id = selectedIdRef.current;
@@ -338,8 +705,7 @@ export function MessagesPage() {
     };
   }, []);
 
-  // Wave 8b/9b: social DM WebSocket — auth via ?token=, subscribe per conversation.
-  // Reconnect: exponential backoff, fresh token each attempt, online + visibility kicks.
+  // Social DM WebSocket — exchange a fresh bearer token for a one-use handshake ticket.
   useEffect(() => {
     if (!isSignedIn) {
       setWsConnected(false);
@@ -421,7 +787,9 @@ export function MessagesPage() {
         socket = null;
         wsRef.current = null;
 
-        const url = socialDmWsUrl(token);
+        const ticket = await issueSocialDmWsTicket(token);
+        if (cancelled) return;
+        const url = socialDmWsUrl(ticket);
         socket = new WebSocket(url);
         wsRef.current = socket;
 
@@ -431,8 +799,8 @@ export function MessagesPage() {
             return;
           }
           attempt = 0;
-          setWsConnected(true);
-          setReconnecting(false);
+          setWsConnected(false);
+          setReconnecting(Boolean(selectedIdRef.current));
 
           if (pingTimer) clearInterval(pingTimer);
           pingTimer = setInterval(() => {
@@ -449,6 +817,10 @@ export function MessagesPage() {
           const id = selectedIdRef.current;
           if (id && socket?.readyState === WebSocket.OPEN) {
             socket.send(subscribePayload(id));
+            subscribedConversationRef.current = id;
+          } else {
+            setWsConnected(true);
+            setReconnecting(false);
           }
         };
 
@@ -456,23 +828,75 @@ export function MessagesPage() {
           if (typeof ev.data !== 'string') return;
           const event = parseSocialDmWsMessage(ev.data);
           if (!event) return;
+          if (event.type === 'subscribed') {
+            const activeId = selectedIdRef.current;
+            if (event.conversationId !== activeId) return;
+            void recoverMessagesForRef.current?.(event.conversationId).then(
+              () => {
+                if (
+                  !cancelled &&
+                  wsRef.current === socket &&
+                  socket?.readyState === WebSocket.OPEN &&
+                  selectedIdRef.current === event.conversationId
+                ) {
+                  setWsConnected(true);
+                  setReconnecting(false);
+                }
+              },
+              () => {
+                setWsConnected(false);
+                setReconnecting(true);
+                if (socket?.readyState === WebSocket.OPEN) socket.close();
+              },
+            );
+            return;
+          }
+          if (event.type === 'gap') {
+            if (event.conversationId !== selectedIdRef.current) return;
+            setWsConnected(false);
+            setReconnecting(true);
+            if (socket?.readyState === WebSocket.OPEN) socket.close();
+            return;
+          }
           if (event.type === 'message') {
             const activeId = selectedIdRef.current;
+            setConversations((current) =>
+              event.message.sender.id === viewerProfileIdRef.current
+                ? promoteConversation(current, event.conversationId, (conversation) => ({
+                    ...conversation,
+                    last_message: event.message,
+                  }))
+                : bumpUnreadLocal(current, event.conversationId, event.message),
+            );
             if (event.conversationId === activeId) {
-              setMessages((prev) => {
-                if (prev.some((m) => m.id === event.message.id)) return prev;
-                return [...prev, event.message];
-              });
-              setLastUpdatedAt(Date.now());
-              // Quiet re-GET marks read on server + keeps list honest.
-              void loadMessagesForRef.current?.(event.conversationId, { quiet: true });
-            } else {
-              // Other conversation: bump local unread + last_message.
-              setConversations((prev) =>
-                bumpUnreadLocal(prev, event.conversationId, event.message),
+              const scroller = messagesScrollerRef.current;
+              shouldScrollToEndRef.current = Boolean(
+                scroller && scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight < 80,
               );
-              setLastUpdatedAt(Date.now());
+              setMessages((current) => mergeMessageHistory(current, [event.message]));
+              void acknowledgeVisibleMessages(event.conversationId, [event.message]);
             }
+            setLastUpdatedAt(Date.now());
+            return;
+          }
+          if (event.type === 'read' && event.conversationId === selectedIdRef.current) {
+            setMessages((current) => {
+              const through = current.find((message) => message.id === event.throughMessageId);
+              if (!through) return current;
+              return current.map((message) => {
+                if (
+                  message.sequence > through.sequence ||
+                  message.sender.id === event.profileId ||
+                  message.read_by_profile_ids.includes(event.profileId)
+                ) {
+                  return message;
+                }
+                return {
+                  ...message,
+                  read_by_profile_ids: [...message.read_by_profile_ids, event.profileId],
+                };
+              });
+            });
           }
         };
 
@@ -482,6 +906,7 @@ export function MessagesPage() {
 
         socket.onclose = () => {
           if (wsRef.current === socket) wsRef.current = null;
+          subscribedConversationRef.current = null;
           if (pingTimer) {
             clearInterval(pingTimer);
             pingTimer = null;
@@ -527,11 +952,16 @@ export function MessagesPage() {
         detachSocket(wsRef.current);
         wsRef.current = null;
       }
+      subscribedConversationRef.current = null;
     };
 
     const onVisibility = () => {
       if (cancelled) return;
       if (document.visibilityState !== 'visible') return;
+      const selectedConversationId = selectedIdRef.current;
+      if (selectedConversationId) {
+        void loadMessagesForRef.current?.(selectedConversationId, { quiet: true });
+      }
       const open =
         wsRef.current?.readyState === WebSocket.OPEN ||
         wsRef.current?.readyState === WebSocket.CONNECTING;
@@ -562,27 +992,49 @@ export function MessagesPage() {
       }
       wsRef.current = null;
       setWsConnected(false);
+      subscribedConversationRef.current = null;
       setReconnecting(false);
     };
-  }, [getToken, isSignedIn]);
+  }, [acknowledgeVisibleMessages, getToken, isSignedIn]);
 
-  // Resubscribe when the selected conversation changes while WS is live.
+  // Resubscribe when the selected conversation changes on an open socket.
   useEffect(() => {
-    if (!selectedId || !wsConnected) return;
     const s = wsRef.current;
     if (s && s.readyState === WebSocket.OPEN) {
-      s.send(subscribePayload(selectedId));
+      const previousId = subscribedConversationRef.current;
+      if (previousId && previousId !== selectedId) {
+        s.send(unsubscribePayload(previousId));
+      }
+      if (selectedId && previousId !== selectedId) {
+        setWsConnected(false);
+        setReconnecting(true);
+        s.send(subscribePayload(selectedId));
+      } else if (!selectedId) {
+        setWsConnected(true);
+        setReconnecting(false);
+      }
+      subscribedConversationRef.current = selectedId;
     }
-  }, [selectedId, wsConnected]);
+  }, [selectedId]);
 
   /* Scroll to bottom when messages change */
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    if (shouldScrollToEndRef.current) {
+      messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    }
+    shouldScrollToEndRef.current = false;
   }, [messages]);
 
   /* Send message */
   const handleSend = async () => {
-    if (!composeText.trim() || !selectedId || sending) return;
+    const content = composeText.trim();
+    if (!content || !selectedId || sending) return;
+    const conversationId = selectedId;
+    let pending = pendingSendRef.current;
+    if (!pending || pending.conversationId !== conversationId || pending.content !== content) {
+      pending = { conversationId, content, clientMessageId: newClientMessageId() };
+      pendingSendRef.current = pending;
+    }
     setSending(true);
     setSendError(null);
     try {
@@ -591,15 +1043,20 @@ export function MessagesPage() {
         setSendError('Sign in again to send.');
         return;
       }
-      const newMsg = await sendMessage(token, selectedId, composeText.trim());
-      setMessages((current) => [...current, newMsg]);
-      setComposeText('');
+      const newMsg = await sendMessage(token, conversationId, content, pending.clientMessageId);
+      pendingSendRef.current = null;
+      if (selectedIdRef.current !== conversationId) return;
+      shouldScrollToEndRef.current = true;
+      setMessages((current) => mergeMessageHistory(current, [newMsg]));
+      setComposeText((current) => (current.trim() === content ? '' : current));
       setLastUpdatedAt(Date.now());
       // Keep list preview fresh for the open thread.
-      setConversations((prev) =>
-        prev.map((c) =>
-          c.id === selectedId ? { ...c, last_message: newMsg, unread_count: 0 } : c,
-        ),
+      setConversations((current) =>
+        promoteConversation(current, conversationId, (conversation) => ({
+          ...conversation,
+          last_message: newMsg,
+          unread_count: 0,
+        })),
       );
     } catch (err) {
       setSendError(err instanceof Error ? err.message : 'Send failed. Try again.');
@@ -614,6 +1071,12 @@ export function MessagesPage() {
       void handleSend();
     }
   };
+
+  const newestSentMessageId = useMemo(
+    () =>
+      [...messages].reverse().find((message) => message.sender.id === viewerProfileId)?.id ?? null,
+    [messages, viewerProfileId],
+  );
 
   const showStatusChrome = isSignedIn && (wsConnected || lastUpdatedAt != null || !navigatorOnline || reconnecting);
 
@@ -715,7 +1178,51 @@ export function MessagesPage() {
           Messages are early access — conversations load from the real API; polish and extras are still in progress.
         </div>
 
+        <div
+          className="flex border-b px-3"
+          style={{ borderColor: 'var(--border-primary)' }}
+          role="tablist"
+          aria-label="Message inbox"
+        >
+          <button
+            type="button"
+            role="tab"
+            aria-selected={inboxView === 'inbox'}
+            onClick={() => selectInboxView('inbox')}
+            className="relative flex-1 px-3 py-3 text-[14px] font-semibold focus-visible:outline-none focus-ring"
+            style={{ color: inboxView === 'inbox' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+          >
+            Inbox
+            {inboxView === 'inbox' && (
+              <span className="absolute inset-x-4 bottom-0 h-1 rounded-full" style={{ backgroundColor: 'var(--accent)' }} aria-hidden="true" />
+            )}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={inboxView === 'requests'}
+            onClick={() => selectInboxView('requests')}
+            className="relative flex flex-1 items-center justify-center gap-2 px-3 py-3 text-[14px] font-semibold focus-visible:outline-none focus-ring"
+            style={{ color: inboxView === 'requests' ? 'var(--text-primary)' : 'var(--text-secondary)' }}
+          >
+            Requests
+            {requestBadge && (
+              <span
+                className="inline-flex h-5 min-w-5 items-center justify-center rounded-full px-1.5 text-[11px] font-bold"
+                style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+                aria-label={`${requestBadge} pending message requests`}
+              >
+                {requestBadge}
+              </span>
+            )}
+            {inboxView === 'requests' && (
+              <span className="absolute inset-x-4 bottom-0 h-1 rounded-full" style={{ backgroundColor: 'var(--accent)' }} aria-hidden="true" />
+            )}
+          </button>
+        </div>
+
         {/* Search */}
+        {inboxView === 'inbox' && (
         <div className="px-3 py-2">
           <div className="relative">
             <Search
@@ -738,9 +1245,26 @@ export function MessagesPage() {
             />
           </div>
         </div>
+        )}
 
         {/* Conversation list */}
         <div className="flex-1 overflow-y-auto">
+          {inboxView === 'requests' ? (
+            <MessageRequestInbox
+              requests={messageRequests}
+              pendingCount={requestPendingCount}
+              loading={loadingRequests}
+              loadingMore={loadingMoreRequests}
+              error={requestsError}
+              actionError={requestActionError}
+              notice={requestNotice}
+              busyId={requestBusyId}
+              hasMore={nextRequestCursor != null}
+              onRetry={() => void loadMessageRequests()}
+              onLoadMore={() => void loadMoreMessageRequests()}
+              onAction={resolveMessageRequest}
+            />
+          ) : <>
           {loadingConversations && <LoadingState label="Loading conversations" />}
 
           {!loadingConversations && conversationsError && (
@@ -839,6 +1363,39 @@ export function MessagesPage() {
                 </button>
               );
             })}
+          {!loadingConversations && !conversationsError && nextConversationCursor && (
+            <div className="border-t px-4 py-3 text-center" style={{ borderColor: 'var(--border-primary)' }}>
+              {searchQuery.trim() && (
+                <p className="mb-2 text-[12px]" style={{ color: 'var(--text-secondary)' }}>
+                  Search currently covers loaded conversations.
+                </p>
+              )}
+              <button
+                type="button"
+                onClick={() => void loadMoreConversations()}
+                disabled={loadingMoreConversations}
+                className="rounded-full border px-4 py-2 text-[13px] font-semibold transition-colors hover-overlay disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-ring"
+                style={{ borderColor: 'var(--border-primary)', color: 'var(--text-primary)' }}
+              >
+                {loadingMoreConversations ? 'Loading...' : 'Load more conversations'}
+              </button>
+            </div>
+          )}
+          {moreConversationsError && (
+            <div className="px-4 pb-3 text-center" role="status" aria-live="polite">
+              <p className="text-[12px]" style={{ color: 'var(--danger, #dc2626)' }}>
+                {moreConversationsError}
+              </p>
+              <button
+                type="button"
+                onClick={() => void loadMoreConversations()}
+                className="mt-1 text-[12px] font-semibold underline focus-visible:outline-none focus-ring"
+              >
+                Retry
+              </button>
+            </div>
+          )}
+          </>}
         </div>
       </div>
 
@@ -848,7 +1405,19 @@ export function MessagesPage() {
           selectedId ? 'flex' : 'hidden lg:flex'
         }`}
       >
-        {!selectedConversation ? (
+        {inboxView === 'requests' ? (
+          <div className="flex flex-1 items-center justify-center px-6 text-center">
+            <div className="max-w-sm">
+              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full border" style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}>
+                <ShieldAlert className="h-7 w-7" aria-hidden="true" />
+              </div>
+              <p className="text-[20px] font-bold">You decide who reaches your inbox</p>
+              <p className="mt-2 text-[15px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+                Review the first message and shared context before accepting. Declining or marking spam never opens a conversation.
+              </p>
+            </div>
+          </div>
+        ) : !selectedConversation ? (
           /* Empty state — no conversation selected */
           <div className="flex flex-1 items-center justify-center px-6 text-center">
             <div>
@@ -858,10 +1427,24 @@ export function MessagesPage() {
               >
                 <MessageCircle className="h-7 w-7" aria-hidden="true" />
               </div>
-              <p className="text-[20px] font-bold">Select a conversation</p>
-              <p className="mt-1 text-[15px]" style={{ color: 'var(--text-secondary)' }}>
-                Choose a conversation from the list to start messaging.
+              <p className="text-[20px] font-bold">
+                {selectedConversationError
+                  ? 'Conversation unavailable'
+                  : selectedId
+                    ? 'Loading conversation...'
+                    : 'Select a conversation'}
               </p>
+              <p className="mt-1 text-[15px]" style={{ color: 'var(--text-secondary)' }}>
+                {selectedConversationError ??
+                  (selectedId
+                    ? 'Fetching this conversation securely.'
+                    : 'Choose a conversation from the list to start messaging.')}
+              </p>
+              {selectedConversationError && (
+                <button type="button" onClick={() => selectConversation(null)} className="mt-4 rounded-full border px-4 py-2 text-[13px] font-semibold focus-visible:outline-none focus-ring" style={{ borderColor: 'var(--border-primary)' }}>
+                  Back to inbox
+                </button>
+              )}
             </div>
           </div>
         ) : (
@@ -934,8 +1517,28 @@ export function MessagesPage() {
             </div>
 
             {/* Messages area */}
-            <div className="flex-1 overflow-y-auto px-4 py-4">
+            <div ref={messagesScrollerRef} className="flex-1 overflow-y-auto px-4 py-4">
               {loadingMessages && <LoadingState label="Loading messages" />}
+
+              {!loadingMessages && nextMessagesCursor && (
+                <div className="mb-4 text-center">
+                  <button
+                    type="button"
+                    onClick={() => void loadOlderMessages()}
+                    disabled={loadingOlderMessages}
+                    className="rounded-full border px-4 py-1.5 text-[13px] font-semibold disabled:opacity-50"
+                    style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }}
+                  >
+                    {loadingOlderMessages ? 'Loading earlier messages...' : 'Load earlier messages'}
+                  </button>
+                </div>
+              )}
+
+              {olderMessagesError && (
+                <p className="mb-4 text-center text-[13px]" style={{ color: 'var(--color-danger)' }}>
+                  {olderMessagesError}
+                </p>
+              )}
 
               {!loadingMessages && messagesError && (
                 <div className="py-6 text-center">
@@ -979,6 +1582,8 @@ export function MessagesPage() {
                           }}
                         >
                           {formatTimestamp(msg.created_at)}
+                          {isSent && msg.id === newestSentMessageId && msg.read_by_profile_ids.length > 0
+                            ? ' \u00B7 Seen' : ''}
                         </p>
                       </div>
                     </div>
@@ -1000,10 +1605,14 @@ export function MessagesPage() {
               <div className="flex items-center gap-3">
                 <input
                   type="text"
+                  maxLength={SOCIAL_DM_MAX_MESSAGE_CHARS}
                   value={composeText}
                   onChange={(e) => {
                     setComposeText(e.target.value);
                     if (sendError) setSendError(null);
+                    if (pendingSendRef.current?.content !== e.target.value.trim()) {
+                      pendingSendRef.current = null;
+                    }
                   }}
                   onKeyDown={handleKeyDown}
                   placeholder="Start a new message"
@@ -1026,10 +1635,189 @@ export function MessagesPage() {
                   <Send className="h-5 w-5" aria-hidden="true" />
                 </button>
               </div>
+              <p
+                className="mt-1 pr-14 text-right text-[11px]"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                {composeText.length.toLocaleString()} /{' '}
+                {SOCIAL_DM_MAX_MESSAGE_CHARS.toLocaleString()}
+              </p>
             </div>
           </>
         )}
       </div>
+    </div>
+  );
+}
+
+type MessageRequestInboxProps = {
+  requests: MessageRequest[];
+  pendingCount: number;
+  loading: boolean;
+  loadingMore: boolean;
+  error: string | null;
+  actionError: string | null;
+  notice: string | null;
+  busyId: string | null;
+  hasMore: boolean;
+  onRetry: () => void;
+  onLoadMore: () => void;
+  onAction: (request: MessageRequest, action: 'accept' | 'decline' | 'spam') => Promise<void>;
+};
+
+function MessageRequestInbox({
+  requests,
+  pendingCount,
+  loading,
+  loadingMore,
+  error,
+  actionError,
+  notice,
+  busyId,
+  hasMore,
+  onRetry,
+  onLoadMore,
+  onAction,
+}: MessageRequestInboxProps) {
+  if (loading) return <LoadingState label="Loading message requests" />;
+
+  if (error && requests.length === 0) {
+    return (
+      <div className="px-5 py-10 text-center" role="alert">
+        <p className="text-[16px] font-bold">Couldn't load message requests</p>
+        <p className="mt-2 text-[13px]" style={{ color: 'var(--text-secondary)' }}>{error}</p>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="mt-4 rounded-full px-4 py-2 text-[13px] font-bold focus-visible:outline-none focus-ring"
+          style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div className="border-b px-4 py-3" style={{ borderColor: 'var(--border-primary)' }}>
+        <p className="text-[13px] leading-relaxed" style={{ color: 'var(--text-secondary)' }}>
+          A request contains one first message. The sender cannot continue until you accept.
+        </p>
+        {pendingCount > 0 && (
+          <p className="mt-1 text-[12px] font-semibold" style={{ color: 'var(--text-primary)' }}>
+            {pendingCount.toLocaleString()} pending
+          </p>
+        )}
+      </div>
+
+      {actionError && (
+        <div className="border-b px-4 py-3 text-[13px]" style={{ borderColor: 'var(--border-primary)', color: 'var(--color-danger)' }} role="alert">
+          {actionError}
+        </div>
+      )}
+      {notice && (
+        <div className="border-b px-4 py-3 text-[13px]" style={{ borderColor: 'var(--border-primary)', color: 'var(--text-secondary)' }} role="status" aria-live="polite">
+          {notice}
+        </div>
+      )}
+      {error && requests.length > 0 && (
+        <div className="border-b px-4 py-3 text-[13px]" style={{ borderColor: 'var(--border-primary)', color: 'var(--color-danger)' }} role="status">
+          {error} <button type="button" onClick={onLoadMore} className="font-semibold underline focus-visible:outline-none focus-ring">Retry</button>
+        </div>
+      )}
+
+      {requests.length === 0 ? (
+        <EmptyState
+          title="No message requests"
+          detail="New requests from people outside your direct-message preferences will appear here."
+        />
+      ) : (
+        <ul aria-label="Pending message requests">
+          {requests.map((request) => {
+            const context = formatMessageRequestSharedContext(request);
+            const busy = busyId === request.id;
+            return (
+              <li key={request.id} className="border-b px-4 py-4" style={{ borderColor: 'var(--border-primary)' }}>
+                <article aria-labelledby={`message-request-${request.id}-sender`}>
+                  <div className="flex items-start gap-3">
+                    {request.sender.avatar_url ? (
+                      <img src={request.sender.avatar_url} alt="" className="h-10 w-10 flex-shrink-0 rounded-full object-cover" />
+                    ) : (
+                      <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-bold" style={{ backgroundColor: 'var(--border-primary)', color: 'var(--text-secondary)' }} aria-hidden="true">
+                        {request.sender.display_name.charAt(0).toUpperCase()}
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <p id={`message-request-${request.id}-sender`} className="truncate text-[15px] font-bold">
+                            {request.sender.display_name}
+                          </p>
+                          <p className="truncate text-[13px]" style={{ color: 'var(--text-secondary)' }}>@{request.sender.handle}</p>
+                        </div>
+                        <time className="flex-shrink-0 text-[12px]" style={{ color: 'var(--text-secondary)' }} dateTime={request.created_at}>
+                          {formatTimestamp(request.created_at)}
+                        </time>
+                      </div>
+                      {context && <p className="mt-1 text-[12px]" style={{ color: 'var(--text-secondary)' }}>{context}</p>}
+                      <p className="mt-3 whitespace-pre-wrap break-words rounded-xl px-3 py-2 text-[14px] leading-relaxed" style={{ backgroundColor: 'var(--bg-elevated)' }}>
+                        {request.content}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 flex flex-wrap justify-end gap-2">
+                    <button
+                      type="button"
+                      disabled={busyId != null}
+                      onClick={() => void onAction(request, 'spam')}
+                      className="flex items-center gap-1 rounded-full px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50 focus-visible:outline-none focus-ring"
+                      style={{ color: 'var(--color-danger)' }}
+                      aria-label={`Mark message request from ${request.sender.display_name} as spam`}
+                    >
+                      <ShieldAlert className="h-3.5 w-3.5" aria-hidden="true" /> Spam
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId != null}
+                      onClick={() => void onAction(request, 'decline')}
+                      className="rounded-full border px-3 py-1.5 text-[12px] font-semibold disabled:opacity-50 focus-visible:outline-none focus-ring"
+                      style={{ borderColor: 'var(--border-primary)' }}
+                      aria-label={`Decline message request from ${request.sender.display_name}`}
+                    >
+                      Decline
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busyId != null}
+                      onClick={() => void onAction(request, 'accept')}
+                      className="rounded-full px-3 py-1.5 text-[12px] font-bold disabled:opacity-50 focus-visible:outline-none focus-ring"
+                      style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+                      aria-label={`Accept message request from ${request.sender.display_name}`}
+                    >
+                      {busy ? 'Working…' : 'Accept'}
+                    </button>
+                  </div>
+                </article>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+
+      {hasMore && (
+        <div className="px-4 py-4 text-center">
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            className="rounded-full border px-4 py-2 text-[13px] font-semibold disabled:opacity-50 focus-visible:outline-none focus-ring"
+            style={{ borderColor: 'var(--border-primary)' }}
+          >
+            {loadingMore ? 'Loading…' : 'Load more requests'}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

@@ -304,3 +304,42 @@ keys.
 Sequencing: V1+V2 unblock everything; V4 must not merge before V3; **refund
 copy appears in the UI only after V7 passes.** Josh's sign-off gates the
 UNVERIFIED pricing row before any pricing page ships.
+
+---
+
+## Amendments — 2026-08-06 (grounding in [RESEARCH-2026-08.md](RESEARCH-2026-08.md))
+
+Three engineering amendments from the research pass. Pricing/positioning
+recommendations from the same brief route through JOSH-ACTIONS.md §7, not here.
+
+**A1 — Held-out checks (extends §check derivation; ships as a V2 extension).**
+All required checks remain frozen at plan time — that rule is unchanged. What
+changes: derivation may emit a *withheld subset* — property-based or
+metamorphic variants of the visible contract checks — that never appears in
+the worker's prompt. The worker sees what must be true; it does not see every
+probe. Rationale: a frozen, fully-visible check set degrades under
+optimization pressure ("The Verification Horizon," arXiv 2606.26300 — the
+proxy-intent gap widens as generator capability grows), and Kiro's
+property-based testing proves the variant technique is productizable.
+Held-out checks are still frozen before execution and still deterministic —
+this amends *visibility*, never the freeze or the gate.
+
+**A2 — The fresh-context retry rule (binds to V4's requeue path and the heal
+path).** A FAILED attempt's transcript is never continued. A retry is a new
+worker with fresh context, packed with exactly: the task contract, the failed
+receipt's check tails (the executed evidence of what broke), and the step's
+C3 context slices. Measured grounding: models do not recover from their own
+wrong turns (−39% multi-turn degradation, no recovery, arXiv 2505.06120), and
+self-correction without an external signal makes things worse (ICLR 2024,
+arXiv 2310.01798). The receipt tail *is* the external signal — retries fed
+executed evidence converge; retries fed their own transcript compound the
+error. This is an architectural principle, not an optimization: no step
+inherits a transcript, the same way no model grades a check.
+
+**A3 — Instrument UNVERIFIED-rate from day one (metrics on
+`verification_runs`).** Per task class and per ecosystem, from the first
+verdict row. The billing-honesty story collapses silently if a large share of
+real tasks falls out of check derivation; this number decides where
+derivation investment goes next and gates which task classes the refund
+promise is marketed on. One rollup query — cheap now, impossible to
+reconstruct later.

@@ -1,6 +1,6 @@
 import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, CheckCircle2, CreditCard, ExternalLink, Loader2, LogOut, Menu, Search, LayoutGrid } from 'lucide-react';
-import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useNavigate, useParams } from 'react-router';
 import { useClerk, useUser } from '@clerk/clerk-react';
 
 const CLERK_ENABLED = !!import.meta.env.VITE_CLERK_PUBLISHABLE_KEY;

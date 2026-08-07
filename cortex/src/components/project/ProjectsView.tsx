@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router';
 import { X } from 'lucide-react';
 import ProjectsList from './ProjectsList';
 import ProjectDashboard from './ProjectDashboard';

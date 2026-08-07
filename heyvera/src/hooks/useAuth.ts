@@ -1,5 +1,7 @@
 import { useAuth as useClerkAuth, useUser } from "@clerk/clerk-react";
 
+const NO_TOKEN = async (): Promise<string | null> => null;
+
 export function useAuth() {
   try {
     const { isSignedIn, getToken } = useClerkAuth();
@@ -21,7 +23,7 @@ export function useAuth() {
     return {
       authEnabled: false,
       isSignedIn: false,
-      getToken: async () => null as string | null,
+      getToken: NO_TOKEN,
       userId: null,
       viewerLabel: null,
     };
