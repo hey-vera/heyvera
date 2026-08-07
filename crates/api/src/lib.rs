@@ -20,6 +20,7 @@ mod deploy_status;
 pub mod db;
 pub mod credentials;
 pub mod check_runner;
+pub mod verification_driver;
 pub mod ecosystem_probe;
 pub mod docker;
 pub mod github;
@@ -403,6 +404,7 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         .route("/api/runs/{id}", get(routes::get_run))
         .route("/api/runs/{id}/events", get(routes::get_run_events))
         .route("/api/runs/{run_id}/steps/{step_id}/verifier-report/{report_id}", get(routes::get_verifier_report))
+        .route("/api/runs/{run_id}/steps/{step_id}/receipt", get(routes::get_receipt))
         .route("/api/runs/{id}/pr", post(routes::create_pr))
         .route("/api/runs/{id}/stream", get(run_stream::stream_run))
         .route("/api/chat/suggestions", get(chat::chat_suggestions))
@@ -867,6 +869,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route(
             "/api/runs/{run_id}/steps/{step_id}/verifier-report/{report_id}",
             get(routes::get_verifier_report),
+        )
+        .route(
+            "/api/runs/{run_id}/steps/{step_id}/receipt",
+            get(routes::get_receipt),
         )
         .route("/api/runs/{id}/pr", post(routes::create_pr))
         .route("/api/runs/{id}/stream", get(run_stream::stream_run))

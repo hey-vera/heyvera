@@ -76,6 +76,30 @@ pub struct ConnectedWorker {
     pub tx: mpsc::Sender<BrainMessage>,
 }
 
+/// Where the Cortex database lives.
+///
+/// A function rather than a literal because background work — verification in
+/// particular — opens its own connection instead of borrowing `AppState`'s,
+/// and two spellings of this path that drift apart would silently split the
+/// database in two. That is exactly why the `CORTEX_DB_PATH` override belongs
+/// here and not at the single call site that introduced it: in production the
+/// database is deliberately *outside* the workspace, so a second caller
+/// defaulting to `workspace_dir` would write verdicts into a different file
+/// than the API reads.
+///
+/// The override exists because the workspace is a git checkout on the VPS and
+/// deploys reset it hard — a database living under it is destroyed on every
+/// deploy.
+pub fn cortex_db_path(workspace_dir: &std::path::Path) -> PathBuf {
+    let db_path = std::env::var("CORTEX_DB_PATH")
+        .map(PathBuf::from)
+        .unwrap_or_else(|_| workspace_dir.join(".cortex").join("cortex.db"));
+    if let Some(parent) = db_path.parent() {
+        std::fs::create_dir_all(parent).ok();
+    }
+    db_path
+}
+
 pub struct AppState {
     pub providers: RwLock<Vec<ProviderStatus>>,
     pub ledger: Ledger,
@@ -169,15 +193,7 @@ impl AppState {
             tracing::info!("clerk auth disabled (no CLERK_SECRET_KEY)");
         }
 
-        // CORTEX_DB_PATH keeps the database off the workspace path. The workspace is a
-        // git checkout on the VPS, and deploys reset it hard — a database living under it
-        // is destroyed on every deploy.
-        let db_path = std::env::var("CORTEX_DB_PATH")
-            .map(PathBuf::from)
-            .unwrap_or_else(|_| workspace_dir.join(".cortex").join("cortex.db"));
-        if let Some(parent) = db_path.parent() {
-            std::fs::create_dir_all(parent).ok();
-        }
+        let db_path = cortex_db_path(&workspace_dir);
         let db = Database::open(&db_path);
         tracing::info!("database opened at {}", db_path.display());
 

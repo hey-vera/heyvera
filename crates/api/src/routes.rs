@@ -769,6 +769,53 @@ pub async fn get_verifier_report(
     Ok(Json(report))
 }
 
+/// The receipt for a step: the verdict, and the checks that produced it.
+///
+/// Distinct from `get_verifier_report` above, which serves the legacy
+/// worker-reported evidence. This one serves verdicts Cortex executed itself,
+/// which is the thing a charge is actually bound to.
+pub async fn get_receipt(
+    State(state): State<Arc<AppState>>,
+    user: ClerkUser,
+    axum::extract::Path((run_id, step_id)): axum::extract::Path<(String, String)>,
+) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
+    let db = state.db.as_ref().ok_or_else(|| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "database not available".into(),
+            }),
+        )
+    })?;
+
+    // Ownership first, and a non-owner gets the same 404 as a missing receipt
+    // rather than a 403 — otherwise the status code itself reveals which run
+    // ids exist.
+    let not_found = || {
+        (
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "receipt not found".into(),
+            }),
+        )
+    };
+    match db.get_run_user_id(&run_id) {
+        Some(owner) if owner == user.user_id => {}
+        _ => return Err(not_found()),
+    }
+
+    let receipt = db.get_receipt(&run_id, &step_id).ok_or_else(not_found)?;
+
+    serde_json::to_value(&receipt).map(Json).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("could not serialize receipt: {e}"),
+            }),
+        )
+    })
+}
+
 pub async fn get_ledger(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
