@@ -10276,6 +10276,28 @@ impl Database {
 
     // --- V3: verdict persistence (see cortex/plan/VERIFIER.md) ---
 
+    /// Whether the ledger already carries a transaction under this key.
+    ///
+    /// `deduct_credits` and `refund_credits` both suffix the key per bucket,
+    /// so this asks about either. Used to derive `BillingState` from the
+    /// ledger itself rather than from a status column that could drift out of
+    /// agreement with the money.
+    pub fn ledger_has_key(&self, idempotency_key: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM credit_transactions
+                 WHERE idempotency_key = ?1 OR idempotency_key = ?2",
+                params![
+                    format!("{idempotency_key}:subscription"),
+                    format!("{idempotency_key}:pack")
+                ],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        count > 0
+    }
+
     /// Freeze the derived checks for a step at dispatch time.
     ///
     /// Derivation must happen before the worker sees the task, and the checks
