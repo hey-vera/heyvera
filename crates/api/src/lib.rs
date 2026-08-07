@@ -42,6 +42,7 @@ pub mod routes;
 mod run_payload;
 mod run_stream;
 pub mod social;
+pub mod social_policy;
 pub mod scheduler;
 pub mod soma;
 mod soma_bridge;
@@ -361,12 +362,14 @@ async fn metrics_handler(
 }
 
 /// True when any product env flag is set to production.
-/// Checks HEYVERA_ENV, CORTEX_ENV, APP_ENV, and ENVIRONMENT.
+/// Checks HEYVERA_ENV, CORTEX_ENV, APP_ENV, RUST_ENV, and ENVIRONMENT.
 pub(crate) fn is_production_env() -> bool {
-    ["HEYVERA_ENV", "CORTEX_ENV", "APP_ENV", "ENVIRONMENT"]
+    ["HEYVERA_ENV", "CORTEX_ENV", "APP_ENV", "RUST_ENV", "ENVIRONMENT"]
         .iter()
         .filter_map(|key| std::env::var(key).ok())
-        .any(|value| value.eq_ignore_ascii_case("production"))
+        .any(|value| {
+            value.eq_ignore_ascii_case("production") || value.eq_ignore_ascii_case("prod")
+        })
 }
 
 /// Build router with only Cortex routes (cortex.heyvera.org).
@@ -562,9 +565,10 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
                 )
                 .route("/v1/social/media/upload-url", post(media::request_upload_url))
                 .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
+                .route("/v1/social/media/{id}/content", get(media::serve_media))
                 .route(
                     "/v1/social/media/mock-upload/{*storage_key}",
-                    put(media::mock_upload).get(media::mock_serve),
+                    put(media::mock_upload),
                 )
                 .route("/v1/social/linked-agents", get(social::list_my_linked_agents).post(social::create_linked_agent))
                 .route("/v1/social/linked-agents/{id}/rotate-key", post(social::rotate_linked_agent_key))
@@ -575,6 +579,15 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
                 .route("/v1/social/posts/{id}/related", get(social::get_related_posts))
                 .route("/v1/social/follows/{handle}", post(social::follow_by_handle).delete(social::unfollow_by_handle))
                 .route("/v1/social/follows/{handle}/status", get(social::get_follow_status))
+                .route("/v1/social/follow-requests", get(social::list_follow_requests))
+                .route(
+                    "/v1/social/follow-requests/{id}/approve",
+                    post(social::approve_follow_request),
+                )
+                .route(
+                    "/v1/social/follow-requests/{id}",
+                    delete(social::reject_follow_request),
+                )
                 .route("/v1/social/users/{handle}", get(social::get_user_profile))
                 .route("/v1/social/users/{handle}/posts", get(social::get_user_posts))
                 .route("/v1/social/users/{handle}/followers", get(social::get_profile_followers))
@@ -600,8 +613,18 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
                     delete(social::revoke_community_invite),
                 )
                 .route("/v1/social/invites/{token}/redeem", post(social::redeem_community_invite))
-                .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
-                .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))
+                .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation).layer(DefaultBodyLimit::max(32 * 1024)))
+                .route("/v1/social/direct-message-starts", post(messaging::start_direct_message).layer(DefaultBodyLimit::max(24 * 1024)))
+                .route("/v1/social/message-requests", get(messaging::list_message_requests))
+                .route("/v1/social/message-requests/{id}", delete(messaging::cancel_message_request))
+                .route("/v1/social/message-requests/{id}/accept", post(messaging::accept_message_request))
+                .route("/v1/social/message-requests/{id}/decline", post(messaging::decline_message_request))
+                .route("/v1/social/message-requests/{id}/spam", post(messaging::spam_message_request))
+                .route("/v1/social/conversations/unread-count", get(messaging::get_conversation_unread_count))
+                .route("/v1/social/conversations/{id}", get(messaging::get_conversation))
+                .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message).layer(DefaultBodyLimit::max(24 * 1024)))
+                .route("/v1/social/ws-ticket", post(messaging::issue_social_ws_ticket))
+                .route("/v1/social/conversations/{id}/read", post(messaging::mark_conversation_read).layer(DefaultBodyLimit::max(4 * 1024)))
                 .route("/v1/social/ws", get(messaging::social_ws_handler))
                 .route("/v1/social/users/{id}/block", post(moderation::block_user).delete(moderation::unblock_user))
                 .route("/v1/social/users/{id}/mute", post(moderation::mute_user).delete(moderation::unmute_user))
@@ -708,9 +731,10 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         )
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
+        .route("/v1/social/media/{id}/content", get(media::serve_media))
         .route(
             "/v1/social/media/mock-upload/{*storage_key}",
-            put(media::mock_upload).get(media::mock_serve),
+            put(media::mock_upload),
         )
         .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
         .route("/v1/social/posts/{id}/repost", post(social::repost_post).delete(social::unrepost_post))
@@ -719,6 +743,15 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/bookmarks", get(social::get_bookmarks))
         .route("/v1/social/follows/{handle}", post(social::follow_by_handle).delete(social::unfollow_by_handle))
         .route("/v1/social/follows/{handle}/status", get(social::get_follow_status))
+        .route("/v1/social/follow-requests", get(social::list_follow_requests))
+        .route(
+            "/v1/social/follow-requests/{id}/approve",
+            post(social::approve_follow_request),
+        )
+        .route(
+            "/v1/social/follow-requests/{id}",
+            delete(social::reject_follow_request),
+        )
         .route("/v1/social/users/{handle}", get(social::get_user_profile))
         .route("/v1/social/users/{handle}/posts", get(social::get_user_posts))
         .route("/v1/social/users/{handle}/followers", get(social::get_profile_followers))
@@ -744,8 +777,18 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
             delete(social::revoke_community_invite),
         )
         .route("/v1/social/invites/{token}/redeem", post(social::redeem_community_invite))
-        .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
-        .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))
+        .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation).layer(DefaultBodyLimit::max(32 * 1024)))
+        .route("/v1/social/direct-message-starts", post(messaging::start_direct_message).layer(DefaultBodyLimit::max(24 * 1024)))
+        .route("/v1/social/message-requests", get(messaging::list_message_requests))
+        .route("/v1/social/message-requests/{id}", delete(messaging::cancel_message_request))
+        .route("/v1/social/message-requests/{id}/accept", post(messaging::accept_message_request))
+        .route("/v1/social/message-requests/{id}/decline", post(messaging::decline_message_request))
+        .route("/v1/social/message-requests/{id}/spam", post(messaging::spam_message_request))
+        .route("/v1/social/conversations/unread-count", get(messaging::get_conversation_unread_count))
+        .route("/v1/social/conversations/{id}", get(messaging::get_conversation))
+        .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message).layer(DefaultBodyLimit::max(24 * 1024)))
+        .route("/v1/social/ws-ticket", post(messaging::issue_social_ws_ticket))
+        .route("/v1/social/conversations/{id}/read", post(messaging::mark_conversation_read).layer(DefaultBodyLimit::max(4 * 1024)))
         .route("/v1/social/ws", get(messaging::social_ws_handler))
         .route("/v1/social/users/{id}/block", post(moderation::block_user).delete(moderation::unblock_user))
         .route("/v1/social/users/{id}/mute", post(moderation::mute_user).delete(moderation::unmute_user))
@@ -961,9 +1004,10 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Task #47: Media uploads
         .route("/v1/social/media/upload-url", post(media::request_upload_url))
         .route("/v1/social/media/{id}/finalize", post(media::finalize_upload))
+        .route("/v1/social/media/{id}/content", get(media::serve_media))
         .route(
             "/v1/social/media/mock-upload/{*storage_key}",
-            put(media::mock_upload).get(media::mock_serve),
+            put(media::mock_upload),
         )
         // Task #30: Social action endpoints
         .route("/v1/social/posts/{id}/like", post(social::like_post).delete(social::unlike_post))
@@ -974,6 +1018,15 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/v1/social/bookmarks", get(social::get_bookmarks))
         .route("/v1/social/follows/{handle}", post(social::follow_by_handle).delete(social::unfollow_by_handle))
         .route("/v1/social/follows/{handle}/status", get(social::get_follow_status))
+        .route("/v1/social/follow-requests", get(social::list_follow_requests))
+        .route(
+            "/v1/social/follow-requests/{id}/approve",
+            post(social::approve_follow_request),
+        )
+        .route(
+            "/v1/social/follow-requests/{id}",
+            delete(social::reject_follow_request),
+        )
         // Task #31: User profile endpoints
         .route("/v1/social/users/{handle}", get(social::get_user_profile))
         .route("/v1/social/users/{handle}/posts", get(social::get_user_posts))
@@ -1008,9 +1061,19 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         )
         .route("/v1/social/invites/{token}/redeem", post(social::redeem_community_invite))
         // Task #35: Conversations & Messages
-        .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation))
-        .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message))
-        // Wave 8b: social DM WebSocket (JWT via ?token=)
+        .route("/v1/social/conversations", get(messaging::list_conversations).post(messaging::create_conversation).layer(DefaultBodyLimit::max(32 * 1024)))
+        .route("/v1/social/direct-message-starts", post(messaging::start_direct_message).layer(DefaultBodyLimit::max(24 * 1024)))
+        .route("/v1/social/message-requests", get(messaging::list_message_requests))
+        .route("/v1/social/message-requests/{id}", delete(messaging::cancel_message_request))
+        .route("/v1/social/message-requests/{id}/accept", post(messaging::accept_message_request))
+        .route("/v1/social/message-requests/{id}/decline", post(messaging::decline_message_request))
+        .route("/v1/social/message-requests/{id}/spam", post(messaging::spam_message_request))
+        .route("/v1/social/conversations/unread-count", get(messaging::get_conversation_unread_count))
+        .route("/v1/social/conversations/{id}", get(messaging::get_conversation))
+        .route("/v1/social/conversations/{id}/messages", get(messaging::list_messages).post(messaging::send_message).layer(DefaultBodyLimit::max(24 * 1024)))
+        // Social DM WebSocket: bearer-authenticated, one-use ticket exchange.
+        .route("/v1/social/ws-ticket", post(messaging::issue_social_ws_ticket))
+        .route("/v1/social/conversations/{id}/read", post(messaging::mark_conversation_read).layer(DefaultBodyLimit::max(4 * 1024)))
         .route("/v1/social/ws", get(messaging::social_ws_handler))
         // Task #45: Block/Mute/Report
         .route("/v1/social/users/{id}/block", post(moderation::block_user).delete(moderation::unblock_user))

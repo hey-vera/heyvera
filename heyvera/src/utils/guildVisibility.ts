@@ -22,13 +22,12 @@ export function filterDiscoverGuilds<T extends { id: string; visibility?: string
   );
 }
 
-/** Private guild feeds require membership; public are open. */
+/** Discovery can be public; feed and member content always require membership. */
 export function canAccessGuildFeed(
-  visibility: GuildVisibility | null | undefined,
+  _visibility: GuildVisibility | null | undefined,
   isMember: boolean,
 ): boolean {
-  if (isPrivateGuild(visibility)) return isMember;
-  return true;
+  return isMember;
 }
 
 /**

@@ -5,7 +5,8 @@ import { useNavigate, useParams } from 'react-router-dom';
 import {
   blockUser,
   bookmarkPost,
-  createConversation,
+  SOCIAL_DM_MAX_MESSAGE_CHARS,
+  startDirectMessage,
   createProfile,
   feedPostToPost,
   fetchFollowStatus,
@@ -16,7 +17,6 @@ import {
   fetchProfileFollowing,
   fetchProfileStats,
   followProfile,
-  getConversations,
   likePost,
   muteUser,
   reportContent,
@@ -79,6 +79,13 @@ function formatCount(count: number): string {
 function formatJoinedDate(iso: string): string {
   return new Date(iso).toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
 }
+function newClientRequestId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `dmr_${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`;
+}
+
 
 export function ProfilePage() {
   const { handle } = useParams<{ handle?: string }>();
@@ -97,12 +104,16 @@ export function ProfilePage() {
   const [editError, setEditError] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [followPending, setFollowPending] = useState(false);
   const [followBusy, setFollowBusy] = useState(false);
   const [followError, setFollowError] = useState<string | null>(null);
   const [messageBusy, setMessageBusy] = useState(false);
   const [messageError, setMessageError] = useState<string | null>(null);
   const [moderationBusy, setModerationBusy] = useState(false);
   const [moderationNotice, setModerationNotice] = useState<string | null>(null);
+  const [messageComposerOpen, setMessageComposerOpen] = useState(false);
+  const [messageNotice, setMessageNotice] = useState<string | null>(null);
+  const pendingMessageStartRef = useRef<{ content: string; clientRequestId: string } | null>(null);
   const [reportPickerOpen, setReportPickerOpen] = useState(false);
   const [followListMode, setFollowListMode] = useState<FollowListMode>(null);
   const [followList, setFollowList] = useState<ProfileSummary[]>([]);
@@ -117,6 +128,7 @@ export function ProfilePage() {
       setLoading(true);
       setError(null);
       setCreateError(null);
+      setFollowPending(false);
       try {
         if (ownProfile) {
           if (!authEnabled || !isSignedIn) {
@@ -150,7 +162,7 @@ export function ProfilePage() {
           const tokenForFeed = await getToken();
           const [feedRes, statsRes] = await Promise.all([
             fetchProfileFeed(nextProfile.handle, 20, null, tokenForFeed),
-            fetchProfileStats(nextProfile.handle),
+            fetchProfileStats(nextProfile.handle, tokenForFeed),
           ]);
           if (!cancelled) {
             setProfile(nextProfile);
@@ -165,14 +177,16 @@ export function ProfilePage() {
         const [profileRes, feedRes, statsRes] = await Promise.all([
           fetchProfile(handle, token),
           fetchProfileFeed(handle, 20, null, token),
-          fetchProfileStats(handle),
+          fetchProfileStats(handle, token),
         ]);
         // Prefer isFollowing from profile payload; fall back to dedicated follow-status route.
         let following = Boolean(profileRes.profile.isFollowing);
-        if (token && profileRes.profile.isFollowing === undefined) {
+        let pending = false;
+        if (token) {
           try {
             const followRes = await fetchFollowStatus(token, handle);
             following = followRes.following;
+            pending = Boolean(followRes.pending);
           } catch {
             // ignore — treat as not following
           }
@@ -182,6 +196,7 @@ export function ProfilePage() {
           setStats(statsRes.stats);
           setPosts(feedRes.feed.map(feedPostToPost));
           setIsFollowing(following);
+          setFollowPending(pending);
         }
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : 'Unable to load profile');
@@ -194,7 +209,7 @@ export function ProfilePage() {
     return () => {
       cancelled = true;
     };
-  }, [authEnabled, handle, isSignedIn, ownProfile, reloadKey]);
+  }, [authEnabled, getToken, handle, isSignedIn, ownProfile, reloadKey]);
 
   const handleCreateProfile = async (input: { handle: string; displayName: string; bio?: string }) => {
     if (creating) return;
@@ -328,8 +343,11 @@ export function ProfilePage() {
 
     setFollowBusy(true);
     const previousFollowing = isFollowing;
-    const nextFollowing = !isFollowing;
+    const previousPending = followPending;
+    const removing = isFollowing || followPending;
+    const nextFollowing = !removing;
     setIsFollowing(nextFollowing);
+    setFollowPending(false);
 
     try {
       const token = await getToken();
@@ -341,9 +359,18 @@ export function ProfilePage() {
         throw new Error('Create your profile before following people.');
       }
 
-      await (nextFollowing ? followProfile(token, profile.handle) : unfollowProfile(token, profile.handle));
+      if (removing) {
+        await unfollowProfile(token, profile.handle);
+      } else {
+        const result = await followProfile(token, profile.handle);
+        if (result.state === 'pending') {
+          setIsFollowing(false);
+          setFollowPending(true);
+        }
+      }
     } catch (err) {
       setIsFollowing(previousFollowing);
+      setFollowPending(previousPending);
       setFollowError(err instanceof Error ? err.message : 'Unable to update follow state.');
     } finally {
       setFollowBusy(false);
@@ -357,11 +384,12 @@ export function ProfilePage() {
     setFollowListError(null);
     setFollowList([]);
     try {
+      const token = authEnabled && isSignedIn ? await getToken() : null;
       if (mode === 'followers') {
-        const res = await fetchProfileFollowers(profile.handle);
+        const res = await fetchProfileFollowers(profile.handle, 20, null, token);
         setFollowList(res.followers);
       } else {
-        const res = await fetchProfileFollowing(profile.handle);
+        const res = await fetchProfileFollowing(profile.handle, 20, null, token);
         setFollowList(res.following);
       }
     } catch (err) {
@@ -371,44 +399,54 @@ export function ProfilePage() {
     }
   };
 
-  const startMessage = async () => {
-    if (!profile || messageBusy || ownProfile) return;
+  const openMessageComposer = () => {
+    if (!profile || ownProfile) return;
     setMessageError(null);
-
+    setMessageNotice(null);
     if (!authEnabled || !isSignedIn) {
       setMessageError(authEnabled ? 'Sign in to send messages.' : 'Sign-in is not configured for this environment.');
       return;
     }
+    setMessageComposerOpen(true);
+  };
 
+  const submitFirstMessage = async (content: string) => {
+    if (!profile || messageBusy || ownProfile) return;
+    const cleanContent = content.trim();
+    if (!cleanContent) return;
     setMessageBusy(true);
+    setMessageError(null);
     try {
       const token = await getToken();
       if (!token) throw new Error('Sign in again to message.');
-
       try {
         await fetchMyProfile(token);
       } catch {
         throw new Error('Create your profile before messaging.');
       }
-
-      // Belt+suspenders: prefer existing 1:1 if list already has the other profile.
-      // Backend also dedupes on create for the same pair.
-      try {
-        const existing = await getConversations(token);
-        const match = existing.find((c) => {
-          const ids = (c.participants ?? []).map((p) => p.id);
-          return ids.length === 2 && ids.includes(profile.id);
-        });
-        if (match) {
-          navigate(`/messages?c=${encodeURIComponent(match.id)}`);
-          return;
-        }
-      } catch {
-        // Fall through to createConversation.
+      const existing = pendingMessageStartRef.current;
+      const pending = existing?.content === cleanContent
+        ? existing
+        : { content: cleanContent, clientRequestId: newClientRequestId() };
+      pendingMessageStartRef.current = pending;
+      const result = await startDirectMessage(token, {
+        recipientId: profile.id,
+        content: cleanContent,
+        clientRequestId: pending.clientRequestId,
+      });
+      pendingMessageStartRef.current = null;
+      if (result.kind === 'conversation') {
+        navigate(`/messages?c=${encodeURIComponent(result.conversation.id)}`);
+        return;
       }
-
-      const conversation = await createConversation(token, [profile.id]);
-      navigate(`/messages?c=${encodeURIComponent(conversation.id)}`);
+      setMessageComposerOpen(false);
+      setMessageNotice(
+        result.request.state === 'closed'
+          ? `Your earlier message request to @${profile.handle} is no longer active.`
+          : result.replayed
+          ? `Your message request to @${profile.handle} is still pending.`
+          : `Message request sent to @${profile.handle}.`,
+      );
     } catch (err) {
       setMessageError(err instanceof Error ? err.message : 'Unable to start conversation.');
     } finally {
@@ -541,7 +579,7 @@ export function ProfilePage() {
             <>
               <button
                 type="button"
-                onClick={() => void startMessage()}
+                onClick={openMessageComposer}
                 disabled={messageBusy}
                 className="flex items-center gap-1.5 rounded-full border px-4 py-1.5 text-[14px] font-bold transition-colors hover:opacity-90 disabled:opacity-50"
                 style={{
@@ -552,7 +590,7 @@ export function ProfilePage() {
                 aria-label={`Message @${profile.handle}`}
               >
                 <MessageCircle className="h-4 w-4" aria-hidden="true" />
-                {messageBusy ? 'Opening…' : 'Message'}
+                Message
               </button>
               <button
                 type="button"
@@ -595,14 +633,22 @@ export function ProfilePage() {
             disabled={!ownProfile && followBusy}
             className="rounded-full px-4 py-1.5 text-[14px] font-bold transition-colors hover:opacity-90 focus-visible:outline-none focus-ring"
             style={{
-              border: ownProfile || isFollowing ? '1px solid var(--border-primary)' : undefined,
-              backgroundColor: ownProfile || isFollowing ? 'transparent' : 'var(--accent)',
-              color: ownProfile || isFollowing ? 'var(--text-primary)' : '#000',
+              border: ownProfile || isFollowing || followPending ? '1px solid var(--border-primary)' : undefined,
+              backgroundColor: ownProfile || isFollowing || followPending ? 'transparent' : 'var(--accent)',
+              color: ownProfile || isFollowing || followPending ? 'var(--text-primary)' : '#000',
             }}
             aria-pressed={ownProfile ? undefined : isFollowing}
             aria-busy={!ownProfile && followBusy ? true : undefined}
           >
-            {ownProfile ? 'Edit profile' : followBusy ? 'Saving' : isFollowing ? 'Following' : 'Follow'}
+            {ownProfile
+              ? 'Edit profile'
+              : followBusy
+                ? 'Saving'
+                : isFollowing
+                  ? 'Following'
+                  : followPending
+                    ? 'Requested'
+                    : 'Follow'}
           </button>
         </div>
       </div>
@@ -658,8 +704,13 @@ export function ProfilePage() {
           </p>
         )}
         {messageError && (
-          <p className="mt-3 text-[14px]" style={{ color: 'var(--color-danger)' }}>
+          <p className="mt-3 text-[14px]" style={{ color: 'var(--color-danger)' }} role="alert">
             {messageError}
+          </p>
+        )}
+        {messageNotice && (
+          <p className="mt-3 text-[14px]" style={{ color: 'var(--text-secondary)' }} role="status">
+            {messageNotice}
           </p>
         )}
         {moderationNotice && (
@@ -778,6 +829,20 @@ export function ProfilePage() {
         ))
       )}
 
+      {!ownProfile && profile && messageComposerOpen && (
+        <DirectMessageComposer
+          recipientHandle={profile.handle}
+          recipientName={profile.displayName}
+          busy={messageBusy}
+          error={messageError}
+          onClose={() => {
+            if (!messageBusy) setMessageComposerOpen(false);
+          }}
+          onEdit={() => setMessageError(null)}
+          onSubmit={submitFirstMessage}
+        />
+      )}
+
       {ownProfile && editOpen && (
         <EditProfileModal
           profile={profile}
@@ -796,6 +861,125 @@ export function ProfilePage() {
 }
 
 export default ProfilePage;
+type DirectMessageComposerProps = {
+  recipientHandle: string;
+  recipientName: string;
+  busy: boolean;
+  error: string | null;
+  onClose: () => void;
+  onEdit: () => void;
+  onSubmit: (content: string) => Promise<void>;
+};
+
+function DirectMessageComposer({
+  recipientHandle,
+  recipientName,
+  busy,
+  error,
+  onClose,
+  onEdit,
+  onSubmit,
+}: DirectMessageComposerProps) {
+  const [content, setContent] = useState('');
+  const cleanContent = content.trim();
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [busy, onClose]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget && !busy) onClose();
+      }}
+    >
+      <form
+        className="w-full max-w-lg rounded-2xl border p-5 shadow-2xl"
+        style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-primary)' }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="direct-message-composer-title"
+        aria-describedby={error ? 'direct-message-composer-error' : undefined}
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (cleanContent && !busy) void onSubmit(cleanContent);
+        }}
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id="direct-message-composer-title" className="text-[20px] font-bold">
+              Message {recipientName}
+            </h2>
+            <p className="mt-1 text-[13px]" style={{ color: 'var(--text-secondary)' }}>
+              Send one first message. Depending on @{recipientHandle}'s preferences, it will open a conversation or wait for approval.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-full p-2 hover-overlay disabled:opacity-50 focus-visible:outline-none focus-ring"
+            aria-label="Close message composer"
+          >
+            <X className="h-5 w-5" aria-hidden="true" />
+          </button>
+        </div>
+
+        <label className="mt-5 block">
+          <span className="mb-2 block text-[13px] font-semibold">First message</span>
+          <textarea
+            autoFocus
+            value={content}
+            maxLength={SOCIAL_DM_MAX_MESSAGE_CHARS}
+            disabled={busy}
+            onChange={(event) => {
+              setContent(event.target.value);
+              onEdit();
+            }}
+            className="min-h-32 w-full resize-y rounded-xl border px-4 py-3 text-[15px] leading-relaxed outline-none focus:border-[var(--accent)] focus-ring"
+            style={{ borderColor: 'var(--border-primary)', backgroundColor: 'var(--bg-elevated)' }}
+            placeholder={`Write to @${recipientHandle}`}
+          />
+        </label>
+        <div className="mt-1 flex items-center justify-between gap-3 text-[11px]" style={{ color: 'var(--text-secondary)' }}>
+          <span>Your message is not sent until you press Send.</span>
+          <span>{content.length.toLocaleString()} / {SOCIAL_DM_MAX_MESSAGE_CHARS.toLocaleString()}</span>
+        </div>
+
+        {error && (
+          <p id="direct-message-composer-error" className="mt-3 text-[13px]" style={{ color: 'var(--color-danger)' }} role="alert">
+            {error}
+          </p>
+        )}
+
+        <div className="mt-5 flex justify-end gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={busy}
+            className="rounded-full border px-4 py-2 text-[14px] font-semibold disabled:opacity-50"
+            style={{ borderColor: 'var(--border-primary)' }}
+          >
+            Cancel
+          </button>
+          <button
+            type="submit"
+            disabled={!cleanContent || busy}
+            className="rounded-full px-5 py-2 text-[14px] font-bold disabled:cursor-not-allowed disabled:opacity-50"
+            style={{ backgroundColor: 'var(--accent)', color: '#000' }}
+          >
+            {busy ? 'Sending…' : 'Send'}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 function SignedOutProfilePrompt({ authEnabled }: { authEnabled: boolean }) {
   return (

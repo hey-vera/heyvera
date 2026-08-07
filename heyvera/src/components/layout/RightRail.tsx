@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Search } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { fetchProfiles, fetchTrending } from '../../api/social';
+import { useAuth } from '../../hooks/useAuth';
 
 interface TrendingItem {
   tag: string;
@@ -22,28 +23,38 @@ function formatCount(n: number): string {
 
 export function RightRail() {
   const navigate = useNavigate();
+  const { authEnabled, isSignedIn, getToken } = useAuth();
   const [trending, setTrending] = useState<TrendingItem[]>([]);
   const [suggestions, setSuggestions] = useState<SuggestedUser[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
 
   useEffect(() => {
+    let cancelled = false;
     fetchTrending()
-      .then((res) => setTrending(res.topics.slice(0, 5)))
+      .then((res) => {
+        if (!cancelled) setTrending(res.topics.slice(0, 5));
+      })
       .catch(() => {});
 
-    fetchProfiles(5)
-      .then((res) =>
-        setSuggestions(
-          res.profiles.slice(0, 3).map((p) => ({
-            id: p.id,
-            handle: p.handle,
-            displayName: p.displayName,
-            avatarUrl: p.avatarUrl,
-          })),
-        ),
-      )
-      .catch(() => {});
-  }, []);
+    async function loadSuggestions() {
+      const token = authEnabled && isSignedIn ? await getToken() : null;
+      const res = await fetchProfiles(5, token);
+      if (cancelled) return;
+      setSuggestions(
+        res.profiles.slice(0, 3).map((p) => ({
+          id: p.id,
+          handle: p.handle,
+          displayName: p.displayName,
+          avatarUrl: p.avatarUrl,
+        })),
+      );
+    }
+
+    void loadSuggestions().catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [authEnabled, getToken, isSignedIn]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
