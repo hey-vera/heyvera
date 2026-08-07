@@ -1,7 +1,7 @@
 import React from "react";
 import { Film, ImagePlus, X } from "lucide-react";
 import { SignInButton } from "@clerk/clerk-react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router";
 import {
   ACTIVE_PAGE_STORAGE_KEY,
   createBrandPage,

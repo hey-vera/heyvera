@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { SignInButton } from '@clerk/clerk-react';
 import { ArrowLeft, MessageCircle, Search, Send } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router';
 import type { Conversation, Message } from '../api/types';
 import { getConversations, getMessages, sendMessage } from '../api/social';
 import { LoadingState, EmptyState } from '../components/shared/AsyncStates';

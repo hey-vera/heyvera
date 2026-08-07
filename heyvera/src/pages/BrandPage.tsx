@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { SignInButton } from "@clerk/clerk-react";
 import { ArrowLeft, Building2 } from "lucide-react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router";
 import {
   fetchBrandPage,
   followPage,

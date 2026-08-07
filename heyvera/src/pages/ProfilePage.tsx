@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type ChangeEvent, type FormEvent } from 'react';
 import { ArrowLeft, CalendarDays, Flag, ImagePlus, Link as LinkIcon, MapPin, MessageCircle, ShieldOff, VolumeX, X } from 'lucide-react';
 import { SignInButton } from '@clerk/clerk-react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams } from 'react-router';
 import {
   blockUser,
   bookmarkPost,
