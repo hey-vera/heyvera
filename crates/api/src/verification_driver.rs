@@ -438,4 +438,156 @@ mod tests {
         let execution = run_with_retries(&runner, &tree, &spec("c1")).await;
         assert_eq!(execution.outcome, CheckOutcome::Failed);
     }
+
+    // --- End-to-end: the whole sequence against a real git repository ---
+
+    fn test_db() -> crate::db::Database {
+        let dir = tempfile::tempdir().unwrap().keep();
+        crate::db::Database::open(&dir.join("cortex.sqlite"))
+    }
+
+    /// A real repository with one commit, so `git worktree add --detach` has
+    /// something to check out. The tree snapshot is deliberately not mockable —
+    /// shelling out to git is what guarantees the checks run against the
+    /// delivered commit rather than against a worker's directory.
+    fn repo_with_one_commit() -> (std::path::PathBuf, String) {
+        let dir = tempfile::tempdir().unwrap().keep();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .expect("git runs");
+            assert!(
+                out.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "test@example.com"]);
+        git(&["config", "user.name", "Test"]);
+        std::fs::write(dir.join("file.txt"), "delivered\n").unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-m", "delivered work"]);
+        let head = git(&["rev-parse", "HEAD"]);
+        (dir, head)
+    }
+
+    fn facts(dir: &std::path::Path, head: &str) -> DeliveryFacts {
+        DeliveryFacts {
+            run_id: "run-1".to_string(),
+            step_id: "step-1".to_string(),
+            attempt: 1,
+            workspace_dir: dir.to_path_buf(),
+            head_commit: head.to_string(),
+            // No quote is reachable yet, so the ledger is deliberately untouched.
+            quoted_credits: None,
+        }
+    }
+
+    #[tokio::test]
+    async fn a_step_with_no_frozen_checks_is_not_verified_at_all() {
+        let db = test_db();
+        let (dir, head) = repo_with_one_commit();
+
+        let runner = ScriptedRunner::new(vec![]);
+        let verdict = verify_delivery(&db, &runner, &facts(&dir, &head)).await;
+
+        assert!(
+            verdict.is_none(),
+            "read-only work has no frozen specs and must not mint a verdict — \
+             Unverified is billable, so a Think step would otherwise charge"
+        );
+        assert!(db.get_receipt("run-1", "step-1").is_none());
+    }
+
+    #[tokio::test]
+    async fn passing_checks_produce_a_verified_receipt() {
+        let db = test_db();
+        let (dir, head) = repo_with_one_commit();
+        let specs = vec![spec("c1"), spec("c2")];
+        db.save_check_specs("run-1", "step-1", &specs).unwrap();
+
+        let runner =
+            ScriptedRunner::new(vec![Ok(CheckOutcome::Passed), Ok(CheckOutcome::Passed)]);
+        let verdict = verify_delivery(&db, &runner, &facts(&dir, &head)).await;
+        assert_eq!(verdict, Some(Verdict::Verified));
+
+        let receipt = db.get_receipt("run-1", "step-1").expect("receipt exists");
+        assert_eq!(receipt.tree_hash, head, "the receipt pins the graded commit");
+        assert_eq!(receipt.executions.len(), 2);
+        assert_eq!(receipt.gate.required_total, 2);
+        assert_eq!(receipt.gate.required_passed, 2);
+    }
+
+    #[tokio::test]
+    async fn one_failing_check_fails_the_verdict() {
+        let db = test_db();
+        let (dir, head) = repo_with_one_commit();
+        let specs = vec![spec("c1"), spec("c2")];
+        db.save_check_specs("run-1", "step-1", &specs).unwrap();
+
+        let runner =
+            ScriptedRunner::new(vec![Ok(CheckOutcome::Passed), Ok(CheckOutcome::Failed)]);
+        let verdict = verify_delivery(&db, &runner, &facts(&dir, &head)).await;
+        assert_eq!(verdict, Some(Verdict::Failed));
+
+        let receipt = db.get_receipt("run-1", "step-1").expect("receipt exists");
+        assert!(receipt.gate.failed.contains(&"c2".to_string()));
+    }
+
+    #[tokio::test]
+    async fn a_runner_that_cannot_execute_is_inconclusive_and_never_bills() {
+        let db = test_db();
+        let (dir, head) = repo_with_one_commit();
+        db.save_check_specs("run-1", "step-1", &[spec("c1")])
+            .unwrap();
+
+        // Every attempt fails as infrastructure, exhausting the retries.
+        let runner = ScriptedRunner::new(vec![
+            Err(RunnerError::ExecutionFailed("no docker".into())),
+            Err(RunnerError::ExecutionFailed("no docker".into())),
+            Err(RunnerError::ExecutionFailed("no docker".into())),
+        ]);
+        let verdict = verify_delivery(&db, &runner, &facts(&dir, &head)).await;
+
+        assert_eq!(
+            verdict,
+            Some(Verdict::Inconclusive),
+            "our infrastructure failing must cost us time, not the customer money"
+        );
+        assert!(!Verdict::Inconclusive.has_billing_effect());
+    }
+
+    #[tokio::test]
+    async fn the_second_verifier_to_reach_an_attempt_does_nothing() {
+        let db = test_db();
+        let (dir, head) = repo_with_one_commit();
+        db.save_check_specs("run-1", "step-1", &[spec("c1")])
+            .unwrap();
+        let f = facts(&dir, &head);
+
+        let first =
+            verify_delivery(&db, &ScriptedRunner::new(vec![Ok(CheckOutcome::Passed)]), &f).await;
+        assert_eq!(first, Some(Verdict::Verified));
+
+        // A duplicate delivery for the same attempt: the CAS must lose, so the
+        // ledger key derived from the verification id is minted exactly once.
+        let second =
+            verify_delivery(&db, &ScriptedRunner::new(vec![Ok(CheckOutcome::Failed)]), &f).await;
+        assert!(
+            second.is_none(),
+            "the second claim must not produce a verdict"
+        );
+
+        let receipt = db.get_receipt("run-1", "step-1").expect("receipt");
+        assert_eq!(
+            receipt.gate.verdict,
+            Verdict::Verified,
+            "the duplicate must not overwrite the first verdict"
+        );
+        assert_eq!(receipt.executions.len(), 1, "and must not add executions");
+    }
 }
