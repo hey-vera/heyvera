@@ -64,6 +64,29 @@ reconciliation table; the decisions are unchanged, only the names.
   wait, not as work.
 - **Pricing and customer-facing decisions belong to Josh.** Flag, don't decide.
 
+## The one thing blocking the most — read before picking up work
+
+**#438 is `CONFLICTING`, and that is why everything downstream is stuck.**
+
+It is not a checks problem, so **auto-merge cannot help**: auto-merge waits
+for checks, it cannot resolve a conflict, and GitHub's own server-side
+updater refuses too (`gh pr update-branch 438` → *"Cannot update PR branch
+due to conflicts"*). Someone has to merge `main` into that branch locally and
+push. The conflict itself is trivial — one `use crate::social_policy::{…}`
+import that #438 has and `main` does not; keep it.
+
+The chain it holds up, in the order it must happen:
+
+    #438 → #437 (v60) → host migration → #411 → Deploy Production
+
+Two of those steps are ordering traps rather than preferences:
+
+- **#437 after #438**, or the shared migration counter silently skips
+  v53–v59.
+- **The host migration before #411 merges and before any deploy.** Deploys
+  run `git reset --hard` on the production checkout, and the live database
+  is still tracked inside it.
+
 ## Definition of done — "ready for external users"
 
 The lanes below are not the goal; this is. Every task exists to move a row
@@ -102,7 +125,7 @@ in cheap sessions.
 | A0 | Ship the **backend**. The three-click runbook is under "Josh's own list" below. **Correction to PLAN §5: the frontend was never frozen.** `deploy-frontend.yml` has indeed not fired since 2026-07-23, but Cloudflare Pages has its own Git integration and has been deploying `cortex/` from `main` continuously — verified 2026-08-05 by finding this session's strings in the live bundle at cortex.heyvera.org. The freeze is backend-only, which is why the web app has drifted ahead of a VPS still running the June 3 binary | `/v1/health` on the VPS reports a build from this week; Josh can log in and the panes talk to a backend that knows the new endpoints |
 | A1 | Land #437 (credits, v60). **#438 is HeyVera Socials — not this lane's work**; it is reviewed and merged in a HeyVera session. Your job is only to wait for it, because the migration counter forces #438 → #437. When #438 is on main: mark #437 ready, merge | `main` has migrations through v60 |
 | A2 | Task 1.4: instrument real token cost on 3–5 representative tasks (~$300 budget) | measured $/task table committed as `cortex/plan/COSTS-MEASURED.md`; pricing handed to Josh |
-| A3 | VERIFIER.md V1→V7. **V1 and V2 are done** (#453, #454, #455, #456): the `CheckRunner` contract, `compute_verdict`, the container runner, check derivation, and the scheduler wiring that killed the empty-vec default. **V3–V7 are blocked on the migration counter** — V3 needs v61, which needs v60 (#437), which needs v53–v59 (#438, HeyVera lane). Nothing in the verifier is waiting on verifier work | verdicts computed from Cortex-run checks; refund copy still withheld until V7 passes |
+| A3 | VERIFIER.md V1→V7. **The pure logic of V1, V2, V4, V5, V6 and V7 is all on main** (#453–#456, #471, #473, #478, #479). **What is missing is not more logic — it is V3, and therefore every caller.** Verify this rather than trusting it: `grep -c verification_runs crates/api/src/db.rs` → 0, and `grep -rn billing_binding crates/api/src/` → nothing. The verdict machinery is correct, tested, and **not in the billing path**, because it has no tables to write to. V3 needs v61 → v60 (#437) → v53–v59 (#438, HeyVera lane). One merge unblocks the rest | verdicts computed from Cortex-run checks *and actually reached from the scheduler*; refund copy still withheld until V7's findings are closed |
 | ~~A4~~ | CONTEXT.md C1→C4 | **Done** — #457 (repo map), #458 (into every dispatched step), #459 (persistent index), #460 (hybrid retrieval), #461 (impact sets), #468 (impact API + Leases pane). C5 (MCP surface) still later |
 | A5 | Consult checkpoint: before Phase 3 cutover (Postgres/Temporal), request a Fable/xhigh review of the cutover plan | reviewed plan exists before any data moves |
 
