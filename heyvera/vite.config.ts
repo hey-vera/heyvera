@@ -18,9 +18,23 @@ export default defineConfig({
   build: {
     rollupOptions: {
       output: {
-        manualChunks: {
-          vendor: ["react", "react-dom", "react-router"],
-          clerk: ["@clerk/clerk-react"],
+        // Function form, not the object form. Vite 8's rolldown-based
+        // bundler dropped the object overload, so `{ vendor: [...] }` fails
+        // to type-check (`vite.config.ts(22,11): error TS2769`) the moment
+        // vite is bumped. `cortex/vite.config.ts` already uses this form.
+        //
+        // The package list is matched against the node_modules path segment
+        // rather than by substring, so `react-router` cannot be swept into
+        // the chunk meant for `react`.
+        // `indexOf` rather than `includes`: this file is type-checked against
+        // a pre-ES2015 lib, where String.prototype.includes does not exist.
+        manualChunks(id: string) {
+          if (id.indexOf("node_modules") === -1) return undefined;
+          if (id.indexOf("@clerk") !== -1) return "clerk";
+          if (/[\\/]node_modules[\\/](react|react-dom|react-router)[\\/]/.test(id)) {
+            return "vendor";
+          }
+          return undefined;
         },
       },
     },
