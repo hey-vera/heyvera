@@ -3,6 +3,11 @@
 **Purpose:** Single durable checklist to ship heyvera.org.  
 If a session dies or Grok quota runs out, **resume from this file**.
 
+> **Readiness update (2026-07-28):** This historical execution checklist records work that landed,
+> but a checked implementation primitive does not prove production completeness. Use
+> [`docs/SOCIALS-PRODUCTION-READINESS-AUDIT-2026-07-28.md`](./docs/SOCIALS-PRODUCTION-READINESS-AUDIT-2026-07-28.md)
+> as the current launch-readiness and remaining-work authority whenever the documents conflict.
+
 | Field | Value |
 |-------|--------|
 | **Scope** | `heyvera.org` only (not Cortex, not myshell-tools) |

@@ -10,6 +10,7 @@ use serde_json::json;
 
 use crate::agent_auth::SocialWriteAuth;
 use crate::clerk::ClerkUser;
+use crate::social_policy::PostAudience;
 use crate::state::AppState;
 
 type ApiResponse = (StatusCode, Json<serde_json::Value>);
@@ -117,6 +118,7 @@ pub fn try_pulse_transition(
 pub enum PulsePublishError {
     NotFound,
     Illegal { status: String },
+    InvalidAudience,
 }
 
 impl PulsePublishError {
@@ -126,6 +128,7 @@ impl PulsePublishError {
             Self::Illegal { status } => format!(
                 "Draft must be approved before publishing (status is '{status}')"
             ),
+            Self::InvalidAudience => "Draft has an invalid or unsupported audience".into(),
         }
     }
 }
@@ -145,7 +148,11 @@ pub fn publish_approved_pulse_draft(
     }
 
     let body = draft["body"].as_str().unwrap_or("").to_string();
-    let visibility = draft["visibility"].as_str().unwrap_or("public").to_string();
+    let visibility = draft["visibility"]
+        .as_str()
+        .and_then(PostAudience::from_storage)
+        .filter(|audience| !matches!(audience, PostAudience::Guild | PostAudience::Circle))
+        .ok_or(PulsePublishError::InvalidAudience)?;
     let author_mode = draft["authorMode"].as_str().unwrap_or("person").to_string();
     let linked_agent_id = draft["linkedAgentId"].as_str().map(|s| s.to_string());
 
@@ -164,7 +171,7 @@ pub fn publish_approved_pulse_draft(
     let post = database.social_create_post(
         profile_id,
         &body,
-        &visibility,
+        visibility.as_str(),
         &author_mode,
         linked_agent_id.as_deref(),
         None,
@@ -277,7 +284,7 @@ pub struct ListDraftsQuery {
 #[derive(Debug, Deserialize)]
 pub struct CreateDraftRequest {
     pub body: String,
-    pub visibility: Option<String>,
+    pub visibility: Option<PostAudience>,
     #[serde(rename = "authorMode")]
     pub author_mode: Option<String>,
     #[serde(rename = "linkedAgentId")]
@@ -358,10 +365,14 @@ pub async fn create_draft(
         }
     }
 
+    let visibility = req.visibility.unwrap_or(PostAudience::Public);
+    if matches!(visibility, PostAudience::Guild | PostAudience::Circle) {
+        return bad_request("Pulse drafts require public, followers, mutuals, or author-only visibility");
+    }
     let draft = db(&state).pulse_create_draft(
         &profile_id,
         &req.body,
-        req.visibility.as_deref().unwrap_or("public"),
+        visibility.as_str(),
         &author_mode,
         linked_agent_id.as_deref(),
     );
@@ -448,6 +459,7 @@ pub async fn publish_draft(
         }
         Err(PulsePublishError::NotFound) => not_found("Draft not found"),
         Err(e @ PulsePublishError::Illegal { .. }) => conflict_transition(&e.message()),
+        Err(PulsePublishError::InvalidAudience) => bad_request("Draft has an invalid or unsupported audience"),
     }
 }
 
@@ -990,6 +1002,12 @@ pub(crate) fn execute_pulse_tool(
                         extra,
                     }
                 }
+                Err(PulsePublishError::InvalidAudience) => PulseToolOutcome {
+                    reply: "That draft has an invalid or unsupported audience. Create a new draft with a supported audience.".into(),
+                    tools_used: vec!["publish_draft".into()],
+                    draft: database.pulse_get_draft(id, profile_id),
+                    extra: serde_json::Map::new(),
+                },
             }
         }
         "list_my_posts" => {

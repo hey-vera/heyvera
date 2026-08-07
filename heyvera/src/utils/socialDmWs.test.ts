@@ -5,6 +5,7 @@ import {
   pingPayload,
   socialDmWsUrl,
   subscribePayload,
+  unsubscribePayload,
 } from './socialDmWs';
 
 describe('parseSocialDmWsMessage', () => {
@@ -47,6 +48,63 @@ describe('parseSocialDmWsMessage', () => {
     }
   });
 
+  it('parses participant read receipts in camelCase', () => {
+    expect(
+      parseSocialDmWsMessage(
+        JSON.stringify({
+          type: 'read',
+          conversationId: 'c-2',
+          profileId: 'profile-reader',
+          throughMessageId: 'm-9',
+        }),
+      ),
+    ).toEqual({
+      type: 'read',
+      conversationId: 'c-2',
+      profileId: 'profile-reader',
+      throughMessageId: 'm-9',
+    });
+  });
+
+  it('accepts snake_case read receipt aliases and rejects incomplete receipts', () => {
+    expect(
+      parseSocialDmWsMessage(
+        JSON.stringify({
+          type: 'read',
+          conversation_id: 'c-3',
+          profile_id: 'profile-reader',
+          through_message_id: 'm-10',
+        }),
+      ),
+    ).toEqual(expect.objectContaining({ conversationId: 'c-3', throughMessageId: 'm-10' }));
+    expect(parseSocialDmWsMessage(JSON.stringify({ type: 'read', conversationId: 'c-3' }))).toBeNull();
+  });
+
+  it('parses subscription acknowledgements and explicit slow-consumer gaps', () => {
+    expect(
+      parseSocialDmWsMessage(
+        JSON.stringify({ type: 'subscribed', conversation_id: 'conversation-7' }),
+      ),
+    ).toEqual({ type: 'subscribed', conversationId: 'conversation-7' });
+    expect(
+      parseSocialDmWsMessage(
+        JSON.stringify({
+          type: 'gap',
+          conversationId: 'conversation-7',
+          reason: 'slow_consumer',
+        }),
+      ),
+    ).toEqual({
+      type: 'gap',
+      conversationId: 'conversation-7',
+      reason: 'slow_consumer',
+    });
+    expect(
+      parseSocialDmWsMessage(
+        JSON.stringify({ type: 'gap', conversationId: 'conversation-7', reason: 'unknown' }),
+      ),
+    ).toBeNull();
+  });
   it('returns null for invalid payloads', () => {
     expect(parseSocialDmWsMessage('')).toBeNull();
     expect(parseSocialDmWsMessage('not-json')).toBeNull();
@@ -70,10 +128,10 @@ describe('parseSocialDmWsMessage', () => {
 describe('socialDmWsUrl / subscribePayload', () => {
   it('builds ws url from http API base', () => {
     expect(socialDmWsUrl('tok', 'http://localhost:3402')).toBe(
-      'ws://localhost:3402/v1/social/ws?token=tok',
+      'ws://localhost:3402/v1/social/ws?ticket=tok',
     );
     expect(socialDmWsUrl('a b', 'https://api.example.com/')).toBe(
-      'wss://api.example.com/v1/social/ws?token=a%20b',
+      'wss://api.example.com/v1/social/ws?ticket=a%20b',
     );
   });
 
@@ -84,6 +142,12 @@ describe('socialDmWsUrl / subscribePayload', () => {
     });
   });
 
+  it('builds unsubscribe frame', () => {
+    expect(JSON.parse(unsubscribePayload('conv-9'))).toEqual({
+      type: 'unsubscribe',
+      conversationId: 'conv-9',
+    });
+  });
   it('builds ping frame', () => {
     expect(JSON.parse(pingPayload())).toEqual({ type: 'ping' });
   });

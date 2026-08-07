@@ -227,18 +227,24 @@ export const MOCK_NOTIFICATIONS: Notification[] = [
 
 const MOCK_MSG_1: Message = {
   id: 'm1',
+  sequence: 1,
+  client_message_id: null,
   sender: MOCK_USERS[1],
   content: 'Hey! Loved your post about Soma delegation proofs. Would love to chat about integrating with Cortex.',
   created_at: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
   read: false,
+  read_by_profile_ids: [],
 };
 
 const MOCK_MSG_2: Message = {
   id: 'm2',
+  sequence: 1,
+  client_message_id: null,
   sender: MOCK_USERS[3],
   content: 'Can I get early access to the Secure Rooms beta? Running some multi-agent experiments that need strong isolation.',
   created_at: new Date(Date.now() - 1000 * 60 * 60 * 3).toISOString(),
   read: true,
+  read_by_profile_ids: [MOCK_USERS[0].id],
 };
 
 export const MOCK_CONVERSATIONS: Conversation[] = [

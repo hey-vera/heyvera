@@ -29,14 +29,24 @@ pub async fn block_user(
     user: ClerkUser,
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
-) -> impl IntoResponse {
-    let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
+) -> axum::response::Response {
+    let profile_id = match require_profile(&state, &user) {
+        Ok(profile_id) => profile_id,
+        Err(response) => return response.into_response(),
+    };
     if profile_id == id {
-        return Json(serde_json::json!({ "error": "Cannot block yourself", "code": "INVALID_INPUT" }));
+        return Json(serde_json::json!({ "error": "Cannot block yourself", "code": "INVALID_INPUT" })).into_response();
     }
-    db(&state).social_block_user(&profile_id, &id);
+    if let Err(error) = db(&state).social_block_user(&profile_id, &id) {
+        tracing::error!(%error, blocker_profile_id = %profile_id, blocked_profile_id = %id, "failed to commit Socials block");
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({ "error": "Unable to block this profile right now", "code": "SERVICE_UNAVAILABLE" })),
+        )
+            .into_response();
+    }
     db(&state).audit_log(&profile_id, "user", "block", Some("user"), Some(&id), None, None);
-    Json(serde_json::json!({ "ok": true }))
+    Json(serde_json::json!({ "ok": true })).into_response()
 }
 
 pub async fn unblock_user(

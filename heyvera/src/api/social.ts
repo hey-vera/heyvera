@@ -8,6 +8,12 @@ import type {
   Notification,
   Conversation,
   Message,
+  ConversationPage,
+  MessagePage,
+  MessageRequest,
+  MessageRequestBucket,
+  MessageRequestPage,
+  PendingMessageRequestReceipt,
   Community as LegacyCommunity,
   TrendingTopic,
   FeedResponse,
@@ -22,8 +28,14 @@ export type {
   UpdateUserProfileInput,
   Notification,
   Conversation,
+  ConversationPage,
   Message,
+  MessagePage,
+  MessageRequest,
+  MessageRequestBucket,
+  MessageRequestPage,
   TrendingTopic,
+  PendingMessageRequestReceipt,
   FeedResponse,
   SearchResults,
 };
@@ -33,7 +45,8 @@ export type { LegacyCommunity };
 
 export type Profile = {
   id: string;
-  accountId: string;
+  /** Internal identity is present only on authenticated owner/admin DTOs. */
+  accountId?: string;
   displayName: string;
   handle: string;
   bio: string;
@@ -308,7 +321,7 @@ export type ProfileStats = {
 
 export type ProfileSummary = {
   id: string;
-  accountId: string;
+  accountId?: string;
   displayName: string;
   handle: string;
   bio: string;
@@ -333,6 +346,11 @@ export type ProfileSummary = {
 const API_BASE = resolveSocialApiBaseFromEnv(
   import.meta.env.VITE_API_URL as string | undefined,
 );
+
+function resolveMediaDeliveryUrl(url: string): string {
+  if (!url.startsWith('/v1/social/') || !/^https?:\/\//i.test(API_BASE)) return url;
+  return `${new URL(API_BASE).origin}${url}`;
+}
 
 // ─── Fetch helpers ───────────────────────────────────────────────────────────
 
@@ -508,16 +526,16 @@ export async function fetchProfileFeed(
   };
 }
 
-export async function fetchProfileStats(handle: string): Promise<{
+export async function fetchProfileStats(handle: string, token?: string | null): Promise<{
   stats: ProfileStats;
 }> {
-  return apiFetch(`/profiles/${handle}/stats`);
+  return apiFetch(`/profiles/${handle}/stats`, token);
 }
 
-export async function fetchProfiles(limit = 20): Promise<{
+export async function fetchProfiles(limit = 20, token?: string | null): Promise<{
   profiles: ProfileSummary[];
 }> {
-  return apiFetch(`/profiles?limit=${limit}`);
+  return apiFetch(`/profiles?limit=${limit}`, token);
 }
 
 export async function fetchCommunities(limit = 20): Promise<{
@@ -564,6 +582,7 @@ export async function fetchProfileFollowers(
   handle: string,
   limit = 20,
   cursor: string | null = null,
+  token?: string | null,
 ): Promise<{
   profile: Profile;
   followers: ProfileSummary[];
@@ -572,6 +591,7 @@ export async function fetchProfileFollowers(
   const qs = feedQueryParams(limit, cursor);
   const raw = await apiFetch<{ profile?: Profile; followers?: ProfileSummary[]; cursor: string | null }>(
     `/profiles/${handle}/followers?${qs}`,
+    token,
   );
   return {
     profile: raw.profile as Profile,
@@ -584,6 +604,7 @@ export async function fetchProfileFollowing(
   handle: string,
   limit = 20,
   cursor: string | null = null,
+  token?: string | null,
 ): Promise<{
   profile: Profile;
   following: ProfileSummary[];
@@ -592,6 +613,7 @@ export async function fetchProfileFollowing(
   const qs = feedQueryParams(limit, cursor);
   const raw = await apiFetch<{ profile?: Profile; following?: ProfileSummary[]; cursor: string | null }>(
     `/profiles/${handle}/following?${qs}`,
+    token,
   );
   return {
     profile: raw.profile as Profile,
@@ -605,6 +627,7 @@ export async function fetchProfileFollowing(
 export async function searchSocial(
   query: string,
   type: "all" | "posts" | "profiles" = "all",
+  token?: string | null,
 ): Promise<{
   posts: FeedPost[];
   profiles: Array<{ id: string; handle: string; displayName: string; avatarUrl: string | null; bio: string }>;
@@ -612,7 +635,7 @@ export async function searchSocial(
   const params = new URLSearchParams({ q: query });
   if (type !== "all") params.set("type", type);
   // Surface errors to callers (ExplorePage shows ErrorState) — do not swallow.
-  return apiFetch(`/search?${params.toString()}`);
+  return apiFetch(`/search?${params.toString()}`, token);
 }
 
 // ─── Public: trending ───────────────────────────────────────────────────────
@@ -631,7 +654,15 @@ export async function fetchTrending(): Promise<{
 
 export type SocialNotification = {
   id: string;
-  type: "like" | "follow" | "repost" | "reply" | "mention" | "quote";
+  type:
+    | "like"
+    | "follow"
+    | "follow_request"
+    | "follow_accepted"
+    | "repost"
+    | "reply"
+    | "mention"
+    | "quote";
   actorHandle: string;
   actorDisplayName: string;
   actorAvatarUrl: string | null;
@@ -792,11 +823,19 @@ export async function updateProfile(
   return apiAuthFetch("/me/profile", { method: "PATCH", token, body });
 }
 
+export type PostAudience =
+  | "public"
+  | "followers"
+  | "mutuals"
+  | "guild"
+  | "circle"
+  | "author-only";
+
 export async function createPost(
   token: string,
   data: {
     body: string;
-    visibility?: string;
+    visibility?: PostAudience;
     authorMode?: string;
     linkedAgentId?: string;
     /** Page id from listMyPages — maps person/agent/brand → authorship. */
@@ -901,10 +940,7 @@ export async function requestMediaUploadUrl(
 
 /** PUT file bytes to the upload URL returned by requestMediaUploadUrl. */
 export async function putMediaFile(uploadUrl: string, file: File): Promise<void> {
-  const absolute =
-    uploadUrl.startsWith("http://") || uploadUrl.startsWith("https://")
-      ? uploadUrl
-      : `${import.meta.env.VITE_API_URL ?? ""}${uploadUrl.startsWith("/") ? "" : "/"}${uploadUrl}`;
+  const absolute = resolveMediaDeliveryUrl(uploadUrl);
 
   const res = await fetch(absolute, {
     method: "PUT",
@@ -939,12 +975,12 @@ export async function uploadMediaFile(
   const finalized = await finalizeMedia(token, media_id);
   return {
     mediaId: finalized.media_id || media_id,
-    url: finalized.url,
+    url: resolveMediaDeliveryUrl(finalized.url),
     type: finalized.type,
   };
 }
 
-export async function fetchSinglePost(postId: string): Promise<{
+export async function fetchSinglePost(postId: string, token?: string | null): Promise<{
   post: FeedPost;
   replies: FeedPost[];
   /** True when BE walk stopped early (cap 100 / max depth 8). Missing on older servers. */
@@ -952,7 +988,7 @@ export async function fetchSinglePost(postId: string): Promise<{
   /** Reply list hard cap from BE when present. */
   repliesCap?: number;
 }> {
-  return apiFetch(`/posts/${postId}`);
+  return apiFetch(`/posts/${postId}`, token);
 }
 
 /**
@@ -963,27 +999,33 @@ export async function fetchSinglePost(postId: string): Promise<{
 export async function fetchRelatedPosts(
   postId: string,
   limit = 8,
+  token?: string | null,
 ): Promise<{ posts: FeedPost[]; sourcePostId?: string }> {
   const capped = Math.min(Math.max(1, limit), 20);
-  return apiFetch(`/posts/${encodeURIComponent(postId)}/related?limit=${capped}`);
+  return apiFetch(`/posts/${encodeURIComponent(postId)}/related?limit=${capped}`, token);
 }
 
 export async function fetchFollowStatus(
   token: string,
   handle: string,
-): Promise<{ following: boolean }> {
+): Promise<{ following: boolean; pending?: boolean }> {
   try {
     return await apiAuthFetch(`/follows/${handle}/status`, { method: "GET", token });
   } catch {
     // Status route may be missing; default to not following (UI can still toggle).
-    return { following: false };
+    return { following: false, pending: false };
   }
 }
 
 export async function followProfile(
   token: string,
   handle: string,
-): Promise<{ ok: true; followId: string; state: string }> {
+): Promise<{
+  ok: true;
+  followId?: string;
+  requestId?: string;
+  state: 'following' | 'pending';
+}> {
   return apiAuthFetch(`/follows/${handle}`, { method: "POST", token });
 }
 
@@ -1529,7 +1571,7 @@ export function feedPostToPost(fp: FeedPost): Post {
     ? fp.media.map((m) => ({
         id: m.id,
         type: mapFeedMediaType(m.mediaType, m.contentType),
-        url: m.url,
+        url: resolveMediaDeliveryUrl(m.url),
         thumbnail_url: m.thumbnailUrl ?? undefined,
         width: m.width ?? 0,
         height: m.height ?? 0,
@@ -1672,14 +1714,173 @@ export async function getNotifications(token?: string): Promise<Notification[]> 
   return legacyFetchAuthedApi<Notification[]>('/notifications', token);
 }
 
-/** Get all conversations */
-export async function getConversations(token?: string): Promise<Conversation[]> {
-
+/** Get one confidential inbox page. */
+export async function getConversations(
+  token?: string,
+  options: { limit?: number; cursor?: string | null } = {},
+): Promise<ConversationPage> {
   if (!token) throw new Error('Auth token required');
-  const res = await legacyFetchAuthedApi<{ conversations: Conversation[] }>('/conversations', token);
-  return res.conversations ?? [];
+  const limit = options.limit ?? 30;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error('Conversation page limit must be between 1 and 100');
+  }
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (options.cursor) params.set('cursor', options.cursor);
+  const response = await legacyFetchAuthedApi<Partial<ConversationPage>>(
+    `/conversations?${params.toString()}`,
+    token,
+  );
+  const nextCursor = response.next_cursor ?? null;
+  return {
+    conversations: response.conversations ?? [],
+    next_cursor: nextCursor,
+    has_more: response.has_more ?? nextCursor !== null,
+    total_unread_count: response.total_unread_count ?? 0,
+  };
 }
 
+/** Hydrate one accessible conversation, including deep links outside page one. */
+export async function getConversation(
+  token: string,
+  conversationId: string,
+): Promise<Conversation> {
+  return legacyFetchAuthedApi<Conversation>(
+    `/conversations/${encodeURIComponent(conversationId)}`,
+    token,
+  );
+}
+
+/** Get the uncapped inbox unread total used by global navigation badges. */
+export async function getConversationUnreadCount(token: string): Promise<number> {
+  const response = await legacyFetchAuthedApi<{ unread_count?: number }>(
+    '/conversations/unread-count',
+    token,
+  );
+  return response.unread_count ?? 0;
+}
+export type DirectMessageStartResult =
+  | {
+      kind: 'conversation';
+      conversation: Conversation;
+      message: Message;
+      replayed: boolean;
+    }
+  | {
+      kind: 'request';
+      request: PendingMessageRequestReceipt;
+      replayed: boolean;
+    };
+
+/** Start a direct conversation or create one pending message request atomically. */
+export async function startDirectMessage(
+  token: string,
+  input: { recipientId: string; content: string; clientRequestId: string },
+): Promise<DirectMessageStartResult> {
+  return apiAuthFetch<DirectMessageStartResult>('/direct-message-starts', {
+    method: 'POST',
+    token,
+    body: {
+      recipient_id: input.recipientId,
+      content: input.content,
+      client_request_id: input.clientRequestId,
+    },
+  });
+}
+
+/** List one stable page of pending or spam-filtered inbound message requests. */
+export async function getMessageRequests(
+  token: string,
+  options: { bucket?: MessageRequestBucket; limit?: number; cursor?: string | null } = {},
+): Promise<MessageRequestPage> {
+  const bucket = options.bucket ?? 'inbox';
+  const limit = options.limit ?? 30;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error('Message request page limit must be between 1 and 100');
+  }
+  const params = new URLSearchParams({ bucket, limit: String(limit) });
+  if (options.cursor) params.set('cursor', options.cursor);
+  const response = await apiAuthFetch<Partial<MessageRequestPage>>(
+    `/message-requests?${params.toString()}`,
+    { method: 'GET', token },
+  );
+  const nextCursor = response.next_cursor ?? null;
+  return {
+    requests: response.requests ?? [],
+    total_pending_count: response.total_pending_count ?? 0,
+    next_cursor: nextCursor,
+    has_more: response.has_more ?? nextCursor !== null,
+  };
+}
+
+export type ResolvedMessageRequestReceipt = {
+  id: string;
+  state: 'accepted' | 'declined' | 'spam' | 'cancelled';
+  created_at: string;
+  resolved_at: string | null;
+};
+
+export type AcceptMessageRequestResult = {
+  request: ResolvedMessageRequestReceipt;
+  conversation: Conversation;
+  message: Message;
+  replayed: boolean;
+};
+
+/** Accept a pending inbound request and return the now-active conversation. */
+export async function acceptMessageRequest(
+  token: string,
+  requestId: string,
+): Promise<AcceptMessageRequestResult> {
+  return apiAuthFetch<AcceptMessageRequestResult>(
+    `/message-requests/${encodeURIComponent(requestId)}/accept`,
+    { method: 'POST', token },
+  );
+}
+
+export type ResolveMessageRequestResult = {
+  request: ResolvedMessageRequestReceipt;
+  conversation: null;
+  message: null;
+  replayed: boolean;
+};
+
+export type CancelMessageRequestResult = {
+  request: ResolvedMessageRequestReceipt;
+  replayed: boolean;
+};
+
+/** Decline a pending inbound request without creating a conversation. */
+export async function declineMessageRequest(
+  token: string,
+  requestId: string,
+): Promise<ResolveMessageRequestResult> {
+  return apiAuthFetch<ResolveMessageRequestResult>(
+    `/message-requests/${encodeURIComponent(requestId)}/decline`,
+    { method: 'POST', token },
+  );
+}
+
+/** Mark a pending inbound request as spam and remove it from the inbox. */
+export async function markMessageRequestSpam(
+  token: string,
+  requestId: string,
+): Promise<ResolveMessageRequestResult> {
+  return apiAuthFetch<ResolveMessageRequestResult>(
+    `/message-requests/${encodeURIComponent(requestId)}/spam`,
+    { method: 'POST', token },
+  );
+}
+
+/** Cancel one pending request created by the authenticated sender. */
+export async function cancelMessageRequest(
+  token: string,
+  requestId: string,
+): Promise<CancelMessageRequestResult> {
+  return apiAuthFetch<CancelMessageRequestResult>(
+    `/message-requests/${encodeURIComponent(requestId)}`,
+    { method: 'DELETE', token },
+  );
+}
 /**
  * Start or open a DM. POST /v1/social/conversations with participant_ids
  * (other profile ids; server adds the viewer).
@@ -1695,25 +1896,125 @@ export async function createConversation(
   });
 }
 
-/** Get messages in a conversation */
-export async function getMessages(conversationId: string, token?: string): Promise<Message[]> {
-
+/** Get a newest-first page boundary, returned in chronological display order. */
+export async function getMessages(
+  conversationId: string,
+  token?: string,
+  options: { limit?: number; cursor?: string | null; afterCursor?: string | null } = {},
+): Promise<MessagePage> {
   if (!token) throw new Error('Auth token required');
-  const res = await legacyFetchAuthedApi<{ messages: Message[] }>(`/conversations/${conversationId}/messages`, token);
-  return res.messages ?? [];
+  const limit = options.limit ?? 50;
+  if (!Number.isInteger(limit) || limit < 1 || limit > 100) {
+    throw new Error('Message page limit must be between 1 and 100');
+  }
+  if (options.cursor && options.afterCursor) {
+    throw new Error('Message cursor and after cursor are mutually exclusive');
+  }
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (options.cursor) params.set('cursor', options.cursor);
+  if (options.afterCursor) params.set('after_cursor', options.afterCursor);
+  const id = encodeURIComponent(conversationId);
+  const res = await legacyFetchAuthedApi<Partial<MessagePage>>(
+    `/conversations/${id}/messages?${params.toString()}`,
+    token,
+  );
+  const nextCursor = res.next_cursor ?? null;
+  const syncCursor = res.sync_cursor ?? null;
+  return {
+    messages: res.messages ?? [],
+    next_cursor: nextCursor,
+    has_more: res.has_more ?? nextCursor !== null,
+    sync_cursor: syncCursor,
+  };
 }
+
+export type MarkConversationReadResult = {
+  ok: true;
+  through_message_id: string;
+  unread_count: number;
+};
+
+/** Advance only the authenticated participant's read watermark. */
+export async function markConversationRead(
+  token: string,
+  conversationId: string,
+  throughMessageId: string,
+): Promise<MarkConversationReadResult> {
+  return apiAuthFetch<MarkConversationReadResult>(
+    `/conversations/${encodeURIComponent(conversationId)}/read`,
+    {
+      method: 'POST',
+      token,
+      body: { through_message_id: throughMessageId },
+    },
+  );
+}
+
+export const SOCIAL_DM_MAX_MESSAGE_CHARS = 4_000;
 
 /** POST a DM message. Uses shared social API base (resolveSocialApiBase). */
 export async function sendMessage(
   token: string,
   conversationId: string,
   content: string,
+  clientMessageId: string,
 ): Promise<Message> {
-  return apiAuthFetch<Message>(`/conversations/${conversationId}/messages`, {
+  return apiAuthFetch<Message>(`/conversations/${encodeURIComponent(conversationId)}/messages`, {
     method: 'POST',
     token,
-    body: { content },
+    body: { content, client_message_id: clientMessageId },
   });
+}
+
+export type FollowRequest = {
+  id: string;
+  status: 'pending';
+  createdAt: string;
+  requester: {
+    id: string;
+    handle: string;
+    displayName: string;
+    avatarUrl: string | null;
+  };
+};
+
+export async function fetchFollowRequests(
+  token: string,
+  limit = 50,
+): Promise<{ requests: FollowRequest[] }> {
+  return apiAuthFetch(`/follow-requests?limit=${limit}`, { method: 'GET', token });
+}
+
+export async function approveFollowRequest(
+  token: string,
+  requestId: string,
+): Promise<{ ok: true; state: 'accepted' }> {
+  return apiAuthFetch(`/follow-requests/${encodeURIComponent(requestId)}/approve`, {
+    method: 'POST',
+    token,
+  });
+}
+
+export async function rejectFollowRequest(
+  token: string,
+  requestId: string,
+): Promise<{ ok: true; state: 'rejected' }> {
+  return apiAuthFetch(`/follow-requests/${encodeURIComponent(requestId)}`, {
+    method: 'DELETE',
+    token,
+  });
+}
+
+/** Mint a short-lived, single-use credential for the DM WebSocket handshake. */
+export async function issueSocialDmWsTicket(token: string): Promise<string> {
+  const response = await apiAuthFetch<{ ticket: string; expiresInSeconds: number }>(
+    '/ws-ticket',
+    { method: 'POST', token },
+  );
+  if (!response.ticket || !response.ticket.startsWith('hvws_')) {
+    throw new Error('Realtime ticket response was invalid');
+  }
+  return response.ticket;
 }
 
 /** Full-text search across posts, users, and communities */
