@@ -505,8 +505,30 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
     // Build and persist the dispatch-time work contract before handing work to a worker.
     let mut task = cortex_core::task::TaskContract::new(step.objective.clone(), tier, risk)
         .with_dispatch_contract(allowed_paths.clone(), base_commit.clone());
-    task.required_checks =
-        infer_required_checks(step.kind, risk, &allowed_paths, &state.workspace_dir);
+    // Derive once, then use the result twice: frozen for verification, and
+    // downgraded to display strings for the worker contract. Deriving twice
+    // would risk the exam differing from the one the worker was shown.
+    let check_specs = derive_step_check_specs(step.kind, risk, &allowed_paths, &state.workspace_dir);
+
+    // Freeze the exam here, at dispatch, before the worker sees the task.
+    // Verification happens after delivery, and the `CheckSpec` argv needed to
+    // run it does not survive the downgrade to `RequiredCheck` below — so if
+    // it is not persisted now it is gone.
+    // Only for steps that change trees. An empty set means this step is not
+    // one verification attaches to, and freezing an empty row would make it
+    // indistinguishable from a step whose checks failed to derive.
+    if !check_specs.is_empty() {
+        if let Err(e) = db.save_check_specs(&step.run_id, &step.step_id, &check_specs) {
+            tracing::warn!(
+                run_id = %step.run_id,
+                step_id = %step.step_id,
+                error = %e,
+                "could not freeze check specs; this step will not be verified"
+            );
+        }
+    }
+
+    task.required_checks = check_specs.iter().map(as_required_check).collect();
     let recipe = build_work_recipe(
         step.work_kind
             .unwrap_or_else(|| work_kind_for_step(step.kind, &step.objective)),
@@ -634,12 +656,12 @@ fn step_changes_the_tree(kind: StepKind) -> bool {
 /// already speaks. `CheckSpec` carries argv; `RequiredCheck.command` is a
 /// display string, so the two are joined here and nowhere else — execution
 /// uses the argv, never this string.
-fn infer_required_checks(
+fn derive_step_check_specs(
     kind: StepKind,
     risk: RiskLevel,
     allowed_paths: &[String],
     workspace_dir: &Path,
-) -> Vec<RequiredCheck> {
+) -> Vec<cortex_core::verification::CheckSpec> {
     if !step_changes_the_tree(kind) {
         return Vec::new();
     }
@@ -652,12 +674,30 @@ fn infer_required_checks(
     };
 
     derive_checks(&input)
-        .into_iter()
-        .map(|spec| RequiredCheck {
-            name: spec.id,
-            command: spec.command.join(" "),
-            required: spec.required,
-        })
+}
+
+/// Downgrade a spec to the wire shape the worker contract speaks.
+///
+/// Lossy on purpose and lossy in one place: `command` becomes a display
+/// string, and `source`/`timeout_secs` are dropped. Execution uses the argv
+/// off the frozen `CheckSpec`, never this string.
+fn as_required_check(spec: &cortex_core::verification::CheckSpec) -> RequiredCheck {
+    RequiredCheck {
+        name: spec.id.clone(),
+        command: spec.command.join(" "),
+        required: spec.required,
+    }
+}
+
+fn infer_required_checks(
+    kind: StepKind,
+    risk: RiskLevel,
+    allowed_paths: &[String],
+    workspace_dir: &Path,
+) -> Vec<RequiredCheck> {
+    derive_step_check_specs(kind, risk, allowed_paths, workspace_dir)
+        .iter()
+        .map(as_required_check)
         .collect()
 }
 

@@ -76,6 +76,16 @@ pub struct ConnectedWorker {
     pub tx: mpsc::Sender<BrainMessage>,
 }
 
+/// Where the Cortex database lives for a given workspace.
+///
+/// A function rather than a literal because background work — verification in
+/// particular — opens its own connection instead of borrowing `AppState`'s,
+/// and two spellings of this path that drift apart would silently split the
+/// database in two.
+pub fn cortex_db_path(workspace_dir: &std::path::Path) -> PathBuf {
+    workspace_dir.join(".cortex").join("cortex.db")
+}
+
 pub struct AppState {
     pub providers: RwLock<Vec<ProviderStatus>>,
     pub ledger: Ledger,
@@ -169,7 +179,7 @@ impl AppState {
             tracing::info!("clerk auth disabled (no CLERK_SECRET_KEY)");
         }
 
-        let db_path = workspace_dir.join(".cortex").join("cortex.db");
+        let db_path = cortex_db_path(&workspace_dir);
         let db = Database::open(&db_path);
         tracing::info!("database opened at {}", db_path.display());
 

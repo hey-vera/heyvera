@@ -487,6 +487,55 @@ async fn handle_worker_msg(
                                 .to_string();
                     } else {
                         db.complete_attempt(&step_id, lease_gen);
+
+                        // V3: grade the delivered tree ourselves, out of band.
+                        //
+                        // Reaching this branch means complete_step's CAS on
+                        // lease_gen held, so this delivery is the live one — a
+                        // superseded attempt never gets here and so can never
+                        // bill. `lease_gen` is the attempt discriminator: it is
+                        // already the token the step machine uses to mean "which
+                        // try at this step".
+                        //
+                        // Spawned rather than awaited because checks run in a
+                        // container and the completion handler must not sit on
+                        // the websocket for container time. The task opens its
+                        // own database handle: AppState holds `Database` by
+                        // value and this function borrows it, so nothing here
+                        // can be moved into a task.
+                        if let (Some(run_id), Some(head)) =
+                            (resolved_run_id.clone(), head_commit.clone())
+                        {
+                            let facts = crate::verification_driver::DeliveryFacts {
+                                run_id,
+                                step_id: step_id.clone(),
+                                attempt: lease_gen,
+                                workspace_dir: state.workspace_dir.clone(),
+                                head_commit: head,
+                                // No per-step price is persisted anywhere yet,
+                                // so the verdict is recorded and the ledger is
+                                // left alone. Inventing a price is never right.
+                                quoted_credits: None,
+                            };
+                            let db_path = crate::state::cortex_db_path(&state.workspace_dir);
+                            tokio::spawn(async move {
+                                let db = crate::db::Database::open(&db_path);
+                                match crate::check_runner::ContainerCheckRunner::new(
+                                    crate::verification_driver::runner_image(),
+                                ) {
+                                    Ok(runner) => {
+                                        crate::verification_driver::verify_delivery(
+                                            &db, &runner, &facts,
+                                        )
+                                        .await;
+                                    }
+                                    Err(e) => tracing::error!(
+                                        error = %e,
+                                        "no container runner available; delivery left unverified"
+                                    ),
+                                }
+                            });
+                        }
                     }
                 } else {
                     if verifier_failure.is_empty() {

@@ -5,6 +5,9 @@ use std::sync::Mutex;
 use chrono::{Datelike, Utc};
 use cortex_core::task::TaskContract;
 use cortex_core::usage::{estimate_cost_by_provider, DailyUsage, ProviderUsage, UsageSummary};
+use cortex_core::verification::{
+    compute_verdict, CheckExecution, CheckOutcome, CheckSource, CheckSpec, Verdict, VerdictReport,
+};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -588,6 +591,9 @@ fn apply_migrations(conn: &Connection) {
     // branch must merge before this one.
     if current < 60 {
         migrate_v60(conn);
+    }
+    if current < 61 {
+        migrate_v61(conn);
     }
 }
 
@@ -3433,6 +3439,132 @@ fn migrate_v60(conn: &Connection) {
     tracing::info!(
         "applied migration v60: integer credits, idempotent credit_transactions, provider_spend"
     );
+}
+
+fn migrate_v61(conn: &Connection) {
+    // V3 — verdicts become durable. See cortex/plan/VERIFIER.md ("Evidence and
+    // receipts") for the canonical shape and V3-LAUNCH-SPEC.md for the wiring.
+    //
+    // Numbered v61 because v53–v59 belong to fix/socials-message-integrity and
+    // v60 to fix/credit-metering-idempotency; schema_version is a single
+    // counter, so both must merge before this one or a migration is silently
+    // skipped.
+    //
+    // `verification_checks` carries three columns beyond the doc's sketch —
+    // `spec_id`, `outcome`, `runner_image`. They are not embellishment: a row
+    // must round-trip to `cortex_core::verification::CheckExecution`, which the
+    // receipt endpoint serves and the frontend already types against. Without
+    // spec_id the execution cannot be joined back to the spec it ran; without
+    // outcome, Failed and TimedOut collapse into an exit code that NotExecuted
+    // does not have at all.
+    //
+    // `verification_specs` freezes the derived checks at dispatch. Derivation
+    // must happen before the worker sees the task, and verification happens
+    // after delivery, so the specs have to survive the gap somewhere.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS verification_runs (
+            id              TEXT PRIMARY KEY,
+            run_id          TEXT NOT NULL,
+            step_id         TEXT NOT NULL,
+            attempt         INTEGER NOT NULL,
+            tree_hash       TEXT NOT NULL,
+            runner_image    TEXT NOT NULL,
+            verdict         TEXT NOT NULL DEFAULT 'pending',
+            started_at      INTEGER NOT NULL,
+            finished_at     INTEGER,
+            UNIQUE(run_id, step_id, attempt)
+        );
+        CREATE INDEX IF NOT EXISTS idx_verification_runs_run_step
+            ON verification_runs(run_id, step_id);
+
+        CREATE TABLE IF NOT EXISTS verification_checks (
+            id              TEXT PRIMARY KEY,
+            verification_id TEXT NOT NULL REFERENCES verification_runs(id),
+            spec_id         TEXT NOT NULL,
+            source          TEXT NOT NULL,
+            command         TEXT NOT NULL,
+            outcome         TEXT NOT NULL,
+            exit_code       INTEGER,
+            duration_ms     INTEGER,
+            output_digest   TEXT NOT NULL,
+            output_tail     TEXT NOT NULL,
+            runner_image    TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_verification_checks_verification
+            ON verification_checks(verification_id);
+
+        CREATE TABLE IF NOT EXISTS verification_specs (
+            run_id     TEXT NOT NULL,
+            step_id    TEXT NOT NULL,
+            specs_json TEXT NOT NULL,
+            created_at INTEGER NOT NULL,
+            PRIMARY KEY (run_id, step_id)
+        );
+
+        UPDATE schema_version SET version = 61;",
+    )
+    .expect("migration v61 failed creating verification_runs/verification_checks");
+    tracing::info!(
+        "applied migration v61: verification_runs, verification_checks, verification_specs"
+    );
+}
+
+/// What a customer is shown when they ask why they were charged, and what a
+/// dispute reads first.
+///
+/// Field names and shape are load-bearing: they are typed on the frontend at
+/// `cortex/src/components/mission/Receipt.tsx` and must serialize to match.
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Receipt {
+    pub verification_id: String,
+    pub run_id: String,
+    pub step_id: String,
+    pub attempt: i64,
+    pub tree_hash: String,
+    pub gate: VerdictReport,
+    pub executions: Vec<CheckExecution>,
+}
+
+// Enum <-> TEXT mapping for the verification tables. These are spelled out
+// rather than routed through serde so the stored strings are a deliberate
+// schema decision: renaming a Rust variant must not silently rewrite what is
+// already on disk.
+
+fn check_source_str(source: CheckSource) -> &'static str {
+    match source {
+        CheckSource::Ecosystem => "ecosystem",
+        CheckSource::Contract => "contract",
+        CheckSource::Risk => "risk",
+    }
+}
+
+fn check_outcome_str(outcome: CheckOutcome) -> &'static str {
+    match outcome {
+        CheckOutcome::Passed => "passed",
+        CheckOutcome::Failed => "failed",
+        CheckOutcome::TimedOut => "timed_out",
+        CheckOutcome::NotExecuted => "not_executed",
+    }
+}
+
+/// Unknown text reads back as `NotExecuted`, which is the only outcome that
+/// cannot bill. A corrupted row must not be able to manufacture a charge.
+fn check_outcome_from_str(s: &str) -> CheckOutcome {
+    match s {
+        "passed" => CheckOutcome::Passed,
+        "failed" => CheckOutcome::Failed,
+        "timed_out" => CheckOutcome::TimedOut,
+        _ => CheckOutcome::NotExecuted,
+    }
+}
+
+pub(crate) fn verdict_str(verdict: Verdict) -> &'static str {
+    match verdict {
+        Verdict::Verified => "verified",
+        Verdict::Failed => "failed",
+        Verdict::Inconclusive => "inconclusive",
+        Verdict::Unverified => "unverified",
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -10926,6 +11058,183 @@ impl Database {
         })
     }
 
+    /// Give back exactly what a charge took, when a verdict says the work
+    /// failed. See `cortex/plan/VERIFIER.md` ("Billing binding").
+    ///
+    /// This takes the *charge's* idempotency key rather than an amount, and
+    /// that is deliberate. `deduct_credits` splits one charge across the
+    /// subscription and pack buckets according to what was left in each at the
+    /// time, and only the rows it wrote know how the split fell. Passing an
+    /// amount would force this function to guess the split, and a wrong guess
+    /// silently moves credits between an expiring bucket and a permanent one.
+    /// So a refund reads the spend rows and mirrors them.
+    ///
+    /// Append-only: a refund is a positive row with reason
+    /// `task_failed_refund`, never an UPDATE of the spend row.
+    pub fn refund_credits(
+        &self,
+        clerk_user_id: &str,
+        charge_idempotency_key: &str,
+        refund_idempotency_key: &str,
+        description: &str,
+    ) -> Result<CreditBalanceRecord, String> {
+        if charge_idempotency_key.trim().is_empty() || refund_idempotency_key.trim().is_empty() {
+            return Err("both charge and refund idempotency keys are required".into());
+        }
+
+        let charge_sub_key = format!("{charge_idempotency_key}:subscription");
+        let charge_pack_key = format!("{charge_idempotency_key}:pack");
+        let refund_sub_key = format!("{refund_idempotency_key}:subscription");
+        let refund_pack_key = format!("{refund_idempotency_key}:pack");
+
+        let conn = self.conn.lock().unwrap();
+
+        conn.execute("BEGIN IMMEDIATE", [])
+            .map_err(|e| format!("failed to begin transaction: {e}"))?;
+
+        let read_balance = |conn: &Connection| {
+            conn.query_row(
+                "SELECT subscription_remaining, pack_remaining, subscription_total
+                 FROM credit_balances WHERE clerk_user_id = ?1",
+                params![clerk_user_id],
+                |row| {
+                    Ok((
+                        row.get::<_, i64>(0)?,
+                        row.get::<_, i64>(1)?,
+                        row.get::<_, i64>(2)?,
+                    ))
+                },
+            )
+        };
+
+        let (sub_rem, pack_rem, sub_total) = match read_balance(&conn) {
+            Ok(v) => v,
+            Err(_) => {
+                conn.execute("ROLLBACK", []).ok();
+                return Err(
+                    "no credit balance row — unmetered (refusing to invent a balance)".into(),
+                );
+            }
+        };
+
+        let unchanged = CreditBalanceRecord {
+            subscription_remaining: sub_rem,
+            subscription_total: sub_total,
+            pack_remaining: pack_rem,
+        };
+
+        // Replay check first: the ledger's UNIQUE key is the backstop if the
+        // process died between verdict and refund, and re-deriving the same
+        // key must make the write a no-op rather than an error.
+        let already: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM credit_transactions
+                 WHERE idempotency_key = ?1 OR idempotency_key = ?2",
+                params![refund_sub_key, refund_pack_key],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        if already > 0 {
+            conn.execute("ROLLBACK", []).ok();
+            tracing::debug!(
+                user_id = clerk_user_id,
+                refund_idempotency_key,
+                "credit refund replayed; balance unchanged"
+            );
+            return Ok(unchanged);
+        }
+
+        // Mirror the spend rows. `amount` is negative on a spend, so negating
+        // it yields what to give back, per bucket.
+        let read_spend = |key: &str| -> i64 {
+            conn.query_row(
+                "SELECT COALESCE(SUM(amount), 0) FROM credit_transactions
+                 WHERE idempotency_key = ?1 AND amount < 0",
+                params![key],
+                |r| r.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+        };
+        let to_sub = -read_spend(&charge_sub_key);
+        let to_pack = -read_spend(&charge_pack_key);
+
+        if to_sub == 0 && to_pack == 0 {
+            // Nothing was ever charged under that key. Not an error — the
+            // billing state machine only asks for a refund when it believes a
+            // charge landed, and disagreeing with it must not take the caller
+            // down. It is worth an operator's attention.
+            conn.execute("ROLLBACK", []).ok();
+            tracing::warn!(
+                user_id = clerk_user_id,
+                charge_idempotency_key,
+                "refund requested but no matching spend rows; nothing to give back"
+            );
+            return Ok(unchanged);
+        }
+
+        let new_sub_rem = sub_rem + to_sub;
+        let new_pack_rem = pack_rem + to_pack;
+
+        // UPDATE only — a refund must never create an account.
+        let updated = conn
+            .execute(
+                "UPDATE credit_balances
+                 SET subscription_remaining = ?1, pack_remaining = ?2
+                 WHERE clerk_user_id = ?3",
+                params![new_sub_rem, new_pack_rem, clerk_user_id],
+            )
+            .map_err(|e| {
+                conn.execute("ROLLBACK", []).ok();
+                format!("failed to update credit balance: {e}")
+            })?;
+        if updated == 0 {
+            conn.execute("ROLLBACK", []).ok();
+            return Err("no credit balance row — unmetered (refusing to invent a balance)".into());
+        }
+
+        let insert_tx = |bucket: &str, delta: i64, key: &str| -> Result<(), String> {
+            let tx_id = Uuid::new_v4().to_string();
+            conn.execute(
+                "INSERT INTO credit_transactions
+                    (id, clerk_user_id, amount, balance_type, reason, description, idempotency_key)
+                 VALUES (?1, ?2, ?3, ?4, 'task_failed_refund', ?5, ?6)",
+                params![tx_id, clerk_user_id, delta, bucket, description, key],
+            )
+            .map_err(|e| format!("failed to record {bucket} refund: {e}"))?;
+            Ok(())
+        };
+
+        if to_sub > 0 {
+            if let Err(e) = insert_tx("subscription", to_sub, &refund_sub_key) {
+                conn.execute("ROLLBACK", []).ok();
+                return Err(e);
+            }
+        }
+        if to_pack > 0 {
+            if let Err(e) = insert_tx("pack", to_pack, &refund_pack_key) {
+                conn.execute("ROLLBACK", []).ok();
+                return Err(e);
+            }
+        }
+
+        conn.execute("COMMIT", [])
+            .map_err(|e| format!("failed to commit transaction: {e}"))?;
+
+        tracing::info!(
+            user_id = clerk_user_id,
+            refund_idempotency_key,
+            subscription = to_sub,
+            pack = to_pack,
+            "refunded credits for a failed verdict"
+        );
+
+        Ok(CreditBalanceRecord {
+            subscription_remaining: new_sub_rem,
+            subscription_total: sub_total,
+            pack_remaining: new_pack_rem,
+        })
+    }
+
     /// Sum of the append-only transaction log per bucket, for reconciling
     /// against `credit_balances`. The balance columns are a cache; this is the
     /// derivation they must agree with.
@@ -10941,6 +11250,226 @@ impl Database {
             .unwrap_or(0)
         };
         (sum("subscription"), sum("pack"))
+    }
+
+    // --- V3: verdict persistence (see cortex/plan/VERIFIER.md) ---
+
+    /// Whether the ledger already carries a transaction under this key.
+    ///
+    /// `deduct_credits` and `refund_credits` both suffix the key per bucket,
+    /// so this asks about either. Used to derive `BillingState` from the
+    /// ledger itself rather than from a status column that could drift out of
+    /// agreement with the money.
+    pub fn ledger_has_key(&self, idempotency_key: &str) -> bool {
+        let conn = self.conn.lock().unwrap();
+        let count: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM credit_transactions
+                 WHERE idempotency_key = ?1 OR idempotency_key = ?2",
+                params![
+                    format!("{idempotency_key}:subscription"),
+                    format!("{idempotency_key}:pack")
+                ],
+                |r| r.get(0),
+            )
+            .unwrap_or(0);
+        count > 0
+    }
+
+    /// Freeze the derived checks for a step at dispatch time.
+    ///
+    /// Derivation must happen before the worker sees the task, and the checks
+    /// must be executed after delivery. This is where they wait. Writing twice
+    /// for the same step is a no-op rather than an overwrite: the frozen set is
+    /// the exam, and re-deriving it later would let a task influence its own.
+    pub fn save_check_specs(
+        &self,
+        run_id: &str,
+        step_id: &str,
+        specs: &[CheckSpec],
+    ) -> Result<(), String> {
+        let specs_json = serde_json::to_string(specs)
+            .map_err(|e| format!("failed to serialize check specs: {e}"))?;
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO verification_specs (run_id, step_id, specs_json, created_at)
+             VALUES (?1, ?2, ?3, ?4)
+             ON CONFLICT(run_id, step_id) DO NOTHING",
+            params![run_id, step_id, specs_json, Utc::now().timestamp()],
+        )
+        .map_err(|e| format!("failed to freeze check specs: {e}"))?;
+        Ok(())
+    }
+
+    /// The frozen checks for a step, or an empty vec if none were derived.
+    ///
+    /// An empty result is meaningful, not an error: `compute_verdict` maps an
+    /// empty required set to `Unverified`, which is a real product state.
+    pub fn load_check_specs(&self, run_id: &str, step_id: &str) -> Vec<CheckSpec> {
+        let conn = self.conn.lock().unwrap();
+        let raw: Option<String> = conn
+            .query_row(
+                "SELECT specs_json FROM verification_specs WHERE run_id = ?1 AND step_id = ?2",
+                params![run_id, step_id],
+                |r| r.get(0),
+            )
+            .ok();
+        raw.and_then(|s| serde_json::from_str(&s).ok())
+            .unwrap_or_default()
+    }
+
+    /// Claim the right to verify one attempt, returning its verification id.
+    ///
+    /// This is the CAS the whole money path rests on. `UNIQUE(run_id, step_id,
+    /// attempt)` plus `ON CONFLICT DO NOTHING` means two verifier processes
+    /// racing the same delivery cannot both produce a verdict, so the ledger
+    /// key derived from the verification id is minted exactly once.
+    ///
+    /// `None` means someone else already claimed it — the correct response is
+    /// to do nothing at all, not to retry.
+    pub fn claim_verification(
+        &self,
+        run_id: &str,
+        step_id: &str,
+        attempt: i64,
+        tree_hash: &str,
+        runner_image: &str,
+    ) -> Option<String> {
+        let id = Uuid::new_v4().to_string();
+        let conn = self.conn.lock().unwrap();
+        let inserted = conn
+            .execute(
+                "INSERT INTO verification_runs
+                    (id, run_id, step_id, attempt, tree_hash, runner_image, verdict, started_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'pending', ?7)
+                 ON CONFLICT(run_id, step_id, attempt) DO NOTHING",
+                params![
+                    id,
+                    run_id,
+                    step_id,
+                    attempt,
+                    tree_hash,
+                    runner_image,
+                    Utc::now().timestamp()
+                ],
+            )
+            .unwrap_or(0);
+        if inserted == 1 {
+            Some(id)
+        } else {
+            tracing::debug!(run_id, step_id, attempt, "verification already claimed");
+            None
+        }
+    }
+
+    /// Record one executed check. Append-only; the runner is the only writer.
+    pub fn record_check_execution(
+        &self,
+        verification_id: &str,
+        spec: &CheckSpec,
+        execution: &CheckExecution,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "INSERT INTO verification_checks
+                (id, verification_id, spec_id, source, command, outcome,
+                 exit_code, duration_ms, output_digest, output_tail, runner_image)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                Uuid::new_v4().to_string(),
+                verification_id,
+                execution.spec_id,
+                check_source_str(spec.source),
+                spec.command.join(" "),
+                check_outcome_str(execution.outcome),
+                execution.exit_code,
+                execution.duration_ms as i64,
+                execution.output_digest,
+                execution.output_tail,
+                execution.runner_image,
+            ],
+        )
+        .map_err(|e| format!("failed to record check execution: {e}"))?;
+        Ok(())
+    }
+
+    /// Seal a verification with its verdict. Only ever called once per id.
+    pub fn finish_verification(
+        &self,
+        verification_id: &str,
+        verdict: Verdict,
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            "UPDATE verification_runs SET verdict = ?1, finished_at = ?2 WHERE id = ?3",
+            params![
+                verdict_str(verdict),
+                Utc::now().timestamp(),
+                verification_id
+            ],
+        )
+        .map_err(|e| format!("failed to finish verification: {e}"))?;
+        Ok(())
+    }
+
+    /// The receipt for a step's most recent verification attempt.
+    ///
+    /// The gate is recomputed from the frozen specs and the stored executions
+    /// rather than read from a column. Storing a `VerdictReport` would create a
+    /// second source of truth that could drift from the evidence beneath it;
+    /// `compute_verdict` is pure, so deriving it costs nothing and cannot lie.
+    pub fn get_receipt(&self, run_id: &str, step_id: &str) -> Option<Receipt> {
+        let specs = self.load_check_specs(run_id, step_id);
+        let conn = self.conn.lock().unwrap();
+
+        let (verification_id, attempt, tree_hash) = conn
+            .query_row(
+                "SELECT id, attempt, tree_hash FROM verification_runs
+                 WHERE run_id = ?1 AND step_id = ?2
+                 ORDER BY attempt DESC LIMIT 1",
+                params![run_id, step_id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, i64>(1)?,
+                        r.get::<_, String>(2)?,
+                    ))
+                },
+            )
+            .ok()?;
+
+        let mut stmt = conn
+            .prepare(
+                "SELECT spec_id, exit_code, outcome, duration_ms,
+                        output_digest, output_tail, runner_image
+                 FROM verification_checks WHERE verification_id = ?1",
+            )
+            .ok()?;
+        let executions: Vec<CheckExecution> = stmt
+            .query_map(params![verification_id], |r| {
+                Ok(CheckExecution {
+                    spec_id: r.get::<_, String>(0)?,
+                    exit_code: r.get::<_, Option<i32>>(1)?,
+                    outcome: check_outcome_from_str(&r.get::<_, String>(2)?),
+                    duration_ms: r.get::<_, i64>(3)? as u64,
+                    output_digest: r.get::<_, String>(4)?,
+                    output_tail: r.get::<_, String>(5)?,
+                    runner_image: r.get::<_, String>(6)?,
+                })
+            })
+            .ok()?
+            .filter_map(|row| row.ok())
+            .collect();
+
+        Some(Receipt {
+            verification_id,
+            run_id: run_id.to_string(),
+            step_id: step_id.to_string(),
+            attempt,
+            tree_hash,
+            gate: compute_verdict(&specs, &executions),
+            executions,
+        })
     }
 
     /// Returns `Result` rather than panicking: these run in request paths, and
@@ -24771,5 +25300,193 @@ mod tests {
             "dup",
         );
         assert!(dup.is_err());
+    }
+
+    // --- V3: verdict persistence ---
+
+    fn spec(id: &str, required: bool) -> CheckSpec {
+        CheckSpec {
+            id: id.to_string(),
+            source: CheckSource::Contract,
+            command: vec!["cargo".into(), "test".into()],
+            timeout_secs: 60,
+            required,
+        }
+    }
+
+    fn execution(spec_id: &str, outcome: CheckOutcome, exit_code: Option<i32>) -> CheckExecution {
+        CheckExecution {
+            spec_id: spec_id.to_string(),
+            exit_code,
+            outcome,
+            duration_ms: 1200,
+            output_digest: "sha256:deadbeef".to_string(),
+            output_tail: "ok".to_string(),
+            runner_image: "cortex/runner@sha256:abc".to_string(),
+        }
+    }
+
+    #[test]
+    fn migration_v61_creates_the_verification_tables() {
+        let db = test_db();
+        let conn = db.conn.lock().unwrap();
+
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
+            .unwrap();
+        assert!(version >= 61, "fresh database must reach v61, got {version}");
+
+        for table in [
+            "verification_runs",
+            "verification_checks",
+            "verification_specs",
+        ] {
+            let found: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name=?1",
+                    params![table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(found, 1, "{table} must exist after migration");
+        }
+    }
+
+    #[test]
+    fn claim_verification_is_a_compare_and_swap() {
+        let db = test_db();
+
+        let first = db.claim_verification("run-1", "step-1", 1, "tree-abc", "img@sha256:1");
+        assert!(first.is_some(), "first claim wins");
+
+        let second = db.claim_verification("run-1", "step-1", 1, "tree-abc", "img@sha256:1");
+        assert!(
+            second.is_none(),
+            "a second claim on the same attempt must lose — this is what mints the ledger key exactly once"
+        );
+
+        // A different attempt is a different verdict, and may be claimed.
+        let next_attempt = db.claim_verification("run-1", "step-1", 2, "tree-def", "img@sha256:1");
+        assert!(next_attempt.is_some());
+        assert_ne!(first, next_attempt);
+    }
+
+    #[test]
+    fn frozen_specs_are_written_once_and_never_overwritten() {
+        let db = test_db();
+        db.save_check_specs("run-1", "step-1", &[spec("a", true)])
+            .expect("freeze");
+        // A second derivation must not be able to change the exam.
+        db.save_check_specs("run-1", "step-1", &[spec("b", true), spec("c", true)])
+            .expect("second freeze is a no-op");
+
+        let loaded = db.load_check_specs("run-1", "step-1");
+        assert_eq!(loaded.len(), 1);
+        assert_eq!(loaded[0].id, "a");
+
+        assert!(
+            db.load_check_specs("run-1", "missing").is_empty(),
+            "no frozen specs reads as empty, not as an error"
+        );
+    }
+
+    #[test]
+    fn refund_mirrors_the_charge_and_replays_as_a_no_op() {
+        let db = test_db();
+        db.init_credit_balance("user-1", 100).expect("balance");
+
+        db.deduct_credits("user-1", 30, "verified task", "verify:v-1")
+            .expect("charge");
+        let after_charge = db.credit_ledger_totals("user-1");
+        assert_eq!(after_charge.0, -30, "subscription bucket drew 30");
+
+        let refunded = db
+            .refund_credits("user-1", "verify:v-1", "refund:v-1", "failed verdict")
+            .expect("refund");
+        assert_eq!(
+            refunded.subscription_remaining, 100,
+            "a refund restores exactly what the charge took"
+        );
+        assert_eq!(
+            db.credit_ledger_totals("user-1").0,
+            0,
+            "the append-only log nets to zero"
+        );
+
+        // Replay: the process died between verdict and refund and retried.
+        let replay = db
+            .refund_credits("user-1", "verify:v-1", "refund:v-1", "failed verdict")
+            .expect("replay is not an error");
+        assert_eq!(replay.subscription_remaining, 100, "replay changes nothing");
+        assert_eq!(db.credit_ledger_totals("user-1").0, 0);
+    }
+
+    #[test]
+    fn refund_without_a_matching_charge_moves_no_money() {
+        let db = test_db();
+        db.init_credit_balance("user-1", 50).expect("balance");
+
+        let out = db
+            .refund_credits("user-1", "verify:never-charged", "refund:x", "no charge")
+            .expect("not an error");
+        assert_eq!(out.subscription_remaining, 50);
+        assert_eq!(db.credit_ledger_totals("user-1"), (0, 0));
+    }
+
+    #[test]
+    fn receipt_serves_the_shape_the_frontend_types_against() {
+        let db = test_db();
+        let specs = vec![spec("check-pass", true), spec("check-fail", true)];
+        db.save_check_specs("run-1", "step-1", &specs).expect("freeze");
+
+        let vid = db
+            .claim_verification("run-1", "step-1", 1, "tree-abc", "img@sha256:1")
+            .expect("claim");
+        db.record_check_execution(
+            &vid,
+            &specs[0],
+            &execution("check-pass", CheckOutcome::Passed, Some(0)),
+        )
+        .expect("record execution");
+        db.finish_verification(&vid, Verdict::Failed).expect("seal");
+
+        let receipt = db.get_receipt("run-1", "step-1").expect("receipt exists");
+        assert_eq!(receipt.verification_id, vid);
+        assert_eq!(receipt.attempt, 1);
+        assert_eq!(receipt.tree_hash, "tree-abc");
+
+        // The gate is derived, so a required check with no execution row is
+        // never silently a pass.
+        assert!(receipt.gate.not_executed.contains(&"check-fail".to_string()));
+
+        // Field names are the contract with Receipt.tsx.
+        let json = serde_json::to_value(&receipt).expect("serializes");
+        for key in [
+            "verification_id",
+            "run_id",
+            "step_id",
+            "attempt",
+            "tree_hash",
+            "gate",
+            "executions",
+        ] {
+            assert!(json.get(key).is_some(), "receipt must carry `{key}`");
+        }
+
+        assert!(
+            db.get_receipt("run-1", "never-verified").is_none(),
+            "no verification means no receipt, not an empty one"
+        );
+    }
+
+    #[test]
+    fn unknown_outcome_text_cannot_manufacture_a_pass() {
+        assert_eq!(
+            check_outcome_from_str("something-corrupt"),
+            CheckOutcome::NotExecuted,
+            "an unreadable row must land on the one outcome that cannot bill"
+        );
+        assert_eq!(check_outcome_from_str("passed"), CheckOutcome::Passed);
+        assert_eq!(check_outcome_from_str("timed_out"), CheckOutcome::TimedOut);
     }
 }
