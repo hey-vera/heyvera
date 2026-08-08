@@ -5082,6 +5082,139 @@ conflict; and context recall, precision, exploration cost, and map availability
 are computed for every completed run and feed the estimator, the router, and the
 receipt.
 
+## Phase 30 - Cortex evaluates Cortex
+
+**Goal:** a scoreboard the product can lose on. Twenty-nine phases specify
+mechanism, and nothing anywhere measures whether the mechanism works. Phase 5.2's
+champion/challenger evaluates **routes** — which model to send a step to. It does
+not evaluate the harness: the decomposer, the method library, the check
+derivation, the professionals, the context layer, the integration step, or the
+plan as a whole.
+
+That absence is why this phase is not optional. The stated goal is the best
+coding product that exists. That is a comparative claim, and a comparative claim
+without a held-out measurement is marketing. It is also, more practically, the
+only way to know whether any of Phases 0–29 helped — a document this large will
+otherwise ship changes that feel like improvements and are not.
+
+### 30.1 Four suites, because there are four different questions
+
+| Suite | Question | Failure it catches |
+|---|---|---|
+| **Capability** | Does Cortex resolve real tasks, and does `ultra` beat the best single model? | The Phase 28 claim being false |
+| **Adversarial** | Does Cortex refuse to certify what it cannot verify? | The Phase 27 failure — green ticks on hacked or powerless batteries |
+| **Economic** | What does a resolved instance cost, end to end? | Winning on pass rate by spending unboundedly |
+| **Honesty** | On tasks that *should* be declined, degraded, or `UNVERIFIED`, is that what happens? | The most dangerous failure: confident delivery outside competence |
+
+The honesty suite is the one nobody builds and the one this product most needs.
+It is populated with tasks that are underspecified, unverifiable, out of scope
+(Phase 25.4/25.5), or dependent on a battery with no mutation power, and the
+**correct** outcome is a clarifying question (invariant 13), a declined intake, a
+degraded comprehension declaration (invariant 27), or an `UNVERIFIED` label
+(invariant 22). A harness that scores well on capability and poorly here is
+precisely the product this entire document exists to avoid building.
+
+### 30.2 The benchmark Cortex can build and nobody else can
+
+Public suites are useful and insufficient: they are contaminated by training
+data, narrow in language and task shape, and static. The alternative is sitting
+in the corpus from Phase 29.4.
+
+**Every merged pull request in a consenting repository is a complete task with
+executable ground truth.** The description is the request, the merge base is the
+starting tree, the tests at merge time are the exam, and the merged diff is a
+reference solution nobody had to write. Harvesting these gives a suite that is:
+
+- **uncontaminated by construction**, if restricted to PRs merged after both the
+  model's training cutoff and the harness release under test;
+- **domain-matched** — it measures Cortex on the customer's languages, frameworks,
+  and conventions rather than on Python issue-resolution;
+- **continuously refreshing**, so it cannot be overfitted the way a static suite
+  can, and it never needs re-labelling;
+- **unlimited in size**, bounded only by consent.
+
+Consent is the gate and it is a real one: this is customer source code, and it
+requires explicit, revocable, per-repository opt-in with a stated purpose,
+separate from the product terms. A meaningful internal suite can be built from
+Cortex's own repositories and permissively licensed public projects before any
+customer is asked. Where a customer does opt in, the resulting evaluation is
+theirs too — "here is how Cortex performs on *your* codebase, measured against
+your own merged history" is a stronger sales artifact than any public leaderboard
+number, and it is not one a model vendor can produce.
+
+### 30.3 The regression gate, and what counts as a harness change
+
+Every artifact that can change behaviour runs the suite before it publishes:
+prompts, Engineering Method Library entries (8.4), professionals and knowledge
+packs (12), check-derivation rules (8.4, 25.2), router policy and `ExecutionPolicy`
+versions (6.2), the sandbox and runner images, and the context layer (29).
+
+This is where Phase 12.11's immutable-versioning rule earns its keep: **a
+published version that regresses the suite does not publish.** The shared-artifact
+system already forbids editing in place; adding "and cannot be published without a
+suite result attached" makes the version history an evidence chain rather than a
+changelog. It also gives the org-authored professionals of 12.12 a safety
+property they otherwise lack — a customer's own reviewer pack cannot silently
+make their outcomes worse.
+
+Two disciplines that are easy to state and easy to violate:
+
+- **The suite is held out from everything that learns.** No suite task, tree, or
+  outcome may enter the router's training signal, the professional grading
+  corpus, the estimator's calibration set, or the Phase 29.4 experience layer.
+  Contamination here does not degrade the metric gracefully — it inverts it.
+- **The adversarial and honesty suites are rotated, not fixed.** They are the
+  suites optimisation pressure will find, for the same reason Phase 27 exists.
+
+### 30.4 Statistical honesty, because this is where evaluations lie
+
+Agent runs are nondeterministic, suites are small, and the effects being measured
+are often a few percent. Most published agent comparisons are underpowered and do
+not say so. The rules:
+
+- **Paired comparison on identical tasks**, never two independent samples.
+- **Multiple seeds per task**, reported with an interval, because a single run
+  per task measures sampling noise as much as capability. Phase 6.4 already
+  built coverage/sharpness discipline for forecasts; the same discipline applies
+  here.
+- **Report cost and latency alongside every capability number.** Cost per
+  resolved instance is a first-class result, not an appendix — a 2% capability
+  gain at 3× spend is a regression under Phase 28's efficiency objective and an
+  improvement under its capability objective, and the report must say which
+  question it is answering.
+- **No claim survives a confidence interval that spans zero.** Internally as
+  well as externally: a plan this large will generate many changes that feel
+  right and measure as noise, and the discipline that catches them is arithmetic.
+
+### 30.5 Publishing, and the trust asset nobody else has
+
+Cortex is the only party in this market that can publish a benchmark result
+**with receipts attached**. Every suite run produces exactly the artifact Phase 1
+already builds: immutable tree, pinned runner digest, frozen check argv, output
+digest. A published number that anyone can re-execute is a different kind of
+claim from a published number, and it is the same mechanism as the compliance
+export in 26.2 — built once, sold twice.
+
+That is also the honest constraint on marketing: publish the receipts, and the
+adversarial and honesty results, alongside the capability number. A capability
+claim published without the honesty result is the exact behaviour this product
+sells against.
+
+> **Invariant 28.** No capability, quality, or comparative claim is made
+> externally or acted on internally without a held-out measurement, an interval,
+> and a cost figure. The suite that produced it is uncontaminated by anything
+> that learns, and the run is reproducible from its receipts.
+
+**Phase 30 exit gate:** four suites exist and run on every harness-affecting
+artifact; the capability suite is harvested from post-cutoff merged pull requests
+under explicit per-repository consent; the honesty suite scores declining,
+questioning, degrading, and `UNVERIFIED` as the correct outcomes and is rotated;
+no suite data reaches the router, the professional corpus, the estimator, or the
+experience layer; a published shared artifact that regresses the suite cannot
+publish; every reported comparison is paired, multi-seed, interval-bounded, and
+carries cost per resolved instance; and Cortex-at-`ultra` versus the best single
+model at maximum effort is a standing, published, receipt-backed result.
+
 ## Handover protocol — how to actually execute this document
 
 **Read this before dispatching any implementation work.**
