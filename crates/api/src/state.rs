@@ -149,8 +149,6 @@ pub struct AppState {
     pub context_bus: ContextBus,
     /// Docker container manager for BYOS credential isolation.
     pub container_manager: Option<crate::docker::ContainerManager>,
-    /// Pending interactive container auth sessions (user_id → session).
-    pub pending_container_auths: RwLock<HashMap<String, crate::docker::PendingContainerAuth>>,
     /// Pending BYOS auth sessions for subscription flows (session_code → session).
     pub pending_auth_sessions: Option<RwLock<HashMap<String, PendingAuthSession>>>,
 }
@@ -372,7 +370,6 @@ impl AppState {
             vera_tracker,
             context_bus,
             container_manager,
-            pending_container_auths: RwLock::new(HashMap::new()),
             pending_auth_sessions: Some(RwLock::new(HashMap::new())),
         })
     }

@@ -26,7 +26,6 @@ pub struct ProviderAuthInfo {
 pub struct AuthStartResponse {
     pub provider: String,
     pub auth_url: Option<String>,
-    pub device_code: Option<String>,
     pub message: String,
 }
 
@@ -91,13 +90,19 @@ pub async fn auth_status(
     Json(results)
 }
 
+/// Both extractors are kept although the handler no longer reads them: `ClerkUser`
+/// is what authenticates the request, so dropping it would silently make this
+/// endpoint public.
 pub async fn auth_start(
-    State(state): State<Arc<AppState>>,
-    user: ClerkUser,
+    State(_state): State<Arc<AppState>>,
+    _user: ClerkUser,
     Json(req): Json<AuthStartRequest>,
 ) -> Result<Json<AuthStartResponse>, (StatusCode, Json<ErrorResponse>)> {
     let provider = req.provider.to_lowercase();
-    let cred_type = req.credential_type.as_deref().unwrap_or("subscription");
+    // Operator-funded API keys are the only supported credential. Anything else
+    // is rejected below, so an omitted type means `api_key` rather than the
+    // subscription flow this endpoint used to default to.
+    let cred_type = req.credential_type.as_deref().unwrap_or("api_key");
 
     let provider_normalized = match provider.as_str() {
         "claude" | "anthropic" => "claude",
@@ -110,93 +115,34 @@ pub async fn auth_start(
         }
     };
 
-    // API key flow: return static console URLs (no container needed)
-    if cred_type == "api_key" {
-        let (auth_url, message) = match provider_normalized {
-            "claude" => (
-                "https://console.anthropic.com/settings/keys",
-                "Create an API key at Anthropic Console and paste it in the next step.",
-            ),
-            _ => (
-                "https://platform.openai.com/api-keys",
-                "Create an API key at OpenAI and paste it in the next step.",
-            ),
-        };
-        return Ok(Json(AuthStartResponse {
-            provider: provider_normalized.into(),
-            auth_url: Some(auth_url.into()),
-            device_code: None,
-            message: message.into(),
-        }));
-    }
-
-    // Subscription flow: container CLI auth is the only path
-    let (cm, db) = match (&state.container_manager, &state.db) {
-        (Some(cm), Some(db)) => (cm, db),
-        _ => {
-            return Err((
-                StatusCode::SERVICE_UNAVAILABLE,
-                Json(ErrorResponse { error: "container system not available — cannot authenticate subscriptions".into() }),
-            ));
-        }
-    };
-
-    let container_id = cm.ensure_container(db, &user.user_id, provider_normalized)
-        .await
-        .map_err(|e| {
-            tracing::error!("failed to ensure container for BYOS auth: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("container setup failed: {e}") }))
-        })?;
-
-    let login_cmd: Vec<&str> = match provider_normalized {
-        "claude" => vec!["claude", "auth", "login"],
-        _ => vec!["codex", "login", "--device-auth"],
-    };
-
-    let (exec_id, output) = cm.start_login_exec(&container_id, &login_cmd).await
-        .map_err(|e| {
-            tracing::error!("container login exec failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("failed to start CLI login: {e}") }))
-        })?;
-
-    let auth_url = extract_url_from_output(&output);
-    if auth_url.is_none() {
-        tracing::error!(output = %output, "CLI login produced no auth URL");
+    if cred_type != "api_key" {
         return Err((
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: format!("CLI login did not produce an auth URL. Output: {}", output.chars().take(200).collect::<String>()) }),
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "unsupported credential_type `{cred_type}` — Cortex only accepts API keys. \
+                     Provider subscription credentials are not supported in third-party tools."
+                ),
+            }),
         ));
     }
 
-    let pending = crate::docker::PendingContainerAuth {
-        container_id: container_id.clone(),
-        provider: provider_normalized.to_string(),
-        exec_id,
-        started_at: chrono::Utc::now().timestamp(),
-    };
-    state.pending_container_auths.write().await
-        .insert(user.user_id.clone(), pending);
-
-    let message = match provider_normalized {
-        "claude" => "Open the link to sign into your Claude subscription. Once authenticated, your container will be ready.",
-        _ => "Open the link and enter the device code to authorize your OpenAI subscription.",
+    let (auth_url, message) = match provider_normalized {
+        "claude" => (
+            "https://console.anthropic.com/settings/keys",
+            "Create an API key at Anthropic Console and paste it in the next step.",
+        ),
+        _ => (
+            "https://platform.openai.com/api-keys",
+            "Create an API key at OpenAI and paste it in the next step.",
+        ),
     };
 
     Ok(Json(AuthStartResponse {
         provider: provider_normalized.into(),
-        auth_url,
-        device_code: None,
+        auth_url: Some(auth_url.into()),
         message: message.into(),
     }))
-}
-
-fn extract_url_from_output(output: &str) -> Option<String> {
-    for word in output.split_whitespace() {
-        if word.starts_with("https://") || word.starts_with("http://") {
-            return Some(word.trim_matches(|c: char| !c.is_alphanumeric() && c != ':' && c != '/' && c != '.' && c != '-' && c != '_' && c != '?' && c != '=' && c != '&').to_string());
-        }
-    }
-    None
 }
 
 pub async fn auth_submit(
@@ -223,7 +169,21 @@ pub async fn auth_submit(
         }
     };
 
-    let credential_type = req.credential_type.as_deref().unwrap_or("subscription");
+    // Mirrors `auth_start`: API keys are the only credential Cortex accepts, so
+    // an omitted type means `api_key` and anything else is refused outright.
+    let credential_type = req.credential_type.as_deref().unwrap_or("api_key");
+    if credential_type != "api_key" {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!(
+                    "unsupported credential_type `{credential_type}` — Cortex only accepts API keys. \
+                     Provider subscription credentials are not supported in third-party tools."
+                ),
+            }),
+        ));
+    }
+
     let code = req.code.trim();
     if code.is_empty() {
         return Err((
@@ -232,49 +192,7 @@ pub async fn auth_submit(
         ));
     }
 
-    // For subscription credentials with container auth, complete the login inside the container
-    if credential_type == "subscription" {
-        if let Some(cm) = &state.container_manager {
-            let pending = state.pending_container_auths.write().await.remove(&user.user_id);
-            if let Some(pending) = pending {
-                match cm.complete_login_exec(&pending.container_id, &pending.provider, code).await {
-                    Ok(_output) => {
-                        tracing::info!(
-                            user_id = %user.user_id,
-                            provider = %provider_normalized,
-                            "container CLI auth completed successfully"
-                        );
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            user_id = %user.user_id,
-                            provider = %provider_normalized,
-                            "container CLI auth failed: {e}"
-                        );
-                        return Err((
-                            StatusCode::BAD_REQUEST,
-                            Json(ErrorResponse { error: format!("subscription auth failed: {e}") }),
-                        ));
-                    }
-                }
-            }
-        }
-    }
-
-    // Build the data blob to encrypt
-    let data_to_encrypt = match credential_type {
-        "api_key" => code.to_string(),
-        "subscription" => {
-            serde_json::json!({
-                "container_auth": state.container_manager.is_some(),
-                "provider": provider_normalized,
-                "authed_at": chrono::Utc::now().timestamp(),
-            }).to_string()
-        }
-        _ => code.to_string(),
-    };
-
-    let encrypted = crate::crypto::encrypt(&data_to_encrypt).map_err(|e| {
+    let encrypted = crate::crypto::encrypt(code).map_err(|e| {
         tracing::error!("encryption failed: {e}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,

@@ -299,7 +299,6 @@ export interface ProviderAuthInfo {
 export interface AuthStartResponse {
   provider: string;
   auth_url: string | null;
-  device_code: string | null;
   message: string;
 }
 
