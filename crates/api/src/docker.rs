@@ -37,13 +37,6 @@ pub struct ExecResult {
     pub exit_code: i64,
 }
 
-pub struct PendingContainerAuth {
-    pub container_id: String,
-    pub provider: String,
-    pub exec_id: String,
-    pub started_at: i64,
-}
-
 impl ContainerManager {
     pub fn new() -> Result<Self, String> {
         let docker = Docker::connect_with_local_defaults()
@@ -384,92 +377,6 @@ impl ContainerManager {
         })
     }
 
-    /// Start an interactive exec for CLI login (returns exec_id for later stdin piping)
-    pub async fn start_login_exec(
-        &self,
-        container_id: &str,
-        cmd: &[&str],
-    ) -> Result<(String, String), String> {
-        let op_start = std::time::Instant::now();
-        let exec_opts = CreateExecOptions {
-            cmd: Some(cmd.iter().map(|s| s.to_string()).collect()),
-            attach_stdout: Some(true),
-            attach_stderr: Some(true),
-            attach_stdin: Some(true),
-            tty: Some(false),
-            ..Default::default()
-        };
-
-        let exec = match self.docker.create_exec(container_id, exec_opts).await {
-            Ok(e) => e,
-            Err(e) => {
-                record_container_op(ContainerOp::LoginExec, op_start, "error");
-                return Err(format!("failed to create login exec: {e}"));
-            }
-        };
-
-        let start_result = match self.docker.start_exec(&exec.id, None).await {
-            Ok(r) => r,
-            Err(e) => {
-                record_container_op(ContainerOp::LoginExec, op_start, "error");
-                return Err(format!("failed to start login exec: {e}"));
-            }
-        };
-
-        // Read initial stdout to capture the OAuth URL
-        let mut captured_output = String::new();
-        if let StartExecResults::Attached { mut output, .. } = start_result {
-            let read_url = async {
-                while let Some(Ok(msg)) = output.next().await {
-                    match msg {
-                        bollard::container::LogOutput::StdOut { message } |
-                        bollard::container::LogOutput::StdErr { message } => {
-                            let text = String::from_utf8_lossy(&message);
-                            captured_output.push_str(&text);
-                            // Check if we've captured a URL
-                            if captured_output.contains("http://") || captured_output.contains("https://") {
-                                break;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            };
-
-            // Give the CLI 15 seconds to output the OAuth URL
-            if tokio::time::timeout(Duration::from_secs(15), read_url).await.is_err() {
-                record_container_op(ContainerOp::LoginExec, op_start, "timeout");
-                tracing::warn!(container_id, "timeout waiting for login CLI to output auth URL");
-                return Err("timeout waiting for CLI to output auth URL".into());
-            }
-        }
-
-        record_container_op(ContainerOp::LoginExec, op_start, "ok");
-        Ok((exec.id, captured_output))
-    }
-
-    /// Pipe auth code to a running login exec
-    pub async fn complete_login_exec(
-        &self,
-        container_id: &str,
-        provider: &str,
-        code: &str,
-    ) -> Result<String, String> {
-        // Run a separate exec to complete auth by piping the code
-        let cmd: Vec<&str> = match provider {
-            "claude" => vec!["claude", "auth", "login", "--code", code],
-            "openai" | "codex" => vec!["codex", "login", "--code", code],
-            _ => return Err(format!("unknown provider: {provider}")),
-        };
-
-        let result = self.exec_in_container(container_id, &cmd, None, Duration::from_secs(30)).await?;
-
-        if result.exit_code == 0 {
-            Ok(result.stdout)
-        } else {
-            Err(format!("auth failed (exit {}): {}", result.exit_code, result.stderr))
-        }
-    }
 }
 
 pub fn spawn_idle_reaper(state: Arc<AppState>) {
