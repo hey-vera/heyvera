@@ -3734,7 +3734,41 @@ paid only when it does something the developer did not want to do by hand.
   receipts. Keep the distinction visible: local checks are advice, receipts are
   proof. Blurring that would undermine the entire trust vocabulary.
 
-### 22.6 What this makes possible later
+### 22.6 Is there a Cursor API to build on? Two channels, neither needing Cursor
+
+**There is no public Cursor extension API.** Cursor's AI internals — its agent,
+tab completion, and chat — are closed, and it exposes no third-party hooks into
+them. But two channels are open, and together they are better than a private API
+would be:
+
+**(a) The VS Code extension API.** Cursor is a *fork* of VS Code and runs VS Code
+extensions unchanged. One extension therefore reaches VS Code, Cursor, and
+Windsurf. Publish to **Open VSX** as well as the Microsoft Marketplace — Cursor
+and Windsurf cannot use the Microsoft Marketplace for licensing reasons, and Open
+VSX is how they get extensions. Skipping Open VSX would silently cut off exactly
+the audience most likely to want Cortex.
+
+**(b) MCP.** Cursor supports MCP servers, as do Claude Code and Codex. The Phase
+17.6 MCP server therefore makes Cortex callable *from inside Cursor's own agent*
+— a developer can have Cursor write the code and Cortex independently verify it,
+with a receipt.
+
+**Why not go deeper even if a private API existed.** It would be a dependency on
+a competitor for mindshare, revocable at their convenience — which is precisely
+the exposure that ended the provider-subscription path this repository already
+had to remove. MCP is vendor-neutral, standardised, and cannot be withdrawn by
+any single vendor. Prefer it on principle, not just convenience.
+
+The resulting posture is worth stating plainly: **Cortex does not compete with
+Cursor for the editor; it sells Cursor's users the verification Cursor cannot
+provide.** Two integration channels, both open, neither requiring anyone's
+cooperation.
+
+Also cheap and worth doing: read `.cursor/rules` and `AGENTS.md` as first-class
+context sources (Phase 3.4). A team that has already written their conventions
+down should not have to write them again for Cortex.
+
+### 22.7 What this makes possible later
 
 Once the extension exists as a thin API client, the desktop app (Phase 10) is
 largely the same client in a different shell, and the MCP server (Phase 17.6)
@@ -3747,6 +3781,122 @@ with no credits gets genuine daily value from the verification overlay, local
 batteries, and repo insight; a local check result is visually distinct from a
 receipt; drafting a plan and seeing its forecast costs nothing; and handing a
 drafted plan to Cortex is one action from the editor.
+
+## Phase 23 - Launch operations: everything else a real product needs
+
+**Goal:** close the remaining non-feature gaps. None of these is interesting
+engineering; every one of them is the reason a technically excellent product
+fails to become a business.
+
+### 23.1 Documentation
+
+A developer product with no documentation does not get adopted, and Cortex has
+several genuinely novel concepts (receipts, the two dials, caps, professionals)
+that nobody arrives already understanding.
+
+- **API reference generated from the schema**, not hand-written — hand-written
+  references drift and then actively mislead. Phase 16.4 already proposes an
+  OpenAPI schema; generate the docs and the client from the same source.
+- **Concept guides** for the ideas that are not self-explanatory: what a receipt
+  proves and what it does not, how effort and speed differ, how caps and
+  forecasts work, what UNVERIFIED means.
+- **Quickstarts per surface**: web, CLI, CI, MCP, extension.
+- **A worked example of every failure mode**, because the honest handling of
+  failure *is* the product and hiding it in docs undercuts the pitch.
+- Docs live in the repo, review in the same PR as the change, and **a PR that
+  changes an API contract without touching docs fails CI.**
+
+### 23.2 Support, disputes, and the feedback loop
+
+- **Every receipt has a "this looks wrong" action** that opens a dispute with
+  the receipt, run, and ledger entry attached. Phase 2.3's reconciliation bundle
+  is the payload. This is the trust product's single most important support path
+  and it should take one click.
+- **A dispute is a first-class object** with a state machine and an SLA, not an
+  email thread — an ad-hoc process is where a verified-outcome promise quietly
+  becomes discretionary.
+- **Feedback on findings and plans routes to the right artifact**: a bad finding
+  is a signal about a professional (org-scoped, per Phase 12.5); a bad plan is a
+  signal about intake.
+- **In-product changelog**, because a product that changes weekly and never says
+  so feels unstable even when it is not.
+
+### 23.3 Status, incidents, and reliability commitments
+
+- **A public status page** covering API, scheduler, verifier, and per-provider
+  availability. A paid developer product without one is not taken seriously.
+- **Incident communication that names what was affected** — "verification was
+  delayed, no charges were incorrect" is a very different message from silence,
+  and Cortex can be specific because the ledger is append-only and reconcilable.
+- **An SLA for the paid tier** — availability and, more importantly for this
+  product, a *verification latency* target. That is the number customers will
+  actually feel.
+- **Backup, restore drills, and DR** are already required by Phase 4.1; make the
+  restore drill a scheduled recurring exercise with a recorded result, not a
+  documented intention.
+- **Runbooks with an on-call owner** for the alert set defined in Phase 4.1.
+
+### 23.4 API versioning and deprecation
+
+Once a CLI, an extension, an MCP server, and third-party OAuth apps exist,
+**the API contract is load-bearing and cannot be changed casually.**
+
+- **Version the API explicitly** and support at least one previous version.
+- **Additive changes only within a version.** Removing a field or tightening a
+  type is a new version — this document's own `device_code` removal is a small
+  example of the class.
+- **Deprecation policy with a published window**, deprecation headers on
+  responses, and telemetry showing who is still calling the old path so the
+  window is evidence-based.
+- **Clients declare their version**, and the server can refuse a client too old
+  to be safe — particularly for anything touching capability grants or spend.
+
+### 23.5 Commercial and legal
+
+- **Self-serve purchase and auto-recharge** on the existing Stripe integration
+  (`crates/api/src/stripe_client.rs`), plus invoiced billing above a threshold
+  because procurement requires it.
+- **Terms of service, an acceptable-use policy, a privacy policy, and a DPA**
+  (with SCCs for EU customers). The DPA gets asked for in the first enterprise
+  call, and not having one stalls a deal for weeks.
+- **A sub-processor list**, kept current — customers with their own compliance
+  obligations need to know which model providers see their code, and Phase 9.4's
+  data-handling statement is where it lives.
+- **A security contact and a vulnerability disclosure policy.** Cortex executes
+  untrusted code for a living; researchers will find things, and the good outcome
+  is that they have somewhere to report them.
+- **SOC 2 Type II** when enterprise deals justify the cost. Start collecting
+  evidence early — the audit period is retrospective, so the cheapest time to
+  begin is before anyone asks.
+
+### 23.6 The provider-dependency risk register
+
+This organisation has already been burned once by a provider terms change, which
+makes this concrete rather than theoretical.
+
+- **Maintain a written register** of what Cortex depends on per provider —
+  account type, terms, rate limits, data-retention posture — with a named
+  review cadence.
+- **Terms changes are a monitored event.** The subscription-credential removal
+  in this repository is the worked example of what happens when one lands.
+- **The model catalog (Phase 7.1) is the mitigation**: because no model name is
+  hardcoded and routing optimises cost-to-verified-outcome, losing or repricing
+  any single provider is a catalog update rather than a code change. This is a
+  real strategic benefit of Phase 7.1 beyond tidiness, and it is worth stating
+  where the decision gets made.
+- **Never build on a provider surface that is private, undocumented, or
+  revocable at the vendor's convenience** — the same reasoning that chooses MCP
+  over a private editor API in Phase 22.6.
+
+### 23.7 Go-live checklist
+
+Beyond the seven external-testing gates, general availability additionally
+requires: documented and versioned API; status page live; disputes routed and
+answerable; ToS, privacy policy, and DPA published; sub-processor list current;
+security contact and disclosure policy live; backup restore drill passed with a
+recorded result; on-call rota and runbooks in place; billing reconciliation
+alerting green for a sustained period; and the scoreboard from this document
+populated with real data rather than zeroes.
 
 ## Handover protocol — how to actually execute this document
 
@@ -3822,15 +3972,21 @@ Things the implementer must ask rather than decide. Empty is the goal.
 |---|---|---|
 | A, B, D, E, I, L, M, R, U | **Yes** | Evidence and design are specific; no open product decisions block them. U in particular is small, self-contained, and should go early. |
 | C | **Yes, with care** | The `ExecutionJob` field table is specified, but the CLI-vs-HTTP effort question (Phase 0.1) must be settled in the brief, not during implementation. |
-| Q, F | **No** | Blocked on decisions 1 and 2 — the CREDITS.md amendment and the variance threshold. Do not brief these until Josh has decided. |
-| K, S | **No** | Blocked on decision 5 (confirm the two-dial design) and, for S, on R being merged. |
-| G, N | **Partially** | Surface work needs the Phase 10.3 design-partner input before the dial UI is fixed. The non-dial parts can brief now. |
+| Q, F | **Yes, after one doc change** | Decisions 1 and 2 are resolved. The only prerequisite is amending CREDITS.md to the maturity ladder — a documentation change, not a code one, and it must land before PR F persists a schema. |
+| K, S | **Yes, in order** | Decisions 5, 6, and 7 are resolved: effort dial in K, speed dial deferred to S behind R. Confirm the two-dial design with design partners *while* K is built, not before it starts. |
+| G, N, Z, AA, AB, AC, AD | **Yes** | Decisions resolved. Dial *visuals* should still be design-partner tested, but the data contract behind them (6.6) is fixed and can be built now. |
 | O, P, T | **Later** | These need outcome data to exist before their measurement harnesses mean anything. T's *schema* — immutability, versioning, ownership scopes — should be designed now even if the bench ships later, because retrofitting immutability is painful. |
 | V | **After N and T** | Policy needs roles to bind to and professionals to require. |
 
-**The single highest-value next action after this document is approved is not
-code — it is resolving decisions 1, 2, and 5**, which unblock five PRs between
-them.
+**Every decision in this document is resolved with a decided default**, so no
+PR waits on an answer. The single prerequisite before PR F is amending
+CREDITS.md to the maturity ladder (decision 1) — a documentation change that
+takes an hour and prevents a pricing schema being built against a superseded
+model.
+
+Josh should confirm the three **[business risk]** decisions (1, 5, 18) when
+convenient. None of them blocks the start of work; all three are cheaper to
+change now than after the PR that depends on them.
 
 ### Operating instructions for the implementing model
 
@@ -4204,76 +4360,54 @@ should survive the next time they come up.
   requested level, it is shown with a reason. A dial that quietly does nothing is
   worse than no dial.
 
-## Decisions required from Josh
+## Decisions — resolved, with defaults
 
-Ordered so that the ones blocking the most work come first.
+**Nothing in this document blocks on an unanswered question.** Every decision
+below carries a **decided default**: the implementer proceeds on it without
+waiting. Josh can override any of them, and an override is a small change
+because each default names exactly what it touches.
 
-1. **Amend CREDITS.md to the maturity ladder (blocks PR Q and PR F).**
-   Phase 6.4's recommendation: quote a **forecast plus a hard cap**, bill actuals
-   below the cap, and let a task class graduate to a single fixed credit price
-   once its measured variance is tight enough. CREDITS.md currently asserts fixed
-   pricing universally, which the 3×–30× variance evidence does not support. This
-   is the highest-leverage open decision in the document — it determines the
-   pricing schema, so it must land before PR F persists anything.
-2. **The variance threshold for graduating a class to fixed pricing**, and who
-   signs off on absorbing the tail. Also: the initial task classes, cap expiry,
-   and whether a reservation is placed at approval or dispatch. Greenfield is its
-   own class with its own distribution (Phase 8.5).
-3. **The launch trust model:** private alpha, then single-tenant/operator hosted,
-   then multi-tenant. This sets the minimum sandbox and legal controls.
-4. **Consent and retention for the verified-outcome corpus (Phase 8.4).** This
-   needs a written basis *before* the first customer task, because the dataset is
-   the moat and reconstructing it later is not possible. Decide what is retained,
-   for how long, whether it is used to tune routing across customers, and what an
-   opt-out removes.
-5. **The two-dial design (Phase 6.1) — confirm or reject.** Recommendation:
-   ship **Effort** (`low·medium·high·xhigh·ultra`) and **Speed**
-   (`patient·normal·urgent`) as separate controls with forecast cost as the
-   displayed consequence, rendered as the fast/good/cheap triangle developers
-   already understand. This is the most differentiated idea in Track B and the
-   most expensive to reverse, since it shapes the policy schema, the Plan
-   Receipt, and the whole surface. Default envelope: floor `medium`, ceiling
-   `xhigh`, speed `normal`, with `ultra` and `urgent` opt-in per task.
-6. **Whether the speed dial ships at all in v1.** It is gated on PR R and PR S
-   (Phase 11). Shipping the effort dial alone is a coherent, honest product;
-   shipping a speed dial on today's concurrency model is not.
-7. **The narrowest initial network exception policy** for sandboxed tasks.
-   Default remains deny.
-8. **The first proof workflow.** Recommended: **one developer, one GitHub repo,
-   one approved code task, one branch/PR, one independently verified receipt.**
-   The greenfield one-shot demo is the *second* proof, not the first — with the
-   bootstrap ladder (Phase 8.5) it is now defensible, but it should be
-   demonstrated after the repo case, not instead of it.
-9. **The human override policy:** who may override a failed or inconclusive
-   verdict, whether it can release a PR, and how it is priced and labelled.
-10. **Design-partner recruitment (Phase 10.3).** Which three segments, and who.
-    Dial comprehensibility is the riskiest untested assumption in Track B, and
-    the two-dial design raises the stakes on it — two controls are more powerful
-    and more confusing than one, and only user testing settles which dominates.
-11. **The first two method-library archetypes and batteries (Phase 8.4).** Pick
-    domains with real demand and clear external standards. The measurement
-    harness ships with them, and if the first entries fail the falsification
-    test the library stops at L2.
-12. **The first two professionals (Phase 12).** Recommendation: both **read-only
-    reviewers**, in domains where external standards exist and defects are
-    executable — a Rust reviewer and a web/API security reviewer are the obvious
-    pair given this repo. Confirm also that professionals must earn promotion
-    through PR P's machinery rather than shipping on assertion; that rule is the
-    only thing separating a real bench from a persona list.
-13. **The no-panel control-arm sampling rate (Phase 12.10).** Recommendation:
-    start at 5–10% of eligible changes. It is the only mechanism that can detect
-    a blind spot the whole bench shares, and it is the first thing that will be
-    proposed for deletion when someone wants to save money. Decide the rate now
-    and treat lowering it as a governance change, not an optimisation.
-14. **The panel budget ratio** — what fraction of a task's forecast may be spent
-    on review before it is economically absurd. Needs a number, not a principle,
-    because it is enforced.
-15. **Who curates knowledge packs, and to what standard (Phase 12.3).** This is a
-    real editorial commitment, not a one-off import: sources, citation
-    requirements, per-domain half-lives, and who reviews a refresh before it
-    publishes. Under-resourcing this is how a pack becomes the stale authority it
-    was built to prevent. Recommendation: start with **one** pack, curated
-    properly, rather than five curated thinly.
+Three are marked **[business risk]** — the engineering is unblocked either way,
+but the choice reflects appetite rather than evidence, and should be confirmed
+before money moves.
+
+| # | Decision | **Decided default** | Touches |
+|---|---|---|---|
+| 1 | Pricing model **[business risk]** | **Forecast + hard cap, billed on actuals**, with per-class graduation to fixed pricing. Amend CREDITS.md to the maturity ladder before PR F. | PR Q, PR F |
+| 2 | Graduation threshold | A class graduates to fixed pricing when **p95/p50 ≤ 1.5 over ≥ 200 runs**; Cortex absorbs the tail. Below that, quote a capped range. | PR Q |
+| 3 | Launch trust model | **Private alpha → operator-hosted single-tenant → multi-tenant.** Sandbox (PR C) is required for all three. | PR C, PR AE |
+| 4 | Outcome-corpus consent | **Opt-out, de-identified, aggregate-only, never cross-customer for human dispositions** (invariant 20). Written basis published before the first customer task. | PR D, PR AE |
+| 5 | Two-dial design **[business risk]** | **Ship it.** Effort `low·medium·high·xhigh·ultra` × Speed `patient·normal·urgent`, cost as the displayed consequence. Validate with design partners before PR K freezes the surface. | PR K, PR AA |
+| 6 | Speed dial in v1 | **No.** Effort dial ships first; speed dial waits for PR R and PR S. A speed dial on today's concurrency model would be unsafe. | PR K, PR S |
+| 7 | Default envelope | Floor `medium`, ceiling `xhigh`, speed `normal`. `ultra` and `urgent` opt-in per task. | PR K |
+| 8 | Sandbox network policy | **Default deny.** Allowlist only dependency-resolution hosts per ecosystem, recorded in the receipt. | PR C |
+| 9 | First proof workflow | **One developer, one repo, one approved task, one PR, one verified receipt.** Greenfield demo is the *second* proof. | — |
+| 10 | Human override policy | Only `maintainer`+ may override a failed verdict; an override **can never release a PR automatically**; it is labelled on the receipt, priced as a normal charge, and audited. | PR F, PR N |
+| 11 | Design partners | **Three segments, two each**: solo builder, 2–3 person team, platform team at a large org. Recruit before PR K. | PR AA |
+| 12 | First method-library entries | **Two L2 batteries first** — web/API security review and dependency upgrade. Archetypes follow only if the batteries clear the falsification test. | PR O |
+| 13 | First professionals | **Two, both read-only reviewers**: Rust and web/API security. Promotion only through PR P. | PR T |
+| 14 | No-panel control arm | **10% of eligible changes.** Lowering it is a governance change, not an optimisation. | PR T |
+| 15 | Panel budget ratio | **Review may not exceed 25% of a task's forecast.** Enforced, not advisory. | PR T |
+| 16 | Knowledge-pack curation | **One pack, curated properly** (web/API security), with citation and half-life rules enforced at publish. Expand only on measured lift. | PR O |
+| 17 | Team credit model | **One org pool, budgets as ceilings, no per-developer wallets.** Auto-recharge on threshold. | PR AD |
+| 18 | Packaging **[business risk]** | **No per-seat fee for access.** Credits for work; an org-level platform tier for governance (SSO, SCIM, audit, policies, self-host). | PR AD |
+| 19 | Spend authority | Any member approves to **50 credits**; `maintainer` to **500**; `admin` above. Org-configurable. | PR AD, PR N |
+| 20 | Editor strategy | **Extension, not a fork.** Publish to Open VSX *and* the Microsoft Marketplace. MCP for agent-level integration. No inline completion, no BYOK. | PR AF |
+| 21 | Free-tier scope | **Local checks, verification overlay, estimates, plan drafting, repo insight.** Nothing that calls a model. | PR AF |
+| 22 | API versioning | **Explicit version, one previous version supported, additive-only within a version**, published deprecation window. | PR AC |
+| 23 | Open source | **The extension and the check batteries are open; the orchestrator, verifier, and corpus are not.** Batteries being auditable is a trust asset; the corpus is the moat. | PR O, PR AF |
+
+### The three that genuinely deserve Josh's confirmation
+
+- **#1 pricing.** The engineering is identical either way — a cap is a cap. What
+  differs is who absorbs variance, and that is a margin appetite question.
+- **#5 two dials.** Argued from system structure, not user evidence. Cheap to
+  confirm with design partners; expensive to reverse after PR K.
+- **#18 packaging.** The no-per-seat recommendation trades predictable revenue
+  for adoption velocity. That is a strategy call, not a technical one.
+
+Everything else should simply proceed.
+
 
 ## The numbers that say Cortex is actually best
 
@@ -4445,6 +4579,25 @@ Stated so the next reviewer attacks the right things:
   false positives. Ship it advisory, measure the false-positive rate, and be
   willing to turn it off if developers learn to ignore it — a noisy coordination
   signal is worse than none.
+
+### Completeness statement
+
+As of this revision the document covers, end to end: execution safety and
+sandboxing; a truthful state model; durable verification; pricing, forecasting,
+and caps; routing economics and the model catalog; intake, decomposition, and
+the method library; parallel execution, conflict-freedom, and integration;
+professionals, packs, and the expert panel; provenance and injection resistance;
+collaborative planning; organisations, roles, budgets, and policy; production
+hardening; headless access via API, CLI, and MCP; the frontend from primitives
+to polish; the free editor extension; and launch operations.
+
+**Every open decision now carries a decided default.** No PR in the delivery
+order waits on an unanswered question.
+
+What remains genuinely unresolved is listed immediately below and in the five
+items after it. That list is deliberately short and deliberately honest: a plan
+claiming zero uncertainty would be the least trustworthy document in this
+repository.
 
 ### Known gaps this document does not yet cover
 
