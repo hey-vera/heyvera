@@ -4684,6 +4684,216 @@ battery does not discriminate base from delivered; the invariance control fails 
 refactor that modified its exam surface; and `p_fa` has a published number derived
 from the revert corpus and the red-team suite.
 
+## Phase 28 - Capability: how Cortex exceeds the best single model
+
+**Goal:** give the product thesis a mechanism. The founder's statement of the
+vision is *better than any single AI model* — a multi-engine vehicle rather than
+a bigger engine. Read literally against this document, **that mechanism is not
+here.** Everything in Track B makes Cortex cheaper, safer, more honest, and more
+governable than a single model. Nothing in it makes Cortex *more capable* than
+the best model it routes to.
+
+### 28.1 The plan currently optimises cheaper-than, and the vision is better-than
+
+Invariant 12, as written:
+
+> *"The router optimises cost-to-verified-outcome, never pass rate. ... A route
+> that passes at four times the price is a worse route."*
+
+That is the correct objective for most work and it is stated **unconditionally**,
+which is the defect. Under an unconditional cost objective, Cortex converges on
+the cheapest model that clears the bar, and its pass-rate ceiling is therefore
+the pass rate of *that* model — necessarily at or below the frontier. Phase 6's
+effort dial changes the fan-out shape and the model tier, but the router's
+objective function does not change with it, so even at `ultra` the optimiser is
+still trying to spend less.
+
+There are two objectives here and this document has one:
+
+| | Objective | The dial position that means it | Ceiling |
+|---|---|---|---|
+| **Efficiency** | minimise cost subject to passing | balanced and below | the routed model's pass rate |
+| **Capability** | maximise P(verified) subject to a spend cap | `ultra` | strictly above any single sample, if and only if the verifier is sound |
+
+The correction is small and it makes the top of the dial mean something:
+
+> **Invariant 25.** The router's objective is set by the effort dial, not fixed.
+> Below the top position it minimises cost subject to reaching the required
+> confidence. At the top position it **maximises P(verified) subject to the cap**,
+> and a route that passes at four times the price is the *better* route there.
+> The receipt records which objective was in force.
+
+This also repairs an inconsistency the current text carries: Phase 6.7 already
+describes `ultra` as buying "more evidence" and a larger escalation budget, which
+is a capability objective, while invariant 12 forbids exactly that trade.
+
+### 28.2 What actually raises the ceiling, and by how much
+
+Four mechanisms are available. Only some of them work, and the ones that work are
+bounded in ways this document has to state rather than assume.
+
+**(a) Repeated sampling against a sound verifier — the only one with a hard
+guarantee.** If a single attempt is correct with probability `a` and attempts are
+independent, at least one of N is correct with probability `1 − (1 − a)^N`. This
+is the generation–verification gap, and it is the entire reason a verifier-owning
+harness can beat the model it calls: the model can already produce the right
+answer, and the missing capability is *identifying* it. Cortex owns an executable
+identifier. Nobody selling tokens does.
+
+The bound nobody states: **the delivered-correct rate is the sampling gain
+multiplied by verifier precision**, not the sampling gain alone.
+
+```
+P(delivered correct) ≈ [1 − (1 − a)^N] × precision
+where precision = a_pass / (a_pass + b_pass)   -- Phase 27's p_fa, inverted
+```
+
+Both terms are real and this document currently has a plan for neither. Raising N
+without raising precision is the Phase 27.4 failure — more delivery, more of it
+wrong, concentrated in the hard tail. **Verifier precision is the binding
+constraint on Cortex's capability ceiling, which is why Phase 27 comes first.**
+
+**(b) Decomposition below the coherence horizon — real, and it has a crossover
+this document should compute rather than assume.** A model's success probability
+falls as scope grows. Decomposing into `n` leaves and integrating gives roughly
+`Π aᵢ` against `a_whole` for the single shot. Decomposition wins only when
+
+```
+Π aᵢ  >  a_whole        (times integration success, which is not 1)
+```
+
+That condition is **not** automatically true, and it fails exactly when a plan is
+over-decomposed: twelve leaves at 0.95 is 0.54, which loses to one shot at 0.7.
+This is the quantitative statement behind Phase 8.3's "decomposition is an
+engineering step" and behind MAST's finding that specification failure dominates
+multi-agent error. It converts decomposition depth from a matter of taste into a
+measurable decision with an optimum, and the estimator subsystem (Phase 6.5)
+already has the machinery to hold per-leaf priors. Record the predicted `Π aᵢ`
+and `a_whole` on the Plan Receipt at `ultra`, and let the plan lint (Phase 6.7)
+fail a plan that decomposed itself past its own crossover.
+
+**(c) Diversity across engines — the mechanism that is uniquely Cortex's, and
+which the current design forecloses.** Repeated sampling works in proportion to
+how *independent* the samples are. N samples from one model at temperature are
+strongly correlated: they fail the same way, on the same reasoning, for the same
+reason. N samples from different providers, prompted with different methods
+(Phase 8.4's Engineering Method Library), correlate far less, so the union of
+what they can solve is much larger than any one of them.
+
+The current design cannot express this. The router picks *one* model and then
+Phase 6.7 races that model against itself, which is the weakest possible version
+of the technique. **Racing should be a portfolio decision, not a repetition.**
+The race set is chosen to maximise expected marginal coverage per credit — which
+is exactly the complementarity machinery Phase 12.10 already built for expert
+panels, applied to generators instead of reviewers. That code should be written
+once and used twice.
+
+This is the concrete engineering content of "multi-engine vehicle", and it is a
+genuine structural moat: a single-vendor coding product cannot race its model
+against a competitor's, and would not want to. Cortex can, because it sells the
+outcome rather than the inference.
+
+**(d) Compounding across runs.** The fourth mechanism — a repository-specific
+corpus that makes attempt `k+1` better than attempt `1` — is Phase 29.
+
+### 28.3 Weak verifiers may rank, and may never pass
+
+Phase 6.7 rejects multi-model debate and consensus on measured grounds
+(premature-consensus collapse, problem drift in long debates), and that rejection
+should stand. But the rule it is expressed through — *models propose, never
+grade* — is currently absolute, and taken absolutely it forecloses the
+best-measured result in this area: combining several **weak** verifiers produces
+a materially stronger selector than any one of them, shrinking the
+generation–verification gap by double digits, and doing so more reliably than
+self-consistency or a single reward model.
+
+The two positions are reconcilable, and the boundary is clean:
+
+> **Invariant 26.** Executed checks are the only thing that can create a pass. A
+> model acting as a verifier is a **weak** signal: it may rank candidates *within*
+> the set that already passed the executed battery, and it may raise a finding
+> for a human, and it may lower confidence. It can never move a `failed` to a
+> `verified`, never create a badge, and never emit a positive routing reward.
+
+Under that boundary, weak verifiers are safe by construction — the worst a
+compromised or wrong one can do is pick a poorer member of an already-passing
+set — and they attack precisely the residual that executed checks cannot reach:
+choosing between five candidates that all pass the battery. Phase 27.4's
+cross-attempt agreement is the cheapest weak verifier of all and requires no
+extra inference at all.
+
+This also gives the EvilGenie result somewhere to live: an inspecting judge
+outperformed held-out tests at *detecting* hacks. As a detector feeding Phase
+27.2's disclosure list, that is exactly a weak verifier doing the job weak
+verifiers are good at. As a grader it would violate invariant 6. The distinction
+is not academic — it is the difference between a useful signal and a
+model-authored verdict.
+
+### 28.4 The efficiency half: stop re-executing checks Cortex has already run
+
+Phase 24.1 introduces `(check, tree_hash, runner_digest)` as **flake identity**.
+That triple is also a **content-addressed cache key**, and the document never
+uses it as one. This is the largest cost reduction available anywhere in the
+plan, and it requires no new machinery — only noticing that the key already
+exists.
+
+- A check whose triple has been executed before does not execute again; the
+  recorded outcome is reused and the receipt names the earlier execution.
+- **Soundness condition:** reuse is only valid if the check is a pure function of
+  the tree — which is *precisely what Phase 24.1's flake scoring measures*. A
+  check with a clean determinism record is cacheable; a quarantined check is not.
+  One measurement drives both mechanisms, and they reinforce: the second
+  execution of a triple is simultaneously a cache miss and a free flake probe, so
+  early in a repo's life Cortex pays for determinism evidence it wants anyway,
+  and later it stops paying at all.
+- The savings are concentrated where the pain is: retry after a one-line fix,
+  escalation ladder re-runs, racing (N attempts share unchanged subtrees),
+  integration re-verification (invariant 16 requires a full battery on the
+  integrated tree, most of which is unchanged), and monorepos, where Phase 25.2's
+  remote build cache is the same idea one layer down.
+- It strengthens rather than weakens the receipt, because a content-addressed
+  reuse is *more* reproducible than a re-execution: the receipt can name the exact
+  prior execution, and any auditor can re-run it.
+
+Cache scope is per-repository and never crosses a tenant boundary — a shared
+cache keyed on tree hash is a cross-customer oracle for private source, which
+Phase 32.4 treats as an existential failure rather than a performance trade.
+
+### 28.5 The honest ceiling, and what would falsify it
+
+Stated plainly so it can be checked rather than believed:
+
+**Cortex's capability ceiling is the routed portfolio's pass@N, multiplied by
+verifier precision, minus integration loss.** It exceeds the best single model
+when — and only when — three things hold:
+
+1. `N > 1` with genuinely diverse generators (28.2c), so pass@N is meaningfully
+   above pass@1;
+2. verifier precision is high and *measured* (Phase 27), so the sampling gain is
+   not eaten by false accepts;
+3. decomposition stays on the winning side of its crossover (28.2b), so
+   orchestration adds capability rather than multiplying failure.
+
+Fail any one and Cortex is a governance layer over a frontier model: valuable,
+honest, cheaper, and not better. That is a perfectly good product and it is not
+the stated vision, so the difference should be measured rather than asserted —
+which is what Phase 30 exists to do. The falsification test is specific: **if
+Cortex at `ultra` does not beat the best single model run at maximum effort on
+the held-out suite, at any price, the capability claim is false and must not be
+made.** That test should exist before the claim does.
+
+**Phase 28 exit gate:** the router's objective is a function of the effort dial
+and the receipt records which objective was in force; `ultra` maximises
+P(verified) under the cap rather than minimising cost; the race set is selected
+for generator diversity using the Phase 12.10 complementarity machinery rather
+than repeating one model; weak verifiers rank within the passing set and are
+mechanically incapable of creating a pass; predicted `Π aᵢ` versus `a_whole` is
+computed at plan time and plan lint fails an over-decomposed plan; verified check
+results are reused by content-addressed triple, gated on the determinism record,
+never across tenants; and the held-out suite reports Cortex-at-`ultra` against
+the best single model at maximum effort, with the capability claim withheld until
+that comparison is won.
+
 ## Handover protocol — how to actually execute this document
 
 **Read this before dispatching any implementation work.**
