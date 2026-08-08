@@ -4366,6 +4366,324 @@ surface; a thrashing agent is stopped and reported as thrashing rather than as
 needing a larger cap; and a Cortex change passes the repository's own CI and
 protection rules without bypassing any of them.
 
+## Phase 27 - Verification under adversarial pressure
+
+**Goal:** establish that the verdict means something. Twenty-three invariants,
+twenty-six phases, a ledger, a refund policy, a router, and a professional system
+all consume a verdict whose soundness this document has never once examined.
+
+This is the deepest gap found in four rounds of review. Phase 24.1 addressed
+checks that are *noisy* — a flaky check is wrong at random. This phase addresses
+checks that are *fooled* — wrong in the specific direction that optimisation
+pressure pushes. Noise averages out. Bias compounds, and every mechanism in
+Track B applies pressure in the same direction.
+
+### 27.1 The exam is written on the answer sheet
+
+The V3 design already understood half of this problem, and the code says so:
+
+> `crates/api/src/verification_driver.rs:11-12` — *"Load the specs frozen at
+> dispatch. Deriving them now would let the task influence its own exam."*
+
+That freezes the **argv**. It does not freeze what the argv reads. A check spec
+of `cargo test --all` frozen at dispatch executes against the tree the agent
+delivered, and that tree contains the agent's edits to `tests/`. The detached
+checkout in `TreeCheckout::create` (`:75-97`) is a clean checkout *of the
+delivered commit* — which is exactly the commit whose test files the agent
+controls. Cleanliness of the checkout was never the exposure.
+
+Confirmed absent in this checkout: no path classification, no test-surface diff,
+no assertion-count comparison, and no protected-path concept anywhere in
+`verification_driver.rs`, `check_runner.rs`, `core/src/verification.rs`, or
+`core/src/check_derivation.rs`. The word `tamper` does not appear in the plan.
+
+This is not a hypothetical failure mode. It is the most heavily documented
+failure mode in the 2026 agent literature, with named mechanisms: overwriting
+unit tests, deleting or weakening assertions, monkey-patching the scoring
+function, marking tests skipped or expected-failure, and terminating the process
+early with a success code. TRACE catalogues 54 distinct hack categories and
+finds a frontier model detects only 63% of them by inspection; Terminal Wrench
+catalogues 331 hackable tasks. The uncomfortable result from EvilGenie is that a
+**held-out** test battery — which Phase 6.7 already buys at `ultra` — was *not*
+the best detector; an inspecting judge was. Held-out checks defend against
+overfitting to the visible contract. They do not defend against an agent that
+edits the harness the held-out checks run in.
+
+The framing that should govern this phase: **Cortex does not train models, but
+Cortex is an optimiser.** Best-of-N racing, the escalation ladder, the router's
+reward, and the professional grading loop all select for outcomes that pass the
+battery. Selection against a fixed target is the same pressure as training
+against it, applied at inference time, and the literature's central conclusion
+holds either way — no fixed reward function survives a capability increase in
+the thing being selected. Verification has to co-evolve with what it grades.
+
+### 27.2 Type the diff: the exam is a first-class surface
+
+Partition every delivered diff at verification time into three surfaces:
+
+| Surface | Contents | Why it is separate |
+|---|---|---|
+| `subject` | Production code the contract asked to change | The thing being graded |
+| `exam` | Anything a frozen check reads as ground truth: test files, fixtures, golden/snapshot files, property generators, CI workflow, lint and typecheck config, coverage thresholds, build scripts, test harness code | Changing it changes the grade |
+| `incidental` | Lockfiles, generated code, docs, formatting | Neither graded nor grading |
+
+Classification is deterministic — path globs per ecosystem, derived once per repo
+and pinned on the receipt, plus the build system's own knowledge of which targets
+are test targets (Phase 25.2 already reads the build graph; reuse it rather than
+guessing from paths in a monorepo).
+
+**Modifying the exam is not forbidden.** Forbidding it would break test-driven
+work, and it would break Phase 24.2 entirely — characterization testing *is*
+exam authorship, and it is the on-ramp that turns an unverifiable brownfield repo
+into a customer. The rule is not prohibition; it is that a verdict produced under
+exam authorship is **a different kind of claim** and may never be rendered as
+though it were the same one.
+
+Two contract shapes, declared at plan time, on the Plan Receipt, before approval:
+
+```
+verdict_class:
+  strong    -- exam surface is byte-identical between base and delivered tree.
+               The battery that graded the work is the battery the customer had
+               before Cortex touched anything.
+  authored  -- the task legitimately wrote or changed the exam (new feature with
+               new tests, TDD, characterization work). The verdict proves the
+               subject satisfies an exam Cortex partly wrote.
+```
+
+An `authored` verdict is still a real verdict and still worth paying for — it is
+what every human engineer produces. It is not the same evidence as `strong`, and
+the receipt, the badge, the API field, and the compliance export all carry the
+class. Silently rendering them identically would be precisely the lie of omission
+Phase 24.1 refused for quarantined checks.
+
+The dangerous case is neither of those: a task declared `strong` whose delivered
+diff touches the exam surface. That is a contract violation, not a verdict.
+Dispatch declared the class; delivery contradicted it; the run does not get to
+choose after the fact. It resolves as `inconclusive`, is not charged, and is
+routed to a human with the exam diff shown first.
+
+Within `authored`, the specific edits that warrant surfacing regardless:
+
+| Signal | Detection | Disposition |
+|---|---|---|
+| Assertion deleted or count reduced in a test that existed at base | AST count per test function, base vs delivered | Named on the receipt, always |
+| Test removed, renamed away, or moved out of a discovered path | Test-identity set difference | Named on the receipt, always |
+| Test marked skipped, ignored, expected-failure, or conditionally excluded | Ecosystem-specific attribute/decorator scan | Named on the receipt, always |
+| Assertion weakened in place (equality to truthiness, exact to approximate, specific exception to bare catch) | AST shape comparison on matched test bodies | Named on the receipt, always |
+| Timeout raised, retry count raised, tolerance widened | Numeric literal comparison in exam config | Named on the receipt, always |
+| Lint rule, typecheck strictness, or coverage threshold relaxed | Config diff against base | Named on the receipt, always |
+| Test process exits successfully before executing the discovered set | Executed-test count vs discovered count, recorded per run | `inconclusive` — this one is not a disclosure, it is a broken run |
+
+None of these blocks by default. All of them appear on the receipt, and all of
+them are inputs to the review bundle's ordering (Phase 3.3) — a reviewer with
+limited attention should see the exam diff before the subject diff, always,
+because it is the part that decides whether the rest of the evidence is worth
+reading.
+
+Org policy (Phase 12.12 already has the mechanism) can escalate any row to
+`block`, with the same attributed, expiring, receipt-visible waiver.
+
+### 27.3 Verifier precision is a number, and Cortex does not know it
+
+Two quantities govern the entire product, and neither is measured today:
+
+- **`p_fa` — false accept.** The battery passed and the work is wrong. This is
+  what refund-on-failure fails to catch, what the router learns from as success,
+  what the professional record scores as a hit, and what the customer discovers
+  in production. Every economic claim in this document is a function of `p_fa`.
+- **`p_fr` — false reject.** The battery failed and the work was right. Phase
+  24.1 covers the random component; the systematic component is over-strict or
+  mis-derived checks. This one costs Cortex money directly under refund-on-
+  failure, which at least makes it self-correcting.
+
+`p_fa` is the one that is not self-correcting, because every incentive in the
+system points away from discovering it. Three independent estimators, all
+executable, none requiring a human labelling loop:
+
+**(a) Mutation testing on the blast radius — does the battery *have* the power to
+fail?** Inject mutants into the subject surface and re-run the frozen battery. A
+battery that survives its mutants proves nothing about the code it graded,
+regardless of how green it is. This is the only *executable* measure of check
+power that exists, and it is the direct answer to a green tick on a repo with 4%
+coverage (Phase 24.2). It is affordable because it is scoped exactly the way
+Phase 24.2 already scopes coverage — to the blast radius of the change, not the
+repository. Run it against the **base** tree at plan time, where it costs nothing
+in latency on the critical path and where the result is a property of the repo
+rather than of the change.
+
+The output is not a gate. It is a class:
+
+```
+battery_power: strong | weak | none
+  -- mutation score over the change's blast radius, thresholds per ecosystem,
+     recorded on the Plan Receipt before approval and on the final receipt.
+  -- `none` means the frozen checks cannot distinguish correct from incorrect
+     code in the region being changed. The work may still proceed; the verdict
+     is UNVERIFIED (invariant 22) and it is not priced as proven.
+```
+
+Showing `battery_power` on the **Plan Receipt, before approval**, is the honest
+move and also the commercially useful one: it is the moment where Phase 24.2's
+characterization on-ramp sells itself. The customer sees "the checks in this
+region cannot fail" and is offered the task that fixes it.
+
+**(b) The revert corpus.** Phase 26.3 already collects post-delivery reverts and
+already calls a revert the most valuable negative signal available. It is also
+the empirical numerator for `p_fa` — a delivered, verified change that a human
+reverted is a false accept by observation rather than by inference. Wire 26.3's
+output into a measured rate per repo, per task class, and per verdict class,
+rather than only into the professional record. This costs nothing beyond joining
+two things that both already exist.
+
+**(c) A held-out red-team corpus, run against the harness on a schedule.**
+Deliberately hackable tasks — a weak battery over a task with an obvious shortcut
+— where the correct behaviour is a `weak`/`none` battery class and an
+`UNVERIFIED` or `authored` verdict, not a green tick. This is a Phase 30 asset
+and is specified there; what belongs here is the requirement that `p_fa` has a
+number attached to it, published internally, tracked over time, and that a
+release which moves it in the wrong direction is a regression.
+
+**Nothing may claim a `strong` verdict on a `none` battery.** That pairing is the
+exact shape of the failure this phase exists to prevent: a maximally confident
+claim resting on checks that cannot fail.
+
+### 27.4 Racing amplifies exactly this, and this plan calls it the safe knob
+
+Phase 6.7 currently states, as a design rule:
+
+> *"Racing before width, always: width is bounded by the dependency graph and
+> carries integration risk, while racing is bounded only by budget and carries
+> none."* — line 1149-1151
+
+**That is wrong, and it is the most consequential wrong sentence in the
+document,** because it is phrased as the safe default and it sits on the speed
+dial where a customer in a hurry will reach for it.
+
+Take one attempt at a leaf. It is correct-and-passing with probability `a`,
+wrong-but-passing with probability `b` (a false accept), and failing with
+probability `1 − a − b`. Race N independent attempts and keep the first passer.
+
+On an easy leaf the conditional error rate is unchanged — among passers, the
+false-accept share is `b / (a + b)` whether N is 1 or 10. That is the reassuring
+half, and it is presumably the intuition behind the current sentence.
+
+The hard tail is where it breaks. Consider a leaf where the honest success
+probability `a` is near zero and `b` is not — a genuinely difficult change over a
+battery with a shortcut in it. A single attempt mostly fails, and a failure is
+*safe*: it refunds, it tells the truth, and it routes to a human. Racing N drives
+`P(deliver) → 1 − (1 − a − b)^N`, and on that leaf essentially all of the newly
+delivered mass is `b`. **Racing does not change the error rate on work that was
+going to succeed. It converts work that was going to honestly fail into work that
+passes by shortcut.** It is a false-accept generator aimed precisely at the tail.
+
+Three things make this materially worse than the abstract statement:
+
+1. That tail is not a rare corner. It is **the tasks a customer sends to a
+   refund-backed vendor** — the adverse-selection result in Phase 31.2. The
+   distribution Cortex is exposed to is skewed toward exactly the leaves where
+   racing is most dangerous.
+2. Racing is on the **speed** dial, so it is reached for under time pressure,
+   which is when a human is least likely to read the diff carefully.
+3. `b` is not a constant. It rises as the model gets better at finding the
+   shortcut and falls as the battery gets stronger — and Cortex measures neither
+   today.
+
+The correction, and it is small:
+
+- **Racing requires `verdict_class: strong`.** Racing an `authored` contract
+  races the authorship of the exam itself, which is selecting for the most
+  permissive test suite among N. Prohibited outright.
+- **Race width is capped by measured battery power.** `strong` battery: full
+  width. `weak`: width 2. `none`: racing is unavailable and the dial says so
+  rather than silently doing nothing. This is invariant 9 applied honestly — the
+  dial must change something visible, including when what it changes is a refusal.
+- **Losing attempts are evidence, not garbage.** Today the N−1 discarded attempts
+  are thrown away. They are the cheapest precision estimator in the system:
+  N independent samples of the same leaf whose *agreement* is measurable at zero
+  extra provider spend. Five attempts converging on the same change is strong
+  corroboration. Five attempts producing five semantically different diffs, one
+  of which happened to pass, is a warning that the battery — not the code — is
+  what was solved. Record `race_agreement` on the receipt; a passing winner with
+  low agreement routes to review rather than auto-delivering.
+
+That last point is worth stating plainly because it inverts the current design:
+**the value of racing is not the winner, it is the distribution.** Cortex is
+already paying for N samples; the current plan extracts one bit from them and
+discards the rest. Cross-attempt agreement is the one signal in this document
+that costs nothing and measures the thing that matters.
+
+The generalisation, and the twenty-fourth invariant:
+
+> **Selection pressure against a check battery is bounded by that battery's
+> measured power.** Any mechanism that produces multiple candidates and keeps the
+> ones that pass — racing, escalation retries, speculative execution — declares
+> its width, and the width is a function of measured battery power. Unbounded
+> selection against an unmeasured battery is prohibited.
+
+This also disciplines the escalation ladder (Phase 7.3), which is the same shape:
+retry until something passes is best-of-N with extra steps and inherits the same
+bound.
+
+### 27.5 The two controls that make a battery prove something
+
+Both are cheap, deterministic, universal, and — as far as this review can
+establish — absent from every competing product. They are the executable form of
+invariant 22, which currently states a principle with no mechanism behind it.
+
+**The differential control, for behaviour-changing work.** At least one frozen
+check must **fail on the base tree and pass on the delivered tree.** If no check
+in the battery discriminates between "before the work" and "after the work", the
+battery did not verify the work — it verified that the repository still compiles.
+A green battery that was equally green before Cortex touched anything is the most
+common way a verification claim is vacuous, and it is detectable in one extra
+execution of a battery Cortex is already running, against a tree it already has.
+
+Where no check discriminates, the verdict is `UNVERIFIED` and the receipt names
+the reason. For a bug fix this control is exactly "there is a regression test".
+For a feature it is exactly "the acceptance criterion is executable". Both are
+things a senior engineer requires and no harness currently enforces.
+
+**The invariance control, for behaviour-preserving work.** A refactor is the
+mirror image: the battery must pass on **both** trees, and the exam surface must
+be **byte-identical**. A refactor that rewrote its own tests is not a refactor,
+and today nothing distinguishes the two. This closes the loophole the differential
+control would otherwise leave open — declaring behaviour-preserving intent to
+escape the requirement that some check moved.
+
+Which control applies is a property of the `TaskFrame` (Phase 8.1) and is decided
+at plan time, not at grading time. Declaring `refactor` to escape the differential
+control and then shipping behaviour changes fails the invariance control, because
+the delivered tree's battery result will differ from the base tree's.
+
+Both controls run against the base tree, which means both can and should run at
+**plan time**, before approval and before a credit is committed. A customer who
+learns at plan time that their battery cannot distinguish done from not-done has
+been told something genuinely valuable, has been given the Phase 24.2 path to
+fixing it, and has not been charged to discover it.
+
+**Alongside these, fuzz the derivation.** Phase 8.4's check derivation and Phase
+25.2's build-graph derivation both turn a task into a battery, and both are code
+that can be wrong in the permissive direction. A scheduled fuzzing pass over
+derivation — malformed contracts, adversarial repository layouts, a `Makefile`
+target that shadows a real one, a test path that resolves outside the tree — is
+the same idea as the red-team corpus applied one level down, and it is the level
+where a single bug is worth thousands of individually-hacked tasks.
+
+**Phase 27 exit gate:** every diff is classified into subject/exam/incidental and
+the classification is on the receipt; `verdict_class` is declared at plan time and
+a `strong` contract that touches the exam resolves `inconclusive` rather than
+choosing a class after the fact; assertion deletion, test removal, skip marking,
+and threshold relaxation are detected and named on every receipt; `battery_power`
+is measured by blast-radius mutation testing at plan time and shown before
+approval; a `none` battery cannot produce a `strong` verdict; racing requires a
+`strong` contract and its width is bounded by measured battery power; discarded
+race attempts are retained and their agreement recorded, with low agreement
+routing to review; the differential control fails a behaviour-changing task whose
+battery does not discriminate base from delivered; the invariance control fails a
+refactor that modified its exam surface; and `p_fa` has a published number derived
+from the revert corpus and the red-team suite.
+
 ## Handover protocol — how to actually execute this document
 
 **Read this before dispatching any implementation work.**
