@@ -4373,7 +4373,7 @@ before money moves.
 
 | # | Decision | **Decided default** | Touches |
 |---|---|---|---|
-| 1 | Pricing model **[business risk]** | **Forecast + hard cap, billed on actuals**, with per-class graduation to fixed pricing. Amend CREDITS.md to the maturity ladder before PR F. | PR Q, PR F |
+| 1 | Pricing model **[business risk]** | **Build the mechanism, defer the policy.** The quote schema carries forecast, cap, quoted amount, and actuals — enough to express fixed pricing, a capped range, or a cold estimate. Which policy is live per task class is a config decision made once PR Q has measured the distribution. Amend CREDITS.md to say exactly this before PR F. | PR Q, PR F |
 | 2 | Graduation threshold | A class graduates to fixed pricing when **p95/p50 ≤ 1.5 over ≥ 200 runs**; Cortex absorbs the tail. Below that, quote a capped range. | PR Q |
 | 3 | Launch trust model | **Private alpha → operator-hosted single-tenant → multi-tenant.** Sandbox (PR C) is required for all three. | PR C, PR AE |
 | 4 | Outcome-corpus consent | **Opt-out, de-identified, aggregate-only, never cross-customer for human dispositions** (invariant 20). Written basis published before the first customer task. | PR D, PR AE |
@@ -4399,14 +4399,52 @@ before money moves.
 
 ### The three that genuinely deserve Josh's confirmation
 
-- **#1 pricing.** The engineering is identical either way — a cap is a cap. What
-  differs is who absorbs variance, and that is a margin appetite question.
+- **#1 pricing.** The engineering is identical either way — a cap is a cap — so
+  the *schema* is not a business decision and should be built now. What differs
+  is who absorbs variance once real numbers exist. See the note below on why
+  fixed pricing should not be written off.
 - **#5 two dials.** Argued from system structure, not user evidence. Cheap to
   confirm with design partners; expensive to reverse after PR K.
 - **#18 packaging.** The no-per-seat recommendation trades predictable revenue
   for adoption velocity. That is a strategy call, not a technical one.
 
 Everything else should simply proceed.
+
+### Why CREDITS.md should be amended — and amended narrowly
+
+**Amend it. But not to assert the maturity ladder.**
+
+The published variance evidence (3×–30× on identical tasks) is real, but it
+measures systems that *cannot bound their own spend*. Cortex can: the cap is
+enforced at the sandbox boundary, and a task that cannot finish inside its budget
+becomes a failed verification, which is already refunded. **Variance is not
+imposed on Cortex; Cortex chooses how much of it to absorb.** That means fixed
+pricing — the better customer experience, and what VISION.md promises — is not
+disproven by that evidence and should not be written off on it.
+
+What is genuinely unknown is the *distribution*: what fraction of real tasks
+would blow through a fixed budget. At 5% the fixed model is comfortable; at 40%
+it collapses. Only PR Q can answer that, and it can only answer it in production.
+
+So the amendment should do three things and stop:
+
+1. **Keep the unit.** A credit remains a verified task, integer-denominated,
+   never tokens. Nothing about that changes.
+2. **Name the mechanism.** Every quote carries a forecast, a hard cap, a quoted
+   amount, and settled actuals. That schema expresses fixed pricing, a capped
+   range, and a labelled cold estimate without alteration.
+3. **Record that the policy is measured, not asserted.** Which of the three is
+   live for a given task class is a configuration decision made against PR Q's
+   data, with a stated threshold for graduating a class to fixed pricing.
+
+This is a smaller, safer change than replacing the pricing model outright. It
+leaves the refund logic and ledger design untouched, it unblocks PR F
+immediately, and it avoids making a business decision now that will be much
+better informed in six weeks.
+
+**Correction to an earlier revision of this plan**, which recommended amending
+CREDITS.md to assert the maturity ladder as the pricing model. That went further
+than the evidence supports and would have foreclosed the better option.
 
 
 ## The numbers that say Cortex is actually best
@@ -4542,100 +4580,110 @@ descends from the same asset — Cortex runs the checks, so Cortex has verdicts:
 
 ## Where this plan is weakest
 
-Stated so the next reviewer attacks the right things:
+The document now covers, end to end: execution safety and sandboxing; a truthful
+state model; durable verification; pricing, forecasting, and caps; routing
+economics and the model catalog; intake, decomposition, and the method library;
+parallel execution, conflict-freedom, and integration; professionals, packs, and
+the expert panel; provenance and injection resistance; collaborative planning;
+organisations, roles, budgets, and policy; production hardening; headless access
+via API, CLI, and MCP; the frontend from primitives to polish; the free editor
+extension; and launch operations. Every decision carries a decided default, so
+no PR waits on an answer.
 
-- **The pricing model changed mid-document and CREDITS.md has not caught up.**
-  Phase 6.4 supersedes this plan's own earlier recommendation. Until CREDITS.md
-  is amended, two docs disagree about what a credit is, and PR F must not persist
-  a price list into that ambiguity.
-- **The forecast has no data yet.** Phase 6.4's whole mechanism rests on an
-  empirical distribution Cortex does not have until it has run a meaningful
-  number of tasks. The cold-start path is designed, but the first weeks of
-  operation will be wide labelled estimates, and that is a worse experience than
-  the steady state. Plan for it rather than being surprised by it.
-- **The two-dial design is unvalidated and expensive to reverse.** It is argued
-  from the structure of the system, not from user evidence. It shapes the policy
-  schema, the Plan Receipt, and the whole surface. Phase 10.3's design-partner
-  protocol exists to test it early, and it should be tested before PR K, not
-  after.
-- **The method library could be a wiki with extra steps.** Phase 8.4's
-  falsification test is the guard, but it only works if it is enforced when the
-  first template fails — which is exactly when it will be tempting to keep it.
-- **The panel's complementarity machinery (12.10) needs volume
-  before it means anything.** Precision per (professional × finding type ×
-  ecosystem) is a lot of cells to fill. Expect the first professionals to run on
-  priors and coarse global precision for a while, and do not let the elegance of
-  the target design delay shipping two useful read-only reviewers.
-- **Phase 12 is the easiest phase in this document to fake.** Every other phase
-  fails loudly when done badly; a bench of personas that changes nothing will
-  look impressive in a demo and be worthless. The `outcome_record` requirement
-  and the retirement rule are the only things standing between the two outcomes,
-  and both are process commitments rather than code.
-- **Onboarding (10.4) is newly identified and unspecified.** It is the first
-  thing external testers meet and it currently has no owner in this plan.
-- **Semantic conflict detection (14.4b) is the one judgment call in Phase 14.**
-  Path overlap, duplicate work, and stale base are all deterministic. Comparing
-  architectural direction between two TaskFrames is not, and it will produce
-  false positives. Ship it advisory, measure the false-positive rate, and be
-  willing to turn it off if developers learn to ignore it — a noisy coordination
-  signal is worse than none.
+Every plan of this size still has soft spots. Hiding them produces a document that
+reads well and fails in contact with reality, so they are listed here — but
+**sorted by what you can actually do about them**, because the three kinds need
+opposite responses.
 
-### Completeness statement
+### A. Fix before actualizing — these are cheap now and expensive later
 
-As of this revision the document covers, end to end: execution safety and
-sandboxing; a truthful state model; durable verification; pricing, forecasting,
-and caps; routing economics and the model catalog; intake, decomposition, and
-the method library; parallel execution, conflict-freedom, and integration;
-professionals, packs, and the expert panel; provenance and injection resistance;
-collaborative planning; organisations, roles, budgets, and policy; production
-hardening; headless access via API, CLI, and MCP; the frontend from primitives
-to polish; the free editor extension; and launch operations.
+Weaknesses caused by *missing work*, not missing information. Do these first.
 
-**Every open decision now carries a decided default.** No PR in the delivery
-order waits on an unanswered question.
+| Weakness | Fix | Cost |
+|---|---|---|
+| **CREDITS.md contradicts Phase 6.4** on what a credit is. An implementer reading one doc builds a fixed price list; reading the other builds a cap-and-actuals schema. Two different schemas. | Amend CREDITS.md as described in decision 1 — separate *mechanism* from *policy*. | ~1 hour, doc only |
+| **Effort semantics are uncalibrated across providers.** Anthropic's `effort` and OpenAI's `reasoning_effort` are not the same scale, and CLI backends may expose neither. Mapping them by name similarity would make the dial lie. | Write the calibration protocol into PR K's brief: a fixed eval set run at each level per provider, mapping by *measured* token spend and quality, not by label. | Half a day of design, before PR K |
+| **`ExecutionJob`'s field set is the narrowest waist in the system** and is specified in prose, not as a type. | Write the struct — actual Rust, in PR C's brief — and review it before implementation starts. Re-cutting it later touches every phase. | Half a day |
+| **The state machine in Phase 0.2 is a diagram, not a specification.** Legal transitions, guards, and terminal states are described but not enumerated. | Produce the transition table in PR A's brief. Every cell is a test in the Phase A matrix. | One day, and it *is* PR A's design work |
 
-What remains genuinely unresolved is listed immediately below and in the five
-items after it. That list is deliberately short and deliberately honest: a plan
-claiming zero uncertainty would be the least trustworthy document in this
-repository.
+### B. Cannot be resolved before actualizing — instrument and revisit
 
-### Known gaps this document does not yet cover
+These are not gaps in the plan. **The missing input is production data**, and no
+amount of further planning produces it. Trying to "fix" these first means never
+starting.
 
-Named so they are not mistaken for completeness. None blocks the delivery order;
-all should be resolved before general availability.
-
-- **Customer secrets.** Phase 0.1 gives the runner ownership of *Cortex's* git
-  credentials, but a task may legitimately need the customer's — a test database
-  password, a staging API key. There is no design here for how those are stored,
-  scoped to a task, injected into a sandbox, redacted from logs and receipts, and
-  rotated. This is a prerequisite for many real repos, not an edge case.
-- **Provider outage and quota exhaustion.** Failover is deliberately deferred,
-  which is defensible for an alpha and not for a paid product with a
-  time-bounded promise. At minimum, decide what a run does when its routed
-  provider is unavailable mid-flight, and make sure the answer is not "fail the
-  customer's paid task."
-- **Data deletion.** Consent and retention for the outcome corpus is decision 4,
-  but deletion — what an account closure or a deletion request actually removes,
-  and what the append-only ledger legitimately retains — is unspecified and has
-  legal consequences.
-- **Abuse.** What Cortex refuses to build, and how a malicious user attacking the
-  sandbox or mining credits is detected. The sandbox contains the blast radius;
-  it does not decide policy.
-- **Planning cost attribution.** Planning and re-planning are free to the
-  customer, which means Cortex pays for them. At high effort, planning is not
-  cheap. It needs a line in the COGS model rather than being invisible.
+- **The forecast has no data.** Phase 6.5's estimator needs an empirical
+  distribution Cortex does not have. The cold-start path is designed; the first
+  weeks will be wide labelled estimates. *Response:* ship the mechanism, show the
+  interval honestly, and let it narrow visibly — that narrowing is itself a trust
+  artifact.
 - **`p_c` and `c_v` in Phase 7.3 are unmeasured.** The escalation formula is
-  correct; the inputs are currently guesses. The first honest routing decision
-  is only possible after PR J instruments them, and the worked examples in 7.3
-  are illustrative, not calibrated.
-- **No user research backs Phase 10.3.** The progressive-disclosure position is
-  an argued opinion. The design-partner protocol exists to falsify it.
-- **Track A's `ws.rs`/`db.rs` line references were not independently re-read**
-  during this extension — see the resume note at the top.
-- **Effort semantics differ across providers.** Anthropic's `effort` and
-  OpenAI's `reasoning_effort` are not the same scale, and CLI backends may expose
-  neither. `ExecutionPolicy` must be calibrated per provider against real evals,
-  not mapped by name similarity.
+  correct; its inputs are placeholders and the worked examples are illustrative.
+  *Response:* PR J instruments them before any routing policy change is trusted.
+- **The panel's precision and complementarity matrices need volume.** Precision
+  per (professional × finding type × ecosystem) is many cells. *Response:* run
+  the first professionals on coarse global precision and priors; do not let the
+  elegance of the target design delay shipping two useful read-only reviewers.
+- **No user research backs the progressive-disclosure position or the two-dial
+  design.** Both are argued from system structure. *Response:* the design-partner
+  protocol (Phase 10.3) tests them *during* PR K rather than gating its start —
+  the data contract behind the dials (Phase 6.6) is fixed either way, so only the
+  visual treatment is at risk.
+
+### C. Process risks — no document can fix these
+
+These fail through *discipline*, not through *design*. Writing more plan does not
+help; only a gate that someone actually enforces does.
+
+- **The method library could become a wiki with extra steps.** The falsification
+  test in Phase 8.4 only works if it is enforced the first time a template fails —
+  which is precisely when keeping it will feel reasonable.
+- **Phase 12 is the easiest phase here to fake.** Every other phase fails loudly
+  when done badly; a bench of personas that changes nothing demos beautifully and
+  is worthless. The `outcome_record` requirement and the retirement rule are the
+  only defence, and both are commitments rather than code.
+- **Semantic conflict detection (14.4b) will produce false positives.** Ship it
+  advisory, measure the false-positive rate, and be genuinely willing to turn it
+  off — a coordination signal developers learn to ignore is worse than none.
+
+**Mitigation for all three, and it is the same one:** each has a numeric gate in
+the scoreboard. Put the gate in the PR's done-criteria, and make failing it mean
+*delete the feature*, not *write a follow-up ticket*.
+
+### Resolved since the previous revision
+
+Kept visible so nobody re-raises them:
+
+- ~~Track A's `ws.rs` / `db.rs` line references were never independently
+  re-read.~~ **Verified.** `complete_step` (`ws.rs:472`) runs before the
+  verification spawn (`ws.rs:521`); `quoted_credits: None` is at `ws.rs:517`;
+  `finish_verification` (`db.rs:11397`) only updates `verification_runs` and
+  transitions nothing. Track A's evidence table is accurate.
+- ~~Onboarding is unspecified.~~ Specified in Phase 10.4 and Phase 18.5.
+- ~~Customer secrets, provider outage, data deletion, abuse, and planning-cost
+  attribution are unspecified.~~ **All five are now Phase 15.**
+- ~~The provider-subscription credential flow is still live in the backend.~~
+  **Removed** — see the commit history for this branch.
+
+### What is still genuinely not covered
+
+Short, and honest about it:
+
+- **Multi-repo and monorepo-at-scale.** Everything here assumes one repository
+  per task. A change spanning three services, or a monorepo where the "repo scan"
+  is a 40-minute operation, is not designed for.
+- **Long-running and stateful workloads.** Tasks needing a database migration
+  rehearsal, a live service, or a multi-hour build have execution and caching
+  needs the sandbox design does not address.
+- **Non-code deliverables.** Docs, infrastructure-as-code, notebooks, and schema
+  changes have different verification shapes, and the check-derivation story is
+  written for application code.
+- **Windows and non-Linux targets.** The runner is Linux-container-shaped. A
+  customer building a Windows desktop app cannot be verified today.
+- **Competitive response.** If a major vendor ships receipts, the differentiator
+  narrows to the outcome corpus and the method library. That is a defensible
+  position and it should be a conscious one.
+
 
 ## Sources for Track B
 
