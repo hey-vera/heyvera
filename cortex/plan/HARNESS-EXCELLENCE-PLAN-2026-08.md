@@ -2752,6 +2752,1002 @@ duplicate plans are detected from TaskFrame similarity; a solo developer's
 experience is unchanged by the feature's existence; and a plan-space view leaks
 no content the viewer's role does not permit.
 
+## Phase 15 - Production hardening: the five gaps closed
+
+**Goal:** specify the operational concerns that an earlier revision named as
+gaps. With these, the backend side of this plan is complete — every mechanism
+Cortex needs between here and a paid, externally-used product has a design.
+
+### 15.1 Customer secrets
+
+Phase 0.1 gives the runner ownership of *Cortex's* git credentials. Many real
+tasks also need the *customer's* — a test database URL, a staging API key, a
+package-registry token. Without this, Cortex silently cannot run the test suites
+of a large fraction of real repositories, which caps the verification wedge.
+
+- **Cortex never sees plaintext at rest.** Secrets are envelope-encrypted with a
+  per-org data key; the API stores ciphertext and never logs it.
+- **Scoped by declaration, injected at the boundary.** A Plan Receipt declares
+  which named secrets a task needs. The sandbox runner injects them as
+  environment variables into the task's container; the API process does not
+  decrypt them for any other purpose.
+- **Never in the receipt, never in a log, never in context.** Add an egress
+  redactor over agent output, check output, and stored artifacts, keyed on the
+  known secret values for that task. A secret that reaches a receipt is a
+  breach, and the receipt is customer-visible by design.
+- **Denied by default and visible in the capability card.** "This task will have
+  access to `STAGING_DB_URL`" is exactly the kind of thing Phase 3.2 exists to
+  show before execution.
+- **Rotation and revocation** are first-class, and revocation kills in-flight
+  tasks holding that secret.
+- **A secret is never an input to the outcome corpus.** Feature extraction for
+  the estimator and the router must operate on metadata, never values.
+
+### 15.2 Provider degradation
+
+Failover is deferred as a *routing feature*; it cannot be deferred as a
+*reliability behaviour*. A paid task must not fail because a vendor had an
+incident.
+
+- **Distinguish the failure classes:** rate-limited (retry with backoff),
+  quota-exhausted (route elsewhere), degraded (elevated errors — shed load),
+  hard-down (remove from the candidate set), and *contractually forbidden*
+  (Phase 7.4 allowlist — never a fallback target, even in an outage).
+- **Health is measured, not configured.** The `pressure` signal already exists;
+  extend it with a rolling error rate and latency, and let it eject a provider
+  from candidacy automatically.
+- **Mid-flight failure is an attempt failure, not a task failure.** Fresh-context
+  retry on a different provider, within the approved envelope. The customer's
+  quote is unaffected — this is Cortex's cost, exactly like a failed
+  verification.
+- **Total unavailability degrades honestly.** If no capable provider is
+  available, tasks queue in a visible `blocked_provider_capacity` state with an
+  explanation. They do not fail, and they do not silently downgrade to a model
+  that cannot do the work.
+- **The forecast accounts for it.** Retry-on-outage mass belongs in the
+  estimator's retry term (Phase 6.5), or caps will be exceeded during incidents.
+
+### 15.3 Data lifecycle and deletion
+
+Decision 4 covers consent for the outcome corpus. Deletion is the other half and
+has legal consequences.
+
+- **Classify every store** by what deletion means: repository content and
+  artifacts (deletable), receipts and check output (deletable with the run),
+  ledger entries (**append-only — retained, as financial records legitimately
+  are**), and the derived outcome corpus (retained only in de-identified,
+  aggregated form).
+- **Account closure** deletes tenant content and artifacts, retains the ledger,
+  and removes the tenant's contribution to any shared model input. State the
+  distinction plainly in the data-handling document (Phase 9.4) — buyers accept
+  ledger retention when it is explained and are alarmed when they discover it.
+- **De-identification must be real.** Repository names, paths, and code snippets
+  are identifying. The corpus keeps *shapes and outcomes* — task class,
+  language, size buckets, effort, cost, verdict — not content.
+- **Deletion is a job, not a flag**, with a completion receipt and an SLA.
+
+### 15.4 Abuse
+
+Cortex holds funded provider accounts and executes arbitrary code for strangers.
+Both are abuse surfaces, and the sandbox contains blast radius without deciding
+policy.
+
+- **Credit mining and resource abuse:** rate limits per org and per identity,
+  new-account velocity limits, and anomaly detection on spend patterns. The
+  budget and cap machinery (Phase 6.4) already provides the enforcement point.
+- **Sandbox abuse:** cryptomining and outbound scanning are the predictable
+  cases. Egress is already default-deny (Phase 0.1); add resource-shape anomaly
+  detection and terminate on match.
+- **Content policy:** decide what Cortex refuses to build, apply it at intake
+  where it is cheap, and make refusals explainable and appealable. A refusal at
+  intake costs nothing; one at delivery has already burned the money.
+- **Every enforcement action is an audit event** with actor, rule, and evidence.
+
+### 15.5 Planning and overhead cost attribution
+
+Planning is free to the customer, which means Cortex pays for it — and at
+`ultra`, planning is not cheap. Today it is invisible in the margin model.
+
+- **Attribute non-billable spend explicitly**: planning, re-planning, intake
+  framing, plan lint, the estimator's own scan, panel review, verification, and
+  escalation retries. Each is a named cost category on the run.
+- **True COGS is the sum**, not just the winning attempt. The
+  credits-per-verified-task metric (Phase 7.2) must use the full figure or it
+  will flatter every routing decision.
+- **Watch the re-planning loop.** Free re-planning is the right policy and it is
+  also an unbounded cost if a user iterates twenty times. Track re-plans per
+  task; if the distribution has a tail, the fix is better intake (Phase 8.1),
+  not charging for it.
+- **Panel spend has its own line**, since Phase 12.10's budget ratio is enforced
+  against it.
+
+**Phase 15 exit gate:** a task can use a declared customer secret that never
+appears in a receipt, log, or context bundle; a provider outage produces a
+retried or visibly queued task rather than a failed paid one; an account deletion
+removes content and retains the ledger with both behaviours documented; a
+resource-abuse pattern is detected and terminated; and the COGS dashboard
+reconciles against total provider spend including all non-billable categories.
+
+---
+
+# Track C - The interface
+
+Tracks A and B make Cortex true and valuable. Track C is where a developer
+actually meets it. The interface is not a presentation layer over the product —
+for every claim in this document, **the interface is where the claim is either
+believed or not.**
+
+Scope note: this track covers `cortex/` (React 19, Vite, Tailwind v4, React
+Router, Clerk, Sentry). It assumes the API-first rule from Phase 10.1 and the
+transparency contract from Phase 6.6, and it is the concrete plan for both.
+
+## Evidence from the current frontend
+
+Measured on this checkout, not inherited. Some rows confirm and extend
+[FRONTEND-AUDIT.md](FRONTEND-AUDIT.md) (2026-08-05), which remains the source of
+record for the deletion pass and the six-pane IA skeleton.
+
+| Finding | Evidence | Consequence |
+|---|---|---|
+| **Zero tests, and no test runner installed.** No `*.test.*` or `*.spec.*` file exists anywhere in `src`; `package.json` has no test script and no testing dependency — not Vitest, not Testing Library, not Playwright. | `cortex/package.json`; `find src -name "*.test.*"` → 0 results | The one surface where a silent regression is invisible has no automated protection at all. Every truth state this plan defines — `verifying`, `verified`, `failed`, capped, blocked — can regress into a plausible-looking wrong state with nothing to catch it. |
+| **One shared UI primitive exists.** `src/components/ui/` contains a single file, `BottomSheet.tsx`. | `cortex/src/components/ui/` | Every button, input, dialog, table, badge, menu, and empty state in 25k lines is bespoke. This is the direct cause of "menus and sizing feel inconsistent" — there is nothing for them to be consistent *with*. |
+| **Keyboard focus is essentially unstyled.** `focus-visible` appears twice in the entire tree. | grep across `src` | Keyboard and screen-reader users cannot see where they are. This is both an accessibility failure and a power-user failure — the audience most likely to adopt Cortex is the one that navigates by keyboard. |
+| **No server-state layer.** Dependencies are Clerk, Sentry, Tailwind, `clsx`, `tailwind-merge`, `lucide-react`, React, React Router. No React Query, SWR, Zustand, or equivalent. | `cortex/package.json` | Caching, deduplication, background refetch, retry, and optimistic updates are hand-rolled per component or absent. For a product whose screens are long-lived views over server state that changes underneath them, this is the highest-leverage missing dependency. |
+| **`cortexApi.ts` is 2,521 lines** — one module for the entire API surface. | `cortex/src/lib/cortexApi.ts` | Every feature touches one file. It is a merge-conflict magnet and it hides which screens depend on which endpoints. |
+| **`App.tsx` is still 1,100 lines**, holding routing, shell, and modals. FRONTEND-AUDIT.md flagged this as owed work; it is still owed. | `cortex/src/App.tsx` | The shell cannot be tested, reused by a second client, or reasoned about. |
+| **`taskManager.ts` (962 lines) holds canonical state in the browser**, seeds fabricated members, and fails open on evidence validation. | `cortex/src/lib/taskManager.ts:116-130`, `:426-442` | Already a Track A/B finding; restated here because the *fix* is frontend work and it is a launch blocker (Phase 15's external-testing bar). |
+| **Five overlapping ledger-ish surfaces**, none reading the credit ledger; two sidebars rendering at once; subscription-era copy still live. | FRONTEND-AUDIT.md §"The six panes", §"IA skeleton" | Arrangement and wiring, not substance. The audit's judgement — "more a re-composition than a green-field build" — still holds and should be trusted. |
+| **A real, semantic design-token system already exists.** `index.css` defines role-based tokens (`--surface`, `--line`, `--ok`, `--err`, `--warn`, focus ring) dark-first with a light block. | `cortex/src/index.css:1-45` | **This is the best foundation in the frontend and the plan should build on it, not replace it.** The tokens are right; what is missing is components that consistently consume them. |
+| **Lint does not gate.** CI runs `build` only for `cortex`. | FRONTEND-AUDIT.md §"What F1 leaves" | Quality debt accumulates silently. |
+
+The honest summary: **the frontend has good bones and no skeleton.** Tokens are
+well-designed, real machinery exists (DAG view, task board, conflict viewer,
+command palette, typed API client), and the six-pane IA is sketched. What is
+absent is the shared layer that would make 87 files behave like one product, and
+any automated way to know when they stop.
+
+## Phase 16 - Frontend foundations
+
+**Goal:** build the layer that makes every later screen cheap, consistent, and
+verifiable. Nothing else in Track C is affordable without it.
+
+### 16.1 A component library, built on the tokens that already exist
+
+The tokens are good. Give them consumers. Build a small, complete primitive set
+in `src/components/ui/` — small enough to finish, complete enough that no screen
+needs to invent anything:
+
+**Layout & structure:** `Stack`, `Grid`, `Panel`, `Card`, `Separator`,
+`ScrollArea`, `Resizable`, `PageHeader`, `Toolbar`
+**Input:** `Button` (variants: primary / secondary / ghost / danger; sizes
+sm / md / lg), `IconButton`, `Input`, `Textarea`, `Select`, `Combobox`,
+`Checkbox`, `Radio`, `Switch`, `Slider`, `SegmentedControl`, `Form` + `Field`
+(label, hint, error, required — one component owning the whole pattern)
+**Overlay:** `Dialog`, `Drawer`, `BottomSheet` (exists), `Popover`, `Tooltip`,
+`DropdownMenu`, `ContextMenu`, `CommandPalette` (exists — move it here)
+**Feedback:** `Badge`, `StatusDot`, `Toast`, `Banner`, `ProgressBar`,
+`Spinner`, `Skeleton`, `EmptyState`, `ErrorState`
+**Data:** `Table` (sortable, virtualised, sticky header), `DescriptionList`,
+`KeyValue`, `Code`, `DiffView`, `Timeline`, `Tabs`, `Pagination`
+**Domain:** the small set of Cortex-specific atoms every surface needs —
+`VerdictBadge`, `EffortDial`, `SpeedDial`, `CostRange`, `BurnBar`,
+`ProvenanceTag`, `LeaseChip`, `ProfessionalChip`
+
+Rules that make this a system rather than a folder:
+
+- **Use a headless primitive library for behaviour** (Radix or Ark). Do not
+  hand-roll focus traps, dismiss layers, roving tabindex, or ARIA wiring —
+  hand-rolled overlays are where accessibility and keyboard behaviour go to die,
+  and this is a solved problem with no strategic value in re-solving.
+- **Variants are typed and closed.** Use CVA or equivalent so `<Button
+  variant="prmiary">` is a type error, not a silently unstyled button.
+- **Sizing comes from a scale, not from numbers.** Spacing, radii, font sizes,
+  and control heights are tokens. A component may not contain an arbitrary
+  pixel value. This is the concrete fix for "sizing feels off" — inconsistent
+  sizing is always a symptom of ad-hoc values.
+- **No component fetches data.** Primitives are presentational; data comes from
+  hooks in feature modules. This is what makes them testable and reusable by a
+  future desktop or native shell.
+- **One escape hatch, deliberately narrow:** components accept `className` merged
+  through `tailwind-merge` (already a dependency). Everything else is props.
+
+### 16.2 Lock it down so it does not drift
+
+A component library without enforcement becomes 87 bespoke files again within a
+quarter.
+
+- **Storybook** (or Ladle) for every primitive, with states: default, hover,
+  focus-visible, disabled, loading, error, empty, long-content, RTL. The story
+  file *is* the spec, and it is where design review happens without a running
+  backend.
+- **Visual regression testing** on the story set. Snapshot diffs catch the class
+  of change no unit test does — the reason a product feels unpolished is almost
+  always accumulated small visual drift.
+- **A lint rule banning raw colour and spacing values** outside the token file.
+  Mechanical, unarguable, and it prevents the single most common source of
+  inconsistency.
+- **Make lint gate in CI.** FRONTEND-AUDIT.md left the count at 9 problems;
+  drive it to zero and turn it on. A non-gating linter is a suggestion.
+
+### 16.3 The data layer
+
+Adopt **TanStack Query** for all server state. This is the highest-value single
+dependency addition in Track C, and its absence explains a surprising amount of
+current awkwardness.
+
+- **Query keys mirror the resource graph** — `['run', runId]`,
+  `['run', runId, 'steps']`, `['receipt', receiptId]`, `['plan', planId]`.
+- **Caching, dedup, background refetch, and retry come free**, and stale-while-
+  revalidate is exactly right for long-lived operational views.
+- **Mutations use optimistic updates with rollback**, and — per Phase 10.1 —
+  **ETag/version conflict handling rather than last-write-wins.** A 409 surfaces
+  as "this changed while you were editing," never as a silent overwrite.
+- **Real-time is an invalidation source, not a parallel state tree.** SSE and
+  WebSocket events (`crates/api/src/sse.rs`, `run_stream.rs`) invalidate query
+  keys; they do not maintain their own copy of the data. One source of truth in
+  the client, matching the one source of truth on the server.
+- **Every query declares its freshness requirement.** A ledger balance and a
+  live burn bar are not the same problem, and the transparency contract (6.6)
+  depends on the second being genuinely live.
+
+### 16.4 Split the API client and the shell
+
+- **Split `cortexApi.ts` (2,521 lines) by domain** — `api/runs.ts`,
+  `api/receipts.ts`, `api/plans.ts`, `api/ledger.ts`, `api/org.ts` — with shared
+  transport, error mapping, and auth in one place. Keep the generated types
+  together; split the call sites.
+- **Consider generating the client** from an OpenAPI schema emitted by the Rust
+  API. Phase 10.1 requires a documented versioned API anyway; generating the
+  client makes drift between server and client a compile error instead of a
+  runtime 404. This is a real force multiplier once a second client exists.
+- **Split `App.tsx` (1,100 lines)** into `router.tsx`, `AppShell`, and modal
+  routes. FRONTEND-AUDIT.md already flagged this; it blocks testing, reuse, and
+  the second client.
+- **Delete the browser-canonical state in `taskManager.ts`.** Server is
+  canonical; local drafts live in a visibly separate mode that cannot mutate
+  shared status (Phase 3.3). Remove `defaultMembers` and the fail-open evidence
+  gate in the same change.
+
+### 16.5 Errors, loading, and empty are designed states, not accidents
+
+Every async surface has four states, and all four are designed once in the
+primitive layer rather than improvised per screen:
+
+- **Loading:** skeletons that match the shape of the content, never a centred
+  spinner on a full page. Layout must not shift when data arrives.
+- **Empty:** says what would be here, why it is not, and the one action that
+  changes it. FRONTEND-AUDIT.md's own instinct was right — "an empty pane that
+  explains itself beats a screen of numbers the ledger cannot back."
+- **Error:** what failed, whether it is retryable, and what to do. Never a raw
+  status code. Errors are typed from the API's error model
+  (`crates/api/src/api_error.rs`) so the mapping is exhaustive.
+- **Stale/offline:** explicitly indicated. The interface may never render
+  ambiguous data as though it were current — that is the UI face of invariant 7.
+
+## Phase 17 - Headless Cortex: the app is optional
+
+**Goal:** make Cortex usable the way developers actually expect a developer
+product to be used — from a terminal, from CI, from their own tooling — with the
+web app as one client among several rather than the product itself.
+
+### 17.1 The thesis
+
+Credits are the unit and the API is canonical (Phase 10.1). Those two facts
+together mean **a developer with credits should never be required to open a
+browser.** They should be able to:
+
+```bash
+cortex plan "add rate limiting to the checkout endpoint" --effort xhigh
+cortex approve pl_8f3a --cap 40
+cortex watch run_2b91
+cortex receipts show rcpt_44c1
+```
+
+...and get exactly the same objects, states, and receipts the web app shows.
+This is not a convenience feature. For the audience most likely to pay — senior
+engineers and platform teams — a product that only exists as a web app reads as a
+toy, and one that composes into scripts and CI reads as infrastructure.
+
+It also happens to be nearly free, because every other phase in this document
+already requires a documented, versioned API with canonical server state. Track C
+is where that gets *used* rather than merely promised.
+
+### 17.2 Three auth mechanisms, and do not conflate them
+
+There is real foundation here already: `crates/api/src/agent_auth.rs` implements
+prefixed, hashed API keys with `generate_agent_api_key`, `agent_key_prefix`,
+`hash_agent_api_key`, and `resolve_agent_identity`. Build on it.
+
+**(a) API keys — for scripts, CI, and service integrations.**
+
+- Personal keys (act as a user) and **service keys owned by an org** (act as a
+  named service principal, survive an employee leaving — this matters for CI).
+- Prefixed for detectability (`ctx_live_…`), hashed at rest, shown once.
+- **Scoped** (17.3), **spend-limited**, expiring, rotatable, revocable, with
+  last-used and source-IP recorded for the audit log.
+- Secret-scanning partner submission so a leaked key in a public repo is
+  auto-revoked. Cheap, and the alternative is a customer's credits funding a
+  stranger.
+
+**(b) Device authorisation flow — for the Cortex CLI.**
+
+This is what `gh auth login` and every good CLI does: the CLI prints a code, the
+user approves in a browser once, the CLI holds a refreshable token. No pasted
+API key, no browser redirect to localhost, works over SSH — which matters
+because a meaningful share of this audience works on remote machines.
+
+**(c) OAuth 2.1 — for third-party applications acting on a user's behalf.**
+
+Authorisation code with PKCE, refresh tokens, per-scope consent, revocable from
+the user's settings. This is what makes "connect Cortex to your tool" possible
+and is the thing to build when a partner asks, not before.
+
+> **A distinction that must not be blurred, because getting it backwards is
+> business-ending.** Cortex becoming an **OAuth provider** — issuing tokens for
+> *its own* credit-backed API — is exactly right. Cortex **consuming a user's
+> Claude or ChatGPT subscription credentials** is a different thing and is
+> prohibited: Anthropic's February 2026 terms bar subscription tokens inside
+> third-party tools, enforced from 2026-04-04, and FRONTEND-AUDIT.md records that
+> this was once the shipped default in the settings UI. The UI path is closed.
+> **The backend `startAuth` subscription flow and the `device_code` field in
+> `crates/api/src/auth.rs:29` are still there and must be removed** — and the
+> new device flow in (b) must not be built by reviving that code, because it
+> means the opposite thing. Cortex holds operator-funded provider accounts and
+> sells outcomes; it never borrows a user's subscription.
+
+### 17.3 A token's scope is a capability envelope
+
+Do not invent a second permission vocabulary. A token carries the same envelope
+the rest of this document already defines (Phase 3.2, Phase 12.2):
+
+`read` · `plan` · `approve` · `write_branch` · `open_pr` · `deploy` ·
+`admin` · `billing`
+
+- **Least privilege by default.** A new key is `read` + `plan`. Anything that
+  spends money or writes code is opt-in and shown at creation.
+- **A token can never exceed its owner's role** (Phase 9.2), and an org policy
+  ceiling (Phase 9.3) always wins over a token's grant.
+- **Per-key spend limits and effort ceilings.** A CI key that can run
+  `low`-effort verification tasks up to 200 credits a month is a completely
+  different risk object from a personal key with `deploy`, and the system should
+  be able to express that.
+- Every token action is an audit event with the key's identity, not just the
+  user's.
+
+### 17.4 The headless approval problem — the real design question
+
+The Plan Receipt exists so a human approves scope, capabilities, and cost before
+anything runs. A headless API has no human in the loop. Resolving this badly
+would either make the API useless or quietly delete the safety model.
+
+The answer is **pre-authorisation, not bypass**:
+
+- **Default: two-step.** `POST /plans` returns a Plan Receipt with its forecast
+  and cap; nothing executes until `POST /plans/{id}/approve`. Scriptable, and it
+  preserves the contract exactly.
+- **Standing authorisation policies** let a team pre-approve a *class* of work:
+  "auto-approve plans under 25 credits, at effort ≤ `high`, touching only
+  `tests/**`, with capability ≤ `write_branch`." The policy is the human
+  decision, made once, and it is a versioned, audited object like every other
+  policy in Phase 12.12.
+- **Anything outside the standing policy blocks and notifies** rather than
+  failing — the run sits in `awaiting_approval` and the CLI, a webhook, or a
+  mobile push (Phase 10.2) surfaces it. This is precisely the asynchronous
+  approval moment that justifies building mobile at all.
+- **`--yes` is never a global flag.** Blanket auto-approval with no cap and no
+  scope is the one thing this plan should refuse to ship, because it converts
+  every other guarantee into decoration.
+
+### 17.5 The CLI
+
+A thin, well-behaved client over the same API — no business logic, so it cannot
+drift from the web app.
+
+- Verbs match the object model: `plan`, `approve`, `run`, `watch`, `receipts`,
+  `ledger`, `repos`, `professionals`, `auth`.
+- **`--json` on everything**, with stable machine-readable output. A developer
+  tool that cannot be piped into `jq` is not a developer tool.
+- **Exit codes carry meaning**: verified, failed verification, blocked, cap
+  reached, awaiting approval. This is what makes Cortex usable as a CI step.
+- Human-readable output that degrades correctly when not a TTY — no spinners or
+  colour in a CI log.
+- Streams the same event feed the web app consumes, so `cortex watch` and the
+  browser show the same states at the same time.
+- Ships the transparency contract too: `cortex plan` prints the forecast per
+  effort position and the cap before asking for approval.
+
+### 17.6 Cortex as an MCP server — the distribution idea
+
+There is **no MCP server in the codebase today** (zero references across
+`crates/api/src`), and this is the most under-priced opportunity in Track C.
+
+Every serious coding harness — Claude Code, Codex, Cursor — can call MCP tools.
+Exposing Cortex as an MCP server means a developer already working in their
+harness of choice can say *"have Cortex verify this"* and receive an independent,
+receipted verdict without leaving their editor.
+
+- Tools to expose: `cortex_plan`, `cortex_verify`, `cortex_receipt`,
+  `cortex_estimate`.
+- **This is not competing with those harnesses; it is selling them the one thing
+  they structurally lack.** They generate code and self-report; Cortex returns an
+  executed verdict with a receipt. The relationship is complementary, and it puts
+  Cortex in front of exactly the developers who already believe in agentic
+  coding.
+- It also reframes distribution: instead of persuading a developer to move their
+  workflow into cortex.heyvera.org, Cortex reaches them where they already are —
+  which is a far shorter path than winning a UI comparison against GitHub's
+  Agent HQ (RESEARCH-2026-08 rec 10).
+- Auth is the API key or OAuth token from 17.2, with the same scopes. A verify-
+  only MCP token is a genuinely low-risk, high-trust entry product.
+
+### 17.7 Events out: webhooks
+
+The counterpart to a headless API is headless notification.
+
+- Signed webhooks (HMAC, timestamped, replay-protected) for
+  `plan.awaiting_approval`, `run.verified`, `run.failed`, `run.blocked`,
+  `cap.reached`, `budget.threshold`, `receipt.available`.
+- At-least-once delivery with retries, a dead-letter view, and manual replay —
+  the same durability discipline Phase 1 requires internally.
+- These are the same events the SSE stream carries. One taxonomy, three
+  transports (SSE, webhook, push).
+
+### 17.8 What this means for the web app
+
+It makes it smaller and better. Once the API is genuinely canonical and a CLI
+exercises it, the web app stops being the place where behaviour hides and becomes
+what it should be: **the best surface for the things a terminal is bad at** —
+reading a diff, reviewing a plan, comparing panel findings, watching a DAG,
+understanding a ledger. That is a sharper product than trying to be everything.
+
+**Phase 17 exit gate:** a developer with credits completes plan → approve →
+verified receipt entirely from a terminal; a CI job runs a Cortex verification and
+gates a merge on its exit code; an API key cannot exceed its owner's role or its
+org's ceiling; a standing authorisation policy auto-approves within its bounds
+and blocks outside them; a leaked test key is auto-revoked by secret scanning;
+and an MCP client obtains a receipted verdict without opening the web app.
+
+## Phase 18 - Information architecture for every audience
+
+**Goal:** one product that a solo builder, three friends, a professional team,
+and a 200-person org each experience as *theirs* — without building four
+products or hiding the good parts behind expertise.
+
+### 18.1 Settle the doorway problem
+
+FRONTEND-AUDIT.md is unambiguous and correct: the chat shell currently occupies
+the position the run and receipt machinery should hold, and it renders **a nav
+inside a nav** because `CortexShell` brings its own full-height sidebar.
+
+- **One navigation, one shell.** Chat's navigation folds into the pane nav; the
+  chat surface becomes a pane, not a frame.
+- **The Plan Receipt is the primary object of the product**, not the transcript
+  (Phase 10.3). Chat is a lens onto it.
+- Delete the subscription-era copy the audit found live in the shell
+  ("Subscribe to unlock full AI agent capabilities") — it contradicts the credit
+  model and is exactly the kind of stale string that makes a product feel
+  unmaintained.
+
+### 18.2 The navigation model
+
+Extend the existing six-pane skeleton (`components/mission/MissionControl.tsx`)
+rather than replacing it. The panes, in the order a developer thinks about them:
+
+| Pane | Question it answers | Present state |
+|---|---|---|
+| **Work** | What am I doing, and what needs me? | chat + task board + launcher, currently the whole app |
+| **Plans** | What is proposed, what does it cost, what do I approve? | **absent** — the most important missing surface |
+| **Runs** | What is executing right now? | real material (`RunPanel`, `OperationsGraphPanel`, `OperationsRoom`) |
+| **Receipts** | What has been proven? | **absent** — the trust surface, and it is empty |
+| **Ledger** | What have I spent, and on what? | five overlapping views, none reading the ledger |
+| **Repos** | What is connected, and what can Cortex verify here? | scattered across integrations and project setup |
+| **Bench** | Which professionals and policies apply? | absent (Phase 12) |
+| **Admin** | Who can do what, and what are the limits? | split between `AdminView` and a 971-line settings modal |
+
+Rules:
+
+- **A pane is a place, with a URL.** Everything deep-links: a plan, a run, a
+  step, a receipt, a ledger entry, a finding. Sharing a link into a conversation
+  is how teams actually work, and it costs nothing if routing is designed for it.
+- **No modal holds primary content.** Modals confirm and edit; they never hold a
+  plan, a receipt, or a diff. The 971-line `SettingsPanel` modal is the current
+  counter-example and should become the Admin pane.
+- **Global search and a command palette** over every object type. The palette
+  already exists — promote it to a primitive and wire it to everything.
+
+### 18.3 Progressive disclosure, not four products
+
+The same object graph, with defaults that differ by context. **Nothing is
+hidden permanently; the difference is what is on screen by default.**
+
+| | **Solo / new** | **2–3 collaborators** | **Professional team** | **200+ org** |
+|---|---|---|---|---|
+| Default pane | Work | Work | Plans | Plans |
+| Visible by default | Work, Plans, Receipts, Ledger | + presence on plans | + Runs, Repos, Bench | + Admin, policies, org budgets |
+| Effort control | One dial, simple labels | same | both dials, forecasts per position | both dials within org ceilings |
+| Approval | Inline, one click | inline + conflict notice | Plan pane with review | policy-gated |
+| Ledger view | "credits left, recent runs" | same | per-project | per-team, exportable, reconciliation |
+| Coordination UI | none | inline notices | plan space | ownership routing |
+
+The mechanism: **capability- and role-driven navigation**, not a "mode" the user
+picks. A solo user without an org never sees org concepts. A user whose role
+gains `admin` sees the Admin pane appear. This avoids the two classic failures —
+a beginner drowning in enterprise chrome, and a professional hitting a ceiling
+because the product decided they were a beginner.
+
+**One rule that outranks the table: the receipt is never hidden from anyone.**
+The trust artifact is the product; a "simple mode" that conceals it would be
+hiding the thing that makes Cortex worth using.
+
+### 18.4 Menus, keyboard, and density
+
+The specific complaints that "menus and sizing feel off" have mechanical causes
+and mechanical fixes:
+
+- **One menu component** (`DropdownMenu`), one set of item shapes (label, icon,
+  shortcut, description, destructive variant), one width scale. Today every menu
+  is bespoke, which guarantees inconsistency.
+- **A density setting** — comfortable and compact — driven by a token scale, not
+  per-component overrides. Operational surfaces are tables, and professionals
+  want more rows.
+- **Keyboard-first navigation.** `⌘K` palette, `g` + letter for pane jumps,
+  `j`/`k` in lists, `Enter` to open, `?` for the shortcut sheet. This audience
+  navigates by keyboard and notices immediately when a product does not support
+  it — and today `focus-visible` appears twice in the whole tree.
+- **Every destructive action confirms with specificity.** "Cancel run 2b91 —
+  3 steps complete, 14 credits spent, not refundable" beats "Are you sure?"
+
+### 18.5 The first five minutes
+
+Implements Phase 10.4. The repo scan already runs for the estimator (Phase 6.5),
+so the welcome screen is nearly free: detected ecosystems, the checks Cortex found
+and can run, measured suite duration, and — honestly — what it cannot verify here
+yet. Then propose two or three real starter tasks with forecasts pre-filled,
+rather than presenting a blank input box. **Optimise the whole flow for reaching
+one completed receipt.**
+
+## Phase 19 - The surfaces that carry the claims
+
+**Goal:** specify the screens where this document's promises are kept or broken.
+Each one is listed with what it must show, because in every case the failure mode
+is showing something reassuring that the backend cannot support.
+
+### 19.1 The Plan Receipt — the primary surface
+
+The most important screen in the product and it does not exist yet.
+
+Must show: objective and the `TaskFrame` it was understood as, with **confidence
+visible**; the decomposition DAG with per-leaf checks, VERIFIED/UNVERIFIED
+labels, and assigned professional with version; **both dials with a forecast for
+every position** (Phase 6.6) and an editable cap; the achievable parallel width
+and what limits it (Phase 11.2); capability grants requested; assumptions Cortex
+made and which were mechanically verified (Phase 13.3); open questions requiring
+an answer; and conflicts with other in-flight plans (Phase 14.4).
+
+Must support: approve, revise (free, always), fork, and reject with a reason.
+
+### 19.2 The run surface
+
+Must show: live state per step with the truth vocabulary — `delivered`,
+`verifying`, `verified`, `failed`, `inconclusive`, `blocked`, `attention` — never
+collapsed into "running"; **live burn against forecast and cap**; why anything is
+blocked, naming the lease holder or the pending approval; the DAG with what is
+parallel and what is serialised; and streamed evidence.
+
+Must support: pause, cancel, retry, raise cap, and answer a blocking question.
+`OperationsGraphPanel` and `RunPanel` are real material here — rewire, do not
+rewrite.
+
+### 19.3 The receipt
+
+The trust artifact, and today an empty pane. Must show: verdict with its
+independence level; the exact tree hash, runner image digest, check argv, and
+outputs; **forecast versus actual**; effort and speed actually applied (not
+requested); catalog, professional, pack, and policy versions that ran; the rung
+climbed for greenfield (Phase 8.5); and provenance for anything asserted.
+
+Must support: a **shareable public read view** (RESEARCH-2026-08 rec 8) — a
+receipt a developer can paste into a PR or a CFO into an audit is the viral unit
+of the entire trust story.
+
+### 19.4 The review bundle
+
+Outcome summary, changed-file map, diff with the check matrix beside it, panel
+findings grouped by professional **with each expert's record shown**, screenshots
+for UI work, and the single next action. Findings that became executed checks are
+visually distinct from advisory annotations — invariant 6, rendered.
+
+### 19.5 The ledger — five surfaces become one
+
+Consolidate `LedgerView`, `UsageView`, `SpendDashboard`, `billing/*`, and
+`cost/*` into one pane reading `credit_transactions`. Must show balance, spend
+over time, per-task attribution, forecast accuracy history (Phase 6.6), and the
+quote → plan → run → verdict → charge chain for any entry. Export as the dispute
+bundle from Phase 2.3.
+
+### 19.6 Repos, bench, leases, admin
+
+- **Repos:** what is connected, what Cortex can verify here, measured suite
+  duration, declared hotspots (Phase 11.5), and per-repo policy.
+- **Bench:** available professionals with versions and records, which are pinned,
+  and which policies require them. Where an org authors its own.
+- **Leases:** `ConflictViewer` is a real seed; give it semantic leases and the
+  "why is this waiting" answer.
+- **Admin:** roles, budgets and ceilings, provider allowlists, audit export,
+  API keys and OAuth apps (Phase 17). One pane, replacing the settings modal.
+
+### 19.7 The dial component
+
+Specified once, used everywhere. Renders all five effort positions and all three
+speed positions **with a per-position cost and time estimate for the current
+task**, the inherited value and its source, an editable cap, and the calibration
+line. Disabled positions show *why* — "your org caps effort at xhigh" — never
+silently absent.
+
+This component is the single most direct expression of the transparency
+contract, and it is the one place where a shortcut would undo Phase 6 entirely.
+
+## Phase 20 - Team economics: credits, budgets, and authority
+
+**Goal:** make a 200-developer organisation's use of Cortex feel like cloud
+infrastructure — funded centrally, governed by policy, attributed for
+accounting — rather than like an expense-report workflow.
+
+### 20.1 The intuitive answer is the wrong one
+
+The obvious design is **per-developer credit allocation**: a lead tops up each
+engineer's wallet. It should be rejected, and the reasons are worth recording
+because it will be proposed again.
+
+- **It blocks work at the worst moment.** An engineer runs out at 2am mid-incident
+  and waits for a manager to wake up. Every per-seat wallet system produces this,
+  and engineers remember it.
+- **It creates hoarding and waste simultaneously.** Some wallets sit unused all
+  quarter; others are exhausted in a week. The org buys for the peak of every
+  individual instead of the peak of the aggregate.
+- **It is permanent administrative overhead** — a top-up queue that never ends.
+- **Nobody buys infrastructure this way.** AWS does not give each engineer a
+  personal balance.
+
+Equally, **per-developer purchase** is right for a solo builder and unworkable
+above about three people: no central visibility, individual expensing, no volume
+terms, and procurement will refuse it.
+
+### 20.2 The model: one pool, governed by policy
+
+> **An organisation funds one credit pool. Everyone draws from it. Control is
+> exercised through limits and policy, never through partitioning the money.**
+
+The load-bearing distinction, and the one that makes this work:
+
+**A budget is a ceiling on consumption, not a reservation of funds.** Budgets may
+sum to more than the pool, because they are limits rather than partitions. That
+single property is what removes the blocked-at-2am failure while keeping real
+control — nobody is stopped by an empty personal wallet, because there are no
+personal wallets.
+
+The layers:
+
+| Layer | What it does | Scope |
+|---|---|---|
+| **Pool** | The org's credit balance | org |
+| **Auto-recharge** | Threshold-triggered top-up, so work never stops on a payment step | org |
+| **Budgets** | Soft alert + hard stop on consumption over a period | org / team / project / member |
+| **Rate limits** | Spend per member per unit time — contains a runaway loop | member / key |
+| **Effort ceilings** | Caps how expensive a single task may be (Phase 6.3) | org / team / project |
+| **Per-run caps** | Bounds each individual run (Phase 6.4) | run |
+| **Priority classes** | Who runs first when the pool is tight | task |
+| **Attribution tags** | Team, project, cost centre — for internal chargeback | run |
+
+Two consequences worth designing for explicitly:
+
+- **Per-run caps make pool depletion predictable.** Because every run carries an
+  enforced maximum, an org's worst-case burn over the next hour is computable
+  rather than a surprise. That is a genuinely reassuring property to show an
+  admin, and it falls out of Phase 6.4 for free.
+- **Priority matters at scale.** When the pool is low, a production hotfix must
+  outrank a speculative refactor. Priority classes with admin-defined defaults,
+  and low-priority work queues rather than failing.
+
+### 20.3 Depletion, refunds, and the boundary cases
+
+- **When the pool empties: complete in-flight work, block new dispatch, alert
+  loudly.** Killing running work destroys partial value *and* the money already
+  spent on it — the worst of both. Alerts fire at forecast-based projections
+  ("at current burn, ~3 days remain"), not only at zero.
+- **Refunds return to the pool that paid**, never to an individual.
+- **Personal and org contexts are explicit and visible.** A developer who belongs
+  to an org must always be able to see which pool a run will draw from, and
+  switching context is deliberate. Accidentally spending personal credits on
+  employer work — or the reverse — is a bad surprise in both directions.
+- **Departure is clean.** Deprovisioning (Phase 9.2) ends a member's access;
+  their historical runs and receipts stay with the org, because the org paid for
+  them and needs them for audit.
+
+### 20.4 Four orthogonal controls — do not conflate them
+
+Teams get confused, and products get confused, because these are usually mashed
+into one "permissions" concept. Keep them separate:
+
+| Control | Question | Defined in |
+|---|---|---|
+| **Role** | What may this *person* do? | Phase 9.2 RBAC |
+| **Budget** | How much may they *spend*? | 20.2 |
+| **Capability envelope** | What may the *agent* touch on their behalf? | Phase 3.2 |
+| **Policy** | What must *happen* regardless of who asks? | Phase 12.12 |
+
+A senior engineer with `admin` may still be subject to a mandatory crypto review;
+a junior with a small budget may still hold `open_pr`. Conflating these produces
+the two classic failures — a lead who cannot be restricted, and a junior who
+cannot do their job.
+
+**Spend authority is its own ladder**, separate from role: any member may approve
+plans up to *X* credits; above *Y* requires a lead. This is how organisations
+already handle purchasing, it is immediately legible to a finance team, and it
+plugs directly into Phase 17.4's standing authorisation policies.
+
+### 20.5 Packaging: do not charge per seat for access
+
+A recommendation with a real adoption argument behind it.
+
+The temptation is per-seat licensing plus credits. **Resist per-seat pricing for
+access**, because it forces an org to decide *in advance* who gets to use Cortex —
+and that rationing conversation is precisely what kills bottom-up adoption inside
+large companies. The occasional user who tries it once a month is how a tool
+spreads; a seat fee makes that user a line item someone has to justify.
+
+Credits already meter usage. Seats would meter *permission to try*, which is the
+wrong thing to meter.
+
+Recommended shape:
+
+- **Credits for the work** — the existing model, unchanged. Consumption scales
+  with value delivered.
+- **An organisation-level platform tier for governance** — SSO, SCIM, audit
+  export, policies, org-authored professionals, self-host. Priced on the
+  organisation, not per head. These are genuine engineering investments
+  (Phases 9, 12.12, 15) and they are what enterprises expect to pay for
+  separately.
+- **Volume terms on credits**, and invoiced billing above a threshold, because
+  procurement requires it.
+
+This keeps the incentive clean: Cortex earns more when it does more useful work,
+and never by taxing the act of trying it.
+
+**Phase 20 exit gate:** a member never blocks on a personal balance; an admin can
+see projected days-of-runway and per-team attribution; a runaway loop is contained
+by rate limits without an admin intervening; pool depletion completes in-flight
+work and blocks new dispatch with advance warning; a refund returns to the paying
+pool; and a developer can always tell which pool a run will draw from before
+approving it.
+
+## Phase 21 - Craft: accessibility, performance, testing, and polish
+
+**Goal:** the difference between software that works and software that feels
+professional. These are the factors that are invisible when present and
+unmistakable when absent.
+
+### 21.1 Accessibility
+
+Currently `focus-visible` appears twice in 25,485 lines. That is the whole story.
+
+- **Every interactive element has a visible focus ring**, from the token already
+  defined (`--focus-ring`). Non-negotiable, and it lands automatically once the
+  primitive layer exists.
+- **Full keyboard operability.** Every action reachable without a mouse; no
+  keyboard traps; logical tab order; skip-to-content.
+- **Correct semantics** — headless primitives (16.1) supply ARIA wiring, roles,
+  and live regions rather than hand-rolled attributes.
+- **Live regions for async state.** A run moving to `verified` must announce; a
+  screen-reader user should not have to poll a page to learn a task finished.
+- **Contrast meets WCAG 2.2 AA** in both themes — verify the token palette
+  rather than assuming, particularly the muted greys on dark surfaces.
+- **Respect `prefers-reduced-motion`.**
+- **Automated axe checks in CI over the Storybook set**, so regressions fail a
+  build rather than a user.
+
+Two audience arguments, since accessibility is often deprioritised: this is the
+keyboard-driven audience most likely to pay, and **accessibility conformance is a
+procurement checklist item** for large orgs and public-sector buyers — a VPAT
+request will arrive.
+
+### 21.2 Performance
+
+- **Budgets, enforced in CI**: initial JS ≤ 200 kB gzip, LCP < 2.0s, INP < 200ms,
+  CLS < 0.1. The audit measured 72.6 kB gzip after its deletion pass — that is a
+  good position to defend rather than rediscover later.
+- **Route-level code splitting**, with heavy panes (DAG, diff viewer) lazy.
+- **Virtualise every long list** — runs, ledger entries, findings, log lines.
+- **Skeletons sized to content** so nothing shifts on load.
+- **Stream long output**; never block a screen on a full log fetch.
+- **Measure real users** via web-vitals into the existing Sentry integration.
+
+### 21.3 Testing — from zero
+
+There is no test infrastructure at all. Build it in this order, because the order
+determines how much value arrives first:
+
+1. **Vitest + Testing Library.** Unit tests for the primitive layer and for every
+   pure function in `lib/` — the API client's error mapping, formatters, the
+   dial's resolution logic.
+2. **Truth-state component tests.** Every surface that renders a verdict,
+   verification state, cost, or provenance gets a deterministic test per state.
+   **This is the highest-value testing in the product**: the whole thesis is that
+   Cortex tells the truth about state, and the frontend is where a regression
+   would silently make it lie.
+3. **MSW for API mocking**, so screens are testable without a backend — which
+   also unblocks frontend work on a machine with no Rust build.
+4. **Playwright end-to-end** on the critical path: connect repo → plan → approve
+   → run → verifying → verified → receipt. Plus the failure path, because the
+   failure path is the product's honesty claim.
+5. **Visual regression** over Storybook (16.2).
+6. **Accessibility assertions** in component tests, not only in the axe sweep.
+
+Gate all of it in CI alongside lint and the bundle budget. The `cortex` CI job
+currently runs `build` only.
+
+### 21.4 Responsive and multi-device
+
+- **Three real breakpoints**, designed rather than inherited: phone (review and
+  approve), tablet, desktop (the operational surfaces).
+- **Phone is not a shrunken dashboard.** It is the approve/monitor/notify
+  surface — the asynchronous moments from Phase 10.2. Optimise for: read a plan,
+  approve or decline, see burn, answer a blocking question, read a receipt.
+- **Touch targets ≥ 44px**, and the existing `BottomSheet` is the right pattern
+  for phone overlays.
+- **The layout work here is what the future desktop and iOS clients inherit**, so
+  keeping presentation in the primitive layer and logic in hooks pays twice.
+
+### 21.5 Internationalisation and formatting
+
+- **Externalise strings from the start** — retrofitting i18n across 87 files is
+  significantly more expensive than adopting it now, and the enterprise buyers
+  in Phase 9 are frequently multinational.
+- **Locale-aware numbers, currency, and dates**; relative times that update.
+- **Never concatenate translated fragments**; interpolate.
+- Ensure the layout survives longer translations and RTL — the Storybook states
+  in 16.2 include both.
+
+### 21.6 Observability of the interface itself
+
+- Sentry is already installed; add **release health, source maps, and user
+  feedback on error boundaries**.
+- **Structured product analytics on the scoreboard metrics** from the Phase 15
+  scoreboard — time-to-first-approved-plan, plan revision count, abandonment,
+  receipt open rate. These are product decisions, and today nothing measures them.
+- **A client-side error must never be silent.** `ErrorBoundary` exists; make it
+  report, offer recovery, and preserve unsaved input.
+
+### 21.7 The polish pass
+
+The things that separate professional from competent, each cheap once the
+primitive layer exists: consistent empty states with a real next action; optimistic
+UI with rollback on failure; undo for anything reversible; preserved scroll and
+filter state across navigation; copy-to-clipboard on every identifier;
+relative timestamps with absolute on hover; sensible tab titles and favicon
+badging for attention-required states; a printable receipt; consistent number
+formatting for credits everywhere; and no layout shift, anywhere, ever.
+
+**Phase 21 exit gate:** the critical path passes an automated end-to-end test
+including its failure branch; every truth state has a deterministic component
+test; axe reports no violations across the Storybook set; the bundle budget gates
+in CI; the app is fully keyboard-operable with visible focus; and the phone
+layout supports read-plan → approve → read-receipt without a desktop.
+
+## Phase 22 - The free editor tool: present daily, paid only when it matters
+
+**Goal:** be in the developer's editor every day at near-zero marginal cost, and
+make spending credits a deliberate choice the developer makes when the work is
+genuinely worth it.
+
+### 22.1 The problem this solves
+
+A professional does not want to burn credits editing three lines. If the only way
+to touch Cortex is to spend, the rational behaviour is to use it rarely — and a
+tool that is not in the daily workflow never becomes the default. That is an
+adoption problem, not a pricing problem, and it will not be fixed by cheaper
+credits.
+
+The founder's framing is exactly right and should be designed *for* rather than
+fought: **"I'll code this one myself"** is the correct outcome most of the time.
+Cortex should be the thing sitting next to that developer, useful for free, and
+one keystroke away when the task is genuinely big.
+
+### 22.2 What Cursor is, and why not to build one
+
+- **VS Code** is Microsoft's editor, open source under MIT.
+- **Cursor** is a *fork* of VS Code with AI built in. It is **not free to run** —
+  its free tier is limited and subsidised, because every completion costs
+  inference. Copilot, Windsurf, Cline, Continue, and Zed occupy the same ground.
+
+**Do not fork an editor, and do not compete on autocomplete.** Three reasons:
+
+1. A VS Code fork is a permanent rebase treadmill against upstream, for no
+   strategic gain.
+2. Inline completion is a latency-and-cache game won with tiny fast models. It is
+   the *opposite* of Cortex's thesis, and Cortex has no advantage there.
+3. VISION.md's rule applies directly: do not enter commodity ground. Autocomplete
+   is the most commoditised surface in developer tooling.
+
+**Ship an extension, not a fork.** An extension runs inside VS Code, Cursor, and
+Windsurf alike — which means Cortex reaches Cursor's users instead of fighting
+them, and pairs naturally with the MCP server in Phase 17.6. JetBrains follows if
+demand justifies it.
+
+The strategic position: **Cortex is complementary to whatever autocomplete a
+developer already uses.** Fighting Copilot for completions is a losing battle;
+being the verification and orchestration layer on top of everyone's completions
+is a winning one.
+
+### 22.3 What is free, and why it can be
+
+The design constraint is honest: anything that calls a model costs Cortex money
+per user. So the free tier is built from **local computation and data the
+customer already owns** — and it happens that this is precisely where Cortex is
+strongest.
+
+| Free feature | Why it costs ~nothing | Why nobody else can ship it |
+|---|---|---|
+| **Verification overlay** — which files and lines are covered by a verified receipt, and when | Reading data already paid for | Requires owning an independent verifier and a receipt store |
+| **Local check batteries** — run the Phase 8.4 L2 batteries against the working tree | They are *executable checks*, not inference. `semgrep`, `cargo-audit`, `axe` run locally at zero marginal cost to Cortex | The curated, versioned, outcome-graded battery is the asset |
+| **Local estimate** — "this change would cost ~14 credits at `high`" | The estimator (Phase 6.5) is a fitted model, not a model call | Requires the outcome corpus |
+| **Plan drafting** — compose and refine a plan, see its forecast, decide later | Drafting is local; only execution spends | Requires the Plan Receipt object |
+| **Repo insight** — what Cortex can verify here, hotspots, suite duration, UNVERIFIED gaps | The repo scan is static analysis | — |
+| **Team awareness** — "someone is planning a change to this file" (Phase 14) | It is data, not inference | Requires the shared plan space |
+| **Receipt links in review** — jump from a line to the receipt that proved it | Data | Requires receipts to exist |
+
+**The golden property: Cortex's differentiator is checks, and checks are free to
+run locally.** So the free tool gives away the thing Cortex is best at, costs
+almost nothing per user, and is structurally uncopyable by an autocomplete
+vendor — because the batteries are curated, versioned, and graded by an execution
+corpus none of them have.
+
+### 22.4 The conversion path is the honest one
+
+The free extension finds a real problem and says what fixing it would cost:
+
+> `crates/api/src/db.rs:8151` — lease conflict fails run creation instead of
+> queueing. **Fix it yourself**, or **hand it to Cortex** — est. 11–18 credits at
+> `high`, ~7 min. [Draft plan]
+
+The developer fixes the easy ones themselves. That is the *correct* outcome and
+the product should say so rather than nudge. When something is genuinely hard,
+tedious, or needs to be provably right, the plan is already drafted and the cost
+already known — one keystroke from work already in progress.
+
+This inverts the usual funnel. Instead of persuading someone to move their
+workflow into a new product, Cortex earns a place in the existing one and gets
+paid only when it does something the developer did not want to do by hand.
+
+### 22.5 Boundaries, so this does not become a second product
+
+- **No inline completion. No chat-with-your-codebase.** Both are commodity, both
+  cost inference per keystroke, and both are already well served.
+- **No BYOK.** VISION.md is explicit, and a BYOK path in the extension would
+  quietly re-open exactly the model the credit product replaced.
+- **The extension is a thin client over the Phase 17 API.** No business logic, so
+  it cannot drift — same rule as the CLI and the web app.
+- **Free tier abuse controls apply** (Phase 15.4): anything that eventually does
+  call a model needs rate limits and identity from day one.
+- **Local check execution runs on the developer's machine, in their trust
+  boundary** — it is not the verification sandbox and its results are *not*
+  receipts. Keep the distinction visible: local checks are advice, receipts are
+  proof. Blurring that would undermine the entire trust vocabulary.
+
+### 22.6 What this makes possible later
+
+Once the extension exists as a thin API client, the desktop app (Phase 10) is
+largely the same client in a different shell, and the MCP server (Phase 17.6)
+serves the same data to other harnesses. **Three surfaces, one API, one set of
+objects** — which is the whole argument for the API-first rule paying off rather
+than being an aspiration.
+
+**Phase 22 exit gate:** the extension installs in VS Code and Cursor; a developer
+with no credits gets genuine daily value from the verification overlay, local
+batteries, and repo insight; a local check result is visually distinct from a
+receipt; drafting a plan and seeing its forecast costs nothing; and handing a
+drafted plan to Cortex is one action from the editor.
+
 ## Handover protocol — how to actually execute this document
 
 **Read this before dispatching any implementation work.**
@@ -3058,6 +4054,53 @@ a wave starts when its stated dependencies are merged.**
 - **PR H · Platform scale (Track A 4.x, and the self-host prerequisite).**
   Postgres target, leader election, migration, rollback, load testing, two-replica
   chaos proof. Do not cut over merely because the document exists.
+
+### Track C and production hardening — mostly parallel to everything above
+
+Frontend foundations have **no backend dependencies** and should start
+immediately, in parallel with Wave 1. Surface work follows the APIs it renders.
+
+- **PR X · Frontend foundations (Phase 16). Start now, parallel to Wave 1.**
+  The primitive library on the existing tokens, headless behaviour library, typed
+  variants, Storybook with full state coverage, the raw-value lint rule, lint
+  gating in CI, TanStack Query, `cortexApi.ts` split by domain, `App.tsx` split,
+  and deletion of browser-canonical state in `taskManager.ts` (which is also a
+  Phase 15 launch blocker). **Nothing else in Track C is affordable first.**
+- **PR Y · Test infrastructure (Phase 21.3). Immediately after X.** Vitest,
+  Testing Library, MSW, Playwright, and the truth-state component tests. Going
+  from zero tests to a gated critical path is the single largest reduction in
+  regression risk available anywhere in this document.
+- **PR Z · Information architecture (Phase 18).** One shell and one nav, the
+  doorway fix, pane routing with deep links, role- and capability-driven
+  disclosure, the menu and keyboard model, and the first-five-minutes flow.
+  **Needs X.**
+- **PR AA · The surfaces (Phase 19).** Plan Receipt, run, receipt, review
+  bundle, consolidated ledger, repos, bench, leases, admin, and the dial
+  component. **Each surface follows its API** — the Plan Receipt surface needs
+  PR F and PR K, the receipt surface needs PR D, the ledger needs PR F. Ship them
+  as they unblock rather than as one release.
+- **PR AB · Craft and quality gates (Phase 21).** Accessibility conformance,
+  performance budgets in CI, responsive breakpoints, i18n extraction,
+  observability, and the polish pass. Partly parallel with AA.
+- **PR AC · Headless Cortex (Phase 17).** API keys with scopes and spend limits
+  on `agent_auth.rs`'s foundation, device authorisation for the CLI, the CLI
+  itself, standing authorisation policies, webhooks, and **removal of the legacy
+  subscription `startAuth` flow and the `device_code` field in `auth.rs:29`**.
+  **Needs M and N** for scoping. The MCP server is a small, high-leverage
+  follow-on once the API is stable.
+- **PR AD · Team economics (Phase 20).** Org pool, auto-recharge, budgets as
+  ceilings, rate limits, priority classes, attribution tags, depletion behaviour,
+  and the spend-authority ladder. **Needs M, N, and F.**
+- **PR AE · Production hardening (Phase 15).** Customer secrets with egress
+  redaction, provider degradation handling, data lifecycle and deletion, abuse
+  controls, and full COGS attribution. **Secrets and provider degradation are the
+  two that gate real external repositories** and should not wait for the others.
+
+- **PR AF · The free editor extension (Phase 22).** A thin VS Code extension over
+  the Phase 17 API: verification overlay, local check batteries, local estimate,
+  plan drafting, repo insight, team awareness. **Needs AC** (the API and auth)
+  and benefits from O (batteries). Ship after the API is stable — this is
+  distribution, and distribution built on an unstable contract is rework.
 
 ### If only three things get done
 
