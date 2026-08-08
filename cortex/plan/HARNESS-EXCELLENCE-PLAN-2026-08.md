@@ -4894,6 +4894,194 @@ never across tenants; and the held-out suite reports Cortex-at-`ultra` against
 the best single model at maximum effort, with the capability claim withheld until
 that comparison is won.
 
+## Phase 29 - Repository comprehension, and the corpus only Cortex can own
+
+**Goal:** make what Cortex *knows about the codebase* a measured, improving,
+compounding asset. This is the largest determinant of coding quality and this
+document, across twenty-eight phases, spends almost nothing on it — every phase
+so far governs the agent, and none of them make the agent better informed.
+
+### 29.1 What actually exists, stated accurately
+
+Two earlier passages refer to "the repo map" as an established thing (line 569,
+line 2689) without a phase behind it, so this review went looking for it. It
+exists and it is better than the plan implies. `crates/context` (2,178 lines) is
+a real subsystem: `extract.rs` does tree-sitter symbol and reference extraction,
+`repo_map.rs` builds a ranked map from symbols and references, `index.rs`,
+`retrieval.rs`, `impact.rs`, and `cache.rs` provide an index, targeted retrieval,
+and impact analysis with a cache. It is wired into dispatch —
+`scheduler.rs:1213-1226` (`with_repo_map`) renders the map into `StepContext`
+under a token budget derived from provider and tier.
+
+That is a genuinely good foundation, and it changes the finding from "missing" to
+four specific defects, each of which matters more than it looks.
+
+| Defect | Evidence | Consequence |
+|---|---|---|
+| **The comprehension layer degrades silently.** `with_repo_map` documents failure as silent by design — an unparseable repo "should cost a step its orientation and nothing else." | `crates/api/src/scheduler.rs:1208-1226` | The agent works blind and **nothing says so.** The receipt claims the same verdict class whether the agent had a full map or none. This is invariant 10 — a receipt never claims a setting the backend did not apply — applied to context instead of effort, and it is currently violated. |
+| **Grammar coverage is four languages.** Rust, TypeScript, TSX, JavaScript. | `crates/context/src/extract.rs:66-88` | Python, Go, Java, C#, Ruby, PHP, Kotlin, Swift, and C/C++ repositories get an empty map, silently, per the row above. For a product that must serve 200 developers across many repositories, this is the single largest capability cliff in the codebase — and it is invisible from the outside. |
+| **Retrieval and impact analysis are built and not on the dispatch path.** Only the rendered map reaches a step; `retrieval.rs` and `impact.rs` are reachable only through `context_api.rs`. | `crates/api/src/context_api.rs:287-298`; absence in `scheduler.rs`, `ws.rs` | The *targeted* half of comprehension — "which symbols does this task actually touch" — is written, tested, and unused by the thing that writes code. Same defect shape as the effort dial: a real capability behind an unused entry point. |
+| **The workspace is a single global directory.** `state.workspace_dir`. | `crates/api/src/scheduler.rs:1221`; `crates/api/src/state.rs:110` | Multi-repo (Phase 25.1) and multi-tenant repository comprehension have no representation. The map is per-*deployment*, not per-repo. |
+
+The first two together are the important one: **Cortex currently cannot tell the
+difference between a well-oriented run and a blind one, and neither can the
+customer.** Every capability claim in Phase 28 is conditioned on the agent
+knowing where it is.
+
+### 29.2 Do not build a vector index — the obvious move is the wrong one
+
+The reflex here is to embed the repository and retrieve by similarity. It should
+be resisted, and the reason is measured rather than aesthetic: on repository
+exploration benchmarks, **agentic explorers form a clear tier above classical
+retrieval**, file-level localization by modern agentic methods is already strong,
+and the axes that still separate the state of the art are *line-level coverage*
+and *ranking efficiency* — neither of which embedding similarity improves. An
+embedding index would be expensive to maintain, stale by construction, another
+thing to invalidate, and worse than what a competent agent does with symbol
+extraction and grep.
+
+Cortex already made the right architectural choice by building a structural map
+(tree-sitter symbols and references) rather than a semantic one. The work is to
+extend and instrument what is there, not to replace it with the fashionable
+thing. Three concrete extensions, in value order:
+
+1. **Grammar coverage as a product requirement, not a nice-to-have.** Every
+   language a target customer uses gets a grammar, and the supported set is
+   published. Where no grammar exists, a degraded structural fallback (imports,
+   file tree, and definition-shaped regex) is better than nothing — and is
+   *labelled* as degraded rather than passed off as a map.
+2. **Wire `retrieval` and `impact` into dispatch**, so a step receives the
+   symbols its declared write set actually touches plus their reverse
+   dependencies, rather than a globally-ranked map truncated to a token budget.
+   Impact analysis is also the honest source for Phase 11's declared write sets
+   and Phase 25.2's blast radius — three phases currently guessing at something
+   one existing module computes.
+3. **Make the context budget a decision rather than a constant.** Today it is
+   `token_budget / REPO_MAP_BUDGET_FRACTION`. It should be an allocation the
+   estimator makes and the receipt records, because over-retrieval is a
+   measurable defect — more tokens, more context rot, worse outcome — and not
+   merely a cost.
+
+### 29.3 Comprehension is a durable artifact, not a per-run expense
+
+Every run explores. Today that exploration dies with the worktree and the next
+run on the same repository pays for it again from zero. That is the single
+largest recurring waste in the system and the reason the same task costs the same
+amount on the hundredth run as on the first.
+
+Make it an artifact, anchored to content rather than to time:
+
+```
+RepoUnderstanding {
+  repo_id, commit_anchor,
+  symbol_graph_digest,            -- from crates/context
+  subsystem_map[],                -- module boundaries, ownership, entry points
+  convention_findings[],          -- observed, evidence-linked: how this repo
+                                  --   names things, tests things, wires DI
+  hotspot_paths[],                -- Phase 11.5, now derived rather than declared
+  battery_shape,                  -- how this repo is verified: commands, cost,
+                                  --   determinism record, mutation power (27.3)
+  dead_ends[],                    -- what was looked at and was NOT relevant
+  per_file_content_hash[]         -- invalidation granularity
+}
+```
+
+Two design points that decide whether this works:
+
+- **Negative results are the valuable half.** `dead_ends` is what makes the next
+  exploration cheap, and it is exactly what every harness throws away. Knowing
+  that six plausible-looking modules are irrelevant to authentication saves more
+  tokens than knowing the two that are.
+- **Invalidate per file content hash, not per commit.** A commit-scoped cache is
+  useless in a repository with 200 developers committing — it is stale before it
+  is written. Content-hash granularity means a busy repository degrades the map
+  gradually instead of discarding it, which is the only version of this that
+  survives Phase 33's scale.
+
+Provenance discipline is not optional here, and Phase 13 already supplies it: a
+prior run's *executed outcome* enters as `verified`, a prior run's *conclusion*
+enters as `inferred` with its origin, and invariant 19 governs the conflict — when
+the map disagrees with the tree, the tree wins and the map entry is flagged. A
+comprehension cache that can override the repository is a defect generator, and
+the mechanism to prevent it is already specified; it just has to be applied here.
+
+### 29.4 The corpus nobody else can build
+
+This is the compounding mechanism Phase 28.2(d) deferred, and it is a stronger
+moat than the professional system, because it accrues automatically from work
+Cortex is already paid to do.
+
+The measured result worth building toward: **accurately summarised and retrieved
+prior experience improves resolution accuracy while simultaneously reducing
+runtime and token cost, and the gain is largest on hard tasks.** Better and
+cheaper at once is rare, and the reason it holds here is that most of what an
+agent spends on a hard task is re-deriving orientation someone already paid for.
+
+What Cortex holds per repository that no model vendor and no IDE does:
+
+| Asset | Where it already comes from | What it answers next time |
+|---|---|---|
+| `TaskFrame` → files actually changed | Every completed run | Which subsystem does this *kind* of request touch here |
+| Derived battery + its cost + determinism record | Phase 24.1, Phase 27.3 | How is this repo verified, what does it cost, what can be trusted |
+| Checks that failed and the fix that made them pass | Verification history | The repo's recurring failure modes |
+| Review findings and their dispositions | Phase 3.3, Phase 12 | What this team rejects, in this repo |
+| Post-delivery reverts | Phase 26.3 | Where verified work is nonetheless wrong here |
+| Race-attempt disagreement | Phase 27.4 | Which regions of this repo are underspecified |
+
+That last one is quietly the most interesting: regions where independent attempts
+systematically disagree are regions where the repository does not constrain
+behaviour — which is a real, sellable finding about the codebase that arrives as
+a by-product of racing.
+
+**Tenancy is the hard boundary and invariant 20 already draws it.** The corpus is
+per repository and never crosses an organisation. What *may* generalise across
+customers is structural and objective — this ecosystem's conventional test
+command, this framework's usual entry points, this build system's affected-target
+query — and nothing derived from a customer's code, findings, or dispositions. A
+retrieved-experience layer that leaks across tenants is a source-code disclosure
+with extra steps, and it must be architecturally impossible rather than
+policy-prevented.
+
+### 29.5 Localization is measurable, and the label is free
+
+Cortex can score its own comprehension retroactively at zero labelling cost,
+because **every completed run reveals the ground truth**: the set of files the
+change actually touched. Compare it against what the agent was given and what it
+opened.
+
+| Metric | Definition | Why it matters here |
+|---|---|---|
+| Context recall | share of finally-changed files present in the assembled context | Below 1, the agent had to discover; the gap is pure cost |
+| Context precision | share of assembled context that was touched or read | Low precision is context rot and wasted budget |
+| Exploration cost | tokens and wall-clock spent before the first edit | The number the corpus in 29.4 should drive down over time |
+| Map availability | whether a real map, a degraded fallback, or nothing was supplied | The unreported condition from 29.1, now reported |
+
+These feed three places that currently guess: the estimator (Phase 6.5) — poor
+localization is a leading cause of the 3×–30× cost variance the forecast keeps
+missing; the router, where context quality is a confound it currently attributes
+to the model; and the Plan Receipt, where "Cortex has a strong map of this
+repository" versus "Cortex is working without a symbol map in this language" is
+information the customer is entitled to *before* approving spend.
+
+> **Invariant 27.** Comprehension quality is declared, never assumed. Every
+> attempt records what map, retrieval, and prior-experience layers were actually
+> available; a degraded or absent map appears on the Plan Receipt before approval
+> and on the receipt after; and no verdict class is raised on the strength of
+> context the backend did not supply.
+
+**Phase 29 exit gate:** an unparseable or unsupported repository produces a
+declared degraded-comprehension state on the Plan Receipt rather than a silent
+empty map; grammar coverage spans the published supported-language set with a
+labelled structural fallback beyond it; `retrieval` and `impact` are consumed on
+the dispatch path and impact analysis is the source for declared write sets and
+blast radius; the context budget is an allocated, recorded decision; repository
+understanding persists as a content-hash-invalidated artifact including dead
+ends; prior-run experience is retrievable per repository, typed by provenance,
+architecturally unable to cross a tenant boundary, and loses to the tree on
+conflict; and context recall, precision, exploration cost, and map availability
+are computed for every completed run and feed the estimator, the router, and the
+receipt.
+
 ## Handover protocol — how to actually execute this document
 
 **Read this before dispatching any implementation work.**

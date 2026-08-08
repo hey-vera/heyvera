@@ -19,7 +19,7 @@ contact with customers who select against it).
 | 2 | Best-of-N racing is a false-accept generator on the hard tail, and Phase 6.7 calls it the risk-free knob. | Phase 27.4 | written |
 | 3 | Verifier precision is never measured, and every economic claim in 26 phases depends on it. | Phase 27.3 | written |
 | 4 | The plan optimises cheaper-than-one-model; the vision is better-than-any-model. No mechanism raises the ceiling. | Phase 28 | written |
-| 5 | "The repo map" is referenced twice and specified nowhere. | Phase 29 | written |
+| 5 | Repo comprehension: `crates/context` is real and wired, but degrades **silently**, covers 4 grammars, leaves retrieval/impact off the dispatch path, and keeps nothing between runs. | Phase 29 | written |
 | 6 | Nothing evaluates Cortex. Champion/challenger grades routes, not the harness. | Phase 30 | written |
 | 7 | Refund-on-failure is an insurance product with no actuarial layer, no right to decline, and no revenue-recognition treatment. | Phase 31 | written |
 | 8 | Human review capacity is the binding constraint on delivered value and is unmodelled. | Phase 31.6 | written |
