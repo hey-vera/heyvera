@@ -238,7 +238,14 @@ The following five govern Track B and are contracts in exactly the same sense.
     attributed misses, and non-executability may train globally. Human
     dispositions are a local preference, scoped at most to the organisation that
     produced them, and never propagate across customers.
-21. **A shared artifact is immutable and versioned.** Professionals, method-library
+21. **An unreliable check never decides anything.** A check that produces
+    differing outcomes on a byte-identical tree is quarantined: it still runs and
+    still reports, but it cannot fail a paid task, move the ledger, or reach any
+    learning signal — and the receipt names it.
+22. **Cortex verifies what can be executed, and says UNVERIFIED otherwise.**
+    Where no executable ground truth exists, the work may still be done, is
+    labelled, and is never priced as though it had been proven.
+23. **A shared artifact is immutable and versioned.** Professionals, method-library
     entries, policies, and price lists are published, never edited. Consumers pin
     a version; a narrower ownership scope can never mutate a broader one; every
     receipt names the exact versions that ran.
@@ -3898,6 +3905,467 @@ recorded result; on-call rota and runbooks in place; billing reconciliation
 alerting green for a sustained period; and the scoreboard from this document
 populated with real data rather than zeroes.
 
+## Phase 24 - Verification at the edges
+
+**Goal:** close the five gaps that attack the verification thesis directly.
+Everything else in this document assumes checks are meaningful, reproducible, and
+binary. In real repositories none of those three is reliably true, and the plan
+has not said so until now.
+
+### 24.1 Flaky tests — the most dangerous unaddressed threat in this plan
+
+**This is the single largest hole found in the whole review.** Cortex's entire
+model rests on "the checks passed" meaning something. Real test suites are
+flaky. Under the current design, a flaky failure produces:
+
+- a **wrongly refunded task** — Cortex pays for the work and collects nothing;
+- a **poisoned router**, because the route is punished for a defect it did not
+  cause (Phase 7.2);
+- a **wrong professional record**, because a "miss" is attributed to a pack that
+  was correct (Phase 12.5); and
+- a **customer who watches Cortex fail on a task that actually worked**, which is
+  worse for trust than an honest failure.
+
+Flakiness does not just add noise; it corrupts every learning signal in the
+system simultaneously. It must be treated as first-class infrastructure.
+
+**Cortex can detect flakiness better than any CI system, and this is a real
+structural advantage.** The industry rule of thumb is "a test that flips outcome
+without a code change" — but ordinary CI can only approximate "without a code
+change." Cortex holds an **immutable tree hash** for every verification and can
+re-execute *byte-identical* inputs on demand. Same tree, same image digest, same
+argv, different result is not an approximation of flakiness; it is proof of it.
+
+Design:
+
+- **Flake identity is `(check, tree_hash, runner_digest)`.** A differing outcome
+  across executions of that triple is definitionally flaky.
+- **Confirm before concluding.** On a failing check that would fail a paid task,
+  re-run it a bounded number of times against the same tree. Consistent failure
+  is a real defect. Inconsistent outcome quarantines the check.
+- **Quarantine is non-blocking, not deletion.** A quarantined check still runs
+  and still reports, but does not gate the verdict or the ledger — the standard
+  industry pattern, and the receipt must say plainly which checks were
+  quarantined and why. A silent quarantine would be a lie of omission on the
+  central trust artifact.
+- **Maintain a flakiness score per check with a trailing window** (90 days is the
+  conventional horizon), visible in the Repos pane. This is genuinely valuable
+  free intelligence for the customer about their own suite.
+- **Quarantined outcomes are excluded from every learning signal** — router
+  reward, professional record, forecast calibration. Feeding them in is how the
+  corruption above happens.
+- **Flake rate per repo is an input to the forecast** (Phase 6.5), because a
+  flaky suite genuinely costs more in re-runs.
+- **Report it to the customer.** "Your suite has 14 flaky tests costing an
+  estimated 6% of verification time" is a report nobody else produces, and it is
+  a natural first paid task: *fix them*.
+
+**Acceptance tests:** an injected non-deterministic test is quarantined rather
+than failing a paid task; a genuinely broken test fails consistently across
+re-runs and does fail the task; quarantined outcomes never reach the router or a
+professional record; the receipt names quarantined checks.
+
+### 24.2 Brownfield — the wedge is weakest exactly where the money is
+
+An uncomfortable truth this plan has been avoiding: **Cortex verifies by running
+your tests, and the enterprise codebases with the biggest budgets are the ones
+with the fewest tests.** A fifteen-year-old service with 4% coverage is precisely
+the customer who most needs help and least fits the model. Phase 8.5 solved
+greenfield; brownfield is the mirror problem and is commercially larger.
+
+The established answer is **characterization testing** (golden-master testing):
+capture what the code *currently does* before deciding what it *should* do, and
+use that as the safety net. The published framing is exact — characterization
+tests pin existing behaviour and are the on-ramp that makes untested code safe to
+hand to an agent. Tooling in this space reports substantial coverage gains over a
+developer working with a general coding agent.
+
+This maps onto Cortex better than onto anyone else, because Cortex already has
+the execution sandbox, the check-freezing machinery, and the receipt:
+
+- **Characterization generation is its own task class**, priced and sold
+  separately: *"establish a safety net on this module."* It is verifiable by
+  construction — a characterization test that does not pass against current
+  behaviour is wrong, so the deliverable grades itself.
+- **It is the natural first task for any brownfield repo**, and it converts an
+  unverifiable repo into a verifiable one — the same "minimise the unverified
+  prefix" move as Phase 8.5, applied to legacy code instead of new code.
+- **Coverage of the change's blast radius is the gate**, not global coverage.
+  Cortex needs a net under *what it is about to touch*, which is a far cheaper
+  and more achievable target than repo-wide coverage.
+- **Label the receipt honestly.** "Verified against characterization tests
+  capturing pre-existing behaviour" is a true and useful claim, and materially
+  different from "verified against the team's intended behaviour." A
+  characterization test pins bugs as faithfully as features — that is the point,
+  and it must not be oversold.
+- **Guard the known weakness**: generated tests can be syntactically valid and
+  semantically shallow. Require assertions on observable behaviour, reject tests
+  that assert nothing, and prefer property and metamorphic variants (RESEARCH
+  rec 2) over recorded literals where the domain allows it.
+
+**This also fixes the UNVERIFIED-rate problem at its root.** Rather than
+narrowing the refund promise to repos that happen to be well-tested, Cortex sells
+the step that makes a repo qualify. That is a better business than declining the
+customer.
+
+### 24.3 Partial delivery — real work is not binary
+
+The state model is `verified` or `failed`. Real engineering finishes seven of
+nine steps and gets blocked on the eighth. Under the current design that run is
+a failure: refunded, discarded, and the completed work thrown away — which is
+simultaneously bad for the customer (their good work vanished) and bad for Cortex
+(it paid for all nine).
+
+- **A run has per-leaf outcomes, and the DAG already expresses this.** Steps that
+  verified are verified; the receipt reports the frontier reached.
+- **Deliver what passed.** Verified leaves land on a branch with their receipts;
+  the blocked frontier is stated explicitly with what it needs.
+- **Bill what was delivered**, at the per-leaf granularity the Plan Receipt
+  already quotes. Refunding the whole run for a partial block is as wrong as
+  charging for it.
+- **A blocked frontier is a resumption point, not a dead end.** Answer the
+  question or widen the scope and the run continues from the frontier with fresh
+  context — never by continuing a failed worker's transcript.
+- **`attention` is a real terminal-ish state with an owner and an age.** Runs
+  that sit in it are a queue somebody must work, and it must appear on the
+  operator dashboard or it will silently accumulate.
+
+This is also the honest answer to the greenfield one-shot: a large build that
+gets 80% of the way with receipts for each landed piece is a *good outcome* and
+should be presented and billed as one.
+
+### 24.4 Receipts have a shelf life — say so
+
+A receipt claims reproducibility: this tree, this image digest, these checks,
+this result. Three forces erode that over time, and none is currently
+acknowledged.
+
+- **Models get deprecated.** A receipt naming `gpt-5.4` becomes
+  unreproducible when that model is retired — and the catalog (Phase 7.1) makes
+  this visible rather than silent, which is the point of recording
+  `catalog_version`. Note that this affects *reproducing the generation*, not
+  *re-checking the result*: the checks still run, which is precisely why
+  execution-based verification ages better than any log of model output.
+- **Runner images rot.** A pinned digest may be garbage-collected from a
+  registry. Retention policy for runner images must be at least as long as the
+  receipt-verifiability promise, and that promise must be stated.
+- **Checks are time-dependent.** Tests that depend on the date, timezone, locale,
+  a TLS certificate, or an expiring token will pass in March and fail in
+  September against an identical tree. Freeze what can be frozen — `TZ`, locale,
+  `SOURCE_DATE_EPOCH` — and flag checks that vary with wall-clock time as
+  non-reproducible in the receipt.
+
+**State the guarantee precisely rather than implying eternity:** a receipt is
+*re-executable* for a defined retention window, and *readable as evidence*
+forever. Those are different promises and conflating them would be the kind of
+overclaim the rest of this document exists to prevent.
+
+### 24.5 Verification that needs the outside world
+
+Many real suites need a database, a message broker, a mock third-party API, or
+fixture data. Phase 0.1's default-deny network is correct for the *agent* and
+insufficient for the *verifier* as specified.
+
+- **Service dependencies are declared in the Plan Receipt**, provisioned as
+  ephemeral sidecars in the verification sandbox — the established
+  test-container pattern — and named in the receipt.
+- **Sidecars are pinned by digest** like the runner, or the receipt is not
+  reproducible.
+- **Still default-deny to the public internet.** A declared Postgres sidecar is
+  not an excuse for general egress.
+- **Third-party APIs are recorded or virtualised, never called live.** A live
+  call makes the check non-reproducible, bills someone, and can mutate real data.
+- **Provisioning failure is `inconclusive`, never `failed`.** Infrastructure
+  problems must never look like the customer's code being wrong — that
+  distinction is load-bearing for the refund promise.
+
+**Phase 24 exit gate:** a flaky check cannot fail a paid task or reach a learning
+signal; a repo with no tests can be brought to verifiability as a priced task; a
+partially completed run delivers and bills its verified leaves; a receipt states
+its re-execution window and flags non-reproducible checks; and a suite requiring
+a database verifies inside the sandbox with the sidecar pinned and named.
+
+## Phase 25 - Scope: repositories, runtimes, and deliverables
+
+**Goal:** name the shapes of work the plan currently assumes away, and say for
+each whether Cortex supports it, defers it, or declines it. An unstated boundary
+becomes an overpromise the first time a customer walks into it.
+
+### 25.1 Changes that span repositories
+
+Everything so far assumes one repository per task. A change touching three
+services is normal in any organisation past about thirty engineers.
+
+- **Model it as one Plan Receipt with per-repository subtrees**, each with its own
+  base commit, leases, checks, and branch. One priced, approvable unit; several
+  delivery targets.
+- **Integration is ordered and cross-repo aware** (Phase 11.4): a contract change
+  lands before its consumers, and the DAG encodes that rather than leaving it to
+  luck.
+- **Cross-repo verification is the hard part and must be honest.** A service
+  whose contract changed cannot be fully verified against a consumer that has not
+  merged. Where a consumer's suite can be run against the producer's branch, do
+  it and say so; where it cannot, the receipt states which side is verified and
+  which is asserted. **Do not claim a system-level verdict from component-level
+  checks.**
+- **Atomicity is not offered.** Cortex cannot make three PRs merge atomically —
+  neither can anyone — so it delivers a *coordinated* change set with an explicit
+  merge order and clearly labelled risk, rather than pretending otherwise.
+
+### 25.2 Monorepos, and using the build graph instead of guessing
+
+A monorepo breaks two assumptions at once: the repo scan is expensive, and
+"run the test suite" is meaningless when the suite is four hours.
+
+The right answer is already sitting in these repositories and Cortex should use
+it: **modern monorepos have a build system that computes affected targets.**
+Bazel, Nx, Turborepo, Pants, and Gradle all answer "given this diff, what must
+be rebuilt and retested."
+
+- **Derive checks from the build graph** rather than from path heuristics. This
+  is strictly better than Cortex's own inference: it is the repo's own ground
+  truth about impact, maintained by the team, and it is exactly the input
+  `derive_step_check_specs` should prefer when available.
+- **It also sharpens Phase 11.2's conflict-freedom.** The build graph gives a
+  real dependency structure for partitioning parallel work, replacing path-prefix
+  overlap with actual target dependencies.
+- **And it fixes the forecast.** Verification cost `c_v` in a monorepo is a
+  function of the affected target set, not a repo-wide constant — so the
+  estimator must take affected-target count as a feature or its monorepo
+  forecasts will be badly wrong in both directions.
+- **Cache aggressively and legitimately.** These build systems have remote
+  caches; a verification sandbox that participates in one (read-only, with the
+  cache key recorded on the receipt) turns a four-hour suite into minutes.
+  Reproducibility is preserved because the cache key is content-addressed.
+- **Sparse and shallow checkout** for repositories where a full clone is
+  prohibitive; record what was checked out on the receipt.
+
+Monorepo support done this way is a genuine enterprise differentiator, because
+it is where generic "run the tests" agents fall over hardest.
+
+### 25.3 Long-running and stateful work
+
+Some real tasks do not fit a single sandboxed execution: a database migration
+rehearsal, a load test, a multi-hour build, a data backfill.
+
+- **Support long-running verification explicitly** — heartbeats, checkpointing,
+  and a wall-clock budget that is a task-class property rather than a global
+  constant. Phase 1's durable job machinery already provides the recovery
+  semantics; the gap is only that the current budgets assume short work.
+- **Migrations are their own task class** with a rehearsal shape: apply against a
+  restored snapshot, verify, and **verify the rollback too**. A migration whose
+  down-path is untested is not verified in any sense a customer cares about.
+- **Declare state that must persist across steps** and treat it as an explicit
+  resource with a lease and a teardown, never as sandbox residue. Invariant 1's
+  "no reuse of writable state between tenants" is not weakened — the state is
+  named, scoped, and destroyed.
+- **Decline what genuinely does not fit**, at plan time, with a reason. A task
+  requiring a week-long soak test is not a Cortex task, and saying so at intake
+  is far better than discovering it at the cap.
+
+### 25.4 Non-code deliverables
+
+Check derivation is written for application code. Several common deliverables
+behave differently, and each needs its verification shape named:
+
+| Deliverable | What verification means | Verdict |
+|---|---|---|
+| **Infrastructure as code** | `plan`/`validate`, policy checks (OPA/Conftest), drift detection, and — critically — **never `apply`** without explicit deploy authority | **Support.** Terraform and friends verify well; this is a strong fit |
+| **Database schema changes** | Migration applies to a snapshot, rolls back, and the resulting schema matches expectation | **Support**, as 25.3's migration class |
+| **Documentation** | Links resolve, code samples compile and run, examples match current APIs | **Support**, and it is genuinely useful — stale docs are a real defect class with mechanical checks |
+| **Configuration and manifests** | Schema validation, policy checks, dry-run against a cluster | **Support** |
+| **Notebooks** | Execute top-to-bottom cleanly, outputs deterministic where seeded | **Support with caveats** — flag non-determinism per 24.4 |
+| **Prose, design docs, product copy** | No executable ground truth exists | **Decline as a verified class.** Cortex may draft them, labelled UNVERIFIED, and must not price them as verified work |
+
+The general rule, and it is a good one to state publicly: **Cortex verifies what
+can be executed. Where nothing can be executed, it says UNVERIFIED and does not
+charge as though it had proven something.** That is a limitation stated as a
+principle, which is far stronger than a limitation discovered by a customer.
+
+### 25.5 Platforms Cortex cannot verify today
+
+The runner is a Linux container. That is correct for the large majority of
+server, web, and backend work, and it excludes real customers.
+
+- **iOS and macOS builds require Apple hardware and toolchains.** No Linux
+  container verifies an iOS app. This directly affects Phase 6.3's own worked
+  example — "the security of that iOS app" — where Cortex can today run static
+  analysis, dependency audit, and secret scanning, but cannot build, run, or
+  test the app. **Say that explicitly rather than implying full coverage.**
+- **Windows and .NET desktop targets** need Windows runners.
+- **Embedded, mobile-device, and GPU workloads** need hardware Cortex does not
+  have.
+
+The honest posture: **support Linux-container-verifiable work fully, and for
+everything else verify the subset that is verifiable and label the remainder
+UNVERIFIED.** Partial verification, clearly scoped, is genuinely valuable — the
+failure would be claiming a verdict the runner could not produce.
+
+Expansion order, if demand justifies it: Windows runners (mechanically
+straightforward), then macOS/iOS via hosted Apple hardware (expensive, licence-
+constrained, and only worth it for a named customer). Both are runner-fleet work,
+not architecture work, because `ExecutionJob` already abstracts the runner —
+which is a further reason to get that interface right in PR C.
+
+## Phase 26 - Strategic position and operational completeness
+
+**Goal:** the remaining items that are neither features nor infrastructure —
+where Cortex sits when the market moves, and the operational behaviours a real
+service needs that nothing else in this document has claimed.
+
+### 26.1 What happens when a major vendor ships receipts
+
+Assume it happens, because the idea is not secret and the plan is public the
+moment a customer sees a receipt.
+
+**What is copyable:** running checks in a sandbox and attaching output to a PR.
+GitHub, OpenAI, or Anthropic could ship that in a quarter. Treat the *mechanism*
+as commoditisable and do not build the brand on it.
+
+**What is not copyable quickly:**
+
+- **The outcome corpus.** Years of (task, plan, route, effort, cost, executed
+  verdict) tuples. A competitor starts at zero on the day they ship.
+- **The economic model.** Refund-on-failure and outcome pricing are *hostile to
+  the incumbent business model* — a vendor selling tokens or seats cannot easily
+  offer "we don't charge when it fails" without cannibalising their meter. This
+  is the strongest structural moat in the plan and it is worth being explicit
+  that it is a *business-model* moat, not a technical one.
+- **The method library and professional bench**, graded by execution.
+- **Org-authored professionals and policies** (Phase 12.12), which are built from
+  the customer's own history and cannot be exported.
+
+**The strategic response, decided in advance so it is not improvised:**
+
+1. **Do not compete on "we also have receipts."** Compete on *what the receipt is
+   worth* — refunds, forecasts, and a router trained on verdicts.
+2. **Interoperate rather than duplicate.** The MCP server (Phase 17.6) means a
+   vendor's agent writing the code and Cortex verifying it is a *good* outcome
+   for Cortex. Being the verification layer for other people's agents is a
+   stronger long-run position than being one more agent.
+3. **Publish the format.** A receipt that other tools can read and render — and
+   that a third party can independently replay — makes it a standard rather than
+   a feature. Standards outlive features.
+4. **Accelerate the compounding assets** (corpus, library, bench) over surface
+   features, since those are the ones a well-funded competitor cannot shortcut.
+
+### 26.2 Receipts as compliance evidence — the upsell nobody is building
+
+An opportunity hiding inside work already planned, and worth naming so it is not
+missed.
+
+Regulated organisations must demonstrate, per change, that it was reviewed,
+tested, authorised, and traceable. Today they assemble that evidence by hand from
+Jira, GitHub, and CI logs — expensive, error-prone, and universally disliked.
+
+**A Cortex receipt already contains almost exactly what an auditor asks for:**
+what changed, what was checked, what the result was, which policy applied, who
+approved it, under what authority, and an immutable tree hash tying it together.
+The append-only ledger supplies the rest.
+
+- Add a **compliance export** — evidence bundles per change or per period, mapped
+  to common control frameworks (change management, segregation of duties, testing
+  evidence).
+- **Phase 12.12's mandatory review policies are the control implementation**, and
+  the waiver log is the exception register. That is a direct answer to a control
+  objective, not an analogy.
+- This is a **high-margin enterprise upsell that requires almost no new
+  engineering** — it is a projection over data Phases 1, 2, 9, and 12 already
+  produce, and it makes the governance platform tier (Phase 20.5) obviously worth
+  paying for.
+- **Caveat honestly:** Cortex produces *evidence*, not *compliance*. It does not
+  certify anything, and the export should say so.
+
+### 26.3 Rollback: what happens when verified work turns out wrong
+
+Verification proves the checks passed, not that the change was right. Production
+will eventually disagree, and the plan currently has nothing to say about it.
+
+- **Revert is a first-class task class** — cheap, fast, high-priority, and
+  verifiable by construction (the reverted tree must pass the checks the original
+  tree passed).
+- **The receipt makes revert precise.** Exact commits, exact blast radius, exact
+  dependent steps — Cortex can identify what to revert far more reliably than a
+  human reading a merge history under incident pressure.
+- **A revert after a verified delivery is a strong learning signal** and should
+  feed Phase 12.5's "missed" category: the checks passed and the change was still
+  wrong, which is precisely the gap between proxy and intent that
+  RESEARCH-2026-08 §3 warns about. It is the most valuable negative signal
+  available and nothing currently captures it.
+- **Do not auto-revert.** Detecting that production is unhappy is not Cortex's
+  competence, and an autonomous revert during an incident is how a bad night
+  becomes a worse one.
+
+### 26.4 Asking a question mid-run
+
+Phase 8.2 covers clarification at plan time and Phase 24.3 covers a blocked
+frontier. Neither covers the ordinary case of an agent discovering something
+mid-execution that changes the answer — an undocumented dependency, a second
+caller, a design decision that was not visible from outside.
+
+- **`awaiting_input` is a real, first-class run state** with the question, the
+  context that prompted it, the options, and the cost of waiting.
+- **The clock and the budget pause.** A customer must never pay for an agent
+  idling on a question.
+- **Questions route to a human through every surface** — web, CLI, webhook,
+  mobile push. This is the asynchronous moment that Phase 10.2 identifies as the
+  real reason to build mobile.
+- **A timeout policy per task class**: proceed on a stated default assumption
+  (recorded as an `Assumption` per Phase 13.3), or park in `attention`. Never
+  guess silently.
+- **Bound it.** An agent that asks five questions on one leaf has an intake or
+  context problem, and the metric should surface that rather than the interface
+  absorbing it.
+
+### 26.5 Detecting pathological agent behaviour
+
+Agents fail in shapes that are neither success nor clean failure, and burning a
+cap while thrashing is the worst outcome for both parties.
+
+- **Detect loops and thrashing**: repeated identical edits, oscillating between
+  two states, re-running the same failing check without changing anything,
+  repeatedly editing a file it already reverted.
+- **Detect no-progress**: budget consumed with no diff, or a diff that does not
+  move any check from fail to pass.
+- **Detect scope drift**: writes wandering outside the declared blast radius —
+  which is already a lease violation (Phase 11.3) and should be caught there
+  first, but a soft signal earlier is cheaper.
+- **Respond with a bounded ladder**: nudge, then fresh-context retry with the
+  evidence, then stop and report. **Never let a cap be consumed by a loop** — a
+  task that hits its cap while thrashing should surface as thrashing, not as
+  "needs a bigger budget," because raising the cap is exactly the wrong response.
+- These signals are cheap, they are strong quality metrics per route and per
+  professional, and they belong in the outcome corpus.
+
+### 26.6 Working with the gates a team already has
+
+Cortex is not the only quality system in a real repository, and behaving as if it
+were is a fast way to be rejected by a platform team.
+
+- **Run and respect the repo's existing CI**, linters, formatters, commit
+  conventions, and review bots. A Cortex change that a team's own pipeline
+  rejects is a failed change regardless of Cortex's verdict.
+- **Their required checks are Cortex's required checks.** Branch-protection rules
+  are a first-class input to check derivation — the team has already declared
+  what "done" means, and Cortex should read it rather than infer it.
+- **Report as a check run**, so a Cortex verdict appears natively where the team
+  already looks, alongside everything else.
+- **Never bypass a protection rule**, and never push directly to a protected
+  branch, regardless of authority granted elsewhere. If Cortex holds credentials
+  that could bypass, the fact that it *doesn't* is a trust statement worth making
+  explicitly.
+- **Respect `CODEOWNERS`** for review routing (Phase 14.5), and honour the team's
+  existing instruction files — `AGENTS.md`, `.cursor/rules`, and equivalents —
+  as first-class context.
+
+**Phase 26 exit gate:** a competitive-response position is written down before it
+is needed; a compliance evidence bundle exports from existing receipt and ledger
+data; revert exists as a task class and a post-delivery revert registers as a
+missed signal; a mid-run question pauses the budget and reaches a human on every
+surface; a thrashing agent is stopped and reported as thrashing rather than as
+needing a larger cap; and a Cortex change passes the repository's own CI and
+protection rules without bypassing any of them.
+
 ## Handover protocol — how to actually execute this document
 
 **Read this before dispatching any implementation work.**
@@ -4258,6 +4726,31 @@ immediately, in parallel with Wave 1. Surface work follows the APIs it renders.
   and benefits from O (batteries). Ship after the API is stable — this is
   distribution, and distribution built on an unstable contract is rework.
 
+- **PR AG · Flake defence (Phase 24.1). Early — this protects every learning
+  signal in the system.** Flake identity on `(check, tree_hash, runner_digest)`,
+  bounded confirmation re-runs, non-blocking quarantine surfaced on the receipt,
+  flakiness scoring, and exclusion of quarantined outcomes from router reward,
+  professional records, and forecast calibration. **Needs D; should land before
+  PR J**, or the router trains on noise.
+- **PR AH · Brownfield on-ramp (Phase 24.2).** Characterization-test generation
+  as a priced task class, blast-radius coverage as the gate, honest receipt
+  labelling, and shallow-test rejection. Turns unverifiable repos into
+  customers. **Needs F and O.**
+- **PR AI · Partial delivery (Phase 24.3).** Per-leaf outcomes delivered and
+  billed, blocked frontier as a resumption point, `attention` as an owned queue.
+  **Needs A and F.**
+- **PR AJ · Scope expansion (Phase 25).** Multi-repo Plan Receipts, build-graph
+  check derivation for monorepos with remote-cache participation, long-running
+  and migration task classes, non-code deliverable classes, and the
+  Windows-runner path. Ship the monorepo build-graph work first — it is the
+  largest enterprise differentiator here.
+- **PR AK · Operational completeness (Phase 26).** Compliance evidence export,
+  revert as a task class with post-delivery revert as a missed signal,
+  `awaiting_input` with a paused budget, thrashing detection, and integration
+  with the repository's existing CI, protection rules, and CODEOWNERS.
+  **The existing-gates work in 26.6 should land early** — it is small and it is
+  what makes a platform team willing to try Cortex at all.
+
 ### If only three things get done
 
 Ranked by consequence, if capacity forces a choice:
@@ -4306,6 +4799,10 @@ ledger, state-machine, and pricing changes.
 | Forecast and cap | A cap is enforced at the sandbox boundary and cannot be exceeded by an agent's own behaviour; reaching the cap stops and asks rather than continuing or abandoning; every forecast joins to an actual by prediction ID; a cold class refuses to emit a narrow forecast; forecast-vs-actual drift raises an alert; class graduation to fixed pricing requires the measured variance threshold. |
 | Concurrency | Two leaves with overlapping write sets are never scheduled concurrently, and the Plan Receipt states the limiting resource; lease acquisition is atomic and canonically ordered under induced contention; a conflicting step queues with the holder visible rather than failing; a crashed holder's lease is reclaimed; a hotspot edit deferred to integration is deterministic across repeated runs. |
 | Integration | Sequential rebase integrates N branches with a defined order; the full battery re-runs against the integrated tree; an induced semantic conflict that both branches individually passed is caught at integration; integration failure produces a fresh-context re-plan rather than a stuck run or a continued transcript. |
+| Flake defence | A non-deterministic check is quarantined rather than failing a paid task; a consistently broken check still fails it; quarantined outcomes never reach router reward, professional records, or forecast calibration; the receipt names every quarantined check. |
+| Edge verification | A repo with no tests reaches verifiability through a characterization task; a partially blocked run delivers and bills its verified leaves; a receipt states its re-execution window and flags time-dependent checks; a suite needing a database verifies with a digest-pinned sidecar and no public egress; sidecar provisioning failure yields `inconclusive`, never `failed`. |
+| Scope boundaries | A multi-repo plan states which side is verified and which asserted, and never claims a system-level verdict from component checks; monorepo checks derive from the build graph and the forecast uses affected-target count; a declined shape is declined at intake with a reason, not at the cap. |
+| Operational | A post-delivery revert registers as a missed signal; a mid-run question pauses budget and clock and reaches every surface; a thrashing agent is stopped and reported as thrashing rather than as needing a larger cap; Cortex never bypasses a branch-protection rule it holds credentials to bypass. |
 | Provenance and injection | An `inferred` item never renders downstream without origin and confidence; a `verified` item survives compaction intact; agent-directed text planted in a README, a code comment, a test fixture, a dependency changelog, and an issue body produces findings and zero behaviour change; a plan assumption with a mechanical check is executed before approval; context composition by type is recorded per attempt. |
 | Collaborative planning | Two plans with overlapping write sets notify both owners before approval; a semantically divergent pair in the same subsystem is surfaced without blocking; duplicate plans are detected; a base-commit move re-executes exactly the affected assumptions and flags only the broken plans; an advisory reservation expires and never wedges a project; a viewer without permission sees a path-level notice and no plan content; the solo path emits no coordination UI at all. |
 | Knowledge packs | Every entry has a citation and a retrieval date, enforced at publish; a stale entry stops asserting and dispatches a research task; live research enters as `researched` and cannot self-promote into a pack; a pack-derived expectation contradicted by the repository flags the pack rather than failing the repo; a derived check traces to the entry that justified it; a human disposition recorded in one org cannot alter a global pack. |
@@ -4667,23 +5164,43 @@ Kept visible so nobody re-raises them:
 
 ### What is still genuinely not covered
 
-Short, and honest about it:
+The five areas listed in the previous revision — multi-repo and monorepo scale,
+long-running and stateful workloads, non-code deliverables, non-Linux targets,
+and competitive response — are now Phases 25 and 26. What follows is what is
+left after that round, and it is deliberately short.
 
-- **Multi-repo and monorepo-at-scale.** Everything here assumes one repository
-  per task. A change spanning three services, or a monorepo where the "repo scan"
-  is a 40-minute operation, is not designed for.
-- **Long-running and stateful workloads.** Tasks needing a database migration
-  rehearsal, a live service, or a multi-hour build have execution and caching
-  needs the sandbox design does not address.
-- **Non-code deliverables.** Docs, infrastructure-as-code, notebooks, and schema
-  changes have different verification shapes, and the check-derivation story is
-  written for application code.
-- **Windows and non-Linux targets.** The runner is Linux-container-shaped. A
-  customer building a Windows desktop app cannot be verified today.
-- **Competitive response.** If a major vendor ships receipts, the differentiator
-  narrows to the outcome corpus and the method library. That is a defensible
-  position and it should be a conscious one.
+- **Data residency by region.** Enterprise buyers in the EU will ask for
+  processing confined to a region, which constrains both provider routing and
+  where the sandbox runs. Phase 9.4's self-host tier partly answers it; a hosted
+  regional deployment does not exist in this plan.
+- **Non-English codebases and mixed-language teams.** Identifiers, comments,
+  commit messages, and requirements in other languages. Nothing here is
+  English-specific by design, but nothing has been tested either, and intake
+  (Phase 8.1) is the most likely place it breaks.
+- **A third-party marketplace for packs and professionals.** The natural
+  extension of Phase 12 — an ecosystem where a security firm publishes a graded
+  pack. Genuinely attractive, and deliberately out of scope until the first-party
+  bench has proven the grading mechanism actually works.
+- **Fine-tuning on the outcome corpus.** Deliberately not proposed. The corpus is
+  worth more as routing, forecasting, and grading signal than as training data:
+  fine-tuning would couple Cortex to one base model, invite contamination between
+  the training set and the evaluation set, and trade a durable advantage for a
+  temporary one. Revisit only with a specific measured case.
+- **Pricing experimentation.** Whether to A/B pricing, and how to do that
+  ethically when the ledger is the trust artifact, is unaddressed.
 
+### The completeness claim, stated precisely
+
+This document specifies the mechanisms Cortex needs from its current state to a
+professional, externally testable product across backend, frontend, headless
+access, and operations. Every decision carries a decided default; every claim
+about the current code carries a `file:line`; every phase carries an exit gate.
+
+It does **not** claim that no further gaps exist. Three rounds of review have each
+found real ones — the last round found flaky tests, brownfield verification, and
+partial delivery, any of which would have hurt in production. **A fourth review
+should be expected to find more, and the right response is another round rather
+than confidence.**
 
 ## Sources for Track B
 
