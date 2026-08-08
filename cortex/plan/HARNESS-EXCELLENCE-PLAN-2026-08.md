@@ -5215,6 +5215,212 @@ publish; every reported comparison is paired, multi-seed, interval-bounded, and
 carries cost per resolved instance; and Cortex-at-`ultra` versus the best single
 model at maximum effort is a standing, published, receipt-backed result.
 
+## Phase 31 - The economics of a guarantee
+
+**Goal:** make refund-on-failure survive contact with customers. Phase 6.4 built
+a forecast and a cap, Phase 20 built budgets and pools, and CREDITS.md prices the
+work. All three answer *what does this cost*. None of them answers *what does
+Cortex lose when it fails*, and that is a different question with a different
+shape.
+
+Phase 26.1 correctly identifies refund-on-failure as the competitive moat,
+because an incumbent selling tokens cannot cannibalise its own meter. What
+follows from that is the part the document skips: **Cortex has taken the other
+side of a bet, on every task, and nowhere prices it.**
+
+### 31.1 The margin identity, and the term that is missing
+
+For one task with revenue `R` charged only on success, provider-and-verification
+cost `C`, and pass probability `p`:
+
+```
+E[margin] = p·R − E[C]           break-even at   p ≥ E[C] / R
+```
+
+The term that makes this harder than it looks: **`E[C | fail] > E[C | pass]`.**
+A failing task does not fail cheaply. It exhausts the retry budget, climbs the
+escalation ladder (7.3) to more expensive models, re-runs the check battery each
+time, and stops only at the cap. The runs Cortex is not paid for are
+systematically its most expensive runs, and this is the exact inverse of the
+intuition that failures are cheap because nothing shipped.
+
+Everything needed to compute this exists in the plan already and is not joined
+up: Phase 7.2 puts total attempt-chain spend on the reward, Phase 6.4 records
+forecast against actual by prediction ID, and Phase 1 records every verdict. What
+is missing is the **loss model** that reads them — measured `p`, the full cost
+distribution conditioned on outcome, and a per-class break-even, tracked as a
+first-class operating metric rather than inferred from the P&L a quarter later.
+
+That matters more here than in an ordinary SaaS business because agent cost
+variance on identical tasks is measured at 3×–30× — a range already cited in this
+document's own sources. A cost distribution with that spread is dominated by its
+tail, so a mean-based margin calculation will be wrong in the direction that
+hurts, every time.
+
+### 31.2 Adverse selection is structural, not a customer behaving badly
+
+A rational customer holding a portfolio of work sends the hard, underspecified,
+risky items to the vendor that does not charge on failure, and the routine items
+to the flat-rate tool they already pay for. Nobody is cheating; that is simply
+what a guarantee is for. The consequence is arithmetic: **Cortex's realised `p`
+is systematically below the `p` it would measure on a representative sample**,
+and a benchmark drawn from average work will overstate margin at launch.
+
+This is also the reason Phase 27.4 matters so much. Adverse selection concentrates
+Cortex's exposure in exactly the hard tail where best-of-N racing converts honest
+failures into shortcut passes. The two findings compound: the selected
+distribution is the dangerous one, and the speed dial's default knob is most
+dangerous there.
+
+Three defences, in order of how much they are worth:
+
+**(a) Price the odds, not just the work.** The quote should be a function of
+predicted `p`, and predicted `p` is something the estimator (6.5) is already
+built to produce with a confidence interval. Low predicted `p` produces a higher
+price, a narrower guarantee, or a different contract — never a silently
+loss-making one at the standard rate.
+
+**(b) The right to decline is a feature.** Phase 25.4 already declines by
+*shape*; this declines by *odds*. Declining is not a product failure — it is the
+most credible thing a vendor selling verified outcomes can do, and it is the
+behaviour Phase 30's honesty suite measures. Declined well, it is also a sale:
+"Cortex does not think it can verify this, and here is the characterization work
+that would make it verifiable" routes directly into Phase 24.2's priced on-ramp.
+A decline that ends the conversation is a missed opportunity; a decline that
+names the next step is trust plus revenue.
+
+**(c) Measure selection per customer.** Realised `p` versus forecast `p`, per
+organisation and per repository. A persistent gap is information — an adverse
+selector, an unverifiable repository, or a badly calibrated estimator — and each
+has a different response. What it must never be is a silent margin leak
+discovered in aggregate.
+
+### 31.3 Reserve, loss ratio, and the fact that Cortex has no history
+
+Three operating numbers that do not exist today:
+
+| Number | Definition | Why it is needed |
+|---|---|---|
+| **Loss ratio** | refunded credits ÷ gross credits committed, per task class, per repo, per org | The single health metric of an outcome-priced business; drift in it precedes every other symptom |
+| **Outstanding obligation** | credits sold and dispatched but not yet resolved | Cortex's exposure at any instant, and the input to whether a new large run may be accepted |
+| **Class break-even** | measured `E[C]/R` per task class | Which classes are actually profitable, which are loss leaders, and which must be repriced or declined |
+
+The uncomfortable structural fact: outcome-based pricing succeeds overwhelmingly
+at vendors with **years of outcome data** behind the estimate. Cortex has none. It
+is being asked to underwrite before it can price, which is the position every new
+insurer is in and the reason none of them start by writing the riskiest book.
+
+The response is already half-designed in this document, and it should be stated
+as policy: **the guarantee graduates, exactly the way pricing graduates.** Phase
+6.4 already requires a measured variance threshold before a class moves to fixed
+pricing. Apply the same gate to the refund promise — a task class is eligible for
+the full guarantee only once its measured `p` and cost distribution clear a
+threshold, and before that it is priced with a narrower guarantee and labelled
+as such. That is honest, it is defensible to a customer, and it converts the
+cold-start problem from an existential risk into a published roadmap.
+
+### 31.4 The two-part tariff, and what form a refund takes
+
+The structure the market has settled on for exactly this problem is a fixed floor
+plus a variable outcome component, and it solves three things at once here:
+
+- it puts a floor under revenue while `p` is still being learned;
+- it damps adverse selection, because firing speculative junk at Cortex stops
+  being free;
+- it survives Phase 20.5's rule against charging per seat for access, because
+  the floor is a per-organisation platform fee, not a per-seat licence.
+
+**The form of the refund is a real decision and the document has not made it.**
+Refunding to credits retains the customer, preserves the working capital, and is
+the market norm; refunding to cash is a genuine loss and a chargeback-shaped
+operational burden. The decided default: **failed work refunds to credits, at
+full value, automatically, with no support ticket** — and a cash refund is a
+support-path exception, not a product mechanism. This must be stated in the
+commercial terms (23.5) before launch rather than discovered in a dispute, and it
+should be stated generously, because "we refund automatically to your balance" is
+a much stronger claim than most vendors can make and costs Cortex the least.
+
+### 31.5 Refundable credits are a liability, not revenue
+
+A credit that is refundable if the work fails is a **contract liability with
+variable consideration**. It cannot be recognised as revenue when it is sold; it
+is recognised as the underlying performance obligation resolves, and unused
+balances need a breakage estimate. Authoritative guidance for agentic-AI
+outcome-based pricing was published in mid-2026, so this is settled treatment
+rather than an open question.
+
+The reason it belongs in an engineering plan rather than a finance one: **the
+ledger has to carry the fields, and retrofitting the money table is the worst
+migration in the system.** Phase 2.3 already builds invoice-grade reconciliation
+and Phase 1 already makes every verdict durable — the recognition state of a
+credit is one more derived column on infrastructure that exists. Designed in now,
+it is a schema decision. Discovered at the first audit, it is a migration on the
+one table that must never be wrong, in a codebase whose ledger correctness is its
+central claim.
+
+What the ledger must be able to answer, per credit, at any point in time:
+committed or free; obligation open, satisfied, or refunded; recognised or
+deferred, with the date and the receipt that resolved it.
+
+### 31.6 The binding constraint is human review, and nothing models it
+
+This is the finding that most changes what "success" means at team scale.
+
+If every verified change still requires a full human review, then **human review
+capacity — not Cortex's throughput — caps the value Cortex can deliver.** A team
+of 200 developers has a fixed number of reviewer-hours per day. Doubling the rate
+of incoming changes against a fixed review budget does not double delivered value;
+past a point it *reduces* it, by lengthening queues, ageing branches, and pushing
+base drift onto every open change (Phase 33).
+
+So the win condition is not more pull requests. It is **less review per pull
+request**, and that requires saying explicitly — which the document never does —
+what a receipt is allowed to retire:
+
+| A strong receipt retires | It does not retire |
+|---|---|
+| Did they run the tests, and did they pass | Is this the right design |
+| Does it build, typecheck, and lint | Does this belong in this subsystem |
+| Is there a regression test for the reported defect (27.5 differential control) | Is this maintainable by this team |
+| Did it break something elsewhere in the blast radius | Is the public API shape right |
+| Was the exam surface left intact (27.2) | Is this the problem worth solving |
+
+The right-hand column is irreducibly human and Cortex should stop pretending
+otherwise. The left-hand column is where the receipt converts reviewer minutes
+into a glance — and that only works if the **review bundle is ordered by what the
+receipt cannot answer**, and visibly shrinks as the verdict class strengthens.
+Phase 3.3 builds the surface; this is the principle that should govern its
+layout.
+
+Two metrics belong on the operations dashboard and are currently nowhere:
+
+- **Review-minutes per merged change**, trending down. This is the number that
+  proves Cortex works at team scale, and it is more important than pass rate.
+- **Reviewer trust calibration** — review duration against diff size, over time,
+  for Cortex changes versus human changes. If reviewers begin rubber-stamping,
+  the human gate has silently disappeared and every false accept from Phase 27
+  reaches production unimpeded. A product that earns trust faster than it earns
+  precision has built a hazard, and this measurement is how it gets caught.
+
+> **Invariant 29.** Cortex never sells a guarantee it cannot price. Every task
+> class carries a measured pass probability, a cost distribution conditioned on
+> outcome, and a break-even; a class without them is quoted with a narrower
+> guarantee and labelled as such. Intake may decline a task on odds, and a
+> decline always names what would make it acceptable.
+
+**Phase 31 exit gate:** loss ratio, outstanding obligation, and per-class
+break-even are computed from existing ledger and forecast data and alert on
+drift; `E[C]` is measured conditioned on outcome rather than assumed symmetric;
+the quote is a function of predicted `p` and intake can decline on odds while
+naming the on-ramp; realised versus forecast `p` is tracked per organisation and
+repository; the guarantee graduates per task class on the same evidence gate as
+fixed pricing; a two-part tariff with an organisation-level floor is in the
+commercial terms; refunds to credits are automatic and stated before launch; the
+ledger carries obligation and recognition state per credit; the review bundle is
+ordered by what the receipt cannot answer and shrinks with verdict class; and
+review-minutes per merged change and reviewer trust calibration are on the
+operations dashboard.
+
 ## Handover protocol — how to actually execute this document
 
 **Read this before dispatching any implementation work.**
