@@ -1,0 +1,90 @@
+# Cortex execution state
+
+Running checkpoint for the actualization of
+`cortex/plan/HARNESS-EXCELLENCE-PLAN-2026-08.md`. Update this file as work
+lands; an interrupted session should be able to resume from it without
+re-deriving anything.
+
+**Last updated:** 2026-08-09
+**Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
+
+---
+
+## Status
+
+| Task | What | State |
+|---|---|---|
+| 1 | Land the harness plan on `main` | PR [#500](https://github.com/hey-vera/heyvera/pull/500) open, auto-merge armed |
+| 1a | Split-out auth commit from the same branch | branch `fix/auth-remove-subscription-flow` pushed, **PR deliberately not opened** — see Findings |
+| 2 | Briefs for PR C, PR A, PR B | in progress on `docs/cortex-execution-briefs` |
+| 3 | Implement PR C (execution sandbox) | not started |
+
+## What was verified directly (not inherited)
+
+Re-checked against the tree at `c8ca2941`, per the plan's "Verify before you
+change" rule:
+
+- `crates/worker/src/executor.rs:49-70` — worktree isolation is **best-effort**
+  and falls back to the caller's `working_dir` on any worktree failure. Confirmed
+  verbatim; this is the live safety exposure PR C removes.
+- `crates/worker/src/executor.rs:74` — `Command::new(&cmd)` spawns the provider
+  CLI as a **host process** with the worker's inherited environment.
+- `crates/worker/src/executor.rs:520` — `ProviderId::Gemini => Ok(("gemini", vec![]))`
+  drops the routed model. The plan's claim holds at the stated line.
+- Migration counter: latest is `migrate_v61` (`crates/api/src/db.rs:3445`); the
+  fresh-database assertion at `db.rs:25375` requires `>= 61`. **Next free number
+  is v62.**
+- Branch protection required checks: `heyvera`, `rust`, `cortex`,
+  `npm-audit (cortex)`, `npm-audit (heyvera)`, `cargo-deny`. Auto-merge is armed
+  on every PR by `.github/workflows/automerge.yml`; the required checks are the
+  only gate.
+
+## Findings — plan/repo inconsistencies
+
+Recorded per the handoff rule (record and keep going; do not redesign mid-flight).
+
+### F1. The plan branch was not docs-only *(action taken, needs Josh)*
+
+`origin/docs/concurrency-assessment` carried one substantive code commit,
+`865dbfae fix(auth): remove the provider-subscription credential flow`, mixed in
+among sixteen docs commits. It removes the backend subscription auth flow, the
+container CLI login path, `PendingContainerAuth`, `start_login_exec`,
+`complete_login_exec`, `AppState::pending_container_auths`, and rewrites
+onboarding's `ProviderStep.tsx`.
+
+It was **split out of the docs PR** onto `fix/auth-remove-subscription-flow` and
+pushed. Its PR was **not** opened, because opening a PR arms auto-merge and this
+is a customer-facing onboarding change. Awaiting Josh.
+
+### F2. `CONCURRENCY-ASSESSMENT.md` was already on main
+
+The handoff states the plan docs exist only on `docs/concurrency-assessment`.
+`cortex/plan/CONCURRENCY-ASSESSMENT.md` was in fact already on `main` with
+byte-identical content, so commit `d437ff5d` was dropped during the rebase.
+Cosmetic; noted so the next reader is not confused by a 16-commit branch
+producing 15 commits.
+
+### F3. PR C is Wave 2, but is being implemented before PR A
+
+The plan's delivery order puts PR C in "Wave 2 — execution and durability
+(needs A)". The handoff schedules PR C first, on the grounds that it is the only
+live safety exposure rather than a missing capability.
+
+This is **compatible** rather than a violation: Wave 2's dependency on A is real
+for **PR B** (which drives the `delivered → verifying` transition and therefore
+needs A's states to exist), and not for PR C. PR C's outward contract is a typed
+`Blocked` outcome on sandbox-setup failure, which the current executor can return
+without any lifecycle-state change. PR C's brief states this explicitly and
+fences it: **PR C must not introduce lifecycle states — those are PR A's.**
+
+Reconciled, not deferred. No plan change needed.
+
+## Rules in force
+
+- Never push to `main`; never bypass a required check.
+- Commit and push after each coherent unit.
+- Rust: `cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --lib`.
+  **Never run `cargo fmt` on this repo.**
+- Known pre-existing local failure, not a regression:
+  `validate::tests::normalizes_dot_segments` (Windows path separators).
+- If a brief and the plan disagree, the plan wins and the brief is fixed.
