@@ -5773,6 +5773,163 @@ with a shared pool, `CODEOWNERS` routing, conflict awareness, and an invite link
 and no identity provider; and every mechanism introduced in this plan carries a
 declared disclosure tier.
 
+## Phase 34 - The foundation, scored honestly
+
+**Goal:** answer the question the rest of this document assumes — *is what exists
+today good enough to build all of this on?* — with evidence rather than
+impression, and add the structural items that Phases 0–33 do not already cover.
+
+### 34.1 The score
+
+Measured on this checkout, by dimension, with the evidence that produced each
+number. The scale is "how close is this to what a serious product needs",
+not "how good is this for its age".
+
+| Dimension | Score | Evidence |
+|---|---|---|
+| **Verification design** | 6 | `verification_driver.rs` is the best code in the repository: frozen specs, `UNIQUE(run_id, step_id, attempt)` as a CAS, detached checkout of the delivered commit, billing state derived from the ledger rather than a column. The design is right and it does not yet drive canonical state (Phase 1). |
+| **Verification soundness** | 2 | Phase 27. The battery grades a tree containing the agent's own edits to it, and nothing measures whether the battery can fail. The mechanism is sound against a *careless* agent and untested against an optimised one. |
+| **Execution safety** | 3 | Host execution of provider CLIs with worktree-only isolation and a deliberate fallback to the original directory (`executor.rs:49-84`, `:125`). This is the one live exposure rather than a missing capability. |
+| **Repository comprehension** | 6 | `crates/context` is real, well-built, tree-sitter based, and wired at `scheduler.rs:1213`. Four grammars, silent degradation, retrieval and impact analysis unwired, nothing persists between runs (Phase 29). |
+| **Data layer** | 3 | Single-node `Mutex<Connection>` over SQLite, 423 lock sites, no leader election, `db.rs` at 25,492 lines owning 114 tables. Correct for one node and structurally unable to become two (Phase 4.2). |
+| **Modularity and blast radius** | 3 | See 34.2 — this is the finding the plan did not have. |
+| **Team and org readiness** | 2 | No organisation, team, role, or spend-ceiling model exists at all (Phase 9), and the operations surface renders invented members. |
+| **Frontend** | 3 | 87 files, ~25,400 lines, **zero test files**, and an evidence gate that fails open (`taskManager.ts:426-442`). Phase 21.3 already names this "testing from zero", correctly. |
+| **Pricing machinery** | 3 | Quotes are never persisted; `quoted_credits` is always `None`. The ledger and idempotency work underneath it is good. |
+| **Engineering discipline** | 7 | Eight CI workflows including a dedicated supply-chain job, an in-code versioned migration system with a `schema_version` table, 692 test functions, and doc comments that argue *why* rather than restate *what*. This is meaningfully above the median for a codebase at this stage. |
+
+**Headline: roughly 4.5 out of 10 as a product. Not 8, and not 2.**
+
+The number on its own is misleading in a way worth stating, because it changes
+what to do about it. **The judgment in this codebase is high and its coverage is
+low.** The code that exists is careful, honestly commented, and written by people
+who had clearly already thought about the failure this review is looking for —
+`verification_driver.rs:11-12` anticipates exam influence; `with_repo_map`
+documents *why* its failure is silent; the ledger derives billing state from the
+ledger. Almost every gap found across four rounds is something *absent* rather
+than something *wrong*.
+
+That distinction is the whole answer to "is this a good foundation": a 4.5 built
+from correct judgment is a far better base than a 7 built from sprawl, because
+the remaining work is **additive**. The two exceptions — host execution and the
+fails-open evidence gate — are the items that must be *corrected* rather than
+extended, and both already have phases.
+
+### 34.2 The structural finding the plan did not have
+
+Phase 4.3 says "split only the real seams" and means scaling seams. There is a
+larger seam it does not name.
+
+**`crates/api` is a single 65,407-line crate containing two different products.**
+Alongside the Cortex ledger, scheduler, verification driver, and check runner sit
+`social.rs` (3,142), `integrations.rs` (2,776), `pulse.rs` (2,270), `messaging.rs`
+(1,813), `deploy_status.rs` (1,397), `media.rs` (1,380), `x402.rs` (1,335),
+`social_policy.rs` (646), `replit.rs` (618), and `moderation.rs` — roughly 15,500
+lines of a separate product. `db.rs` compounds it: one 25,492-line module owning
+all 114 tables, so `credit_transactions` and the social graph live behind the same
+`Mutex<Connection>`, in the same file, with no boundary between them.
+
+Three consequences, in ascending order of seriousness:
+
+1. **Deploy coupling.** Cortex cannot ship without shipping the other product,
+   and neither can be rolled back independently. Phase 23.3's reliability
+   commitments are being made about a binary whose failure surface is mostly not
+   Cortex.
+2. **Blast radius.** A panic anywhere in that 15,500 lines takes down the process
+   that owns the verified-outcome ledger.
+3. **Lock poisoning, which makes (2) permanent rather than transient.** The
+   database lock is taken as `self.conn.lock().unwrap()` (`db.rs:4760`, `:4776`,
+   `:4795`, and throughout). `std::sync::Mutex` poisons on panic, so **a single
+   panic while the lock is held permanently disables every database call in the
+   process** — not just the request that panicked. With 423 lock sites and a large
+   population of `unwrap()`/`expect()` call sites across the crate, this is a live
+   single-point-of-failure that four rounds of review had not named.
+
+The remediation, and none of it is large:
+
+- **Take the product seam first**, before the scaling seams in Phase 4.3. Extract
+  the non-Cortex product into its own crate with its own database handle. This is
+  mechanical, it is the highest ratio of blast-radius reduction to effort
+  available anywhere in the codebase, and it makes every later split easier.
+- **Fix lock poisoning immediately** — recover the guard rather than unwrapping
+  it, or move to a mutex without poisoning semantics. This is a small, contained
+  change against a fault that currently converts any panic into a total outage,
+  and it should not wait for Phase 4.
+- **Split `db.rs` along ownership lines**, with the ledger and verification tables
+  in a module that the rest of the system reaches only through a narrow interface.
+  The claim Cortex sells is ledger correctness; nothing currently prevents
+  unrelated code from writing to it.
+- **Raise test density on the money path specifically.** 295 test functions in
+  `crates/api/src` against 65,407 lines is thin, and Phase 30's suites measure the
+  harness rather than the ledger. The ratio matters far more for
+  `credit_transactions` than for `media.rs`, and it should be measured that way
+  rather than in aggregate.
+
+One further item, observed directly while pushing this work: **the repository
+currently reports seven open dependency vulnerabilities on its default branch,
+three of them high.** A product whose thesis includes supply-chain-trustworthy
+receipts and which is about to gate customers' dependency additions (Phase 32.2)
+cannot carry that. It is a day of work and it is a credibility precondition, not
+a hygiene task.
+
+### 34.3 What the score becomes, and the risk that is now largest
+
+Executed, Phases 0–33 address every dimension in the table above. The honest
+ceiling claim is therefore not about whether the plan is sufficient — it is
+about whether it is *executable*, and after four rounds that is the binding
+question.
+
+**The largest single risk to Cortex is now the size of this plan.** Thirty-four
+phases and roughly forty pull requests is more than a small team completes before
+the market moves, and a plan that is not finished is a plan whose invariants are
+selectively applied — which is worse than a smaller plan honestly scoped, because
+the guarantees in this document are load-bearing for each other. Racing without
+Phase 27 is dangerous. Phase 28's capability claim without Phase 30 is marketing.
+Invariant 16 without Phase 28.4 is unaffordable at scale.
+
+So the plan's own delivery order carries a responsibility it did not have when it
+was five phases long: **it must be safe to stop at any point.** The ordering at
+the end of this document should be read as a sequence of defensible resting
+places, each of which is a coherent product, rather than as a list to be
+completed. The three that matter most, in order: the sandbox (a live exposure),
+truthful durable outcomes (everything else is a number about nothing), and
+verification soundness (without it, the product's central claim is unaudited).
+
+### 34.4 Weak parts this round could not resolve
+
+Stated rather than papered over, because a claim of completeness that is not true
+is exactly the failure this document exists to prevent.
+
+- **`p_fa` has no measured value yet**, so Phase 28's capability arithmetic is
+  structurally correct and numerically unpopulated. Phase 30's suites are the
+  path to a number; until one exists, the capability claim stays unmade.
+- **The decomposition crossover in 28.2(b) is stated as a condition, not as a
+  calibrated threshold.** It becomes actionable only once per-leaf priors have
+  real data behind them, which is Phase 6.5 territory and several quarters out.
+- **Cross-tenant generalisation is drawn as a bright line (29.4) and the line is
+  hard to police.** "Structural and objective" is the right rule and it will
+  require case-by-case judgment at the boundary; it should have a named owner
+  rather than a principle.
+- **Whether a solo builder can genuinely use this is untested.** Phase 33.5's
+  disclosure tiers are a discipline, not evidence. The only real test is watching
+  someone who did not read this document complete a task, and that should happen
+  before the interface is considered done.
+- **A fifth review round should be expected to find more.** Four rounds have each
+  found real gaps: round three found flaky tests, brownfield, and partial
+  delivery; round four found verifier soundness, the capability-versus-efficiency
+  contradiction, silent comprehension degradation, the missing scoreboard, the
+  unpriced guarantee, and the missing off switches. The rate is not obviously
+  decreasing, and the correct response remains another round rather than
+  confidence.
+
+**Phase 34 exit gate:** the non-Cortex product is extracted from `crates/api`
+into its own crate with its own database handle; lock acquisition no longer
+poisons the process on panic; `db.rs` is split so the ledger and verification
+tables are reachable only through a narrow interface; test density is measured
+and reported separately for the money path; the repository carries no open high
+or critical dependency advisories; and the delivery order is reviewed explicitly
+for whether each stopping point is a coherent, safe product.
+
 ## Handover protocol — how to actually execute this document
 
 **Read this before dispatching any implementation work.**
