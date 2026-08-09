@@ -1404,4 +1404,261 @@ mod tests {
             &[]
         ));
     }
+
+    // --- Sandbox boundary regressions ---
+    //
+    // These are the tests that must fail if the fallback ever comes back.
+
+    use crate::sandbox::SandboxSession;
+    use cortex_core::execution_job::IsolationClass;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    /// A runner that records every submission and never runs anything.
+    ///
+    /// The submission counter is the point: several tests assert not on what
+    /// the sandbox returned, but that it was never asked in the first place.
+    struct SpyRunner {
+        submissions: Arc<AtomicUsize>,
+        outcome: SpyOutcome,
+    }
+
+    #[derive(Clone, Copy)]
+    enum SpyOutcome {
+        /// Refuse, the way a runtime that cannot start a sandbox does.
+        Refuse(BlockedReason),
+        /// Accept, print nothing, and exit with this code.
+        Exit(i32),
+    }
+
+    impl SpyRunner {
+        fn new(outcome: SpyOutcome) -> (Self, Arc<AtomicUsize>) {
+            let submissions = Arc::new(AtomicUsize::new(0));
+            (
+                Self {
+                    submissions: Arc::clone(&submissions),
+                    outcome,
+                },
+                submissions,
+            )
+        }
+    }
+
+    impl SandboxRunner for SpyRunner {
+        async fn submit(
+            &self,
+            _job: &ExecutionJob,
+            _request: &SandboxRequest,
+        ) -> Result<SandboxSession, Blocked> {
+            self.submissions.fetch_add(1, Ordering::SeqCst);
+            match self.outcome {
+                SpyOutcome::Refuse(reason) => Err(Blocked::new(reason, "spy runner refused")),
+                SpyOutcome::Exit(code) => {
+                    let (session, driver) =
+                        SandboxSession::channel("spy", IsolationClass::Container);
+                    drop(driver.output);
+                    let _ = driver.exit.send(Ok(SandboxExit::Exited { code }));
+                    Ok(session)
+                }
+            }
+        }
+
+        fn isolation_class(&self) -> IsolationClass {
+            IsolationClass::Container
+        }
+    }
+
+    fn spy_task() -> TaskContract {
+        TaskContract::new(
+            "do the thing".to_string(),
+            cortex_core::provider::Tier::Execute,
+            cortex_core::routing::RiskLevel::Low,
+        )
+    }
+
+    fn spy_decision(provider: ProviderId, model: &str) -> RoutingDecision {
+        RoutingDecision {
+            provider,
+            tier: cortex_core::provider::Tier::Execute,
+            model_id: model.to_string(),
+            rationale: Vec::new(),
+            score: 1.0,
+            alternatives_considered: Vec::new(),
+        }
+    }
+
+    fn spy_step() -> StepExecution {
+        StepExecution {
+            step_id: format!("step-{}", uuid::Uuid::new_v4()),
+            attempt_id: "attempt-1".to_string(),
+            lease_gen: 3,
+        }
+    }
+
+    /// A directory that is definitively not a git repository.
+    fn non_repo_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("cortex-sbx-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    #[tokio::test]
+    async fn worktree_failure_blocks_and_does_not_fall_back() {
+        // The exact behaviour that used to live at executor.rs:49-70: worktree
+        // creation failing and execution silently continuing in the caller's
+        // directory. It must now refuse, and it must refuse before the sandbox
+        // is even asked.
+        let dir = non_repo_dir();
+        let (runner, submissions) = SpyRunner::new(SpyOutcome::Exit(0));
+        let (tx, mut rx) = mpsc::channel(16);
+        let step = spy_step();
+
+        let result = Executor::execute(
+            &spy_task(),
+            &spy_decision(ProviderId::Claude, "claude-opus-5"),
+            &step,
+            tx,
+            &dir,
+            &runner,
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "a step that cannot be isolated must not succeed"
+        );
+        assert_eq!(
+            submissions.load(Ordering::SeqCst),
+            0,
+            "nothing may be executed when the workspace cannot be isolated"
+        );
+
+        let mut saw_blocked = false;
+        while let Ok(event) = rx.try_recv() {
+            if let WorkerEvent::Blocked { blocked, .. } = event {
+                assert_eq!(blocked.reason, BlockedReason::WorktreeUnavailable);
+                saw_blocked = true;
+            }
+        }
+        assert!(saw_blocked, "the refusal must be reported, not swallowed");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn sandbox_failure_blocks_and_does_not_invoke_cli() {
+        // A refusing sandbox must produce Blocked rather than Failed. The
+        // distinction matters: Failed is a fact about the customer's code,
+        // Blocked is a fact about Cortex.
+        let (runner, _) = SpyRunner::new(SpyOutcome::Refuse(BlockedReason::SandboxUnavailable));
+        let (tx, mut rx) = mpsc::channel(16);
+        let step = spy_step();
+        let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
+        let invocation = build_command(&decision).unwrap();
+        let job = build_job(&step, &decision, &runner, &invocation);
+        let request = SandboxRequest::new(std::env::temp_dir(), "claude", Vec::new());
+
+        let refused = runner.submit(&job, &request).await;
+        let blocked = refused.err().expect("the spy runner refuses");
+        assert_eq!(blocked.reason, BlockedReason::SandboxUnavailable);
+
+        let result = Executor::block(&step, &tx, blocked).await;
+        assert!(result.is_err());
+
+        match rx.try_recv().expect("a blocked event") {
+            WorkerEvent::Blocked { blocked, .. } => {
+                assert_eq!(blocked.reason, BlockedReason::SandboxUnavailable);
+            }
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gemini_invocation_carries_the_routed_model() {
+        // The regression at executor.rs:520 — a bare `gemini` with no model,
+        // so the router picked one model and another one ran.
+        let invocation = build_command(&spy_decision(ProviderId::Gemini, "gemini-3-pro"))
+            .expect("gemini is a CLI provider");
+        assert_eq!(invocation.program, "gemini");
+        assert!(
+            invocation
+                .args
+                .windows(2)
+                .any(|w| w == ["--model", "gemini-3-pro"]),
+            "the routed model must reach the invocation, got {:?}",
+            invocation.args
+        );
+    }
+
+    #[test]
+    fn every_cli_invocation_carries_its_model() {
+        for (provider, model) in [
+            (ProviderId::Claude, "claude-opus-5"),
+            (ProviderId::Openai, "gpt-5"),
+            (ProviderId::Gemini, "gemini-3-pro"),
+        ] {
+            let invocation = build_command(&spy_decision(provider, model)).expect("cli provider");
+            let rendered = invocation.args.join(" ");
+            assert!(
+                rendered.contains(model),
+                "{provider:?} dropped its routed model: {rendered}"
+            );
+        }
+    }
+
+    #[test]
+    fn cli_backend_does_not_claim_an_effort_it_cannot_apply() {
+        // Invariant 10: a receipt never claims a setting the backend did not
+        // apply. These CLIs have no effort control, so the job must not carry
+        // an applied level.
+        let invocation = build_command(&spy_decision(ProviderId::Claude, "claude-opus-5")).unwrap();
+        assert_eq!(invocation.backend_kind, BackendKind::Cli);
+        assert_eq!(invocation.effort_applied.applied_level(), None);
+    }
+
+    #[test]
+    fn job_carries_the_full_field_set_at_dispatch() {
+        // Fields nothing populates yet must still be present, so the interface
+        // does not need re-cutting when they are.
+        let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
+        let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
+        let step = spy_step();
+        let job = build_job(&step, &decision, &runner, &build_command(&decision).unwrap());
+
+        assert_eq!(job.job_version, EXECUTION_JOB_VERSION);
+        assert_eq!(job.attempt_id, "attempt-1");
+        assert_eq!(job.lease_gen, 3);
+        assert_eq!(job.model_ref.catalog_id, "claude-opus-5");
+        assert_eq!(job.model_ref.catalog_version, None);
+        assert_eq!(job.backend_kind, BackendKind::Cli);
+        assert_eq!(job.effort, None);
+        assert_eq!(job.network_policy, NetworkPolicy::Deny);
+        assert!(job.capability_grants.is_empty());
+        assert_eq!(job.context_bundle, None);
+        assert_eq!(job.quote_id, None);
+        assert_eq!(job.plan_receipt_id, None);
+        assert_eq!(job.isolation_class, IsolationClass::Container);
+        assert!(!job.image_ref.is_empty());
+        assert!(!job.resource_profile.profile_version.is_empty());
+        // Unquoted, but never unbounded.
+        assert!(job.budgets.is_unquoted());
+        assert_eq!(job.budgets.wall_clock, Budgets::DEFAULT_WALL_CLOCK);
+    }
+
+    #[test]
+    fn a_check_that_could_not_run_is_not_a_check_that_passed() {
+        // A blocked check records no exit code, so nothing downstream can read
+        // it as success and auto-commit on the strength of it.
+        let blocked_check = CheckEvidence {
+            name: "cargo:test".to_string(),
+            command: "cargo test".to_string(),
+            required: true,
+            exit_code: None,
+            stdout_excerpt: None,
+            stderr_excerpt: Some("blocked (sandbox_unavailable): no runtime".to_string()),
+            timed_out: false,
+            duration_ms: 0,
+        };
+        assert!(!required_checks_allow_commit(&[blocked_check]));
+    }
 }
