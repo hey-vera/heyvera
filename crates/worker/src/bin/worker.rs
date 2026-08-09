@@ -364,6 +364,7 @@ fn worker_event_to_message(event: WorkerEvent) -> WorkerMessage {
             lease_gen,
             provider,
             model,
+            execution_job,
         } => WorkerMessage::StepStarted {
             message_id: Uuid::new_v4().to_string(),
             step_id,
@@ -371,6 +372,7 @@ fn worker_event_to_message(event: WorkerEvent) -> WorkerMessage {
             lease_gen,
             provider,
             model,
+            execution_job: Some(*execution_job),
         },
         WorkerEvent::Output {
             step_id,

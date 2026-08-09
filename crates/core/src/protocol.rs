@@ -64,6 +64,16 @@ pub enum WorkerMessage {
         lease_gen: i64,
         provider: String,
         model: String,
+        /// What the worker is actually about to run: image, isolation class,
+        /// resource profile, network policy, model identity, and the budgets
+        /// in force.
+        ///
+        /// Optional so a worker built before this field still parses. A
+        /// missing job is recorded as missing rather than filled in with a
+        /// plausible default — a receipt that guesses its own provenance is
+        /// worse than one that admits it does not have it.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        execution_job: Option<crate::execution_job::ExecutionJob>,
     },
     StepOutput {
         step_id: String,

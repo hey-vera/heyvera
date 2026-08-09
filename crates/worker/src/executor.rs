@@ -60,12 +60,18 @@ impl Executor {
     ) -> Result<i32, CortexError> {
         let invocation = build_command(decision)?;
 
+        // Build the job before announcing the start, so the announcement can
+        // carry it. Nothing about the job depends on the workspace.
+        let mut job = build_job(step, decision, runner, &invocation);
+        job.record_effort_application(invocation.effort_applied.clone());
+
         tx.send(WorkerEvent::Started {
             step_id: step.step_id.clone(),
             attempt_id: step.attempt_id.clone(),
             lease_gen: step.lease_gen,
             provider: decision.provider.to_string(),
             model: decision.model_id.clone(),
+            execution_job: Box::new(job.clone()),
         })
         .await
         .ok();
@@ -83,9 +89,6 @@ impl Executor {
             }
         };
         let workspace = worktree_guard.path().to_path_buf();
-
-        let mut job = build_job(step, decision, runner, &invocation);
-        job.record_effort_application(invocation.effort_applied.clone());
 
         let mut prompt_args = invocation.args.clone();
         prompt_args.push(build_task_prompt(task));

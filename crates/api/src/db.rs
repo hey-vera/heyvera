@@ -596,6 +596,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 61 {
         migrate_v61(conn);
     }
+    if current < 62 {
+        migrate_v62(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -3508,6 +3511,73 @@ fn migrate_v61(conn: &Connection) {
     tracing::info!(
         "applied migration v61: verification_runs, verification_checks, verification_specs"
     );
+}
+
+fn migrate_v62(conn: &Connection) {
+    // PR C — what actually ran, recorded at dispatch.
+    //
+    // Invariant 4 requires a receipt to name an immutable source tree, an
+    // image, a resource profile, and the argv that produced it. None of that
+    // was persisted anywhere: the worker built a command, ran it, and reported
+    // an exit code. The model identity in particular was reconstructable only
+    // from a routing decision that nothing joined to the delivery.
+    //
+    // Fields that nothing populates yet are columns here anyway — quote_id,
+    // plan_receipt_id, effort, budgets, context bundle. They are NULL until
+    // PRs F, K, and the context work fill them, and a column added later
+    // cannot describe an attempt that has already run.
+    //
+    // Numbered v62 because schema_version is a single counter shared with the
+    // HeyVera Socials product; v61 was the maximum on main when this was
+    // written. A collision means whichever branch merges second has its
+    // migration silently skipped, so re-check before claiming a number.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS execution_jobs (
+            job_id              TEXT PRIMARY KEY,
+            job_version         INTEGER NOT NULL,
+            run_id              TEXT NOT NULL,
+            step_id             TEXT NOT NULL,
+            attempt_id          TEXT NOT NULL,
+            lease_gen           INTEGER NOT NULL,
+
+            model_catalog_id    TEXT NOT NULL,
+            model_catalog_ver   TEXT,
+            backend_kind        TEXT NOT NULL,
+            effort_requested    TEXT,
+            effort_applied      TEXT NOT NULL,
+
+            token_budget        INTEGER,
+            wall_clock_ms       INTEGER NOT NULL,
+            max_tool_calls      INTEGER,
+
+            network_policy      TEXT NOT NULL,
+            capability_grants   TEXT NOT NULL DEFAULT '[]',
+            context_bundle      TEXT,
+            packed_bytes        INTEGER,
+
+            quote_id            TEXT,
+            plan_receipt_id     TEXT,
+
+            image_ref           TEXT NOT NULL,
+            isolation_class     TEXT NOT NULL,
+            resource_profile    TEXT NOT NULL,
+            profile_version     TEXT NOT NULL,
+
+            submitted_at        INTEGER NOT NULL,
+
+            -- One logical execution per attempt and lease generation. A
+            -- resubmission under the same key is the same job and must not
+            -- record a second sandbox; this mirrors the claim key already used
+            -- on the dispatch path.
+            UNIQUE(attempt_id, lease_gen)
+        );
+        CREATE INDEX IF NOT EXISTS idx_execution_jobs_step
+            ON execution_jobs(run_id, step_id);
+
+        UPDATE schema_version SET version = 62;",
+    )
+    .expect("migration v62 failed creating execution_jobs");
+    tracing::info!("applied migration v62: execution_jobs");
 }
 
 /// What a customer is shown when they ask why they were charged, and what a
@@ -8657,6 +8727,87 @@ impl Database {
             );
         }
         lease_gen
+    }
+
+    /// Record what actually ran, at dispatch.
+    ///
+    /// Idempotent on `(attempt_id, lease_gen)`: a resubmission under the same
+    /// attempt is the same logical execution and must not produce a second row.
+    /// Returns whether a row was inserted, so a duplicate is visible rather
+    /// than silent.
+    ///
+    /// This is a provenance record, not a lifecycle state. Nothing reads it to
+    /// decide whether a step succeeded.
+    pub fn record_execution_job(
+        &self,
+        run_id: &str,
+        job: &cortex_core::execution_job::ExecutionJob,
+    ) -> bool {
+        let conn = self.conn();
+        let network_policy = serde_json::to_string(&job.network_policy)
+            .unwrap_or_else(|_| "\"unserializable\"".to_string());
+        let capability_grants =
+            serde_json::to_string(&job.capability_grants).unwrap_or_else(|_| "[]".to_string());
+        let resource_profile = serde_json::to_string(&job.resource_profile)
+            .unwrap_or_else(|_| "\"unserializable\"".to_string());
+        let effort_applied = serde_json::to_string(&job.effort_applied)
+            .unwrap_or_else(|_| "\"unserializable\"".to_string());
+
+        conn.execute(
+            "INSERT OR IGNORE INTO execution_jobs (
+                job_id, job_version, run_id, step_id, attempt_id, lease_gen,
+                model_catalog_id, model_catalog_ver, backend_kind,
+                effort_requested, effort_applied,
+                token_budget, wall_clock_ms, max_tool_calls,
+                network_policy, capability_grants, context_bundle, packed_bytes,
+                quote_id, plan_receipt_id,
+                image_ref, isolation_class, resource_profile, profile_version,
+                submitted_at
+            ) VALUES (
+                ?1, ?2, ?3, ?4, ?5, ?6,
+                ?7, ?8, ?9,
+                ?10, ?11,
+                ?12, ?13, ?14,
+                ?15, ?16, ?17, ?18,
+                ?19, ?20,
+                ?21, ?22, ?23, ?24,
+                ?25
+            )",
+            params![
+                job.job_id,
+                job.job_version,
+                run_id,
+                job.step_id,
+                job.attempt_id,
+                job.lease_gen,
+                job.model_ref.catalog_id,
+                job.model_ref.catalog_version,
+                job.backend_kind.as_str(),
+                job.effort.map(|effort| effort.as_str()),
+                effort_applied,
+                job.budgets.token_budget.map(|budget| budget as i64),
+                job.budgets.wall_clock.as_millis().min(u128::from(u64::MAX)) as i64,
+                job.budgets.max_tool_calls.map(|calls| calls as i64),
+                network_policy,
+                capability_grants,
+                job.context_bundle
+                    .as_ref()
+                    .map(|bundle| bundle.bundle_id.clone()),
+                job.context_bundle
+                    .as_ref()
+                    .and_then(|bundle| bundle.packed_bytes)
+                    .map(|bytes| bytes as i64),
+                job.quote_id,
+                job.plan_receipt_id,
+                job.image_ref,
+                job.isolation_class.as_str(),
+                resource_profile,
+                job.resource_profile.profile_version,
+                Utc::now().timestamp_millis(),
+            ],
+        )
+        .unwrap_or(0)
+            > 0
     }
 
     pub fn start_step(&self, step_id: &str, lease_gen: i64) -> bool {
@@ -25365,6 +25516,122 @@ mod tests {
     }
 
     #[test]
+    fn migration_v62_creates_execution_jobs() {
+        let db = test_db();
+        let conn = db.conn();
+
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
+            .unwrap();
+        assert!(version >= 62, "fresh database must reach v62, got {version}");
+
+        let found: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'execution_jobs'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(found, 1, "execution_jobs must exist after migration");
+    }
+
+    fn sample_execution_job() -> cortex_core::execution_job::ExecutionJob {
+        use cortex_core::execution_job::*;
+        ExecutionJob {
+            job_id: uuid::Uuid::new_v4().to_string(),
+            job_version: EXECUTION_JOB_VERSION,
+            run_id: "run-1".to_string(),
+            step_id: "step-1".to_string(),
+            attempt_id: "attempt-1".to_string(),
+            lease_gen: 4,
+            model_ref: ModelRef::uncatalogued("claude-opus-5"),
+            backend_kind: BackendKind::Cli,
+            effort: None,
+            effort_applied: EffortApplication::NotRequested,
+            budgets: Budgets::unquoted(),
+            network_policy: NetworkPolicy::Deny,
+            capability_grants: Vec::new(),
+            context_bundle: None,
+            quote_id: None,
+            plan_receipt_id: None,
+            image_ref: "cortex/sandbox@sha256:abc".to_string(),
+            isolation_class: IsolationClass::Container,
+            resource_profile: ResourceProfile::default(),
+        }
+    }
+
+    #[test]
+    fn execution_job_records_the_provenance_a_receipt_needs() {
+        // Invariant 4: a receipt names an immutable image, a resource profile,
+        // and what actually ran. None of it was persisted before this table.
+        let db = test_db();
+        let job = sample_execution_job();
+        assert!(db.record_execution_job("run-1", &job));
+
+        let conn = db.conn();
+        let (image, isolation, profile_version, model, wall_clock): (
+            String,
+            String,
+            String,
+            String,
+            i64,
+        ) = conn
+            .query_row(
+                "SELECT image_ref, isolation_class, profile_version, model_catalog_id, wall_clock_ms
+                 FROM execution_jobs WHERE attempt_id = ?1",
+                params![job.attempt_id],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
+            )
+            .unwrap();
+
+        assert_eq!(image, "cortex/sandbox@sha256:abc");
+        assert_eq!(isolation, "container");
+        assert_eq!(profile_version, "rp-1");
+        assert_eq!(model, "claude-opus-5");
+        assert!(wall_clock > 0, "an unbounded attempt must not be recordable");
+    }
+
+    #[test]
+    fn execution_job_is_idempotent_on_attempt_and_lease_gen() {
+        // A resubmission under the same attempt is the same logical execution
+        // and must not record a second sandbox.
+        let db = test_db();
+        let first = sample_execution_job();
+        let mut second = sample_execution_job();
+        second.job_id = uuid::Uuid::new_v4().to_string();
+
+        assert!(db.record_execution_job("run-1", &first));
+        assert!(
+            !db.record_execution_job("run-1", &second),
+            "a duplicate attempt must be reported, not inserted twice"
+        );
+
+        let count: i64 = db
+            .conn()
+            .query_row(
+                "SELECT COUNT(*) FROM execution_jobs WHERE attempt_id = ?1",
+                params![first.attempt_id],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[test]
+    fn a_new_lease_generation_is_a_new_job() {
+        // The other side of idempotency: a genuine retry under a new lease
+        // must be recorded, or a receipt loses the attempt that actually ran.
+        let db = test_db();
+        let first = sample_execution_job();
+        let mut retried = sample_execution_job();
+        retried.job_id = uuid::Uuid::new_v4().to_string();
+        retried.lease_gen = first.lease_gen + 1;
+
+        assert!(db.record_execution_job("run-1", &first));
+        assert!(db.record_execution_job("run-1", &retried));
+    }
+
+    #[test]
     fn migration_v61_creates_the_verification_tables() {
         let db = test_db();
         let conn = db.conn();
@@ -25372,7 +25639,7 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
             .unwrap();
-        assert!(version >= 61, "fresh database must reach v61, got {version}");
+        assert!(version >= 62, "fresh database must reach v62, got {version}");
 
         for table in [
             "verification_runs",

@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-use cortex_core::execution_job::Blocked;
+use cortex_core::execution_job::{Blocked, ExecutionJob};
 use cortex_core::failure::WorkerFailureReport;
 use cortex_core::protocol::StepOutput;
 
@@ -13,6 +13,9 @@ pub enum WorkerEvent {
         lease_gen: i64,
         provider: String,
         model: String,
+        /// What is about to run. Boxed because it dwarfs every other variant
+        /// and an enum is as large as its largest arm.
+        execution_job: Box<ExecutionJob>,
     },
     Output {
         step_id: String,
