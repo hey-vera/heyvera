@@ -1,5 +1,6 @@
 use serde::Serialize;
 
+use cortex_core::execution_job::Blocked;
 use cortex_core::failure::WorkerFailureReport;
 use cortex_core::protocol::StepOutput;
 
@@ -34,5 +35,20 @@ pub enum WorkerEvent {
         attempt_id: String,
         lease_gen: i64,
         failure: WorkerFailureReport,
+    },
+    /// The step never ran, because the execution boundary could not be
+    /// established.
+    ///
+    /// Distinct from `Failed` on purpose: `Failed` means the work was attempted
+    /// and did not succeed, which is a fact about the task. `Blocked` means
+    /// Cortex declined to attempt it, which is a fact about Cortex. Collapsing
+    /// the two would attribute an operator's infrastructure problem to the
+    /// customer's code — and would let a missing sandbox look like a failing
+    /// task.
+    Blocked {
+        step_id: String,
+        attempt_id: String,
+        lease_gen: i64,
+        blocked: Blocked,
     },
 }

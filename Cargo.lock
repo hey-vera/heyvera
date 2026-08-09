@@ -683,6 +683,7 @@ dependencies = [
 name = "cortex-worker"
 version = "0.1.0"
 dependencies = [
+ "bollard",
  "cortex-core",
  "futures-util",
  "serde",

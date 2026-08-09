@@ -5,7 +5,7 @@
 
 use std::path::{Path, PathBuf};
 
-use cortex_core::execution_job::{CapabilityGrant, ExecutionJob, NetworkPolicy};
+use cortex_core::execution_job::{CapabilityGrant, ExecutionJob};
 
 /// Where the workspace is mounted inside the sandbox. Fixed, so a command
 /// built for one runtime is valid in the next one.
@@ -123,7 +123,7 @@ mod tests {
     use super::*;
     use cortex_core::execution_job::{
         BackendKind, Budgets, EffortApplication, ExecutionJob, IsolationClass, ModelRef,
-        ResourceProfile, EXECUTION_JOB_VERSION,
+        NetworkPolicy, ResourceProfile, EXECUTION_JOB_VERSION,
     };
 
     fn job() -> ExecutionJob {
