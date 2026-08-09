@@ -5421,6 +5421,176 @@ ordered by what the receipt cannot answer and shrinks with verdict class; and
 review-minutes per merged change and reviewer trust calibration are on the
 operations dashboard.
 
+## Phase 32 - Operational controls that do not exist
+
+**Goal:** the controls an operator needs when something is already going wrong.
+Phase 23 covers status pages, incidents, and reliability commitments — the
+*communication* of trouble. This phase covers the *levers*, and a search of the
+document finds none of them: no kill switch, no circuit breaker, no compensation
+for external effects, no gate on dependencies the agent adds, and no procedure
+for a receipt that turns out to be wrong.
+
+Each is small. Collectively they are the difference between an incident and an
+outage with no brake pedal.
+
+### 32.1 Stop
+
+A system that autonomously spends money, writes code, and pushes branches needs a
+way to stop, at four scopes, reachable by an operator in seconds:
+
+| Scope | Reached when | Effect |
+|---|---|---|
+| Global | Provider incident, sandbox escape signal, ledger anomaly | No new dispatch anywhere |
+| Organisation | Runaway spend, abuse signal (15.4), customer request | No new dispatch for that org |
+| Repository | A repo producing systematic failures or a poisoned base | No new dispatch against that repo |
+| Task class | A check-derivation or method-library regression | That class only |
+
+Plus **automatic breakers**, because the operator is asleep at 3am and every one
+of these is already a measured number by the time this plan is built:
+
+- loss ratio (31.3) crossing a threshold within a window;
+- verified-then-reverted rate (27.3b) spiking — the live `p_fa` signal;
+- spend rate per org exceeding its own trailing baseline by a multiple;
+- provider error or latency degradation (15.2) — already detected, not yet wired
+  to anything that stops;
+- any sandbox integrity assertion failing.
+
+Two properties decide whether a stop is safe to press, and both follow from
+invariant 3:
+
+- **Stopping is a state, not a crash.** Every in-flight item lands in a truthful
+  terminal or resumable state — `halted_by_operator` is a first-class outcome
+  that refunds, says so on the receipt, and is resumable where the work is
+  intact. A stop that strands claimed verification jobs recreates the exact bug
+  Phase 1.1 exists to fix.
+- **Stopping is idempotent and reversible.** Pressing it twice is pressing it
+  once; releasing it does not stampede every queued run at the provider
+  simultaneously.
+
+The customer-facing half matters too: a halted run says it was halted by the
+operator, not that it failed. Attributing an operator action to the customer's
+work is the same class of dishonesty as a silent quarantine.
+
+### 32.2 The agent adds dependencies, and nothing looks
+
+An agent resolving a task can add a package. Nothing in this document gates that,
+and the consequence is specific and bad: **a green receipt over a run that added
+a malicious package is a trust artifact vouching for a compromise.** That is
+worse than having no receipt, because the receipt is what persuaded someone not
+to look.
+
+This also corrects Phase 27.2, which classified lockfiles as `incidental`. For
+grading purposes that is right — a lockfile is neither subject nor exam. For
+security purposes it is the highest-risk line in the diff. Dependency changes get
+their own treatment rather than inheriting `incidental`'s silence:
+
+| Gate | Check | Default |
+|---|---|---|
+| Novelty | Package did not exist in the base tree's dependency closure | Declared on the receipt, always |
+| Existence and age | Package exists in the registry, is not newly published, and is not a near-name of a package already present | Block on near-name match — this is slopsquatting, and an agent is precisely the victim it targets |
+| Provenance | Registry attestation or signed provenance where the ecosystem provides it | Warn, block by org policy |
+| Install-time execution | Post-install scripts, build scripts, native compilation | Declared, always; block by org policy |
+| Licence | Against the org's allowed set | Block where the org has declared one |
+| Transitive delta | Count and identity of packages pulled in beyond the direct add | Declared; a large delta routes to review |
+
+The existing `cargo-audit`/`semgrep` batteries (8.4) run *after* a dependency is
+in. These gates run at the moment it is added, which is the only moment where
+"do not add it" is still an option. Both are cheap; neither is present.
+
+### 32.3 External effects need inverses
+
+Phase 24.3 made *internal* state survive partial delivery. External effects have
+no such treatment, and they are the ones a customer sees: branches pushed, pull
+requests opened, review comments posted, issues transitioned, checks reported,
+deploys triggered.
+
+Every external effect is recorded as a compensable action with a declared
+inverse, and abandonment executes the inverses in reverse order. Where no inverse
+exists, the effect is **irreversible and must be declared as such at plan time**,
+which makes it a gate rather than a surprise:
+
+| Effect | Inverse | Class |
+|---|---|---|
+| Branch pushed | Delete branch | Compensable |
+| Pull request opened | Close, with a reason | Compensable |
+| Check run reported | Report superseded | Compensable |
+| Review comment posted | Delete or amend with a correction | Compensable, visibly |
+| Issue transitioned | Restore prior state | Compensable |
+| Deploy triggered | Nothing Cortex may assume | **Irreversible — gated, never autonomous** |
+| Notification sent to a human | Nothing | **Irreversible — cheap, but it happened** |
+
+The rule this yields is worth stating on its own: **irreversible external effects
+are ordered last.** A plan that posts a comment before it knows the outcome has
+converted a recoverable failure into a visible one for no benefit.
+
+### 32.4 What kind of boundary is the sandbox, actually
+
+Phase 0.1 replaces host execution with "an execution sandbox" and the document
+never says what strength. It should, because the threat is not a confused agent —
+it is model-authored code running adjacent to other customers' source.
+
+- **Kernel-level isolation, not a shared-kernel container.** A container is a
+  resource boundary and a convenience boundary; against a kernel exploit it is
+  not a security boundary. A microVM or user-space-kernel class of isolation is
+  the requirement, and the plan's single passing mention of a Phase B microVM
+  image should be promoted to a stated commitment with a date.
+- **One sandbox per task, never reused across tenants.** Reuse across tenants
+  makes every kernel bug a cross-customer disclosure and every leftover file a
+  leak.
+- **Default-deny egress with a per-task allowlist**, which Phase 15 partially
+  covers and which the dependency work in 32.2 depends on — a package manager
+  needs a registry, and exactly a registry.
+- **No shared content-addressed cache across tenants.** Phase 28.4's check-result
+  cache is a large cost win and a cross-customer oracle for private source if its
+  scope is wrong. Per-tenant, always, and this is architecture rather than policy.
+- **Secrets never in the sandbox environment.** Phase 15.1 handles customer
+  secrets; the same rule covers Cortex's own — a sandbox that holds a provider
+  key can spend Cortex's money.
+
+### 32.5 Recall: what happens when a receipt was wrong
+
+Once receipts are sold as compliance evidence (26.2), Cortex acquires an
+obligation it does not currently have any way to discharge. A check-derivation
+bug, a bad method-library entry, a mis-pinned runner, or a discovered
+verifier-gaming pattern does not affect one receipt — it affects **every receipt
+produced while it was live**, and Cortex must be able to find them and say so.
+
+The capability is a query plus a procedure, and the data is already there because
+every receipt names its exact versions (invariant 23):
+
+1. Identify the blast radius by artifact version — every receipt produced by the
+   affected derivation rule, method entry, professional version, runner digest,
+   or policy version.
+2. Re-execute where re-execution is still meaningful (24.4's shelf life decides
+   where it is not).
+3. **Notify affected customers with the corrected verdict**, whether or not it
+   changes the outcome, and reverse the ledger where it does.
+4. Publish the correction against the artifact version, so the version history
+   carries its own errata.
+
+This is unglamorous and it is the difference between a receipt being evidence and
+a receipt being a claim. A vendor that cannot recall a bad receipt does not have
+an audit trail; it has a marketing surface with timestamps.
+
+> **Invariant 30.** Every autonomous capability has an off switch and an inverse.
+> Dispatch can be stopped at four scopes and by automatic breaker; a stop leaves
+> every in-flight item in a truthful state and is attributed to the operator, not
+> to the customer's work; every external effect is either compensable with a
+> declared inverse or declared irreversible at plan time and ordered last; and
+> every receipt is recallable by the artifact versions that produced it.
+
+**Phase 32 exit gate:** global, org, repo, and class stops exist and are
+exercised in a drill; automatic breakers fire on loss ratio, revert rate, spend
+rate, provider degradation, and sandbox integrity; a stop produces
+`halted_by_operator` with a refund and a resumption point rather than stranded
+jobs; newly added dependencies are gated on novelty, age, near-name, provenance,
+install scripts, licence, and transitive delta, and are declared on every
+receipt; every external effect has a declared inverse or is declared irreversible
+and ordered last; the sandbox commits to kernel-level isolation, per-task
+lifetime, per-tenant cache scope, default-deny egress, and no provider
+credentials inside; and a receipt recall can enumerate, re-execute, notify, and
+reverse by artifact version.
+
 ## Handover protocol — how to actually execute this document
 
 **Read this before dispatching any implementation work.**
