@@ -24,7 +24,8 @@ contact with customers who select against it).
 | 7 | Refund-on-failure is an insurance product with no actuarial layer, no right to decline, and no revenue-recognition treatment. | Phase 31 | written |
 | 8 | Human review capacity is the binding constraint on delivered value and is unmodelled. | Phase 31.6 | written |
 | 9 | No kill switch, no circuit breaker, no compensation for external side effects, no gate on agent-added dependencies. | Phase 32 | written |
-| 10 | Foundation score and the remediation the plan does not currently carry. | Phase 33 | written |
+| 10 | Solo-to-200-developer range: merge queues, stacked changes, base drift, and conflict awareness against open human work all appeared zero times. | Phase 33 | written |
+| 11 | Foundation score 4.5/10; `crates/api` holds two products behind one poisoning mutex. | Phase 34 | written |
 
 ## Commit trail
 
@@ -36,6 +37,7 @@ Each phase lands as its own commit so an interrupted session loses at most one.
 - `30` Cortex evaluates Cortex — done
 - `31` the economics of a guarantee — done
 - `32` operational controls — done
-- `33` foundation assessment — done
+- `33` solo-to-200-developer range — done
+- `34` foundation assessment — done
 - housekeeping: invariants 24–29, delivery order PRs AL–AR, acceptance rows,
   completeness claim, sources — done
