@@ -8,6 +8,7 @@ use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
 use crate::state::AppState;
+use crate::lock::LockRecovering;
 
 // ---------------------------------------------------------------------------
 // Sliding window counter
@@ -206,7 +207,7 @@ impl RateLimiter {
     /// Check account-level rate limit for a specific category.
     pub fn check_account(&self, key: &str, category: RateLimitCategory) -> Result<(), f64> {
         let (max_requests, window_secs) = category.limits();
-        let mut buckets = self.account_buckets.lock().unwrap();
+        let mut buckets = self.account_buckets.lock_recovering();
         let entry = buckets
             .entry(key.to_string())
             .or_insert_with(|| BucketEntry {
@@ -230,7 +231,7 @@ impl RateLimiter {
             RateLimitCategory::Read
         };
 
-        let mut buckets = self.ip_buckets.lock().unwrap();
+        let mut buckets = self.ip_buckets.lock_recovering();
         let entry = buckets
             .entry(ip.to_string())
             .or_insert_with(|| BucketEntry {
@@ -255,11 +256,11 @@ impl RateLimiter {
         let cutoff = Instant::now() - std::time::Duration::from_secs(600);
 
         {
-            let mut buckets = self.account_buckets.lock().unwrap();
+            let mut buckets = self.account_buckets.lock_recovering();
             buckets.retain(|_, entry| entry.last_access > cutoff);
         }
         {
-            let mut buckets = self.ip_buckets.lock().unwrap();
+            let mut buckets = self.ip_buckets.lock_recovering();
             buckets.retain(|_, entry| entry.last_access > cutoff);
         }
     }

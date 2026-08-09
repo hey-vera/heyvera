@@ -19,6 +19,7 @@ use crate::github;
 use crate::run_payload::{build_run_graph_payload, build_run_step_payloads};
 use crate::scheduler;
 use crate::state::AppState;
+use crate::lock::LockRecovering;
 
 #[derive(Deserialize)]
 pub struct RouteRequest {
@@ -69,7 +70,7 @@ pub async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     let heartbeat_count = state
         .soma_heart
         .as_ref()
-        .map(|h| h.heartbeat_chain.lock().unwrap().len())
+        .map(|h| h.heartbeat_chain.lock_recovering().len())
         .unwrap_or(0);
     let soma_ok = state.soma_heart.is_some();
     crate::metrics::set_subsystem_up("soma", soma_ok);

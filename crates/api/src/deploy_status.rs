@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::state::AppState;
+use crate::lock::LockRecovering;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -292,7 +293,7 @@ fn record_deploy_inspected_event(state: &AppState, status: &DeployStatusResponse
     };
     let fingerprint = deployment_event_fingerprint(status);
     {
-        let mut recorded = state.recorded_deploy_events.lock().unwrap();
+        let mut recorded = state.recorded_deploy_events.lock_recovering();
         if !recorded.insert(fingerprint) {
             return;
         }

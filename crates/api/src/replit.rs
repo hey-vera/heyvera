@@ -185,7 +185,7 @@ pub struct ProjectWorkspace {
 
 impl crate::db::Database {
     pub fn create_project_workspace(&self, workspace: &ProjectWorkspace) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let result = conn.execute(
             "INSERT INTO project_workspaces (
                 id, user_id, project_name, workspace_id, workspace_url,
@@ -208,7 +208,7 @@ impl crate::db::Database {
     }
 
     pub fn get_project_workspace(&self, user_id: &str, project_id: &str) -> Option<ProjectWorkspace> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, user_id, project_name, workspace_id, workspace_url,
                     chat_endpoint, created_at, updated_at, status, metadata
@@ -240,7 +240,7 @@ impl crate::db::Database {
     }
 
     pub fn list_user_project_workspaces(&self, user_id: &str) -> Vec<ProjectWorkspace> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = match conn.prepare(
             "SELECT id, user_id, project_name, workspace_id, workspace_url,
                     chat_endpoint, created_at, updated_at, status, metadata
@@ -279,7 +279,7 @@ impl crate::db::Database {
     }
 
     pub fn update_project_workspace_status(&self, user_id: &str, project_id: &str, status: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = chrono::Utc::now().to_rfc3339();
         let result = conn.execute(
             "UPDATE project_workspaces SET status = ?, updated_at = ? WHERE user_id = ? AND id = ?",
@@ -289,7 +289,7 @@ impl crate::db::Database {
     }
 
     pub fn delete_project_workspace(&self, user_id: &str, project_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let result = conn.execute(
             "DELETE FROM project_workspaces WHERE user_id = ? AND id = ?",
             rusqlite::params![user_id, project_id],
