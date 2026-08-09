@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Mutex, MutexGuard};
 
 use chrono::{Datelike, Utc};
 use cortex_core::task::TaskContract;
@@ -19,7 +19,7 @@ use crate::social_policy::{
 };
 
 pub struct Database {
-    pub(crate) conn: Mutex<Connection>,
+    conn: Mutex<Connection>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4731,6 +4731,23 @@ fn insert_step_operations_event(
 }
 
 impl Database {
+    /// Take the database lock, recovering the guard if a previous holder panicked.
+    ///
+    /// `std::sync::Mutex` poisons on panic, so taking this lock as
+    /// `lock().unwrap()` turned any single panic anywhere in the crate into a
+    /// permanent, process-wide database outage: every subsequent call would
+    /// unwrap a `PoisonError` and panic in turn. The connection itself survives —
+    /// SQLite statements are atomic, and `rusqlite` rolls a `Transaction` back
+    /// when it is dropped during unwinding — so poisoning bought nothing here
+    /// except the outage.
+    ///
+    /// The field is private precisely so this is the only way to reach it.
+    pub(crate) fn conn(&self) -> MutexGuard<'_, Connection> {
+        self.conn
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+    }
+
     pub fn open(path: &Path) -> Self {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent).ok();
@@ -4757,7 +4774,7 @@ impl Database {
     // --- Schema info ---
 
     pub fn schema_version(&self) -> i64 {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT COALESCE(MAX(version), 0) FROM schema_version",
             [],
@@ -4773,7 +4790,7 @@ impl Database {
         clerk_user_id: &str,
         expires_at: i64,
     ) -> Result<(), String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "DELETE FROM social_ws_tickets
              WHERE expires_at <= unixepoch()
@@ -4792,7 +4809,7 @@ impl Database {
 
     /// Atomically consume a live ticket. A digest can succeed at most once.
     pub fn social_consume_ws_ticket(&self, token_hash: &str) -> Result<String, String> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|e| format!("WebSocket ticket transaction failed: {e}"))?;
@@ -4820,7 +4837,7 @@ impl Database {
     }
 
     pub fn list_run_operations_events(&self, run_id: &str, limit: usize) -> Vec<OperationsEvent> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let limit = limit.clamp(1, 500) as i64;
         let mut stmt = conn
             .prepare(
@@ -4858,7 +4875,7 @@ impl Database {
     }
 
     pub fn list_deployment_operations_events(&self, limit: usize) -> Vec<OperationsEvent> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let limit = limit.clamp(1, 100) as i64;
         let mut stmt = conn
             .prepare(
@@ -4900,7 +4917,7 @@ impl Database {
         &self,
         run_id: &str,
     ) -> Option<(Option<String>, Option<String>, Option<String>)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT task_id, group_id, conversation_id FROM runs WHERE id = ?1",
             params![run_id],
@@ -4912,7 +4929,7 @@ impl Database {
     // --- Conversations ---
 
     pub fn create_conversation(&self, user_id: &str, title: Option<&str>) -> Conversation {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -4936,7 +4953,7 @@ impl Database {
         limit: i64,
         offset: i64,
     ) -> (Vec<ConversationSummary>, i64) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         let total: i64 = conn
             .query_row(
@@ -4985,7 +5002,7 @@ impl Database {
         conversation_id: &str,
         user_id: &str,
     ) -> Option<ConversationWithMessages> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         let conversation = conn.query_row(
             "SELECT id, user_id, title, created_at, updated_at FROM conversations WHERE id = ?1 AND user_id = ?2",
@@ -5029,7 +5046,7 @@ impl Database {
     }
 
     pub fn delete_conversation(&self, conversation_id: &str, user_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let rows = conn
             .execute(
                 "DELETE FROM conversations WHERE id = ?1 AND user_id = ?2",
@@ -5045,7 +5062,7 @@ impl Database {
         user_id: &str,
         title: &str,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().to_rfc3339();
         let rows = conn.execute(
             "UPDATE conversations SET title = ?1, updated_at = ?2 WHERE id = ?3 AND user_id = ?4",
@@ -5062,7 +5079,7 @@ impl Database {
         provider: Option<&str>,
         model: Option<&str>,
     ) -> Message {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().to_rfc3339();
 
@@ -5102,7 +5119,7 @@ impl Database {
         source: &str,
         external_id: Option<&str>,
     ) -> CortexGroup {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO cortex_groups
                 (id, user_id, name, kind, description, members, accent, source, external_id, updated_at)
@@ -5130,7 +5147,7 @@ impl Database {
     }
 
     pub fn list_groups(&self, user_id: &str) -> Vec<CortexGroup> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, name, kind, description, members, accent, source, external_id
@@ -5156,7 +5173,7 @@ impl Database {
     }
 
     pub fn get_group(&self, user_id: &str, group_id: &str) -> Option<CortexGroup> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, name, kind, description, members, accent, source, external_id
              FROM cortex_groups WHERE user_id = ?1 AND id = ?2",
@@ -5178,7 +5195,7 @@ impl Database {
     }
 
     pub fn ensure_personal_authority_scope(&self, user_id: &str) -> CortexAuthorityScope {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let scope_id = format!("personal:{user_id}");
         let policy = serde_json::json!({
@@ -5241,7 +5258,7 @@ impl Database {
         external_id: Option<&str>,
         policy: serde_json::Value,
     ) -> CortexAuthorityScope {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let policy_json = serde_json::to_string(&policy).unwrap_or_else(|_| "{}".to_string());
         conn.execute(
@@ -5299,7 +5316,7 @@ impl Database {
     }
 
     pub fn add_authority_membership(&self, scope_id: &str, user_id: &str, role: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "INSERT INTO cortex_authority_memberships
@@ -5322,7 +5339,7 @@ impl Database {
         access: &str,
         policy: serde_json::Value,
     ) -> CortexAuthorityResource {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
         let policy_json = serde_json::to_string(&policy).unwrap_or_else(|_| "{}".to_string());
@@ -5352,7 +5369,7 @@ impl Database {
 
     pub fn list_authority_scopes_for_user(&self, user_id: &str) -> Vec<CortexAuthorityScope> {
         self.ensure_personal_authority_scope(user_id);
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT s.id, s.owner_user_id, s.kind, s.name, s.description, s.source,
@@ -5397,7 +5414,7 @@ impl Database {
         if scope_id == format!("personal:{user_id}") {
             self.ensure_personal_authority_scope(user_id);
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT s.id, s.owner_user_id, s.kind, s.name, s.description, s.source,
                     s.external_id, s.status, s.policy_json, m.role, s.created_at, s.updated_at
@@ -5438,7 +5455,7 @@ impl Database {
         resource_key: &str,
         required_access: &str,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = match conn.prepare(
             "SELECT m.role, r.access
              FROM cortex_authority_scopes s
@@ -5473,7 +5490,7 @@ impl Database {
         resource_type: &str,
         resource_key: &str,
     ) -> Option<CortexAuthorityScope> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT s.id, s.owner_user_id, s.kind, s.name, s.description, s.source,
                     s.external_id, s.status, s.policy_json, m.role, s.created_at, s.updated_at
@@ -5518,7 +5535,7 @@ impl Database {
         user_id: &str,
         scope_id: &str,
     ) -> Vec<CortexAuthorityResource> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let allowed = conn
             .query_row(
                 "SELECT 1
@@ -5571,7 +5588,7 @@ impl Database {
         access: &str,
         policy: serde_json::Value,
     ) -> CortexAuthorityResource {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let resource_id = Uuid::new_v4().to_string();
         let policy_json = serde_json::to_string(&policy).unwrap_or_else(|_| "{}".to_string());
@@ -5605,7 +5622,7 @@ impl Database {
     }
 
     pub fn list_user_operation_group_ids(&self, user_id: &str) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut ids = HashSet::new();
 
         let queries = [
@@ -5637,7 +5654,7 @@ impl Database {
     }
 
     pub fn get_group_task_state(&self, user_id: &str, group_id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let raw: String = conn
             .query_row(
                 "SELECT state_json FROM group_task_state WHERE user_id = ?1 AND group_id = ?2",
@@ -5654,7 +5671,7 @@ impl Database {
         group_id: &str,
         state: &serde_json::Value,
     ) -> serde_json::Value {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let raw = serde_json::to_string(state).unwrap_or_else(|_| "{}".to_string());
         conn.execute(
             "INSERT INTO group_task_state (group_id, user_id, state_json, updated_at)
@@ -5677,7 +5694,7 @@ impl Database {
         events: &[CortexTaskStateEvent],
         chat_attachment: Option<(&str, &str)>,
     ) -> Result<serde_json::Value, String> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn();
         let tx = conn
             .transaction()
             .map_err(|err| format!("failed to begin task state transaction: {err}"))?;
@@ -5731,7 +5748,7 @@ impl Database {
     }
 
     pub fn cortex_task_exists(&self, user_id: &str, group_id: &str, task_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT 1 FROM cortex_tasks WHERE user_id = ?1 AND group_id = ?2 AND id = ?3",
             params![user_id, group_id, task_id],
@@ -5746,7 +5763,7 @@ impl Database {
         group_id: &str,
         task_id: &str,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let Some(latest_run_id) = conn
             .query_row(
                 "SELECT latest_run_id FROM cortex_tasks
@@ -5770,7 +5787,7 @@ impl Database {
         event_type: &str,
         payload: &serde_json::Value,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         insert_operations_event(
             &conn,
             Some(user_id),
@@ -5794,7 +5811,7 @@ impl Database {
         event_type: &str,
         payload: &serde_json::Value,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         insert_operations_event(
             &conn,
             Some(user_id),
@@ -5818,7 +5835,7 @@ impl Database {
         task_id: &str,
         conversation_id: &str,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         attach_cortex_task_chat_tx(&conn, user_id, group_id, task_id, conversation_id, None)
     }
 
@@ -5828,7 +5845,7 @@ impl Database {
         entity_id: &str,
         payload: &serde_json::Value,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         insert_operations_event(
             &conn,
             None,
@@ -5887,7 +5904,7 @@ impl Database {
         priority: &str,
         requested_by: &str,
     ) -> CortexApprovalRequest {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
         let normalized_priority = match priority {
@@ -5959,7 +5976,7 @@ impl Database {
         priority: &str,
         requested_by: &str,
     ) -> Option<CortexApprovalRequest> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         if let Some((id, group_id)) = conn
             .query_row(
                 "SELECT id, group_id FROM cortex_approval_requests
@@ -6012,7 +6029,7 @@ impl Database {
     }
 
     pub fn has_pending_cortex_step_approval(&self, user_id: &str, step_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT 1 FROM cortex_approval_requests
              WHERE user_id = ?1 AND step_id = ?2 AND status = 'pending'
@@ -6029,7 +6046,7 @@ impl Database {
         step_id: &str,
         ask_type: &str,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT 1 FROM cortex_approval_requests
              WHERE user_id = ?1 AND step_id = ?2 AND ask_type = ?3 AND status = 'approved'
@@ -6046,7 +6063,7 @@ impl Database {
         step_id: &str,
         ask_type: &str,
     ) -> Option<(String, String)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, status FROM cortex_approval_requests
              WHERE user_id = ?1 AND step_id = ?2 AND ask_type = ?3
@@ -6065,7 +6082,7 @@ impl Database {
         status: Option<&str>,
         limit: usize,
     ) -> Vec<CortexApprovalRequest> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let limit = limit.clamp(1, 100) as i64;
         let mut requests = Vec::new();
         if let Some(status) = status {
@@ -6124,7 +6141,7 @@ impl Database {
             "approved" | "rejected" | "cancelled" => status,
             _ => return None,
         };
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let decision_json = serde_json::to_string(decision).unwrap_or_else(|_| "{}".to_string());
         let updated = conn
@@ -6208,7 +6225,7 @@ impl Database {
         task_id: &str,
         event_limit: usize,
     ) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let (
             id,
             title,
@@ -6398,7 +6415,7 @@ impl Database {
         group_id: &str,
         event_limit: usize,
     ) -> serde_json::Value {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let generated_at = Utc::now().timestamp_millis();
 
         let mut tasks_stmt = conn
@@ -6846,7 +6863,7 @@ impl Database {
         group_id: &str,
         event_limit: usize,
     ) -> serde_json::Value {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let generated_at = Utc::now().timestamp_millis();
         let mut nodes: Vec<serde_json::Value> = Vec::new();
         let mut edges: Vec<serde_json::Value> = Vec::new();
@@ -7661,7 +7678,7 @@ impl Database {
     }
 
     pub fn conversation_exists(&self, user_id: &str, conversation_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT 1 FROM conversations WHERE user_id = ?1 AND id = ?2",
             params![user_id, conversation_id],
@@ -7684,7 +7701,7 @@ impl Database {
         refresh_token: Option<&str>,
         metadata: &serde_json::Value,
     ) -> IntegrationConnection {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let scopes_json = serde_json::to_string(scopes).unwrap_or_else(|_| "[]".to_string());
         let metadata_json = serde_json::to_string(metadata).unwrap_or_else(|_| "{}".to_string());
@@ -7714,7 +7731,7 @@ impl Database {
         provider: &str,
         external_id: Option<&str>,
     ) -> Option<IntegrationConnection> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let sql = if external_id.is_some() {
             "SELECT id, provider, external_id, display_name, status, scopes, metadata_json, last_sync_at, last_error, created_at, updated_at
              FROM integration_connections WHERE user_id = ?1 AND provider = ?2 AND external_id = ?3"
@@ -7748,7 +7765,7 @@ impl Database {
     }
 
     pub fn get_integration_token(&self, user_id: &str, provider: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT access_token FROM integration_connections
              WHERE user_id = ?1 AND provider = ?2 AND status = 'connected'
@@ -7760,7 +7777,7 @@ impl Database {
     }
 
     pub fn list_integration_connections(&self, user_id: &str) -> Vec<IntegrationConnection> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, provider, external_id, display_name, status, scopes, metadata_json, last_sync_at, last_error, created_at, updated_at
              FROM integration_connections WHERE user_id = ?1 ORDER BY provider ASC, updated_at DESC"
@@ -7799,7 +7816,7 @@ impl Database {
         mapping_type: &str,
         metadata: &serde_json::Value,
     ) -> IntegrationMapping {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let metadata_json = serde_json::to_string(metadata).unwrap_or_else(|_| "{}".to_string());
         conn.execute(
@@ -7828,7 +7845,7 @@ impl Database {
     }
 
     pub fn list_integration_mappings(&self, user_id: &str) -> Vec<IntegrationMapping> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, provider, group_id, external_id, external_name, mapping_type, metadata_json, created_at, updated_at
              FROM integration_mappings WHERE user_id = ?1 ORDER BY updated_at DESC"
@@ -7863,7 +7880,7 @@ impl Database {
         status: &str,
         payload: &serde_json::Value,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let payload_json = serde_json::to_string(payload).unwrap_or_else(|_| "{}".to_string());
         let _ = conn.execute(
             "INSERT INTO integration_events (id, user_id, provider, group_id, event_type, status, payload_json)
@@ -7879,7 +7896,7 @@ impl Database {
         state: &str,
         redirect_after: Option<&str>,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let expires_at = (Utc::now() + chrono::Duration::minutes(10)).to_rfc3339();
         let _ = conn.execute(
             "INSERT OR REPLACE INTO integration_oauth_states (state, user_id, provider, redirect_after, expires_at)
@@ -7893,7 +7910,7 @@ impl Database {
         provider: &str,
         state: &str,
     ) -> Option<(String, Option<String>)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let row = conn
             .query_row(
                 "SELECT user_id, redirect_after FROM integration_oauth_states
@@ -7912,7 +7929,7 @@ impl Database {
     // --- Workers ---
 
     pub fn register_worker(&self, worker_id: &str, user_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "INSERT OR REPLACE INTO workers (id, user_id, status, created_at, last_seen) VALUES (?1, ?2, 'connected', ?3, ?3)",
@@ -7921,7 +7938,7 @@ impl Database {
     }
 
     pub fn update_worker_seen(&self, worker_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "UPDATE workers SET last_seen = ?1 WHERE id = ?2",
@@ -7931,7 +7948,7 @@ impl Database {
     }
 
     pub fn set_worker_status(&self, worker_id: &str, status: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE workers SET status = ?1 WHERE id = ?2",
             params![status, worker_id],
@@ -7946,7 +7963,7 @@ impl Database {
         provider: &str,
         cli_version: Option<&str>,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "INSERT INTO provider_capabilities (worker_id, user_id, provider, cli_version, status, last_reported)
@@ -7980,7 +7997,7 @@ impl Database {
         group_id: Option<&str>,
         conversation_id: Option<&str>,
     ) -> String {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
         let file_paths_json = if file_paths.is_empty() {
@@ -8124,7 +8141,7 @@ impl Database {
         edges: &[(String, String, String)],
         authority_context: Option<&serde_json::Value>,
     ) -> Result<String, CreateRunError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let run_id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
         let file_paths_json = if file_paths.is_empty() {
@@ -8251,7 +8268,7 @@ impl Database {
     /// a PR can be created after the run finishes.  If multiple steps produce
     /// branches, the last one recorded wins.
     pub fn record_run_branch(&self, run_id: &str, branch_name: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn
             .execute(
@@ -8273,7 +8290,7 @@ impl Database {
 
     /// Retrieve the branch name recorded for a run, if any.
     pub fn get_run_branch(&self, run_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT branch FROM runs WHERE id = ?1",
             params![run_id],
@@ -8288,7 +8305,7 @@ impl Database {
         run_id: &str,
         user_id: &str,
     ) -> Option<RunPrAuthorityContext> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, user_id, repo_key, authority_scope_id, authority_context_json
              FROM runs
@@ -8312,7 +8329,7 @@ impl Database {
     }
 
     pub fn run_has_pr_write_lease(&self, run_id: &str, repo_key: Option<&str>) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut query = String::from(
             "SELECT 1 FROM resource_leases
              WHERE run_id = ?1
@@ -8336,7 +8353,7 @@ impl Database {
     /// Get the latest head_commit from any completed step in the given run.
     /// Used to pass as base_commit to subsequent steps for workspace continuity.
     pub fn get_run_latest_commit(&self, run_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT head_commit FROM steps
              WHERE run_id = ?1 AND status = 'succeeded' AND head_commit IS NOT NULL
@@ -8349,7 +8366,7 @@ impl Database {
 
     /// Get the file_paths stored for a run (from the original goal decomposition).
     pub fn get_run_file_paths(&self, run_id: &str) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let json: Option<String> = conn
             .query_row(
                 "SELECT file_paths FROM runs WHERE id = ?1",
@@ -8369,7 +8386,7 @@ impl Database {
         status: &str,
         failure_reason: Option<&str>,
     ) -> bool {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let finished = if matches!(status, "succeeded" | "failed" | "cancelled") {
             Some(now)
@@ -8463,7 +8480,7 @@ impl Database {
         risk: &str,
         objective: &str,
     ) -> String {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
         conn.execute(
@@ -8501,7 +8518,7 @@ impl Database {
     }
 
     pub fn add_step_dependency(&self, step_id: &str, depends_on_id: &str, edge_type: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT OR IGNORE INTO step_dependencies (step_id, depends_on_id, edge_type) VALUES (?1, ?2, ?3)",
             params![step_id, depends_on_id, edge_type],
@@ -8509,7 +8526,7 @@ impl Database {
     }
 
     pub fn find_ready_steps(&self, run_id: &str) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
             "SELECT s.id FROM steps s
@@ -8551,7 +8568,7 @@ impl Database {
         String,
         String,
     )> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
             "SELECT s.id, s.run_id, r.user_id, s.kind, s.work_kind, s.tier, s.risk, s.objective
@@ -8593,7 +8610,7 @@ impl Database {
     }
 
     pub fn lease_step(&self, step_id: &str, worker_id: &str, deadline_ms: i64) -> Option<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn
             .execute(
@@ -8644,7 +8661,7 @@ impl Database {
     }
 
     pub fn start_step(&self, step_id: &str, lease_gen: i64) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn
             .execute(
@@ -8689,7 +8706,7 @@ impl Database {
         base_commit: Option<&str>,
         head_commit: Option<&str>,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn
             .execute(
@@ -8745,7 +8762,7 @@ impl Database {
         error: &str,
         _failure_kind: Option<&str>,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn.execute(
             "UPDATE steps SET status = 'failed', last_error = ?1, updated_at = ?2, version = version + 1
@@ -8786,7 +8803,7 @@ impl Database {
         error: &str,
         _failure_kind: Option<&str>,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn.execute(
             "UPDATE steps SET status = 'failed', last_error = ?1, updated_at = ?2, version = version + 1
@@ -8821,7 +8838,7 @@ impl Database {
     }
 
     pub fn cancel_step(&self, step_id: &str, lease_gen: i64, reason: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn
             .execute(
@@ -8860,7 +8877,7 @@ impl Database {
     }
 
     pub fn cancel_assigned_step(&self, step_id: &str, reason: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn
             .execute(
@@ -8886,7 +8903,7 @@ impl Database {
     }
 
     pub fn mark_step_recovered(&self, step_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn
             .execute(
@@ -8917,7 +8934,7 @@ impl Database {
         base_commit: Option<&str>,
         head_commit: Option<&str>,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn
             .execute(
@@ -8946,7 +8963,7 @@ impl Database {
     }
 
     pub fn expire_stale_leases(&self) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let mut stmt = conn.prepare(
             "UPDATE steps SET status = 'orphaned', assigned_worker = NULL, lease_deadline = NULL,
@@ -8962,7 +8979,7 @@ impl Database {
     }
 
     pub fn expire_stale_resource_leases(&self) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let expired: Vec<ResourceLease> = conn
             .prepare(
@@ -9022,7 +9039,7 @@ impl Database {
     }
 
     pub fn list_active_resource_leases_for_run(&self, run_id: &str) -> Vec<ResourceLease> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, user_id, authority_scope_id, group_id, task_id, run_id, step_id, holder_type, resource_type,
@@ -9051,7 +9068,7 @@ impl Database {
         provider: Option<&str>,
         model: Option<&str>,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "INSERT INTO step_attempts (step_id, run_id, attempt_number, worker_id, lease_gen, status, provider, model, started_at)
@@ -9061,7 +9078,7 @@ impl Database {
     }
 
     pub fn complete_attempt(&self, step_id: &str, lease_gen: i64) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "UPDATE step_attempts SET status = 'succeeded', finished_at = ?1
@@ -9078,7 +9095,7 @@ impl Database {
         failure_kind: Option<&str>,
         error: Option<&str>,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "UPDATE step_attempts SET status = 'failed', finished_at = ?1, failure_kind = ?2, error_summary = ?3
@@ -9104,7 +9121,7 @@ impl Database {
         rationale: &str,
         profile: &str,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "INSERT INTO decisions (id, user_id, run_id, step_id, timestamp, intent, risk, tier, provider, model, worker_id, rationale, profile)
@@ -9123,7 +9140,7 @@ impl Database {
         files_changed: Option<&str>,
         exit_code: Option<i32>,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
         conn.execute(
@@ -9146,7 +9163,7 @@ impl Database {
         tokens_out: Option<i64>,
         duration_ms: Option<i64>,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "INSERT INTO usage_events (user_id, timestamp, provider, tier, model, worker_id, tokens_in, tokens_out, duration_ms)
@@ -9164,7 +9181,7 @@ impl Database {
         const HALF_LIFE_SECS: f64 = 3600.0; // 1 hour
         let lambda = (2.0_f64).ln() / HALF_LIFE_SECS;
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now_ms = Utc::now().timestamp_millis();
         let cutoff = now_ms - window_ms;
 
@@ -9209,7 +9226,7 @@ impl Database {
     // --- Provider Reliability ---
 
     pub fn provider_reliability(&self, user_id: &str, hours: i64) -> Vec<(String, i64, i64)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let cutoff = Utc::now().timestamp_millis() - (hours * 3600 * 1000);
         let mut stmt = conn
             .prepare(
@@ -9236,7 +9253,7 @@ impl Database {
     // --- Idempotency ---
 
     pub fn check_idempotency(&self, key: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.query_row(
             "SELECT result_json FROM idempotency_keys WHERE key = ?1 AND expires_at > ?2",
@@ -9248,7 +9265,7 @@ impl Database {
     }
 
     pub fn set_idempotency(&self, key: &str, result: Option<&str>, ttl_ms: i64) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "INSERT OR REPLACE INTO idempotency_keys (key, result_json, created_at, expires_at) VALUES (?1, ?2, ?3, ?4)",
@@ -9257,7 +9274,7 @@ impl Database {
     }
 
     pub fn cleanup_expired_idempotency(&self) -> usize {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "DELETE FROM idempotency_keys WHERE expires_at < ?1",
@@ -9279,7 +9296,7 @@ impl Database {
         objective: &str,
         created_at: i64,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO steps (id, run_id, kind, work_kind, status, tier, risk, objective, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, 'pending', ?5, ?6, ?7, ?8, ?8)",
@@ -9302,7 +9319,7 @@ impl Database {
 
     /// Returns (provider, kind, risk) for bandit outcome tracking.
     pub fn get_step_info(&self, step_id: &str) -> Option<(String, String, String)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT COALESCE(a.provider, 'Claude'), s.kind, s.risk
              FROM steps s
@@ -9326,7 +9343,7 @@ impl Database {
         &self,
         step_id: &str,
     ) -> Option<(String, String, String, String, String)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT kind, work_kind, tier, risk, objective FROM steps WHERE id = ?1",
             params![step_id],
@@ -9344,7 +9361,7 @@ impl Database {
     }
 
     pub fn get_step_recipe_seed_json(&self, step_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT recipe_seed_json FROM steps WHERE id = ?1",
             params![step_id],
@@ -9355,7 +9372,7 @@ impl Database {
     }
 
     pub fn get_run_user_id(&self, run_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT user_id FROM runs WHERE id = ?1",
             params![run_id],
@@ -9366,7 +9383,7 @@ impl Database {
 
     /// Check if a run belongs to the given user. Returns true if the run exists and is owned by user_id.
     pub fn verify_run_owner(&self, run_id: &str, user_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT 1 FROM runs WHERE id = ?1 AND user_id = ?2",
             params![run_id, user_id],
@@ -9382,7 +9399,7 @@ impl Database {
         limit: usize,
         offset: usize,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, goal, status, profile, created_at, updated_at, started_at, finished_at, heal_attempts,
                     task_id, group_id, conversation_id
@@ -9411,7 +9428,7 @@ impl Database {
     }
 
     pub fn get_run_goal(&self, run_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT goal FROM runs WHERE id = ?1",
             params![run_id],
@@ -9422,7 +9439,7 @@ impl Database {
 
     /// Return timing metadata for a single run (used for PR body generation).
     pub fn list_user_runs_by_id(&self, run_id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, goal, status, profile, created_at, updated_at, started_at, finished_at,
                     task_id, group_id, conversation_id
@@ -9448,7 +9465,7 @@ impl Database {
     }
 
     pub fn get_run_heal_count(&self, run_id: &str) -> i32 {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT heal_attempts FROM runs WHERE id = ?1",
             params![run_id],
@@ -9458,7 +9475,7 @@ impl Database {
     }
 
     pub fn increment_heal_count(&self, run_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn
             .execute(
@@ -9486,7 +9503,7 @@ impl Database {
     }
 
     pub fn get_step_last_error(&self, step_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT last_error FROM steps WHERE id = ?1",
             params![step_id],
@@ -9497,7 +9514,7 @@ impl Database {
     }
 
     pub fn get_all_step_statuses(&self, run_id: &str) -> Vec<(String, String)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, status FROM steps WHERE run_id = ?1 ORDER BY created_at ASC, id ASC",
@@ -9512,7 +9529,7 @@ impl Database {
     }
 
     pub fn get_run_step_snapshots(&self, run_id: &str) -> Vec<RunStepSnapshot> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         let mut predecessors_by_step: HashMap<String, Vec<String>> = HashMap::new();
         let mut predecessor_stmt = conn
@@ -9674,7 +9691,7 @@ impl Database {
     }
 
     pub fn get_step_run_id(&self, step_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT run_id FROM steps WHERE id = ?1",
             params![step_id],
@@ -9684,7 +9701,7 @@ impl Database {
     }
 
     pub fn get_active_run_ids(&self) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare("SELECT id FROM runs WHERE status IN ('planning', 'running')")
             .unwrap();
@@ -9695,7 +9712,7 @@ impl Database {
     }
 
     pub fn get_provider_status(&self, user_id: &str, provider: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT status FROM provider_capabilities WHERE user_id = ?1 AND provider = ?2
              ORDER BY last_reported DESC LIMIT 1",
@@ -9706,7 +9723,7 @@ impl Database {
     }
 
     pub fn get_user_profile(&self, user_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT active_profile FROM user_profiles WHERE user_id = ?1",
             params![user_id],
@@ -9716,7 +9733,7 @@ impl Database {
     }
 
     pub fn get_user_auto_mode(&self, user_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT auto_mode FROM user_profiles WHERE user_id = ?1",
             params![user_id],
@@ -9733,7 +9750,7 @@ impl Database {
         score: Option<f64>,
         timestamp: i64,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO score_evidence (decision_id, evaluator, evidence_json, score, timestamp)
              VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -9743,7 +9760,7 @@ impl Database {
     }
 
     pub fn get_step_predecessors(&self, step_id: &str) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT depends_on_id FROM step_dependencies WHERE step_id = ?1 ORDER BY depends_on_id ASC"
         ).unwrap();
@@ -9754,7 +9771,7 @@ impl Database {
     }
 
     pub fn get_run_step_dependency_edges(&self, run_id: &str) -> Vec<StepDependencyEdge> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT sd.step_id, sd.depends_on_id, sd.edge_type
@@ -9777,7 +9794,7 @@ impl Database {
     }
 
     pub fn get_step_output_summary(&self, step_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT output_summary FROM steps WHERE id = ?1",
             params![step_id],
@@ -9788,7 +9805,7 @@ impl Database {
     }
 
     pub fn get_step_files_changed(&self, step_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT files_changed FROM steps WHERE id = ?1",
             params![step_id],
@@ -9809,7 +9826,7 @@ impl Database {
         verdict: &str,
         evidence_json: &str,
     ) -> Option<String> {
-        let mut conn = self.conn.lock().unwrap();
+        let mut conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().timestamp_millis();
         let tx = conn.transaction().ok()?;
@@ -9912,7 +9929,7 @@ impl Database {
     }
 
     pub fn get_latest_verifier_report(&self, step_id: &str) -> Option<VerifierReport> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, step_id, run_id, lease_gen, worker_id, verifier, status, verdict,
                     evidence_json, created_at, updated_at
@@ -9947,7 +9964,7 @@ impl Database {
         step_id: &str,
         report_id: &str,
     ) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let report = conn
             .query_row(
                 "SELECT vr.id, vr.step_id, vr.run_id, vr.lease_gen, vr.worker_id, vr.verifier,
@@ -10016,7 +10033,7 @@ impl Database {
             }
         };
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn.execute(
             "INSERT INTO step_work_contracts (step_id, lease_gen, run_id, contract_json, created_at)
@@ -10041,7 +10058,7 @@ impl Database {
     }
 
     pub fn get_step_work_contract(&self, step_id: &str, lease_gen: i64) -> Option<TaskContract> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let contract_json: String = conn
             .query_row(
                 "SELECT contract_json FROM step_work_contracts
@@ -10065,7 +10082,7 @@ impl Database {
     }
 
     pub fn get_latest_step_work_contract(&self, step_id: &str) -> Option<TaskContract> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let contract_json: String = conn
             .query_row(
                 "SELECT contract_json FROM step_work_contracts
@@ -10090,7 +10107,7 @@ impl Database {
     }
 
     pub fn get_run_profile(&self, run_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT profile FROM runs WHERE id = ?1",
             params![run_id],
@@ -10106,7 +10123,7 @@ impl Database {
         step_id: &str,
         lease_gen: i64,
     ) -> Option<(String, String, i64)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT COALESCE(provider, ''), COALESCE(model, ''), started_at
              FROM step_attempts WHERE step_id = ?1 AND lease_gen = ?2
@@ -10120,7 +10137,7 @@ impl Database {
     // --- Worker sessions ---
 
     pub fn create_worker_session(&self, session_id: &str, worker_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "INSERT INTO worker_sessions (id, worker_id, connected_at, last_heartbeat)
@@ -10131,7 +10148,7 @@ impl Database {
     }
 
     pub fn disconnect_worker_session(&self, session_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "UPDATE worker_sessions SET disconnected_at = ?1 WHERE id = ?2",
@@ -10141,7 +10158,7 @@ impl Database {
     }
 
     pub fn set_worker_grace_deadline(&self, worker_id: &str, deadline_ms: i64) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE worker_sessions SET grace_deadline = ?1
              WHERE worker_id = ?2 AND disconnected_at IS NOT NULL AND grace_deadline IS NULL",
@@ -10151,7 +10168,7 @@ impl Database {
     }
 
     pub fn update_heartbeat(&self, worker_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "UPDATE worker_sessions SET last_heartbeat = ?1
@@ -10162,7 +10179,7 @@ impl Database {
     }
 
     pub fn workers_past_grace(&self) -> Vec<(String, String)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let mut stmt = conn
             .prepare(
@@ -10184,7 +10201,7 @@ impl Database {
     // --- User profile mutations ---
 
     pub fn upsert_user_profile(&self, user_id: &str, profile: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         conn.execute(
             "INSERT INTO user_profiles (user_id, active_profile, auto_mode, updated_at)
@@ -10196,7 +10213,7 @@ impl Database {
     }
 
     pub fn get_full_user_profile(&self, user_id: &str) -> Option<(String, String)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT active_profile, auto_mode FROM user_profiles WHERE user_id = ?1",
             params![user_id],
@@ -10207,7 +10224,7 @@ impl Database {
 
     /// List runs with active (non-terminal) status for the MC snapshot.
     pub fn list_active_runs(&self) -> Vec<ActiveRunSummary> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT r.id, r.goal, r.status, r.created_at,
@@ -10245,7 +10262,7 @@ impl Database {
         limit: usize,
         offset: usize,
     ) -> Vec<(String, String, String, String, String)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, user_id, goal, status, created_at FROM runs
@@ -10267,7 +10284,7 @@ impl Database {
     }
 
     pub fn list_decisions(&self, limit: usize, user_id: Option<&str>) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let (sql, params_vec): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = if let Some(uid) =
             user_id
         {
@@ -10309,7 +10326,7 @@ impl Database {
     }
 
     pub fn system_stats(&self) -> serde_json::Value {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         let total_runs: i64 = conn
             .query_row("SELECT COUNT(*) FROM runs", [], |r| r.get(0))
@@ -10369,7 +10386,7 @@ impl Database {
     }
 
     pub fn get_worker_list(&self) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT w.id, w.user_id, w.status, w.last_seen,
@@ -10399,7 +10416,7 @@ impl Database {
     // --- Steps assigned to a worker (for orphaning on disconnect) ---
 
     pub fn get_worker_active_steps(&self, worker_id: &str) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id FROM steps WHERE assigned_worker = ?1 AND status IN ('leased', 'running')"
         ).unwrap();
@@ -10412,7 +10429,7 @@ impl Database {
     /// Verify that a step is currently assigned to the given worker.
     /// Used to prevent workers from spoofing step completion for steps they don't own.
     pub fn verify_step_worker(&self, step_id: &str, worker_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM steps
@@ -10427,7 +10444,7 @@ impl Database {
     }
 
     pub fn renew_lease(&self, step_id: &str, lease_gen: i64, new_deadline: i64) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn
             .execute(
@@ -10440,7 +10457,7 @@ impl Database {
     }
 
     pub fn set_step_earliest_dispatch(&self, step_id: &str, earliest_ms: i64) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn
             .execute(
@@ -10462,7 +10479,7 @@ impl Database {
     }
 
     pub fn unlease_step(&self, step_id: &str, lease_gen: i64) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn.execute(
             "UPDATE steps SET status = 'pending', assigned_worker = NULL, lease_deadline = NULL,
@@ -10485,7 +10502,7 @@ impl Database {
     }
 
     pub fn orphan_step(&self, step_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let rows = conn.execute(
             "UPDATE steps SET status = 'orphaned', assigned_worker = NULL, lease_deadline = NULL,
@@ -10510,7 +10527,7 @@ impl Database {
     /// via `success_required` edges. Transitively marks them as 'skipped'.
     /// Returns the list of all skipped step IDs.
     pub fn cascade_failure(&self, failed_step_id: &str) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp_millis();
         let mut skipped = Vec::new();
         let mut visited = std::collections::HashSet::new();
@@ -10573,7 +10590,7 @@ impl Database {
 
     /// Get aggregated usage summary for a user since a given timestamp.
     pub fn get_user_usage_summary(&self, user_id: &str, since_ms: i64) -> UsageSummary {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         // Per-provider breakdown
         let mut stmt = conn
@@ -10623,7 +10640,7 @@ impl Database {
 
     /// Get daily usage breakdown for a user over the last N days.
     pub fn get_user_daily_usage(&self, user_id: &str, days: u32) -> Vec<DailyUsage> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let cutoff_ms = Utc::now().timestamp_millis() - (days as i64 * 86_400_000);
 
         let mut stmt = conn
@@ -10661,7 +10678,7 @@ impl Database {
 
     /// Get system-wide usage summary since a given timestamp (admin).
     pub fn get_system_usage_summary(&self, since_ms: i64) -> UsageSummary {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         let mut stmt = conn
             .prepare(
@@ -10710,7 +10727,7 @@ impl Database {
 
     /// Get per-user usage breakdown (admin). Returns (user_id, UsageSummary) pairs.
     pub fn get_per_user_usage(&self, since_ms: i64) -> Vec<(String, UsageSummary)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         // Get distinct users with usage in the window
         let mut user_stmt = conn
@@ -10744,7 +10761,7 @@ impl Database {
         tier: &str,
         provider: &str,
     ) -> Option<(i64, i64, i64, i64)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let cutoff_ms = Utc::now().timestamp_millis() - (7 * 86_400_000);
         conn.query_row(
             "SELECT
@@ -10795,7 +10812,7 @@ impl Database {
     // --- Billing & Credits ---
 
     pub fn get_subscription(&self, clerk_user_id: &str) -> Option<SubscriptionRecord> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT clerk_user_id, stripe_customer_id, stripe_subscription_id, plan_type, status,
                     trial_end, current_period_start, current_period_end
@@ -10818,7 +10835,7 @@ impl Database {
     }
 
     pub fn upsert_subscription(&self, sub: &SubscriptionRecord) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT OR REPLACE INTO subscriptions
                 (clerk_user_id, stripe_customer_id, stripe_subscription_id, plan_type, status,
@@ -10842,7 +10859,7 @@ impl Database {
         &self,
         stripe_customer_id: &str,
     ) -> Option<SubscriptionRecord> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT clerk_user_id, stripe_customer_id, stripe_subscription_id, plan_type, status,
                     trial_end, current_period_start, current_period_end
@@ -10867,7 +10884,7 @@ impl Database {
     /// Honest credit balance read: returns `None` when no ledger row exists.
     /// Never invents a default (e.g. 200) — product APIs must use this.
     pub fn get_credit_balance_row(&self, clerk_user_id: &str) -> Option<CreditBalanceRecord> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT subscription_remaining, subscription_total, pack_remaining
              FROM credit_balances WHERE clerk_user_id = ?1",
@@ -10927,7 +10944,7 @@ impl Database {
         let sub_key = format!("{idempotency_key}:subscription");
         let pack_key = format!("{idempotency_key}:pack");
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         conn.execute("BEGIN IMMEDIATE", [])
             .map_err(|e| format!("failed to begin transaction: {e}"))?;
@@ -11087,7 +11104,7 @@ impl Database {
         let refund_sub_key = format!("{refund_idempotency_key}:subscription");
         let refund_pack_key = format!("{refund_idempotency_key}:pack");
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         conn.execute("BEGIN IMMEDIATE", [])
             .map_err(|e| format!("failed to begin transaction: {e}"))?;
@@ -11239,7 +11256,7 @@ impl Database {
     /// against `credit_balances`. The balance columns are a cache; this is the
     /// derivation they must agree with.
     pub fn credit_ledger_totals(&self, clerk_user_id: &str) -> (i64, i64) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let sum = |bucket: &str| -> i64 {
             conn.query_row(
                 "SELECT COALESCE(SUM(amount), 0) FROM credit_transactions
@@ -11261,7 +11278,7 @@ impl Database {
     /// ledger itself rather than from a status column that could drift out of
     /// agreement with the money.
     pub fn ledger_has_key(&self, idempotency_key: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM credit_transactions
@@ -11290,7 +11307,7 @@ impl Database {
     ) -> Result<(), String> {
         let specs_json = serde_json::to_string(specs)
             .map_err(|e| format!("failed to serialize check specs: {e}"))?;
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO verification_specs (run_id, step_id, specs_json, created_at)
              VALUES (?1, ?2, ?3, ?4)
@@ -11306,7 +11323,7 @@ impl Database {
     /// An empty result is meaningful, not an error: `compute_verdict` maps an
     /// empty required set to `Unverified`, which is a real product state.
     pub fn load_check_specs(&self, run_id: &str, step_id: &str) -> Vec<CheckSpec> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let raw: Option<String> = conn
             .query_row(
                 "SELECT specs_json FROM verification_specs WHERE run_id = ?1 AND step_id = ?2",
@@ -11336,7 +11353,7 @@ impl Database {
         runner_image: &str,
     ) -> Option<String> {
         let id = Uuid::new_v4().to_string();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let inserted = conn
             .execute(
                 "INSERT INTO verification_runs
@@ -11369,7 +11386,7 @@ impl Database {
         spec: &CheckSpec,
         execution: &CheckExecution,
     ) -> Result<(), String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO verification_checks
                 (id, verification_id, spec_id, source, command, outcome,
@@ -11399,7 +11416,7 @@ impl Database {
         verification_id: &str,
         verdict: Verdict,
     ) -> Result<(), String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE verification_runs SET verdict = ?1, finished_at = ?2 WHERE id = ?3",
             params![
@@ -11420,7 +11437,7 @@ impl Database {
     /// `compute_verdict` is pure, so deriving it costs nothing and cannot lie.
     pub fn get_receipt(&self, run_id: &str, step_id: &str) -> Option<Receipt> {
         let specs = self.load_check_specs(run_id, step_id);
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         let (verification_id, attempt, tree_hash) = conn
             .query_row(
@@ -11479,7 +11496,7 @@ impl Database {
         clerk_user_id: &str,
         total: i64,
     ) -> Result<(), String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining, last_reset_at)
              VALUES (?1, ?2, ?2, 0, datetime('now'))
@@ -11496,7 +11513,7 @@ impl Database {
         clerk_user_id: &str,
         subscription_total: i64,
     ) -> Result<(), String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT OR IGNORE INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining)
              VALUES (?1, ?2, ?2, 0)",
@@ -11507,7 +11524,7 @@ impl Database {
     }
 
     pub fn add_pack_credits(&self, clerk_user_id: &str, amount: i64) -> Result<(), String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO credit_balances (clerk_user_id, subscription_remaining, subscription_total, pack_remaining)
              VALUES (?1, 200, 200, ?2)
@@ -11526,7 +11543,7 @@ impl Database {
         description: &str,
         status: &str,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let rows = conn.execute(
             "INSERT OR IGNORE INTO billing_history (id, clerk_user_id, stripe_event_id, amount_cents, description, status)
@@ -11544,7 +11561,7 @@ impl Database {
         limit: i64,
         offset: i64,
     ) -> Vec<BillingHistoryRecord> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, amount_cents, description, status, created_at
@@ -11568,7 +11585,7 @@ impl Database {
     }
 
     pub fn get_referral_code(&self, code: &str) -> Option<ReferralCodeRecord> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT code, creator_user_id, uses_remaining, total_uses, weeks_earned
              FROM referral_codes WHERE code = ?1",
@@ -11587,7 +11604,7 @@ impl Database {
     }
 
     pub fn get_user_referral_code(&self, user_id: &str) -> Option<ReferralCodeRecord> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT code, creator_user_id, uses_remaining, total_uses, weeks_earned
              FROM referral_codes WHERE creator_user_id = ?1",
@@ -11611,7 +11628,7 @@ impl Database {
         }
         let short_id = &user_id[user_id.len().saturating_sub(5)..];
         let code = format!("REF-{}", short_id.to_uppercase());
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT OR IGNORE INTO referral_codes (code, creator_user_id, uses_remaining, max_uses, total_uses, weeks_earned)
              VALUES (?1, ?2, 50, 50, 0, 0)",
@@ -11629,7 +11646,7 @@ impl Database {
     }
 
     pub fn consume_referral(&self, code: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let rows = conn.execute(
             "UPDATE referral_codes SET uses_remaining = uses_remaining - 1, total_uses = total_uses + 1
              WHERE code = ?1 AND uses_remaining > 0",
@@ -11639,7 +11656,7 @@ impl Database {
     }
 
     pub fn reward_referrer(&self, code: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE referral_codes SET weeks_earned = weeks_earned + 1 WHERE code = ?1",
             params![code],
@@ -11660,7 +11677,7 @@ impl Database {
         description: Option<&str>,
         discount_options: Option<&str>,
     ) -> Result<PromoCode, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO promo_codes (id, code, discount_type, discount_value, max_uses, expires_at, created_by, description, discount_options)
@@ -11690,7 +11707,7 @@ impl Database {
     }
 
     pub fn list_promo_codes(&self) -> Vec<PromoCode> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, code, discount_type, discount_value, max_uses, current_uses, expires_at, active, created_by, created_at, description, discount_options
              FROM promo_codes ORDER BY created_at DESC"
@@ -11717,7 +11734,7 @@ impl Database {
     }
 
     pub fn get_promo_code(&self, code: &str) -> Option<PromoCode> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, code, discount_type, discount_value, max_uses, current_uses, expires_at, active, created_by, created_at, description, discount_options
              FROM promo_codes WHERE code = ?1 COLLATE NOCASE",
@@ -11747,7 +11764,7 @@ impl Database {
         expires_at: Option<Option<&str>>,
         description: Option<Option<&str>>,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut sets = Vec::new();
         let mut values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         if let Some(a) = active {
@@ -11776,7 +11793,7 @@ impl Database {
     }
 
     pub fn delete_promo_code(&self, id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute("DELETE FROM promo_codes WHERE id = ?1", params![id])
             .unwrap_or(0)
             > 0
@@ -11797,7 +11814,7 @@ impl Database {
                 }
             }
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let already_used: bool = conn.query_row(
             "SELECT COUNT(*) > 0 FROM code_redemptions WHERE code = ?1 COLLATE NOCASE AND user_id = ?2",
             params![code, user_id],
@@ -11811,7 +11828,7 @@ impl Database {
 
     pub fn redeem_promo_code(&self, code: &str, user_id: &str) -> Result<PromoCode, String> {
         let promo = self.validate_promo_code(code, user_id)?;
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let redemption_id = Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO code_redemptions (id, promo_code_id, code, user_id) VALUES (?1, ?2, ?3, ?4)",
@@ -11826,7 +11843,7 @@ impl Database {
     }
 
     pub fn list_redemptions(&self, code: Option<&str>) -> Vec<CodeRedemption> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let (sql, params): (&str, Vec<Box<dyn rusqlite::types::ToSql>>) = match code {
             Some(c) => (
                 "SELECT id, promo_code_id, code, user_id, redeemed_at FROM code_redemptions WHERE code = ?1 COLLATE NOCASE ORDER BY redeemed_at DESC",
@@ -11870,7 +11887,7 @@ impl Database {
         created_at: i64,
         metadata: &serde_json::Value,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let files_json = serde_json::to_string(files_changed).unwrap();
         let metadata_json = serde_json::to_string(metadata).unwrap();
 
@@ -11896,7 +11913,7 @@ impl Database {
         u32,
         i64,
     )> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, producer_step_id, kind, content, summary, files_changed, confidence, tokens, created_at
             FROM context_flow_artifacts
@@ -11925,7 +11942,7 @@ impl Database {
     }
 
     pub fn cleanup_context_artifacts_for_run(&self, run_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "DELETE FROM context_flow_artifacts WHERE producer_run_id = ?1",
             params![run_id],
@@ -11936,7 +11953,7 @@ impl Database {
     pub fn get_context_artifact_stats(
         &self,
     ) -> (usize, std::collections::HashMap<String, usize>, f32) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         // Total count
         let total: usize = conn
@@ -11970,7 +11987,7 @@ impl Database {
     }
 
     pub fn get_recent_runs_with_artifacts(&self, limit: usize) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT DISTINCT producer_run_id FROM context_flow_artifacts
@@ -11990,7 +12007,7 @@ impl Database {
         &self,
         clerk_user_id: &str,
     ) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
             "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
@@ -12019,7 +12036,7 @@ impl Database {
     }
 
     pub fn social_find_profile_by_id(&self, profile_id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
@@ -12048,7 +12065,7 @@ impl Database {
     }
 
     pub fn social_find_profile_by_handle(&self, handle: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
             "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
@@ -12077,7 +12094,7 @@ impl Database {
     }
 
     pub fn social_list_profiles(&self, limit: i64, offset: i64) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
             "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
@@ -12120,7 +12137,7 @@ impl Database {
     }
 
     pub fn social_get_first_profile(&self) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
             "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
@@ -12167,7 +12184,7 @@ impl Database {
         display_name: &str,
         bio: &str,
     ) -> serde_json::Value {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO social_profiles (id, clerk_user_id, handle, display_name, bio) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -12178,7 +12195,7 @@ impl Database {
     }
 
     pub fn social_get_linked_agents(&self, profile_id: &str) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
             "SELECT id, profile_id, agent_name, agent_slug, agent_key, agent_type,
@@ -12216,7 +12233,7 @@ impl Database {
 
     /// True when `agent_id` is a linked agent owned by `profile_id`.
     pub fn social_linked_agent_belongs_to(&self, profile_id: &str, agent_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT 1 FROM social_linked_agents
              WHERE id = ?1 AND profile_id = ?2 AND link_state = 'active' LIMIT 1",
@@ -12232,7 +12249,7 @@ impl Database {
 
     /// List brand pages owned by `owner_profile_id`.
     pub fn social_list_brand_pages(&self, owner_profile_id: &str) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, owner_profile_id, kind, slug, display_name, description, avatar_url, created_at
@@ -12260,7 +12277,7 @@ impl Database {
 
     /// Find a brand page by id (any owner).
     pub fn social_find_page_by_id(&self, page_id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, owner_profile_id, kind, slug, display_name, description, avatar_url, created_at
@@ -12284,7 +12301,7 @@ impl Database {
 
     /// Find a brand page by public slug.
     pub fn social_find_page_by_slug(&self, slug: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, owner_profile_id, kind, slug, display_name, description, avatar_url, created_at
@@ -12308,7 +12325,7 @@ impl Database {
 
     /// Follower count for a brand page.
     pub fn social_page_follower_count(&self, page_id: &str) -> i64 {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT COUNT(*) FROM social_page_follows WHERE page_id = ?1",
             params![page_id],
@@ -12319,7 +12336,7 @@ impl Database {
 
     /// True when slug is taken by a brand page, a person handle, or a linked agent slug.
     pub fn social_page_slug_taken(&self, slug: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let as_page: bool = conn
             .query_row(
                 "SELECT 1 FROM social_pages WHERE slug = ?1 LIMIT 1",
@@ -12357,7 +12374,7 @@ impl Database {
         description: &str,
     ) -> Result<serde_json::Value, String> {
         // Single lock: uniqueness check + insert (avoid double-lock with social_page_slug_taken).
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let taken: bool = conn
             .query_row(
                 "SELECT 1 FROM social_pages WHERE slug = ?1 LIMIT 1",
@@ -12404,7 +12421,7 @@ impl Database {
     }
 
     pub fn social_page_follow(&self, page_id: &str, follower_profile_id: &str) -> String {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         conn.execute(
             "INSERT OR IGNORE INTO social_page_follows (id, page_id, follower_profile_id)
@@ -12421,7 +12438,7 @@ impl Database {
     }
 
     pub fn social_page_unfollow(&self, page_id: &str, follower_profile_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "DELETE FROM social_page_follows WHERE page_id = ?1 AND follower_profile_id = ?2",
             params![page_id, follower_profile_id],
@@ -12431,7 +12448,7 @@ impl Database {
     }
 
     pub fn social_page_is_following(&self, page_id: &str, follower_profile_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT 1 FROM social_page_follows WHERE page_id = ?1 AND follower_profile_id = ?2 LIMIT 1",
             params![page_id, follower_profile_id],
@@ -12461,7 +12478,7 @@ impl Database {
         if description.len() > 500 {
             return Err("description exceeds 500 characters".into());
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = format!("shelf_{}", Uuid::new_v4());
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
@@ -12487,7 +12504,7 @@ impl Database {
         owner_profile_id: &str,
         limit: i64,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let limit = limit.clamp(1, 100);
         let mut stmt = match conn.prepare(
             "SELECT id, owner_profile_id, title, description, created_at
@@ -12559,7 +12576,7 @@ impl Database {
         if description.len() > 2000 {
             return Err("description exceeds 2000 characters".into());
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = format!("live_{}", Uuid::new_v4());
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
@@ -12575,7 +12592,7 @@ impl Database {
     }
 
     pub fn social_get_live_session(&self, id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT s.id, s.owner_profile_id, s.title, s.description, s.phase,
@@ -12600,7 +12617,7 @@ impl Database {
         viewer_profile_id: Option<&str>,
         include_mine: bool,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let limit = limit.clamp(1, 100);
         let sql = if include_mine && viewer_profile_id.is_some() {
             "SELECT s.id, s.owner_profile_id, s.title, s.description, s.phase,
@@ -12648,7 +12665,7 @@ impl Database {
         id: &str,
         owner_profile_id: &str,
     ) -> Result<serde_json::Value, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let row: Option<(String, String)> = conn
             .query_row(
                 "SELECT owner_profile_id, phase FROM social_live_sessions WHERE id = ?1",
@@ -12693,7 +12710,7 @@ impl Database {
         id: &str,
         owner_profile_id: &str,
     ) -> Result<serde_json::Value, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let row: Option<(String, String)> = conn
             .query_row(
                 "SELECT owner_profile_id, phase FROM social_live_sessions WHERE id = ?1",
@@ -12758,7 +12775,7 @@ impl Database {
     ) -> Result<serde_json::Value, String> {
         let id = format!("x402_{}", Uuid::new_v4());
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO social_x402_receipts
              (id, idempotency_key, payload_hash, amount, network, status, mode, note, raw_response, created_at)
@@ -12783,7 +12800,7 @@ impl Database {
     }
 
     pub fn social_x402_get_receipt_by_id(&self, id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, idempotency_key, payload_hash, amount, network, status, mode, note, raw_response, created_at
@@ -12797,7 +12814,7 @@ impl Database {
         &self,
         idempotency_key: &str,
     ) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, idempotency_key, payload_hash, amount, network, status, mode, note, raw_response, created_at
@@ -12810,7 +12827,7 @@ impl Database {
 
     /// Look up a linked agent by id (any owner); returns id, profile_id, names/slugs.
     pub fn social_find_linked_agent_by_id(&self, agent_id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, profile_id, agent_name, agent_slug, link_state
@@ -12846,7 +12863,7 @@ impl Database {
         proof_state: &str,
         is_primary: bool,
     ) -> Result<serde_json::Value, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         // Unique slug per profile
         let exists: bool = conn
             .query_row(
@@ -12912,7 +12929,7 @@ impl Database {
         &self,
         key_hash: &str,
     ) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, profile_id, agent_slug, agent_name, link_state
              FROM social_linked_agents
@@ -12941,7 +12958,7 @@ impl Database {
         agent_key_prefix: &str,
         agent_key_hash: &str,
     ) -> Result<serde_json::Value, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         let updated = conn
             .execute(
@@ -13000,7 +13017,7 @@ impl Database {
                 "at least one of autoReplyEnabled or autoFollowEnabled is required".to_string(),
             );
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         // Ownership + active check
         let exists: bool = conn
             .query_row(
@@ -13064,7 +13081,7 @@ impl Database {
 
     /// Clerk user id that owns the social profile (for suspended-account checks).
     pub fn social_profile_clerk_user_id(&self, profile_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT clerk_user_id FROM social_profiles WHERE id = ?1",
             params![profile_id],
@@ -13079,7 +13096,7 @@ impl Database {
         offset: i64,
         filter: Option<&str>,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let filter_clause = match filter {
             Some(f) if f != "all" => format!("AND sp.author_mode = '{}'", f.replace('\'', "''")),
             _ => String::new(),
@@ -13140,7 +13157,7 @@ impl Database {
         community_id: Option<&str>,
     ) -> serde_json::Value {
         let _t = std::time::Instant::now();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO social_posts (id, profile_id, body, visibility, author_mode, linked_agent_id, reply_to_post_id, quote_post_id, community_id, audience_profile_id)
@@ -13209,7 +13226,7 @@ impl Database {
         limit: i64,
         offset: i64,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let pattern = format!("%{query}%");
         // Exclude profiles that opted out of search (show_in_search = 0). Missing prefs row → included (default true).
         let mut stmt = conn
@@ -13248,7 +13265,7 @@ impl Database {
     pub fn social_get_trending_hashtags(&self, limit: usize) -> Vec<serde_json::Value> {
         let limit = limit.clamp(1, 50);
         let bodies: Vec<String> = {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.conn();
             let mut stmt = conn
                 .prepare(
                     "SELECT sp.body FROM social_posts sp
@@ -13305,7 +13322,7 @@ impl Database {
     }
 
     pub fn social_list_communities(&self, limit: i64) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT sc.id, sc.slug, sc.name, sc.description, sc.visibility, sc.created_at, sc.updated_at,
                     sc.creator_profile_id, p.handle, p.display_name
@@ -13339,7 +13356,7 @@ impl Database {
 
     /// Resolve community by UUID id first, then by slug.
     pub fn social_resolve_community_id(&self, id_or_slug: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         if let Ok(id) = conn.query_row(
             "SELECT id FROM social_communities WHERE id = ?1",
             [id_or_slug],
@@ -13357,7 +13374,7 @@ impl Database {
 
     /// Fetch a community row by id (canonical uuid).
     pub fn social_get_community_by_id(&self, community_id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT sc.id, sc.slug, sc.name, sc.description, sc.visibility, sc.created_at, sc.updated_at,
@@ -13396,7 +13413,7 @@ impl Database {
         description: &str,
         visibility: &str,
     ) -> Result<serde_json::Value, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let inserted = conn.execute(
             "INSERT INTO social_communities (id, creator_profile_id, slug, name, description, visibility)
@@ -13431,7 +13448,7 @@ impl Database {
         profile_id: &str,
         limit: i64,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT sc.id, sc.slug, sc.name, sc.description, sc.visibility, sc.created_at, sc.updated_at,
@@ -13474,7 +13491,7 @@ impl Database {
         community_id: &str,
         profile_id: &str,
     ) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT COALESCE(role, 'member') FROM social_community_memberships
              WHERE community_id = ?1 AND profile_id = ?2",
@@ -13490,7 +13507,7 @@ impl Database {
         cursor_created_at: Option<&str>,
         cursor_id: Option<&str>,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
             let agent_name: Option<String> = row.get(14)?;
             Ok(serde_json::json!({
@@ -13570,7 +13587,7 @@ impl Database {
         author_mode: &str,
         linked_agent_id: Option<&str>,
     ) -> serde_json::Value {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO social_longform
@@ -13623,7 +13640,7 @@ impl Database {
     }
 
     pub fn social_get_profile_stats(&self, profile_id: &str) -> serde_json::Value {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let count =
             |sql: &str| -> i64 { conn.query_row(sql, [profile_id], |r| r.get(0)).unwrap_or(0) };
         serde_json::json!({
@@ -13637,7 +13654,7 @@ impl Database {
     }
 
     pub fn social_like(&self, profile_id: &str, post_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT OR IGNORE INTO social_likes (profile_id, post_id) VALUES (?1, ?2)",
             params![profile_id, post_id],
@@ -13646,7 +13663,7 @@ impl Database {
     }
 
     pub fn social_unlike(&self, profile_id: &str, post_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "DELETE FROM social_likes WHERE profile_id = ?1 AND post_id = ?2",
             params![profile_id, post_id],
@@ -13655,7 +13672,7 @@ impl Database {
     }
 
     pub fn social_bookmark(&self, profile_id: &str, post_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT OR IGNORE INTO social_bookmarks (profile_id, post_id) VALUES (?1, ?2)",
             params![profile_id, post_id],
@@ -13664,7 +13681,7 @@ impl Database {
     }
 
     pub fn social_unbookmark(&self, profile_id: &str, post_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "DELETE FROM social_bookmarks WHERE profile_id = ?1 AND post_id = ?2",
             params![profile_id, post_id],
@@ -13681,7 +13698,7 @@ impl Database {
         cursor_id: Option<&str>,
     ) -> Vec<serde_json::Value> {
         let _t = std::time::Instant::now();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
             let agent_name: Option<String> = row.get(13)?;
             Ok(serde_json::json!({
@@ -13758,7 +13775,7 @@ impl Database {
     }
 
     pub fn social_repost(&self, profile_id: &str, post_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT OR IGNORE INTO social_reposts (profile_id, post_id) VALUES (?1, ?2)",
             params![profile_id, post_id],
@@ -13767,7 +13784,7 @@ impl Database {
     }
 
     pub fn social_unrepost(&self, profile_id: &str, post_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "DELETE FROM social_reposts WHERE profile_id = ?1 AND post_id = ?2",
             params![profile_id, post_id],
@@ -13776,7 +13793,7 @@ impl Database {
     }
 
     pub fn social_post_exists(&self, post_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT 1 FROM social_posts WHERE id = ?1 AND deleted_at IS NULL",
             [post_id],
@@ -13793,7 +13810,7 @@ impl Database {
         viewer_profile_id: Option<&str>,
         action: PostAction,
     ) -> PolicyDecision {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let resource = conn.query_row(
             "SELECT sp.profile_id,
                     COALESCE(NULLIF(sp.audience_profile_id, ''), sp.profile_id),
@@ -13931,7 +13948,7 @@ impl Database {
         &self,
         post_id: &str,
     ) -> Option<(PostAudience, Option<String>)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT visibility, community_id FROM social_posts
               WHERE id = ?1 AND deleted_at IS NULL",
@@ -13952,7 +13969,7 @@ impl Database {
         viewer_profile_id: Option<&str>,
     ) -> i64 {
         let child_ids: Vec<String> = {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.conn();
             let mut statement = match conn.prepare(
                 "SELECT id FROM social_posts WHERE reply_to_post_id = ?1 AND deleted_at IS NULL",
             ) {
@@ -13976,7 +13993,7 @@ impl Database {
 
     /// Return the profile_id of the post author, or None if not found / deleted.
     pub fn social_get_post_author_profile_id(&self, post_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT profile_id FROM social_posts WHERE id = ?1 AND deleted_at IS NULL",
             [post_id],
@@ -13987,7 +14004,7 @@ impl Database {
 
     /// Soft-delete a post by setting deleted_at.
     pub fn social_soft_delete_post(&self, post_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE social_posts SET deleted_at = datetime('now') WHERE id = ?1",
             [post_id],
@@ -13996,7 +14013,7 @@ impl Database {
     }
 
     pub fn social_follow(&self, follower_id: &str, following_id: &str) -> String {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         conn.execute(
             "INSERT OR IGNORE INTO social_follows (id, follower_profile_id, following_profile_id) VALUES (?1, ?2, ?3)",
@@ -14018,7 +14035,7 @@ impl Database {
         if requester_id == target_id {
             return Err("cannot follow yourself".to_string());
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute_batch("BEGIN IMMEDIATE;")
             .map_err(|error| error.to_string())?;
         let result = (|| -> rusqlite::Result<SocialFollowOutcome> {
@@ -14123,7 +14140,7 @@ impl Database {
     }
 
     pub fn social_follow_request_pending(&self, requester_id: &str, target_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT EXISTS(
                 SELECT 1 FROM social_follow_requests
@@ -14142,7 +14159,7 @@ impl Database {
         target_id: &str,
         limit: i64,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut statement = conn
             .prepare(
             "SELECT request.id, request.status, request.created_at,
@@ -14179,7 +14196,7 @@ impl Database {
         target_id: &str,
         approve: bool,
     ) -> Result<String, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute_batch("BEGIN IMMEDIATE;")
             .map_err(|error| error.to_string())?;
         let result = (|| -> rusqlite::Result<String> {
@@ -14245,7 +14262,7 @@ impl Database {
     }
 
     pub fn social_unfollow(&self, follower_id: &str, following_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "DELETE FROM social_follows WHERE follower_profile_id = ?1 AND following_profile_id = ?2",
             params![follower_id, following_id],
@@ -14259,7 +14276,7 @@ impl Database {
     }
 
     pub fn social_get_follow_status(&self, follower_id: &str, following_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT 1 FROM social_follows WHERE follower_profile_id = ?1 AND following_profile_id = ?2",
             params![follower_id, following_id], |_| Ok(()),
@@ -14273,7 +14290,7 @@ impl Database {
         limit: i64,
         offset: i64,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
@@ -14316,7 +14333,7 @@ impl Database {
         limit: i64,
         offset: i64,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
@@ -14390,7 +14407,7 @@ impl Database {
     }
 
     pub fn social_block_user(&self, blocker_id: &str, blocked_id: &str) -> rusqlite::Result<()> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute_batch("BEGIN IMMEDIATE;")?;
         // A block revokes relationship-based authorization and pending requests atomically.
         let result = Self::social_block_pair_inner(&conn, blocker_id, blocked_id);
@@ -14410,7 +14427,7 @@ impl Database {
     }
 
     pub fn social_unblock_user(&self, blocker_id: &str, blocked_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "DELETE FROM social_blocks WHERE blocker_profile_id = ?1 AND blocked_profile_id = ?2",
             params![blocker_id, blocked_id],
@@ -14419,7 +14436,7 @@ impl Database {
     }
 
     pub fn social_is_blocked(&self, blocker_id: &str, blocked_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT 1 FROM social_blocks WHERE blocker_profile_id = ?1 AND blocked_profile_id = ?2",
             params![blocker_id, blocked_id],
@@ -14434,7 +14451,7 @@ impl Database {
     }
 
     pub fn social_get_blocked_ids(&self, profile_id: &str) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare("SELECT blocked_profile_id FROM social_blocks WHERE blocker_profile_id = ?1")
             .unwrap();
@@ -14446,7 +14463,7 @@ impl Database {
 
     /// List blocked profiles with public identity fields (for Settings).
     pub fn social_list_blocks(&self, profile_id: &str) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT p.id, p.handle, p.display_name, p.avatar_url, b.created_at
@@ -14471,7 +14488,7 @@ impl Database {
     }
 
     pub fn social_mute_user(&self, muter_id: &str, muted_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT OR IGNORE INTO social_mutes (muter_profile_id, muted_profile_id) VALUES (?1, ?2)",
             params![muter_id, muted_id],
@@ -14479,7 +14496,7 @@ impl Database {
     }
 
     pub fn social_unmute_user(&self, muter_id: &str, muted_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "DELETE FROM social_mutes WHERE muter_profile_id = ?1 AND muted_profile_id = ?2",
             params![muter_id, muted_id],
@@ -14488,7 +14505,7 @@ impl Database {
     }
 
     pub fn social_is_muted(&self, muter_id: &str, muted_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT 1 FROM social_mutes WHERE muter_profile_id = ?1 AND muted_profile_id = ?2",
             params![muter_id, muted_id],
@@ -14498,7 +14515,7 @@ impl Database {
     }
 
     pub fn social_get_muted_ids(&self, profile_id: &str) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare("SELECT muted_profile_id FROM social_mutes WHERE muter_profile_id = ?1")
             .unwrap();
@@ -14510,7 +14527,7 @@ impl Database {
 
     /// List muted profiles with public identity fields (for Settings).
     pub fn social_list_mutes(&self, profile_id: &str) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT p.id, p.handle, p.display_name, p.avatar_url, m.created_at
@@ -14540,7 +14557,7 @@ impl Database {
         conversation_id: &str,
         except_id: Option<&str>,
     ) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT profile_id FROM social_conversation_participants WHERE conversation_id = ?1",
@@ -14572,7 +14589,7 @@ impl Database {
     /// Ensure a prefs row exists (lazy defaults on first GET) and return camelCase JSON.
     pub fn social_get_or_create_profile_prefs(&self, profile_id: &str) -> serde_json::Value {
         {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.conn();
             conn.execute(
                 "INSERT OR IGNORE INTO social_profile_prefs (profile_id) VALUES (?1)",
                 params![profile_id],
@@ -14584,7 +14601,7 @@ impl Database {
     }
 
     pub fn social_get_profile_prefs(&self, profile_id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT profile_id, dm_policy, discoverable_by_contact, show_in_search,
                     protected_posts, profile_visibility, allow_agent_dms, allow_agent_mentions
@@ -14613,7 +14630,7 @@ impl Database {
         viewer_profile_id: Option<&str>,
         action: ProfileAction,
     ) -> PolicyDecision {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let resource = conn.query_row(
             "SELECT COALESCE(pref.profile_visibility, 'public'),
                     COALESCE(pref.show_in_search, 1),
@@ -14698,7 +14715,7 @@ impl Database {
     ) -> serde_json::Value {
         let mut stats = self.social_get_profile_stats(profile_id);
         let post_ids: Vec<String> = {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.conn();
             let mut statement = conn
                 .prepare("SELECT id FROM social_posts WHERE profile_id = ?1 AND deleted_at IS NULL")
                 .unwrap();
@@ -14764,7 +14781,7 @@ impl Database {
         let next_agent_mentions = allow_agent_mentions
             .unwrap_or_else(|| current["allowAgentMentions"].as_bool().unwrap_or(false));
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE social_profile_prefs SET
                 dm_policy = ?2,
@@ -14801,7 +14818,7 @@ impl Database {
         reason: &str,
     ) -> serde_json::Value {
         let id = Uuid::new_v4().to_string();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO social_reports (id, reporter_profile_id, target_type, target_id, reason) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![id, reporter_id, target_type, target_id, reason],
@@ -14817,7 +14834,7 @@ impl Database {
     }
 
     pub fn social_list_reports(&self) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
             "SELECT id, reporter_profile_id, target_type, target_id, reason, status, created_at
@@ -14852,7 +14869,7 @@ impl Database {
         location: Option<&str>,
         website_url: Option<&str>,
     ) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut sets = Vec::new();
         let mut values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1u32;
@@ -14911,7 +14928,7 @@ impl Database {
         &self,
         profile_id: &str,
     ) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
             "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
@@ -14944,7 +14961,7 @@ impl Database {
         handle: &str,
         viewer_profile_id: Option<&str>,
     ) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
             "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
@@ -15010,7 +15027,7 @@ impl Database {
         cursor_created_at: Option<&str>,
         cursor_id: Option<&str>,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
             let agent_name: Option<String> = row.get(13)?;
             Ok(serde_json::json!({
@@ -15099,7 +15116,7 @@ impl Database {
             return None;
         }
         let visible_quote_id = {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.conn();
             conn.query_row(
                 "SELECT quote_post_id FROM social_posts WHERE id = ?1",
                 [post_id],
@@ -15113,7 +15130,7 @@ impl Database {
                 == PolicyDecision::Allow
         });
         let visible_reply_count = self.social_count_authorized_replies(post_id, viewer_profile_id);
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
             "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
@@ -15305,7 +15322,7 @@ impl Database {
         // Over-fetch candidates so scoring can re-rank by shared tags.
         let candidate_cap: i64 = (limit * 20).clamp(40, 200);
 
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         // Load source post metadata.
         let source: Option<(String, String, String, Option<String>)> = conn
@@ -15486,7 +15503,7 @@ impl Database {
     /// Light view counter: always increments once per call (no anon dedupe).
     /// Returns the new view_count, or None if the post is missing/deleted.
     pub fn social_record_post_view(&self, post_id: &str) -> Option<i64> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let updated = conn
             .execute(
                 "UPDATE social_posts SET view_count = COALESCE(view_count, 0) + 1
@@ -15533,7 +15550,7 @@ impl Database {
         let _t = std::time::Instant::now();
         const MAX_DEPTH: i64 = 8;
         const MAX_REPLIES: usize = 100;
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
 
         // Iterative BFS: one parent at a time (avoids dynamic IN param packing).
         let mut ids: Vec<String> = Vec::new();
@@ -15768,7 +15785,7 @@ impl Database {
                 )
             })
             .collect();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         for post in posts.iter_mut() {
             let post_id = match post["id"].as_str() {
                 Some(id) => id.to_string(),
@@ -16026,7 +16043,7 @@ impl Database {
         blocked_ids: &[String],
         muted_ids: &[String],
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let excluded: Vec<String> = blocked_ids
             .iter()
             .chain(muted_ids.iter())
@@ -16170,7 +16187,7 @@ impl Database {
         if recipient_profile_id == actor_profile_id {
             return;
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = format!("notif_{}", Uuid::new_v4());
         conn.execute(
             "INSERT INTO social_notifications (id, recipient_profile_id, actor_profile_id, notification_type, post_id)
@@ -16187,7 +16204,7 @@ impl Database {
         cursor_id: Option<&str>,
     ) -> Vec<serde_json::Value> {
         let _t = std::time::Instant::now();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let (sql, use_cursor) = if cursor_created_at.is_some() && cursor_id.is_some() {
             (
                 "SELECT n.id, n.notification_type, n.post_id, n.read, n.created_at,
@@ -16281,7 +16298,7 @@ impl Database {
     }
 
     pub fn social_mark_notifications_read(&self, profile_id: &str) -> i64 {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let updated = conn.execute(
             "UPDATE social_notifications SET read = 1 WHERE recipient_profile_id = ?1 AND read = 0",
             [profile_id],
@@ -16298,7 +16315,7 @@ impl Database {
         blocked_ids: &[String],
         muted_ids: &[String],
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let excluded: Vec<String> = blocked_ids
             .iter()
             .chain(muted_ids.iter())
@@ -16428,7 +16445,7 @@ impl Database {
         muted_ids: &[String],
     ) -> Vec<serde_json::Value> {
         let _t = std::time::Instant::now();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let filter_clause = match filter {
             Some(f) if f != "all" => format!("AND sp.author_mode = '{}'", f.replace('\'', "''")),
             _ => String::new(),
@@ -16562,7 +16579,7 @@ impl Database {
         muted_ids: &[String],
     ) -> Vec<serde_json::Value> {
         let _t = std::time::Instant::now();
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let pattern = format!("%{query}%");
         let fts_q = sanitize_fts_query(query);
         let excluded: Vec<String> = blocked_ids
@@ -16818,7 +16835,7 @@ impl Database {
         size_bytes: i64,
         media_type: &str,
     ) -> serde_json::Value {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = format!("media_{}", Uuid::new_v4());
         // Storage key: media/{profile_id}/{media_id}/{filename}
         let storage_key = format!("media/{}/{}/{}", owner_profile_id, id, filename);
@@ -16841,7 +16858,7 @@ impl Database {
 
     /// Finalize a media object (mark as "ready").
     pub fn social_finalize_media_object(&self, media_id: &str) -> serde_json::Value {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE social_media_objects SET status = 'ready', updated_at = datetime('now') WHERE id = ?1",
             params![media_id],
@@ -16869,7 +16886,7 @@ impl Database {
 
     /// Get a media object by ID.
     pub fn social_get_media_object(&self, media_id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, owner_profile_id, filename, content_type, size_bytes, media_type, storage_key, status, created_at, updated_at
              FROM social_media_objects WHERE id = ?1"
@@ -16899,7 +16916,7 @@ impl Database {
         media_ids: &[String],
         owner_profile_id: &str,
     ) -> Vec<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut linked = Vec::new();
         for (position, media_id) in media_ids.iter().enumerate() {
             // Verify ownership and ready status
@@ -16928,7 +16945,7 @@ impl Database {
         &self,
         media_id: &str,
     ) -> Option<(String, String, String, String)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT owner_profile_id, storage_key, content_type, status
                FROM social_media_objects WHERE id = ?1",
@@ -16946,7 +16963,7 @@ impl Database {
     }
 
     pub fn social_media_is_attached_to_post(&self, media_id: &str, post_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT EXISTS(
                 SELECT 1 FROM social_post_media
@@ -16964,7 +16981,7 @@ impl Database {
         post_id: &str,
         viewer_profile_id: Option<&str>,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT m.id, m.filename, m.content_type, m.size_bytes, m.media_type, m.storage_key, pm.position
              FROM social_media_objects m
@@ -16996,7 +17013,7 @@ impl Database {
 
     /// Find orphaned media objects (pending for more than 1 hour) eligible for cleanup.
     pub fn social_get_orphaned_media(&self, limit: i64) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
             "SELECT id, owner_profile_id, storage_key, created_at
@@ -17022,7 +17039,7 @@ impl Database {
 
     /// Delete orphaned media objects by IDs (mark as "deleted").
     pub fn social_delete_orphaned_media(&self, media_ids: &[String]) -> usize {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut count = 0;
         for id in media_ids {
             let updated = conn.execute(
@@ -17039,7 +17056,7 @@ impl Database {
 
     /// Join a community as `member` (insert membership row; no-op if already a member).
     pub fn social_join_community(&self, community_id: &str, profile_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = format!("cmem_{}", Uuid::new_v4());
         let inserted = conn.execute(
             "INSERT OR IGNORE INTO social_community_memberships (id, community_id, profile_id, role)
@@ -17051,7 +17068,7 @@ impl Database {
 
     /// Leave a community (delete membership row).
     pub fn social_leave_community(&self, community_id: &str, profile_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let deleted = conn
             .execute(
             "DELETE FROM social_community_memberships
@@ -17068,7 +17085,7 @@ impl Database {
         community_id: &str,
         limit: i64,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
             "SELECT p.id, p.handle, p.display_name, p.avatar_url, m.joined_at,
@@ -17098,7 +17115,7 @@ impl Database {
 
     /// Check whether a profile is a member of a community.
     pub fn social_is_community_member(&self, community_id: &str, profile_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT 1 FROM social_community_memberships
              WHERE community_id = ?1 AND profile_id = ?2",
@@ -17120,7 +17137,7 @@ impl Database {
         max_uses: Option<i64>,
         expires_at: Option<&str>,
     ) -> Result<serde_json::Value, String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = format!("cinv_{}", Uuid::new_v4());
         conn.execute(
             "INSERT INTO social_community_invites
@@ -17142,7 +17159,7 @@ impl Database {
     }
 
     pub fn social_get_community_invite_by_id(&self, invite_id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, community_id, created_by_profile_id, max_uses, use_count,
                     expires_at, revoked_at, created_at
@@ -17169,7 +17186,7 @@ impl Database {
         &self,
         token_hash: &str,
     ) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, community_id, created_by_profile_id, max_uses, use_count,
                     expires_at, revoked_at, created_at
@@ -17196,7 +17213,7 @@ impl Database {
         community_id: &str,
         limit: i64,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, community_id, created_by_profile_id, max_uses, use_count,
@@ -17226,7 +17243,7 @@ impl Database {
 
     /// Soft-revoke an invite. Returns true if a row was updated.
     pub fn social_revoke_community_invite(&self, community_id: &str, invite_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let n = conn
             .execute(
                 "UPDATE social_community_invites
@@ -17245,7 +17262,7 @@ impl Database {
         token_hash: &str,
         profile_id: &str,
     ) -> Result<(String, bool), String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let invite = conn
             .query_row(
                 "SELECT id, community_id, max_uses, use_count, expires_at, revoked_at
@@ -17329,7 +17346,7 @@ impl Database {
 
     /// Check if a webhook event has already been processed.
     pub fn is_webhook_event_processed(&self, event_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM webhook_events WHERE id = ?1",
@@ -17342,7 +17359,7 @@ impl Database {
 
     /// Record a webhook event as processed.
     pub fn record_webhook_event(&self, event_id: &str, event_type: &str, timestamp: i64) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT OR IGNORE INTO webhook_events (id, event_type, timestamp) VALUES (?1, ?2, ?3)",
             params![event_id, event_type, timestamp],
@@ -17360,7 +17377,7 @@ impl Database {
         display_name: &str,
         status: &str,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO accounts (clerk_user_id, email, display_name, status)
              VALUES (?1, ?2, ?3, ?4)
@@ -17376,7 +17393,7 @@ impl Database {
 
     /// Mark an account as deleted.
     pub fn mark_account_deleted(&self, clerk_user_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE accounts SET status = 'deleted', updated_at = datetime('now')
              WHERE clerk_user_id = ?1",
@@ -17388,7 +17405,7 @@ impl Database {
     /// Return account status for a Clerk user id (`active`, `suspended`, `deleted`), if known.
     /// Missing row means the user has never been webhooked/upserted — treat as allowed until suspended.
     pub fn get_account_status(&self, clerk_user_id: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT status FROM accounts WHERE clerk_user_id = ?1",
             params![clerk_user_id],
@@ -17399,7 +17416,7 @@ impl Database {
 
     /// Suspend an account — sets status to "suspended".
     pub fn admin_suspend_account(&self, clerk_user_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let updated = conn
             .execute(
             "UPDATE accounts SET status = 'suspended', updated_at = datetime('now')
@@ -17412,7 +17429,7 @@ impl Database {
 
     /// Unsuspend an account — sets status back to "active".
     pub fn admin_unsuspend_account(&self, clerk_user_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let updated = conn
             .execute(
             "UPDATE accounts SET status = 'active', updated_at = datetime('now')
@@ -17427,7 +17444,7 @@ impl Database {
 
     /// Run a simple SELECT 1 to verify the database is accessible.
     pub fn health_check(&self) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row("SELECT 1", [], |_| Ok(())).is_ok()
     }
 
@@ -17481,7 +17498,7 @@ impl Database {
         conversation_id: &str,
         profile_id: &str,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         Self::social_conversation_is_accessible_inner(&conn, conversation_id, profile_id)
     }
 
@@ -17580,7 +17597,7 @@ impl Database {
         limit: i64,
         before: Option<(i64, &str)>,
     ) -> Result<SocialConversationPage, SocialMessagingError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let (before_sequence, before_id) = before
             .map(|(sequence, id)| (Some(sequence), Some(id)))
             .unwrap_or((None, None));
@@ -17654,7 +17671,7 @@ impl Database {
         conversation_id: &str,
         profile_id: &str,
     ) -> Result<serde_json::Value, SocialMessagingError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         if !Self::social_conversation_is_accessible_inner(&conn, conversation_id, profile_id) {
             return Err(SocialMessagingError::NotFound);
         }
@@ -17665,7 +17682,7 @@ impl Database {
         &self,
         profile_id: &str,
     ) -> Result<i64, SocialMessagingError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         Ok(conn.query_row(
             "SELECT COUNT(*)
                FROM social_conversation_participants viewer
@@ -17770,7 +17787,7 @@ impl Database {
         participant_profile_ids: &[String],
         creation_key: Option<&str>,
     ) -> Result<serde_json::Value, SocialMessagingError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute_batch("BEGIN IMMEDIATE;")?;
         let result = (|| -> Result<serde_json::Value, SocialMessagingError> {
             if !(2..=20).contains(&participant_profile_ids.len())
@@ -18167,7 +18184,7 @@ impl Database {
                 return Err(SocialMessagingError::NotFound);
             }
         let fingerprint = hex::encode(Sha256::digest(content.as_bytes()));
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute_batch("BEGIN IMMEDIATE;")?;
         let result = (|| -> Result<SocialDirectStartOutcome, SocialMessagingError> {
             Self::social_expire_message_requests_inner(&conn)?;
@@ -18521,7 +18538,7 @@ impl Database {
         limit: i64,
         before: Option<(i64, &str)>,
     ) -> Result<SocialMessageRequestPage, SocialMessagingError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         Self::social_expire_message_requests_inner(&conn)?;
         let (before_sequence, before_id) = before
             .map(|(sequence, id)| (Some(sequence), Some(id)))
@@ -18595,7 +18612,7 @@ impl Database {
         if !matches!(action, "accept" | "decline" | "spam") {
             return Err(SocialMessagingError::Conflict);
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute_batch("BEGIN IMMEDIATE;")?;
         let result = (|| -> Result<SocialMessageRequestResolution, SocialMessagingError> {
             Self::social_expire_message_requests_inner(&conn)?;
@@ -18762,7 +18779,7 @@ impl Database {
         request_id: &str,
         sender_profile_id: &str,
     ) -> Result<(serde_json::Value, bool), SocialMessagingError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute_batch("BEGIN IMMEDIATE;")?;
         let result = (|| -> Result<(serde_json::Value, bool), SocialMessagingError> {
             Self::social_expire_message_requests_inner(&conn)?;
@@ -18817,7 +18834,7 @@ impl Database {
         limit: i64,
         before_sequence: Option<i64>,
     ) -> Result<SocialMessagePage, SocialMessagingError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         if !Self::social_conversation_is_accessible_inner(&conn, conversation_id, profile_id) {
             return Err(SocialMessagingError::NotFound);
         }
@@ -18869,7 +18886,7 @@ impl Database {
         limit: i64,
         after_sequence: i64,
     ) -> Result<SocialMessageSyncPage, SocialMessagingError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         if !Self::social_conversation_is_accessible_inner(&conn, conversation_id, profile_id) {
             return Err(SocialMessagingError::NotFound);
         }
@@ -18909,7 +18926,7 @@ impl Database {
         content: &str,
         client_message_id: &str,
     ) -> Result<SocialSendOutcome, SocialMessagingError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute_batch("BEGIN IMMEDIATE;")?;
         let result = (|| -> Result<SocialSendOutcome, SocialMessagingError> {
             if !Self::social_conversation_is_accessible_inner(
@@ -18992,7 +19009,7 @@ impl Database {
         profile_id: &str,
         through_message_id: &str,
     ) -> Result<SocialReadReceipt, SocialMessagingError> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute_batch("BEGIN IMMEDIATE;")?;
         let result = (|| -> Result<SocialReadReceipt, SocialMessagingError> {
             if !Self::social_conversation_is_accessible_inner(&conn, conversation_id, profile_id) {
@@ -19066,7 +19083,7 @@ impl Database {
         details: Option<&str>,
         ip_address: Option<&str>,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = format!("audit_{}", Uuid::new_v4());
         conn.execute(
             "INSERT INTO audit_log (id, actor_id, actor_type, action, target_type, target_id, details, ip_address)
@@ -19077,7 +19094,7 @@ impl Database {
 
     /// Return recent audit log entries, paginated (50 per page).
     pub fn audit_log_list(&self, page: i64) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let offset = page.saturating_sub(1) * 50;
         let mut stmt = conn.prepare(
             "SELECT id, actor_id, actor_type, action, target_type, target_id, details, ip_address, created_at
@@ -19128,7 +19145,7 @@ impl Database {
 
     /// Return recent audit log entries with explicit limit/offset.
     pub fn get_audit_log(&self, limit: i64, offset: i64) -> Vec<AuditEntry> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = match conn.prepare(
             "SELECT id, actor_id, action, target_type, target_id, details, ip_address, created_at
              FROM audit_log ORDER BY created_at DESC LIMIT ?1 OFFSET ?2",
@@ -19161,7 +19178,7 @@ impl Database {
 
     /// Return audit log entries for a specific user.
     pub fn get_user_audit_log(&self, user_id: &str, limit: i64) -> Vec<AuditEntry> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = match conn.prepare(
             "SELECT id, actor_id, action, target_type, target_id, details, ip_address, created_at
              FROM audit_log WHERE actor_id = ?1 ORDER BY created_at DESC LIMIT ?2",
@@ -19197,7 +19214,7 @@ impl Database {
     /// Reconcile denormalized counter columns on social_posts from actual table counts.
     /// Returns the number of posts updated.
     pub fn social_reconcile_counters(&self) -> usize {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         // Check if the counter columns exist (they may not in older schemas)
         let has_counters = conn.query_row(
             "SELECT COUNT(*) FROM pragma_table_info('social_posts') WHERE name IN ('like_count','repost_count','bookmark_count','reply_count')",
@@ -19241,7 +19258,7 @@ impl Database {
     // --- Deployment adapters ---
 
     pub fn list_deployment_adapters(&self, user_id: &str) -> Vec<crate::routes::DeploymentAdapter> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, user_id, adapter_type, environment, config_json, status,
@@ -19282,7 +19299,7 @@ impl Database {
         author_mode: &str,
         linked_agent_id: Option<&str>,
     ) -> serde_json::Value {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
@@ -19307,7 +19324,7 @@ impl Database {
         profile_id: &str,
         status: Option<&str>,
     ) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let (sql, p): (String, Vec<Box<dyn rusqlite::types::ToSql>>) = match status {
             Some(s) => (
                 "SELECT id, profile_id, body, visibility, author_mode, linked_agent_id, status, created_at, updated_at FROM pulse_drafts WHERE profile_id = ?1 AND status = ?2 ORDER BY created_at DESC".to_string(),
@@ -19340,7 +19357,7 @@ impl Database {
     }
 
     pub fn pulse_get_draft(&self, id: &str, profile_id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, profile_id, body, visibility, author_mode, linked_agent_id, status, created_at, updated_at FROM pulse_drafts WHERE id = ?1 AND profile_id = ?2",
             params![id, profile_id],
@@ -19370,7 +19387,7 @@ impl Database {
         profile_id: &str,
         status: &str,
     ) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         let changed = conn.execute(
             "UPDATE pulse_drafts SET status = ?1, updated_at = ?2 WHERE id = ?3 AND profile_id = ?4",
@@ -19395,7 +19412,7 @@ impl Database {
         if expected_from.is_empty() {
             return None;
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         // Positional binds: to_status, now, id, profile_id, then each expected status.
         let in_ph = vec!["?"; expected_from.len()].join(", ");
@@ -19429,7 +19446,7 @@ impl Database {
         action: &str,
         details_json: Option<&str>,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO pulse_audit_log (id, draft_id, action, actor_profile_id, details_json) VALUES (?1, ?2, ?3, ?4, ?5)",
@@ -19438,7 +19455,7 @@ impl Database {
     }
 
     pub fn pulse_get_audit(&self, draft_id: &str) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, draft_id, action, actor_profile_id, details_json, created_at FROM pulse_audit_log WHERE draft_id = ?1 ORDER BY created_at ASC"
         ).unwrap();
@@ -19477,7 +19494,7 @@ impl Database {
         if status != "approved" {
             return None;
         }
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
@@ -19497,7 +19514,7 @@ impl Database {
     }
 
     pub fn pulse_list_schedules(&self, profile_id: &str) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, profile_id, draft_id, publish_at, status, created_at, updated_at
@@ -19528,7 +19545,7 @@ impl Database {
         plan_json: &str,
         steps_json: &str,
     ) -> serde_json::Value {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         let now = Utc::now().format("%Y-%m-%dT%H:%M:%SZ").to_string();
         conn.execute(
@@ -19576,7 +19593,7 @@ impl Database {
     }
 
     pub fn pulse_get_goal(&self, id: &str, profile_id: &str) -> Option<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, profile_id, goal, status, plan_json, steps_json, created_at, updated_at
              FROM pulse_goals WHERE id = ?1 AND profile_id = ?2",
@@ -19598,7 +19615,7 @@ impl Database {
     }
 
     pub fn pulse_list_goals(&self, profile_id: &str) -> Vec<serde_json::Value> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, profile_id, goal, status, plan_json, steps_json, created_at, updated_at
@@ -19625,7 +19642,7 @@ impl Database {
     /// Publish due schedules: returns list of {scheduleId, postId, draftId}.
     pub fn pulse_process_due_schedules(&self, now_iso: &str) -> Vec<serde_json::Value> {
         let due: Vec<(String, String, String)> = {
-            let conn = self.conn.lock().unwrap();
+            let conn = self.conn();
             let mut stmt = conn
                 .prepare(
                     "SELECT id, profile_id, draft_id FROM pulse_schedules
@@ -19649,7 +19666,7 @@ impl Database {
             let draft = match self.pulse_get_draft(&draft_id, &profile_id) {
                 Some(d) if d["status"].as_str() == Some("approved") => d,
                 _ => {
-                    let conn = self.conn.lock().unwrap();
+                    let conn = self.conn();
                     let _ = conn.execute(
                         "UPDATE pulse_schedules SET status = 'failed', updated_at = ?1 WHERE id = ?2",
                         params![now_iso, sched_id],
@@ -19666,7 +19683,7 @@ impl Database {
                 .pulse_cas_update_draft_status(&draft_id, &profile_id, &["approved"], "published")
                 .is_none()
             {
-                let conn = self.conn.lock().unwrap();
+                let conn = self.conn();
                 let _ = conn.execute(
                     "UPDATE pulse_schedules SET status = 'failed', updated_at = ?1 WHERE id = ?2",
                     params![now_iso, sched_id],
@@ -19691,7 +19708,7 @@ impl Database {
                 Some(&serde_json::json!({ "postId": post_id, "scheduleId": sched_id }).to_string()),
             );
             {
-                let conn = self.conn.lock().unwrap();
+                let conn = self.conn();
                 let _ = conn.execute(
                     "UPDATE pulse_schedules SET status = 'published', updated_at = ?1 WHERE id = ?2",
                     params![now_iso, sched_id],
@@ -19709,7 +19726,7 @@ impl Database {
     // --- API key management ---
 
     pub fn upsert_api_key(&self, user_id: &str, provider: &str, encrypted_key: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO user_api_keys (id, user_id, provider, encrypted_key)
@@ -19721,7 +19738,7 @@ impl Database {
     }
 
     pub fn get_api_key(&self, user_id: &str, provider: &str) -> Option<String> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT encrypted_key FROM user_api_keys WHERE user_id = ?1 AND provider = ?2",
             params![user_id, provider],
@@ -19731,7 +19748,7 @@ impl Database {
     }
 
     pub fn get_any_api_key(&self, user_id: &str) -> Option<(String, String)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT provider, encrypted_key FROM user_api_keys WHERE user_id = ?1 ORDER BY created_at DESC LIMIT 1",
             params![user_id],
@@ -19740,7 +19757,7 @@ impl Database {
     }
 
     pub fn list_api_keys(&self, user_id: &str) -> Vec<UserApiKeyInfo> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT provider, created_at, encrypted_key FROM user_api_keys WHERE user_id = ?1 ORDER BY provider"
         ).expect("list_api_keys prepare failed");
@@ -19763,7 +19780,7 @@ impl Database {
     }
 
     pub fn delete_api_key(&self, user_id: &str, provider: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let count = conn
             .execute(
             "DELETE FROM user_api_keys WHERE user_id = ?1 AND provider = ?2",
@@ -19776,7 +19793,7 @@ impl Database {
     // --- User credentials (multi-credential system) ---
 
     pub fn insert_credential(&self, cred: &UserCredential) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO user_credentials (id, user_id, provider, credential_type, label, encrypted_data, email, is_default, status, last_used_at, token_expires_at, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
@@ -19790,7 +19807,7 @@ impl Database {
     }
 
     pub fn insert_credential_with_data(&self, cred: &UserCredential, encrypted_data: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO user_credentials (id, user_id, provider, credential_type, label, encrypted_data, email, is_default, status, last_used_at, token_expires_at, created_at, updated_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
@@ -19804,7 +19821,7 @@ impl Database {
     }
 
     pub fn list_credentials(&self, user_id: &str) -> Vec<UserCredentialSummary> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, provider, credential_type, label, email, is_default, status, created_at
              FROM user_credentials WHERE user_id = ?1 AND status != 'revoked' ORDER BY is_default DESC, created_at DESC"
@@ -19827,7 +19844,7 @@ impl Database {
     }
 
     pub fn get_credential(&self, credential_id: &str) -> Option<(UserCredential, String)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, user_id, provider, credential_type, label, encrypted_data, email, is_default, status, last_used_at, token_expires_at, created_at, updated_at
              FROM user_credentials WHERE id = ?1",
@@ -19857,7 +19874,7 @@ impl Database {
         user_id: &str,
         provider: &str,
     ) -> Option<(UserCredential, String)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, user_id, provider, credential_type, label, encrypted_data, email, is_default, status, last_used_at, token_expires_at, created_at, updated_at
              FROM user_credentials WHERE user_id = ?1 AND provider = ?2 AND status = 'active' ORDER BY is_default DESC, created_at DESC LIMIT 1",
@@ -19883,7 +19900,7 @@ impl Database {
     }
 
     pub fn get_any_credential(&self, user_id: &str) -> Option<(UserCredential, String)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, user_id, provider, credential_type, label, encrypted_data, email, is_default, status, last_used_at, token_expires_at, created_at, updated_at
              FROM user_credentials WHERE user_id = ?1 AND status = 'active' ORDER BY is_default DESC, updated_at DESC LIMIT 1",
@@ -19909,7 +19926,7 @@ impl Database {
     }
 
     pub fn update_credential_status(&self, credential_id: &str, status: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE user_credentials SET status = ?1, updated_at = unixepoch() WHERE id = ?2",
             params![status, credential_id],
@@ -19918,7 +19935,7 @@ impl Database {
     }
 
     pub fn touch_credential(&self, credential_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE user_credentials SET last_used_at = unixepoch(), updated_at = unixepoch() WHERE id = ?1",
             params![credential_id],
@@ -19926,7 +19943,7 @@ impl Database {
     }
 
     pub fn delete_credential(&self, user_id: &str, credential_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let count = conn.execute(
             "UPDATE user_credentials SET status = 'revoked', updated_at = unixepoch() WHERE id = ?1 AND user_id = ?2",
             params![credential_id, user_id],
@@ -19935,7 +19952,7 @@ impl Database {
     }
 
     pub fn set_default_credential(&self, user_id: &str, credential_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let provider: Option<String> = conn
             .query_row(
             "SELECT provider FROM user_credentials WHERE id = ?1 AND user_id = ?2",
@@ -19956,7 +19973,7 @@ impl Database {
     }
 
     pub fn update_credential_expiry(&self, credential_id: &str, expires_at: Option<i64>) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE user_credentials SET token_expires_at = ?1, updated_at = unixepoch() WHERE id = ?2",
             params![expires_at, credential_id],
@@ -19964,7 +19981,7 @@ impl Database {
     }
 
     pub fn get_expiring_credentials(&self, before_epoch: i64) -> Vec<(UserCredential, String)> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, user_id, provider, credential_type, label, encrypted_data, email, is_default, status, last_used_at, token_expires_at, created_at, updated_at
              FROM user_credentials WHERE status = 'active' AND credential_type = 'subscription' AND token_expires_at IS NOT NULL AND token_expires_at < ?1"
@@ -20004,7 +20021,7 @@ impl Database {
         provider: &str,
         status: &str,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO user_containers (id, user_id, container_id, provider, status)
              VALUES (?1, ?2, ?3, ?4, ?5)
@@ -20014,7 +20031,7 @@ impl Database {
     }
 
     pub fn get_user_container(&self, user_id: &str) -> Option<UserContainer> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, user_id, container_id, provider, status, last_activity_at, created_at, updated_at
              FROM user_containers WHERE user_id = ?1",
@@ -20033,7 +20050,7 @@ impl Database {
     }
 
     pub fn update_container_status(&self, user_id: &str, status: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE user_containers SET status = ?2, updated_at = unixepoch() WHERE user_id = ?1",
             params![user_id, status],
@@ -20042,7 +20059,7 @@ impl Database {
     }
 
     pub fn touch_container_activity(&self, user_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE user_containers SET last_activity_at = unixepoch(), updated_at = unixepoch() WHERE user_id = ?1",
             params![user_id],
@@ -20050,7 +20067,7 @@ impl Database {
     }
 
     pub fn list_idle_containers(&self, threshold_epoch: i64) -> Vec<UserContainer> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, user_id, container_id, provider, status, last_activity_at, created_at, updated_at
              FROM user_containers WHERE status = 'running' AND last_activity_at < ?1"
@@ -20073,7 +20090,7 @@ impl Database {
     }
 
     pub fn list_all_containers(&self) -> Vec<UserContainer> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn.prepare(
             "SELECT id, user_id, container_id, provider, status, last_activity_at, created_at, updated_at
              FROM user_containers ORDER BY last_activity_at DESC"
@@ -20096,7 +20113,7 @@ impl Database {
     }
 
     pub fn delete_user_container(&self, user_id: &str) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "DELETE FROM user_containers WHERE user_id = ?1",
             params![user_id],
@@ -20119,7 +20136,7 @@ impl Database {
         clone_path: &str,
         private: bool,
     ) -> String {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO github_imports
                 (id, user_id, repo_id, repo_full_name, default_branch, clone_path, private,
@@ -20165,7 +20182,7 @@ impl Database {
         stage: &str,
         error: Option<&str>,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE github_imports
                 SET status = ?2, progress = ?3, stage = ?4, error = ?5, updated_at = unixepoch()
@@ -20176,7 +20193,7 @@ impl Database {
     }
 
     pub fn mark_github_import_synced(&self, import_id: &str, head_commit: Option<&str>) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "UPDATE github_imports
                 SET last_synced_at = unixepoch(), head_commit = ?2, updated_at = unixepoch()
@@ -20212,7 +20229,7 @@ impl Database {
 
     /// Fetch a single import scoped to the owning user (prevents cross-user access).
     pub fn get_github_import(&self, user_id: &str, import_id: &str) -> Option<GithubImport> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let sql = format!(
             "SELECT {} FROM github_imports WHERE id = ?1 AND user_id = ?2",
             Self::GITHUB_IMPORT_COLS
@@ -20222,7 +20239,7 @@ impl Database {
     }
 
     pub fn list_github_imports(&self, user_id: &str) -> Vec<GithubImport> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let sql = format!(
             "SELECT {} FROM github_imports WHERE user_id = ?1 ORDER BY updated_at DESC",
             Self::GITHUB_IMPORT_COLS
@@ -20247,7 +20264,7 @@ impl Database {
         target_id: Option<&str>,
         permissions: Option<&str>,
     ) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.execute(
             "INSERT INTO credential_assignments (id, credential_id, user_id, target_type, target_id, permissions)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)
@@ -20257,7 +20274,7 @@ impl Database {
     }
 
     pub fn get_credential_assignments(&self, user_id: &str) -> Vec<CredentialAssignment> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
             "SELECT id, credential_id, user_id, target_type, target_id, permissions, created_at
@@ -20286,7 +20303,7 @@ impl Database {
         target_type: &str,
         target_id: &str,
     ) -> Option<CredentialAssignment> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         conn.query_row(
             "SELECT id, credential_id, user_id, target_type, target_id, permissions, created_at
              FROM credential_assignments WHERE user_id = ?1 AND target_type = ?2 AND target_id = ?3",
@@ -20304,7 +20321,7 @@ impl Database {
     }
 
     pub fn remove_credential_assignment(&self, user_id: &str, assignment_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let rows = conn
             .execute(
             "DELETE FROM credential_assignments WHERE id = ?1 AND user_id = ?2",
@@ -20318,7 +20335,7 @@ impl Database {
 
     /// Get user budget settings, creating default if none exists.
     pub fn get_user_budget(&self, user_id: &str) -> UserBudget {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let result = conn.query_row(
             "SELECT user_id, daily_budget, weekly_budget, monthly_budget,
                     notifications_enabled, warning_threshold, created_at, updated_at
@@ -20384,7 +20401,7 @@ impl Database {
 
     /// Update user budget settings.
     pub fn update_user_budget(&self, budget: &UserBudget) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp();
         let count = conn
             .execute(
@@ -20408,7 +20425,7 @@ impl Database {
 
     /// Create a new cost session.
     pub fn create_cost_session(&self, session: &CostSession) -> String {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = uuid::Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO cost_sessions
@@ -20442,7 +20459,7 @@ impl Database {
         actual_cost: f64,
         tokens_out: i64,
     ) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let count = conn
             .execute(
             "UPDATE cost_sessions
@@ -20456,7 +20473,7 @@ impl Database {
 
     /// Get cost sessions for a user within a time range.
     pub fn get_user_cost_sessions(&self, user_id: &str, since: i64) -> Vec<CostSession> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, user_id, provider, cost_type, session_start, session_end,
@@ -20490,7 +20507,7 @@ impl Database {
 
     /// Calculate total cost for a user in a time period, separating BYOK and BYOS.
     pub fn get_user_cost_breakdown(&self, user_id: &str, since: i64) -> (f64, f64) {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut byok_cost = 0.0;
         let mut byos_cost = 0.0;
 
@@ -20519,7 +20536,7 @@ impl Database {
 
     /// Record a cost warning.
     pub fn record_cost_warning(&self, warning: &CostWarning) -> String {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let id = uuid::Uuid::new_v4().to_string();
         conn.execute(
             "INSERT INTO cost_warnings
@@ -20543,7 +20560,7 @@ impl Database {
 
     /// Get recent cost warnings for a user.
     pub fn get_user_cost_warnings(&self, user_id: &str, since: i64) -> Vec<CostWarning> {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let mut stmt = conn
             .prepare(
                 "SELECT id, user_id, warning_type, threshold_percent, current_cost,
@@ -20573,7 +20590,7 @@ impl Database {
 
     /// Acknowledge a cost warning.
     pub fn acknowledge_cost_warning(&self, warning_id: &str) -> bool {
-        let conn = self.conn.lock().unwrap();
+        let conn = self.conn();
         let now = Utc::now().timestamp();
         let count = conn
             .execute(
@@ -20592,6 +20609,28 @@ mod tests {
     fn test_db() -> Database {
         let dir = tempfile::tempdir().unwrap().keep();
         Database::open(&dir.join("cortex.sqlite"))
+    }
+
+    /// A panic while the database lock is held used to poison the mutex, which
+    /// turned one bad request into a permanent outage for every other caller in
+    /// the process. The accessor recovers the guard instead.
+    #[test]
+    fn a_panic_under_the_database_lock_does_not_disable_the_database() {
+        let db = std::sync::Arc::new(test_db());
+        assert!(db.schema_version() > 0, "database works before the panic");
+
+        let poisoner = std::sync::Arc::clone(&db);
+        let panicked = std::thread::spawn(move || {
+            let _guard = poisoner.conn();
+            panic!("simulated panic while holding the database lock");
+        })
+        .join();
+        assert!(panicked.is_err(), "the worker thread must have panicked");
+
+        // Poisoned under the old code; every call below would have panicked.
+        assert!(db.schema_version() > 0, "database still works after the panic");
+        db.social_create_ws_ticket("post-panic", "clerk_user_1", Utc::now().timestamp() + 30)
+            .expect("writes still work after the panic");
     }
 
     #[test]
@@ -21023,7 +21062,7 @@ mod tests {
         let sender = db.social_create_profile("clerk_v59_sender", "v59_sender", "Sender", "");
         let recipient =
             db.social_create_profile("clerk_v59_recipient", "v59_recipient", "Recipient", "");
-        let conn = db.conn.lock().unwrap();
+        let conn = db.conn();
         assert_eq!(
             conn.query_row(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table'
@@ -21235,7 +21274,7 @@ mod tests {
         );
 
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.execute("DROP TABLE social_blocks", []).unwrap();
         }
         assert!(db
@@ -21290,7 +21329,7 @@ mod tests {
             .collect::<Vec<_>>();
 
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             let fingerprint = "a".repeat(64);
             for (index, target_id) in outgoing_targets.iter().enumerate() {
                 conn.execute(
@@ -21408,7 +21447,7 @@ mod tests {
             .unwrap();
         assert!(db.social_is_blocked(&second_id, &first_id));
         assert!(!db.social_get_follow_status(&first_id, &second_id));
-        let conn = db.conn.lock().unwrap();
+        let conn = db.conn();
         assert_eq!(
             conn.query_row(
                 "SELECT state FROM social_message_requests WHERE id = ?1",
@@ -21450,7 +21489,7 @@ mod tests {
         db.social_resolve_message_request(&forward, &b_id, "accept")
         .unwrap();
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
         assert_eq!(
                 conn.query_row(
                     "SELECT state FROM social_message_requests WHERE id = ?1",
@@ -21487,7 +21526,7 @@ mod tests {
             other => panic!("expected request, got {other:?}"),
         };
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.execute(
                 "UPDATE social_profiles SET proof_state = 'verified' WHERE id = ?1",
                 params![promoter_id],
@@ -21504,7 +21543,7 @@ mod tests {
             .unwrap(),
             SocialDirectStartOutcome::Conversation { .. }
         ));
-        let conn = db.conn.lock().unwrap();
+        let conn = db.conn();
         assert_eq!(
             conn.query_row(
                 "SELECT state FROM social_message_requests WHERE id = ?1",
@@ -21761,7 +21800,7 @@ mod tests {
             other => panic!("expected pending request, got {other:?}"),
         };
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.execute(
                 "UPDATE social_follow_requests
                     SET updated_at = '2000-01-01 00:00:00'
@@ -21776,7 +21815,7 @@ mod tests {
             "an existing pending request must be idempotent"
         );
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             let updated_at: String = conn
                 .query_row(
                     "SELECT updated_at FROM social_follow_requests WHERE id = ?1",
@@ -22279,7 +22318,7 @@ mod tests {
             Some(&conversation.id),
         );
 
-        let conn = db.conn.lock().unwrap();
+        let conn = db.conn();
         let (latest_run_id, conversation_id): (Option<String>, Option<String>) = conn
             .query_row(
                 "SELECT latest_run_id, conversation_id FROM cortex_tasks
@@ -22340,7 +22379,7 @@ mod tests {
         assert_eq!(leases[0].resource_type, "path");
         assert_eq!(leases[0].resource_key, "src/main.rs");
 
-        let conn = db.conn.lock().unwrap();
+        let conn = db.conn();
         let step_count: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM steps WHERE run_id = ?1",
@@ -22390,7 +22429,7 @@ mod tests {
             other => panic!("expected resource conflict, got {other:?}"),
         }
 
-        let conn = db.conn.lock().unwrap();
+        let conn = db.conn();
         let leaked_steps: i64 = conn
             .query_row(
                 "SELECT COUNT(*) FROM steps WHERE id = 'step-b'",
@@ -22674,7 +22713,7 @@ mod tests {
             .expect("first run");
 
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.execute(
                 "UPDATE resource_leases SET expires_at = ?1 WHERE run_id = ?2",
                 params![Utc::now().timestamp_millis() - 1, run_id],
@@ -23696,7 +23735,7 @@ mod tests {
             )
             .expect("run");
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.execute(
                 "UPDATE resource_leases SET status = 'expired' WHERE run_id = ?1",
                 params![write_run_id],
@@ -23737,7 +23776,7 @@ mod tests {
         );
         let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.execute(
                 "UPDATE steps
                  SET status = 'succeeded'
@@ -23809,7 +23848,7 @@ mod tests {
         assert!(!db.cortex_task_has_evidence_backed_completion("user-1", "group-1", "task-1"));
 
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.execute(
                 "UPDATE steps
                  SET status = 'succeeded'
@@ -23863,7 +23902,7 @@ mod tests {
             .get_latest_verifier_report(&step_id)
             .expect("latest verifier report");
         assert_eq!(report.id, report_id);
-        let conn = db.conn.lock().unwrap();
+        let conn = db.conn();
         let (verification_status, verifier_report_id): (String, Option<String>) = conn
             .query_row(
                 "SELECT verification_status, verifier_report_id FROM steps WHERE id = ?1",
@@ -23900,7 +23939,7 @@ mod tests {
         );
 
         assert!(report_id.is_none());
-        let conn = db.conn.lock().unwrap();
+        let conn = db.conn();
         let reports: i64 = conn
             .query_row("SELECT COUNT(*) FROM verifier_reports", [], |row| {
                 row.get(0)
@@ -23948,7 +23987,7 @@ mod tests {
         );
         let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.execute(
                 "UPDATE steps
                  SET status = 'succeeded', verification_status = 'verified_pass'
@@ -24034,7 +24073,7 @@ mod tests {
         );
         let step_id = db.create_step(&run_id, "implement", "standard", "medium", "Ship it");
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.execute(
                 "UPDATE steps
                  SET status = 'succeeded'
@@ -24391,7 +24430,7 @@ mod tests {
         let b_id = b["id"].as_str().unwrap().to_string();
 
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.execute(
                 "UPDATE social_profiles SET proof_state = 'verified' WHERE id = ?1",
                 params![a_id],
@@ -24504,7 +24543,7 @@ mod tests {
         let a = db.social_create_profile("clerk_inbox_a", "inbox_a", "A", "");
         let a_id = a["id"].as_str().unwrap().to_string();
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.execute(
                 "UPDATE social_profiles SET proof_state = 'verified' WHERE id = ?1",
                 params![a_id],
@@ -24529,7 +24568,7 @@ mod tests {
         }
 
         let clock_before_replay = {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.query_row(
                 "SELECT next_sequence FROM social_conversation_activity_clock WHERE singleton = 1",
                 [],
@@ -24542,7 +24581,7 @@ mod tests {
             .unwrap();
         assert_eq!(replay["id"], conversation_ids[0]);
         let clock_after_replay = {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.query_row(
                 "SELECT next_sequence FROM social_conversation_activity_clock WHERE singleton = 1",
                 [],
@@ -24575,7 +24614,7 @@ mod tests {
             )
             .unwrap();
         let activity_after_send = {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.query_row(
                 "SELECT activity_sequence FROM social_conversations WHERE id = ?1",
                 params![conversation_ids[0]],
@@ -24616,7 +24655,7 @@ mod tests {
             0
         );
         let activity_after_read = {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.query_row(
                 "SELECT activity_sequence FROM social_conversations WHERE id = ?1",
                 params![conversation_ids[0]],
@@ -24653,7 +24692,7 @@ mod tests {
         let b_id = b["id"].as_str().unwrap().to_string();
         let c_id = c["id"].as_str().unwrap().to_string();
         {
-            let conn = db.conn.lock().unwrap();
+            let conn = db.conn();
             conn.execute(
                 "UPDATE social_profiles SET proof_state = 'verified' WHERE id = ?1",
                 params![a_id],
@@ -25329,7 +25368,7 @@ mod tests {
     #[test]
     fn migration_v61_creates_the_verification_tables() {
         let db = test_db();
-        let conn = db.conn.lock().unwrap();
+        let conn = db.conn();
 
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
