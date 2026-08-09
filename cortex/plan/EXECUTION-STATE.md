@@ -16,8 +16,47 @@ re-deriving anything.
 |---|---|---|
 | 1 | Land the harness plan on `main` | **done** — PR [#500](https://github.com/hey-vera/heyvera/pull/500) merged |
 | 1a | Split-out auth commit from the same branch | branch `fix/auth-remove-subscription-flow` pushed, **PR deliberately not opened** — see F1 |
-| 2 | Briefs for PR C, PR A, PR B | written, PR open |
-| 3 | Implement PR C (execution sandbox) | not started |
+| 2 | Briefs for PR C, PR A, PR B | **done** — PR [#501](https://github.com/hey-vera/heyvera/pull/501) merged |
+| 3 | Implement PR C (execution sandbox) | implemented on `feat/pr-c-execution-sandbox` |
+
+## PR C — what landed, and what it deliberately did not
+
+Six commits, each independently green:
+
+1. `crates/core/src/execution_job.rs` — the full field set, version 1.
+2. `crates/worker/src/sandbox/` — trait, container implementation, policy.
+3. `crates/worker/src/executor.rs` — sandbox routing, fallback deleted.
+4. Executor regression tests.
+5. Migration v62 + `record_execution_job` + protocol field.
+6. Adversarial tests against a real runtime + `Dockerfile.sandbox` + CI job.
+
+**Two exposures closed, not one.** The known one was the worktree fallback. The
+second was found during implementation: `run_required_checks` executed
+`sh -lc <command>` on the host, in the worktree the agent had just written to.
+A check like `npm test` runs repository-defined scripts, so a task only had to
+write a file to get host execution. Checks now run in the sandbox, one per
+check. This was the same invariant and the same interface, so it landed here
+rather than becoming a separate PR.
+
+**Known gaps, stated rather than papered over:**
+
+- **The wire protocol has no `blocked` state.** A refusal travels as
+  `StepFailed` with its reason prefixed `BLOCKED:`. That attributes an
+  operator's infrastructure problem to the customer's step. **PR A closes it**
+  by giving the refusal its own state. Inventing a lifecycle state in PR C
+  would have created a second source of truth for step status.
+- **Isolation is `Container`, not `MicroVm`.** Phase 32.4 requires kernel-level
+  isolation and the container class is recorded on every job so no receipt
+  overstates it. The `SandboxRunner` trait carries no container vocabulary, so
+  the microVM implementation is a swap. **Phase 32.4 asks for a date on that
+  commitment; the date is Josh's to set.**
+- **The `sandbox` CI job is not in the required-checks list.** It runs on every
+  PR but cannot block a merge until it is added to branch protection. Adding it
+  is a one-line settings change and should happen once it has a green history.
+- **`run_id` on the job is empty at the worker.** The worker does not know it;
+  the API supplies it when recording. Harmless today, but a `NOT NULL` column
+  fed from a `resolve_run_id` that can return `None` will want revisiting when
+  PR D reads these rows.
 
 Briefs live in `cortex/plan/briefs/`. An implementer reads only the brief.
 
