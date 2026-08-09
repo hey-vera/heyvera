@@ -5591,6 +5591,188 @@ lifetime, per-tenant cache scope, default-deny egress, and no provider
 credentials inside; and a receipt recall can enumerate, re-execute, notify, and
 reverse by artifact version.
 
+## Phase 33 - The full range: one solo builder to two hundred developers
+
+**Goal:** make Cortex genuinely correct at both ends of the range and everywhere
+between. Phase 9 covers the 100-plus-seat object model, Phase 18 covers
+progressive disclosure, Phase 20 covers pooled economics, and Phase 11 covers
+path arbitration. Read together they cover the *ends*. What this review finds
+missing is the middle, the mechanics of a busy shared repository, and the
+principle that keeps the two ends from becoming two products.
+
+### 33.1 One product, and the enterprise's power is to constrain it
+
+The tempting reading of "simple for a vibe coder, complete for a 200-person org"
+is a simple mode and an advanced mode. That is how this gets built twice and
+diverges.
+
+The correct structure — and it is already latent in Phases 9 and 20 — is that
+**there is one object graph, and an organisation is a defaults-and-limits
+authority over it.** Nothing is enterprise-only except the ability to constrain:
+set the default effort, cap the ceiling, require a review policy, forbid a
+provider, pin a professional version, restrict a repository. Every one of those
+is a value a solo user also has; the org just gets to set it for other people and
+lock it.
+
+This yields a rule worth applying to every future feature: *if a capability
+cannot be expressed as a default plus a limit on the single object graph, it is
+probably the wrong shape.*
+
+The harder half is that **progressive disclosure alone does not solve the solo
+end.** The solo builder's problem is not that there are too many controls; it is
+that they cannot evaluate a plan. Hiding the dial does not help someone who could
+not have set it. What helps is Cortex pre-deciding more, and saying what it
+decided in one line each — the same Plan Receipt, with a different ratio of
+decided to asked.
+
+That interacts with invariant 13 (low confidence produces a question) in a way
+the document has not resolved, because for a solo builder a stream of clarifying
+questions *is* the failure mode. The resolution:
+
+> **Ask about intent, never about mechanism.** "Should this replace the existing
+> login, or sit alongside it?" is always worth asking of anyone. "Should this use
+> a bandit or a fixed policy?" is never worth asking of someone who did not bring
+> it up. Mechanism questions are answered by Cortex, recorded as decisions on the
+> receipt, and made visible for anyone who wants to change them.
+
+That single rule is what lets one intake serve both ends without a mode switch.
+
+### 33.2 The same repository, with two hundred people already in it
+
+Phase 11 arbitrates paths between Cortex's own steps. Phase 14 coordinates
+between Cortex plans. **Neither knows the humans exist**, and in a repository
+with 200 developers the humans are the dominant source of contention. Three
+specific mechanics are absent from the document — `merge queue`, `stacked`, and
+`base drift` appear zero times — and each is load-bearing at this scale.
+
+**(a) Cortex's write set must be checked against open human work, not just other
+Cortex plans.** Phase 14's advisory reservations coordinate Cortex plans with
+each other while a human's open branch touching the same file is invisible. The
+data is free: the forge already exposes open pull requests, their changed paths,
+and their authors. Feeding that into the Phase 14.4 conflict checks turns
+coordination from a Cortex-internal nicety into something a platform team can
+see the value of on day one.
+
+The honest boundary, which must be stated to the user rather than glossed:
+**Cortex coordinates against what is pushed.** Work sitting uncommitted in
+someone's working tree is invisible, and a claim of disjointness is a claim about
+the shared history, not about what everyone is doing right now.
+
+**(b) Base drift, and why the check cache becomes load-bearing.** On a busy trunk
+the base moves constantly: a plan approved at commit `X` delivers against `X+40`.
+Invariant 16 already requires that nothing merges without re-verification against
+the integrated tree, which is correct and, at this scale, expensive enough to
+break the economics — every rebase implies a full battery re-run.
+
+Phase 28.4's content-addressed check reuse is what makes it survivable, and this
+is the case that promotes it from a cost optimisation to a **requirement**: after
+a rebase, the vast majority of `(check, tree_hash, runner_digest)` triples are
+unchanged, so re-verification costs what actually moved. Without it, invariant 16
+and a 200-developer trunk are incompatible.
+
+**(c) Merge queues, which is where a real team's integration actually happens.**
+Any repository at this size runs a merge queue, and it is precisely the mechanism
+that already solves "two changes each pass alone and fail together." Cortex must
+**participate in it, not around it**:
+
+- Cortex submits to the queue; it never merges directly. This is Phase 26.6's
+  no-bypass rule applied to the integration point.
+- Where a merge queue exists, its speculative-batch verification *is* the team's
+  implementation of invariant 16, and Cortex should defer to it rather than
+  duplicating the cost — then record the queue's result on the receipt.
+- A queue rejection is a first-class outcome that flows back as a failed
+  integration and a learning signal, not as a stuck run.
+
+**(d) Stacked changes, because they are the review-minutes lever.** Cortex
+already produces per-step branches (`worktree.rs:229-256`) and Phase 11.4
+integrates them into one. For human review that is the wrong direction: a stack
+of small, individually-verified changes is dramatically cheaper to review than
+one squashed diff, and Phase 31.6 established that reviewer minutes are the
+binding constraint. Cortex is unusually well placed to emit a clean stack,
+because the DAG that produced it is exactly the dependency order a stack needs.
+Emitting a stack should be the default where the team's tooling supports it, with
+integration into a single change as the fallback rather than the goal.
+
+### 33.3 Throughput needs a limit, and spend is not one
+
+At 200 developers, Cortex's failure mode is not spending too much — it is
+**producing changes faster than the team can absorb them**. Open changes that
+outrun review capacity age, drift off their base, collide with each other, and
+consume more review time than they save. Phase 20's controls govern money,
+effort, and authority; none of them governs *rate*.
+
+Add a work-in-progress limit as a first-class org control: a cap on open Cortex
+changes per repository, defaulting low, tuned against the measured
+review-minutes-per-change from Phase 31.6. Throughput equals work-in-progress
+divided by cycle time; past the point where review is saturated, adding
+work-in-progress adds only latency and conflict. A queue that Cortex fills faster
+than it drains is a product that makes a good team slower, which is the most
+expensive possible way to be wrong here.
+
+### 33.4 The middle of the range, which the document skips entirely
+
+Phase 9 builds in procurement order — RBAC, audit export, SSO, SCIM — which is
+right for the 100-plus-seat sale and wrong as a description of who buys first.
+The team of five to thirty has no platform team, no SSO, and no procurement
+process, but it does have a shared repository, a review culture, and a person who
+worries about the bill. It is the first segment that pays like a business, and
+nothing in this document is written for it.
+
+What it needs is a short list, and almost all of it already exists in pieces:
+
+- a shared credit pool with per-person visibility (Phase 20.2) and **no role
+  ceremony** — everyone can spend, one person can see and cap;
+- `CODEOWNERS`-driven review routing (Phase 14.5) without a policy engine;
+- conflict awareness against open pull requests (33.2a), which is the feature
+  this segment feels immediately;
+- one shared view of what Cortex is doing in this repository right now;
+- an invite link, not an identity provider.
+
+None of that requires RBAC, SSO, or SCIM, and shipping it before them is the
+difference between a product a small team adopts on a Tuesday and one that waits
+for a procurement cycle it will never enter.
+
+### 33.5 The discipline this document now needs on itself
+
+Round 4 has added verdict classes, battery power, race agreement, comprehension
+declarations, loss ratios, and recall procedures. Every one is justified. Every
+one is also vocabulary, and vocabulary is exactly what leaks into a surface a
+solo builder was supposed to find simple.
+
+So the requirement applies reflexively: **every mechanism in this plan declares
+its disclosure tier at design time**, in the same commit that introduces it.
+
+| Tier | Who sees it | Examples from this round |
+|---|---|---|
+| Always | Everyone, in plain language | "Cortex could not verify this", "these checks cannot fail — here is how to fix that" |
+| On request | Anyone who opens the detail | Verdict class, battery power, race agreement, comprehension state |
+| Operator | Cortex operations only | Loss ratio, `p_fa`, breaker thresholds, recall queries |
+| Org admin | Whoever sets policy | Ceilings, WIP limits, dependency and review policy |
+
+A mechanism with no declared tier defaults to *operator*, because the failure
+mode this catches is the one this document is now most exposed to: shipping a
+correct product that a solo builder finds unreadable.
+
+> **Invariant 31.** There is one Cortex, one object graph, and one intake. An
+> organisation expresses itself only as defaults and limits over it. Cortex asks
+> about intent and decides mechanism, recording every mechanism decision it made.
+> Every mechanism declares a disclosure tier, and nothing above the *always* tier
+> may be required reading to complete a task.
+
+**Phase 33 exit gate:** a solo builder completes a task end to end without
+encountering a control they must understand, and every decision Cortex made on
+their behalf is visible in one line each; intake asks about intent and never
+about mechanism; write-set conflict checks include open pull requests by human
+authors, with the pushed-only boundary stated; re-verification after a base move
+reuses unchanged check results and its cost is measured; Cortex submits to a
+merge queue where one exists, defers to its integration verification, and treats
+rejection as a learning signal; a multi-step change can be delivered as a
+reviewable stack; a per-repository work-in-progress limit exists and is tuned
+against measured review capacity; a five-to-thirty-person team can adopt Cortex
+with a shared pool, `CODEOWNERS` routing, conflict awareness, and an invite link
+and no identity provider; and every mechanism introduced in this plan carries a
+declared disclosure tier.
+
 ## Handover protocol — how to actually execute this document
 
 **Read this before dispatching any implementation work.**
