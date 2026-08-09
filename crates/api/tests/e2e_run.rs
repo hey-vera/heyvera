@@ -327,6 +327,9 @@ async fn test_run_lifecycle() {
         lease_gen,
         provider: "claude".to_string(),
         model: "sonnet".to_string(),
+        // A worker that predates the field. The API must still accept the
+        // message and record the absence rather than reconstructing it.
+        execution_job: None,
     };
     sink.send(WsMessage::Text(
         serde_json::to_string(&started).unwrap().into(),
@@ -396,6 +399,7 @@ async fn test_run_lifecycle() {
                         lease_gen: next_lease_gen,
                         provider: "claude".to_string(),
                         model: "sonnet".to_string(),
+                        execution_job: None,
                     };
                     sink.send(WsMessage::Text(
                         serde_json::to_string(&started).unwrap().into(),

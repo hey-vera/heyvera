@@ -277,7 +277,7 @@ async fn execute_and_report(
 
     // Spawn the actual executor
     let exec_handle = tokio::spawn(async move {
-        Executor::execute(&task_clone, &decision_clone, &step, tx, Some(dir.as_path())).await
+        Executor::execute_sandboxed(&task_clone, &decision_clone, &step, tx, dir.as_path()).await
     });
 
     // Lease renewal: send LeaseRenew every 30 seconds
@@ -364,6 +364,7 @@ fn worker_event_to_message(event: WorkerEvent) -> WorkerMessage {
             lease_gen,
             provider,
             model,
+            execution_job,
         } => WorkerMessage::StepStarted {
             message_id: Uuid::new_v4().to_string(),
             step_id,
@@ -371,6 +372,7 @@ fn worker_event_to_message(event: WorkerEvent) -> WorkerMessage {
             lease_gen,
             provider,
             model,
+            execution_job: Some(*execution_job),
         },
         WorkerEvent::Output {
             step_id,
@@ -414,6 +416,31 @@ fn worker_event_to_message(event: WorkerEvent) -> WorkerMessage {
             attempt_id,
             lease_gen,
             failure,
+        },
+        // The wire protocol has no blocked state yet — lifecycle states are
+        // PR A's, and inventing one here would be a second source of truth for
+        // step status. So a refusal travels as a failure, carrying its reason
+        // verbatim and prefixed so it is unambiguous downstream.
+        //
+        // This mapping is lossy in exactly one way: an operator's
+        // infrastructure problem is presently attributed to the step rather
+        // than to Cortex. PR A closes that by giving the refusal its own state.
+        WorkerEvent::Blocked {
+            step_id,
+            attempt_id,
+            lease_gen,
+            blocked,
+        } => WorkerMessage::StepFailed {
+            message_id: Uuid::new_v4().to_string(),
+            step_id,
+            attempt_id,
+            lease_gen,
+            failure: WorkerFailureReport {
+                kind: WorkerFailureKind::PermissionDenied,
+                exit_code: None,
+                stderr_excerpt: Some(format!("BLOCKED: {blocked}")),
+                tool: None,
+            },
         },
     }
 }

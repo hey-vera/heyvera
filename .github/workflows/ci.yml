@@ -107,6 +107,59 @@ jobs:
         if: steps.heyvera_changes.outputs.run_heyvera == 'true'
         run: npm run build
 
+  # The execution boundary, tested against a real runtime.
+  #
+  # The unit tests in crates/worker/src/sandbox assert the configuration the
+  # runner asks for. These assert what a process inside the sandbox can
+  # actually do — read a host secret, reach the Docker socket, open a
+  # connection, write outside its workspace, survive into the next task. They
+  # need a container runtime, so they are gated behind CORTEX_SANDBOX_IT and
+  # skipped on a development machine.
+  #
+  # This job is why that gate is safe. A gated adversarial test that never runs
+  # is worse than no test, because it reads like coverage.
+  sandbox:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+
+      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Build the sandbox image
+        run: docker build -f Dockerfile.sandbox -t cortex/sandbox:ci .
+
+      - name: Adversarial sandbox tests
+        env:
+          CORTEX_SANDBOX_IT: "1"
+          CORTEX_SANDBOX_IMAGE: cortex/sandbox:ci
+        run: cargo test -p cortex-worker --locked --test sandbox_adversarial
+
+      # The tests above skip silently when the gate is unset, which is exactly
+      # what this job exists to prevent. Assert that they actually executed.
+      - name: Prove the tests were not skipped
+        env:
+          CORTEX_SANDBOX_IT: "1"
+          CORTEX_SANDBOX_IMAGE: cortex/sandbox:ci
+        run: |
+          set -euo pipefail
+          output=$(cargo test -p cortex-worker --locked --test sandbox_adversarial -- --nocapture 2>&1)
+          echo "$output"
+          # Every test in the file must appear as run and passing. If the gate
+          # were unset they would still "pass", so count them instead.
+          passed=$(echo "$output" | grep -cE '^test [a-z_]+ \.\.\. ok' || true)
+          echo "adversarial tests passed: $passed"
+          if [ "$passed" -lt 10 ]; then
+            echo "::error::expected at least 10 adversarial tests to run, saw $passed"
+            exit 1
+          fi
+
   rust:
     runs-on: ubuntu-latest
     env:

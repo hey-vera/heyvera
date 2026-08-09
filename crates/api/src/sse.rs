@@ -74,12 +74,12 @@ pub async fn execute_task(
             lease_gen: 1,
         };
 
-        let result = Executor::execute(
+        let result = Executor::execute_sandboxed(
             &task_clone,
             &decision_clone,
             &step,
             worker_tx,
-            Some(state_clone.workspace_dir.as_path()),
+            state_clone.workspace_dir.as_path(),
         )
         .await;
 

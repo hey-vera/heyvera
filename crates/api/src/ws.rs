@@ -302,6 +302,7 @@ async fn handle_worker_msg(
             lease_gen,
             provider,
             model,
+            execution_job,
             ..
         } => {
             tracing::info!("step {step_id} started: {provider}/{model} (msg={message_id})");
@@ -318,6 +319,33 @@ async fn handle_worker_msg(
                         "start_step returned false for step {step_id} lease_gen={lease_gen} — \
                          step may already be terminal or stale"
                     );
+                }
+
+                // Provenance for the receipt: image, isolation class, resource
+                // profile, network policy, model identity, budgets. Recorded
+                // after the worker-authenticity check above, so an unassigned
+                // worker cannot write a job row.
+                match &execution_job {
+                    Some(job) => {
+                        let run_id = resolve_run_id(step_run_cache, state, &step_id)
+                            .unwrap_or_default();
+                        if !db.record_execution_job(&run_id, job) {
+                            // Idempotent on (attempt_id, lease_gen): a
+                            // resubmission is the same logical execution.
+                            tracing::debug!(
+                                step_id = %step_id,
+                                attempt_id = %job.attempt_id,
+                                "execution job already recorded for this attempt"
+                            );
+                        }
+                    }
+                    // A worker that predates the job field. Recorded as absent
+                    // rather than reconstructed — a receipt that guesses its
+                    // own provenance is worse than one that admits it has none.
+                    None => tracing::warn!(
+                        step_id = %step_id,
+                        "worker reported no execution job; provenance for this attempt is unavailable"
+                    ),
                 }
             }
 

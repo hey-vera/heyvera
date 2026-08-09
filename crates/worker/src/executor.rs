@@ -1,7 +1,10 @@
 use std::collections::HashSet;
-use std::process::Stdio;
 
 use cortex_core::error::CortexError;
+use cortex_core::execution_job::{
+    BackendKind, Blocked, BlockedReason, Budgets, EffortApplication, ExecutionJob, ModelRef,
+    NetworkPolicy, ResourceProfile, EXECUTION_JOB_VERSION,
+};
 use cortex_core::failure::{WorkerFailureKind, WorkerFailureReport};
 use cortex_core::protocol::{
     CheckEvidence, CommandEvidence, GitEvidence, StepOutput, WorkerEvidencePacket,
@@ -9,10 +12,9 @@ use cortex_core::protocol::{
 use cortex_core::provider::ProviderId;
 use cortex_core::routing::RoutingDecision;
 use cortex_core::task::TaskContract;
-use tokio::io::{AsyncBufReadExt, BufReader};
-use tokio::process::Command;
 use tokio::sync::mpsc;
 
+use crate::sandbox::{OutputStream, SandboxExit, SandboxRequest, SandboxRunner};
 use crate::stream::WorkerEvent;
 use crate::worktree;
 
@@ -24,17 +26,44 @@ pub struct StepExecution {
     pub lease_gen: i64,
 }
 
+/// How the provider was invoked, and what the backend did with the effort
+/// request.
+///
+/// `effort_applied` is produced by the code that builds the invocation, not by
+/// the caller that asked, which is what stops a CLI silently swallowing a level
+/// it cannot honour.
+struct BackendInvocation {
+    program: String,
+    args: Vec<String>,
+    backend_kind: BackendKind,
+    effort_applied: EffortApplication,
+}
+
 pub struct Executor;
 
 impl Executor {
-    pub async fn execute(
+    /// Run one step inside a sandbox, or refuse.
+    ///
+    /// There is no path through this function that executes a provider CLI on
+    /// the host. If the worktree cannot be created or the sandbox cannot be
+    /// established, the step is [`WorkerEvent::Blocked`] and the provider is
+    /// never invoked. That is the behavioural change: isolation used to be
+    /// best-effort, and a failure to isolate silently became execution in the
+    /// caller's directory with the worker's full environment.
+    pub async fn execute<R: SandboxRunner>(
         task: &TaskContract,
         decision: &RoutingDecision,
         step: &StepExecution,
         tx: mpsc::Sender<WorkerEvent>,
-        working_dir: Option<&std::path::Path>,
+        working_dir: &std::path::Path,
+        runner: &R,
     ) -> Result<i32, CortexError> {
-        let (cmd, args) = build_command(decision)?;
+        let invocation = build_command(decision)?;
+
+        // Build the job before announcing the start, so the announcement can
+        // carry it. Nothing about the job depends on the workspace.
+        let mut job = build_job(step, decision, runner, &invocation);
+        job.record_effort_application(invocation.effort_applied.clone());
 
         tx.send(WorkerEvent::Started {
             step_id: step.step_id.clone(),
@@ -42,128 +71,146 @@ impl Executor {
             lease_gen: step.lease_gen,
             provider: decision.provider.to_string(),
             model: decision.model_id.clone(),
+            execution_job: Box::new(job.clone()),
         })
         .await
         .ok();
 
-        // Create an isolated worktree so parallel steps don't conflict.
-        // If worktree creation fails (not a git repo, etc.), fall back to the
-        // original working_dir — worktree isolation is best-effort.
-        let mut worktree_guard = None;
-        let effective_dir: Option<std::path::PathBuf> = if let Some(dir) = working_dir {
-            match worktree::create_worktree(dir, &step.step_id) {
-                Ok(guard) => {
-                    let wt_path = guard.path().to_path_buf();
-                    worktree_guard = Some(guard);
-                    Some(wt_path)
-                }
-                Err(e) => {
-                    tracing::debug!(
-                        step_id = %step.step_id,
-                        error = %e,
-                        "worktree creation failed, falling back to direct execution"
-                    );
-                    Some(dir.to_path_buf())
-                }
+        // An isolated worktree is required, not attempted. There is no
+        // fallback to `working_dir`.
+        let mut worktree_guard = match worktree::create_worktree(working_dir, &step.step_id) {
+            Ok(guard) => guard,
+            Err(e) => {
+                let blocked = Blocked::new(
+                    BlockedReason::WorktreeUnavailable,
+                    format!("could not create an isolated worktree: {e}"),
+                );
+                return Self::block(step, &tx, blocked).await;
             }
-        } else {
-            None
         };
-        let effective_dir_ref = effective_dir.as_deref();
-        let task_prompt = build_task_prompt(task);
+        let workspace = worktree_guard.path().to_path_buf();
 
-        let mut command = Command::new(&cmd);
-        command
-            .args(&args)
-            .arg(&task_prompt)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        let mut prompt_args = invocation.args.clone();
+        prompt_args.push(build_task_prompt(task));
+        let request = SandboxRequest::new(&workspace, &invocation.program, prompt_args);
 
-        if let Some(dir) = effective_dir_ref {
-            command.current_dir(dir);
-        }
+        let base_commit = get_git_head(Some(workspace.as_path()));
 
-        let base_commit = get_git_head(effective_dir_ref);
-
-        let result = Self::run_child(
-            command,
-            &cmd,
+        let result = Self::run_sandboxed(
+            runner,
+            &job,
+            &request,
             step,
             &tx,
             decision,
-            effective_dir_ref,
+            &workspace,
             base_commit,
             task,
             &mut worktree_guard,
         )
         .await;
 
-        // Clean up the worktree regardless of success or failure.
-        if let Some(mut guard) = worktree_guard {
-            if let Err(e) = guard.cleanup() {
-                tracing::warn!(error = %e, "worktree cleanup failed");
-            }
+        // Teardown of the workspace runs on every path, including refusal.
+        if let Err(e) = worktree_guard.cleanup() {
+            tracing::warn!(error = %e, "worktree cleanup failed");
         }
 
         result
     }
 
-    /// Inner helper that spawns the child process, streams output, and emits
-    /// the final Completed/Failed event. Factored out so that worktree cleanup
-    /// in `execute()` runs unconditionally after this returns.
-    async fn run_child(
-        mut command: Command,
-        cmd: &str,
+    /// Run a step in the default sandbox for this deployment.
+    ///
+    /// A runtime that cannot be reached is a [`BlockedReason::SandboxUnavailable`]
+    /// refusal, not a reason to run the agent on the host. This is the entry
+    /// point callers should use; [`execute`](Self::execute) stays generic so a
+    /// microVM runner and the test doubles can be substituted.
+    pub async fn execute_sandboxed(
+        task: &TaskContract,
+        decision: &RoutingDecision,
+        step: &StepExecution,
+        tx: mpsc::Sender<WorkerEvent>,
+        working_dir: &std::path::Path,
+    ) -> Result<i32, CortexError> {
+        let runner = match crate::sandbox::ContainerSandbox::new(runner_image()) {
+            Ok(runner) => runner,
+            Err(blocked) => return Self::block(step, &tx, blocked).await,
+        };
+        Self::execute(task, decision, step, tx, working_dir, &runner).await
+    }
+
+    /// Emit a typed refusal and return without invoking anything.
+    async fn block(
+        step: &StepExecution,
+        tx: &mpsc::Sender<WorkerEvent>,
+        blocked: Blocked,
+    ) -> Result<i32, CortexError> {
+        tracing::warn!(
+            step_id = %step.step_id,
+            reason = blocked.reason.as_str(),
+            detail = %blocked.detail,
+            "step blocked; the provider was not invoked"
+        );
+        let message = blocked.to_string();
+        tx.send(WorkerEvent::Blocked {
+            step_id: step.step_id.clone(),
+            attempt_id: step.attempt_id.clone(),
+            lease_gen: step.lease_gen,
+            blocked,
+        })
+        .await
+        .ok();
+        Err(CortexError::WorkerExecution(message))
+    }
+
+    /// Stream the sandbox, then emit the final Completed/Failed event.
+    ///
+    /// Factored out so that workspace teardown in `execute()` runs
+    /// unconditionally after this returns.
+    #[allow(clippy::too_many_arguments)]
+    async fn run_sandboxed<R: SandboxRunner>(
+        runner: &R,
+        job: &ExecutionJob,
+        request: &SandboxRequest,
         step: &StepExecution,
         tx: &mpsc::Sender<WorkerEvent>,
         decision: &RoutingDecision,
-        effective_dir: Option<&std::path::Path>,
+        workspace: &std::path::Path,
         base_commit: Option<String>,
         task: &TaskContract,
-        worktree_guard: &mut Option<crate::worktree::WorktreeGuard>,
+        worktree_guard: &mut crate::worktree::WorktreeGuard,
     ) -> Result<i32, CortexError> {
-        let mut child = match command.spawn() {
-            Ok(c) => c,
-            Err(e) => {
-                let failure = WorkerFailureReport {
-                    kind: WorkerFailureKind::CliNotFound,
-                    exit_code: None,
-                    stderr_excerpt: Some(e.to_string()),
-                    tool: Some(cmd.to_string()),
-                };
-                let _ = tx
-                    .send(WorkerEvent::Failed {
-                        step_id: step.step_id.clone(),
-                        attempt_id: step.attempt_id.clone(),
-                        lease_gen: step.lease_gen,
-                        failure,
-                    })
-                    .await;
-                return Err(CortexError::WorkerExecution(format!("{cmd}: {e}")));
-            }
+        let mut session = match runner.submit(job, request).await {
+            Ok(session) => session,
+            // The sandbox could not be established. The provider was never
+            // invoked, and this is a refusal rather than a task failure.
+            Err(blocked) => return Self::block(step, tx, blocked).await,
         };
-
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| CortexError::WorkerExecution("no stdout".into()))?;
-
-        let stderr = child.stderr.take();
 
         let step_id = step.step_id.clone();
         let attempt_id = step.attempt_id.clone();
         let lease_gen = step.lease_gen;
-        let tx_lines = tx.clone();
         let provider = decision.provider;
 
-        let reader_handle = tokio::spawn(async move {
-            let reader = BufReader::new(stdout);
-            let mut lines = reader.lines();
-            let mut last_text = String::new();
-            let mut collected_output = Vec::new();
-            let mut files_changed = HashSet::new();
-            let mut usage: Option<(i64, i64)> = None;
-            while let Ok(Some(line)) = lines.next_line().await {
+        let mut last_text = String::new();
+        let mut collected_output: Vec<String> = Vec::new();
+        let mut files_changed: HashSet<String> = HashSet::new();
+        let mut usage: Option<(i64, i64)> = None;
+        let mut stderr_text = String::new();
+
+        while let Some(entry) = session.next_line().await {
+            let line = entry.text;
+
+            if entry.stream == OutputStream::Stderr {
+                if stderr_text.len() < 500 {
+                    if !stderr_text.is_empty() {
+                        stderr_text.push('\n');
+                    }
+                    stderr_text.push_str(&line);
+                }
+                continue;
+            }
+
+            {
                 // Extract text, files, and usage based on provider
                 let output = match provider {
                     ProviderId::Claude => {
@@ -194,7 +241,7 @@ impl Executor {
                         if collected_output.len() < 50 {
                             collected_output.push(text.clone());
                         }
-                        let _ = tx_lines
+                        let _ = tx
                             .send(WorkerEvent::Output {
                                 step_id: step_id.clone(),
                                 attempt_id: attempt_id.clone(),
@@ -205,42 +252,47 @@ impl Executor {
                     }
                 }
             }
-            let files_vec: Vec<String> = files_changed.into_iter().collect();
-            (collected_output, files_vec, usage)
-        });
+        }
 
-        let stderr_handle = tokio::spawn(async move {
-            if let Some(stderr) = stderr {
-                let reader = BufReader::new(stderr);
-                let mut lines = reader.lines();
-                let mut collected = String::new();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    if collected.len() < 500 {
-                        if !collected.is_empty() {
-                            collected.push('\n');
-                        }
-                        collected.push_str(&line);
-                    }
+        let parsed_files_changed: Vec<String> = files_changed.into_iter().collect();
+
+        let exit = match session.wait().await {
+            Ok(exit) => exit,
+            // The runtime failed mid-run and we do not know what happened.
+            // Guessing here would become an unverified delivery.
+            Err(blocked) => return Self::block(step, tx, blocked).await,
+        };
+
+        let code = match exit {
+            SandboxExit::Exited { code } => code,
+            // The wall-clock cap fired. Cortex stopped; it did not silently
+            // continue and it did not silently abandon.
+            SandboxExit::BudgetExhausted => {
+                tracing::warn!(
+                    step_id = %step.step_id,
+                    wall_clock_secs = job.budgets.wall_clock.as_secs(),
+                    "sandbox reached its wall-clock budget and was torn down"
+                );
+                // Worded so `classify_exit` reaches ProcessTimeout: a budget
+                // stop is a timeout, and must not be classified Unknown.
+                if stderr_text.is_empty() {
+                    stderr_text = "timeout: sandbox reached its wall-clock budget".to_string();
                 }
-                collected
-            } else {
-                String::new()
+                124
             }
-        });
+            // Attributed to the stop, not to the customer's work.
+            SandboxExit::Killed => {
+                if stderr_text.is_empty() {
+                    stderr_text = "sandbox was torn down on request".to_string();
+                }
+                137
+            }
+        };
 
-        let status = child
-            .wait()
-            .await
-            .map_err(|e| CortexError::WorkerExecution(e.to_string()))?;
+        let effective_dir = Some(workspace);
+        let mut worktree_guard = Some(&mut *worktree_guard);
 
-        let (collected_output, parsed_files_changed, usage) = reader_handle
-            .await
-            .unwrap_or_else(|_| (Vec::new(), Vec::new(), None));
-        let stderr_text = stderr_handle.await.unwrap_or_default();
-
-        let code = status.code().unwrap_or(-1);
-
-        let event = if status.success() {
+        let event = if code == 0 {
             let summary = if collected_output.is_empty() {
                 String::new()
             } else {
@@ -257,7 +309,7 @@ impl Executor {
             };
 
             let check_evidence = if let Some(dir) = effective_dir {
-                run_required_checks(task, dir).await
+                run_required_checks(task, dir, runner, job).await
             } else {
                 Vec::new()
             };
@@ -491,8 +543,8 @@ fn extract_claude_text(line: &str) -> Option<String> {
     }
 }
 
-fn build_command(decision: &RoutingDecision) -> Result<(String, Vec<String>), CortexError> {
-    match decision.provider {
+fn build_command(decision: &RoutingDecision) -> Result<BackendInvocation, CortexError> {
+    let (program, args) = match decision.provider {
         ProviderId::Claude => {
             let mut args = vec![
                 "-p".to_string(),
@@ -505,9 +557,9 @@ fn build_command(decision: &RoutingDecision) -> Result<(String, Vec<String>), Co
                 args.push("--model".to_string());
                 args.push(decision.model_id.clone());
             }
-            Ok(("claude".to_string(), args))
+            ("claude".to_string(), args)
         }
-        ProviderId::Openai => Ok((
+        ProviderId::Openai => (
             "codex".to_string(),
             vec![
                 "exec".to_string(),
@@ -516,12 +568,88 @@ fn build_command(decision: &RoutingDecision) -> Result<(String, Vec<String>), Co
                 "-c".to_string(),
                 "approval_policy=never".to_string(),
             ],
-        )),
-        ProviderId::Gemini => Ok(("gemini".to_string(), vec![])),
+        ),
+        ProviderId::Gemini => {
+            // This arm previously returned a bare `gemini` with no arguments,
+            // which silently discarded the routed model: the router chose one
+            // model and a different one ran. "Which model actually ran" has to
+            // be unforgeable, so the model travels in the invocation.
+            let mut args = Vec::new();
+            if !decision.model_id.is_empty() {
+                args.push("--model".to_string());
+                args.push(decision.model_id.clone());
+            }
+            ("gemini".to_string(), args)
+        }
         // API-only: the worker executes CLIs, and Zen has none. Routing must
         // send Zen work down the HTTP path, never to a worker.
-        ProviderId::Zen => Err(CortexError::ProviderNotAuthenticated(ProviderId::Zen)),
+        ProviderId::Zen => return Err(CortexError::ProviderNotAuthenticated(ProviderId::Zen)),
+    };
+
+    Ok(BackendInvocation {
+        program,
+        args,
+        backend_kind: BackendKind::Cli,
+        // None of these CLIs exposes a reasoning-effort control; they are
+        // invoked with model flags only. Reporting `Unsupported` rather than
+        // accepting the request is the whole point — a receipt must never
+        // claim a level the backend did not apply. When effort-controlled work
+        // needs a real dial, it goes down the HTTP path, and that routing
+        // decision is made with this field rather than in spite of it.
+        effort_applied: EffortApplication::NotRequested,
+    })
+}
+
+/// Assemble the job for one attempt.
+///
+/// Every field is set, including the ones nothing populates yet, because the
+/// job is the record of what ran and a field added later cannot describe work
+/// that already happened.
+fn build_job<R: SandboxRunner>(
+    step: &StepExecution,
+    decision: &RoutingDecision,
+    runner: &R,
+    invocation: &BackendInvocation,
+) -> ExecutionJob {
+    ExecutionJob {
+        job_id: uuid::Uuid::new_v4().to_string(),
+        job_version: EXECUTION_JOB_VERSION,
+        run_id: String::new(),
+        step_id: step.step_id.clone(),
+        attempt_id: step.attempt_id.clone(),
+        lease_gen: step.lease_gen,
+        // `catalog_version` stays None until a versioned catalog exists. The
+        // identity is recorded now regardless.
+        model_ref: ModelRef::uncatalogued(decision.model_id.clone()),
+        backend_kind: invocation.backend_kind,
+        // No effort dial yet. The field is present so the interface does not
+        // need re-cutting when there is one.
+        effort: None,
+        effort_applied: invocation.effort_applied.clone(),
+        // No quote persists a per-step budget yet, so only the wall clock
+        // bounds this attempt. The runner logs that rather than treating an
+        // unpriced job as a bounded one.
+        budgets: Budgets::unquoted(),
+        network_policy: NetworkPolicy::Deny,
+        capability_grants: Vec::new(),
+        context_bundle: None,
+        quote_id: None,
+        plan_receipt_id: None,
+        image_ref: runner_image(),
+        isolation_class: runner.isolation_class(),
+        resource_profile: ResourceProfile::default(),
     }
+}
+
+/// The image the agent sandbox runs.
+///
+/// Distinct from the verification check runner's image: this one carries the
+/// provider CLIs, and that one must not. Validating that this is a digest
+/// rather than a mutable tag belongs to the signed runner registry; recording
+/// whatever was configured is this crate's job, so the receipt is honest
+/// either way.
+pub fn runner_image() -> String {
+    std::env::var("CORTEX_SANDBOX_IMAGE").unwrap_or_else(|_| "cortex/sandbox:dev".to_string())
 }
 
 fn build_task_prompt(task: &TaskContract) -> String {
@@ -856,9 +984,22 @@ fn normalize_repo_path(path: &str) -> Result<String, ()> {
     }
 }
 
-async fn run_required_checks(
+/// Run the contract's required checks as **diagnostics**, inside the sandbox.
+///
+/// These previously ran as `sh -lc` on the host, in the worktree the agent had
+/// just written to. That is the same exposure as host-executing the agent
+/// itself, and arguably a sharper one: a check command like `npm test` or
+/// `make check` executes scripts the repository defines, so a task only had to
+/// write a file to get host execution. It runs in the sandbox now.
+///
+/// The results remain worker-reported diagnostics. They cannot create a
+/// verification badge or a positive routing reward — only independently
+/// executed checks can do that.
+async fn run_required_checks<R: SandboxRunner>(
     task: &TaskContract,
     working_dir: &std::path::Path,
+    runner: &R,
+    job: &ExecutionJob,
 ) -> Vec<CheckEvidence> {
     let mut results = Vec::new();
 
@@ -878,63 +1019,89 @@ async fn run_required_checks(
         }
 
         let started = std::time::Instant::now();
-        let mut command = Command::new("sh");
-        command
-            .arg("-lc")
-            .arg(&check.command)
-            .current_dir(working_dir)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
 
-        let output = tokio::time::timeout(
-            std::time::Duration::from_secs(REQUIRED_CHECK_TIMEOUT_SECS),
-            command.output(),
-        )
-        .await;
+        // A fresh sandbox per check, bounded by the check timeout rather than
+        // by the attempt's budget.
+        let mut check_job = job.clone();
+        check_job.job_id = uuid::Uuid::new_v4().to_string();
+        check_job.budgets.wall_clock =
+            std::time::Duration::from_secs(REQUIRED_CHECK_TIMEOUT_SECS);
 
+        let request = SandboxRequest::new(
+            working_dir,
+            "sh",
+            vec!["-lc".to_string(), check.command.clone()],
+        );
+
+        let session = match runner.submit(&check_job, &request).await {
+            Ok(session) => session,
+            Err(blocked) => {
+                // A check that could not be executed is not a check that
+                // passed. Record why, and leave the exit code unset so
+                // nothing downstream can read it as success.
+                results.push(CheckEvidence {
+                    name: check.name.clone(),
+                    command: check.command.clone(),
+                    required: check.required,
+                    exit_code: None,
+                    stdout_excerpt: None,
+                    stderr_excerpt: Some(blocked.to_string()),
+                    timed_out: false,
+                    duration_ms: started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+                });
+                continue;
+            }
+        };
+
+        let (stdout, stderr, exit) = drain_check_session(session).await;
         let duration_ms = started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64;
-        match output {
-            Ok(Ok(output)) => {
+
+        match exit {
+            Ok(SandboxExit::Exited { code }) => {
                 results.push(CheckEvidence {
                     name: check.name.clone(),
                     command: check.command.clone(),
                     required: check.required,
-                    exit_code: output.status.code(),
-                    stdout_excerpt: excerpt_from_text(
-                        &String::from_utf8_lossy(&output.stdout),
-                        4_000,
-                    ),
-                    stderr_excerpt: excerpt_from_text(
-                        &String::from_utf8_lossy(&output.stderr),
-                        4_000,
-                    ),
+                    exit_code: Some(code),
+                    stdout_excerpt: excerpt_from_text(&stdout, 4_000),
+                    stderr_excerpt: excerpt_from_text(&stderr, 4_000),
                     timed_out: false,
                     duration_ms,
                 });
             }
-            Ok(Err(err)) => {
+            Ok(SandboxExit::BudgetExhausted) => {
                 results.push(CheckEvidence {
                     name: check.name.clone(),
                     command: check.command.clone(),
                     required: check.required,
                     exit_code: None,
-                    stdout_excerpt: None,
-                    stderr_excerpt: Some(format!("failed to run required check: {err}")),
-                    timed_out: false,
-                    duration_ms,
-                });
-            }
-            Err(_) => {
-                results.push(CheckEvidence {
-                    name: check.name.clone(),
-                    command: check.command.clone(),
-                    required: check.required,
-                    exit_code: None,
-                    stdout_excerpt: None,
-                    stderr_excerpt: Some(format!(
-                        "required check timed out after {REQUIRED_CHECK_TIMEOUT_SECS}s"
-                    )),
+                    stdout_excerpt: excerpt_from_text(&stdout, 4_000),
+                    stderr_excerpt: excerpt_from_text(&stderr, 4_000),
                     timed_out: true,
+                    duration_ms,
+                });
+            }
+            Ok(SandboxExit::Killed) => {
+                results.push(CheckEvidence {
+                    name: check.name.clone(),
+                    command: check.command.clone(),
+                    required: check.required,
+                    exit_code: None,
+                    stdout_excerpt: excerpt_from_text(&stdout, 4_000),
+                    stderr_excerpt: Some("check sandbox was torn down on request".to_string()),
+                    timed_out: false,
+                    duration_ms,
+                });
+            }
+            Err(blocked) => {
+                results.push(CheckEvidence {
+                    name: check.name.clone(),
+                    command: check.command.clone(),
+                    required: check.required,
+                    exit_code: None,
+                    stdout_excerpt: excerpt_from_text(&stdout, 4_000),
+                    stderr_excerpt: Some(blocked.to_string()),
+                    timed_out: false,
                     duration_ms,
                 });
             }
@@ -943,6 +1110,27 @@ async fn run_required_checks(
 
     results
 }
+
+/// Collect a check sandbox's output and outcome.
+async fn drain_check_session(
+    mut session: crate::sandbox::SandboxSession,
+) -> (String, String, Result<SandboxExit, Blocked>) {
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    while let Some(line) = session.next_line().await {
+        let target = match line.stream {
+            OutputStream::Stdout => &mut stdout,
+            OutputStream::Stderr => &mut stderr,
+        };
+        if !target.is_empty() {
+            target.push('\n');
+        }
+        target.push_str(&line.text);
+    }
+    let exit = session.wait().await;
+    (stdout, stderr, exit)
+}
+
 
 fn excerpt_from_lines(lines: &[String], max_chars: usize) -> Option<String> {
     excerpt_from_text(&lines.join("\n"), max_chars)
@@ -1218,5 +1406,262 @@ mod tests {
             &allowed,
             &[]
         ));
+    }
+
+    // --- Sandbox boundary regressions ---
+    //
+    // These are the tests that must fail if the fallback ever comes back.
+
+    use crate::sandbox::SandboxSession;
+    use cortex_core::execution_job::IsolationClass;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::Arc;
+
+    /// A runner that records every submission and never runs anything.
+    ///
+    /// The submission counter is the point: several tests assert not on what
+    /// the sandbox returned, but that it was never asked in the first place.
+    struct SpyRunner {
+        submissions: Arc<AtomicUsize>,
+        outcome: SpyOutcome,
+    }
+
+    #[derive(Clone, Copy)]
+    enum SpyOutcome {
+        /// Refuse, the way a runtime that cannot start a sandbox does.
+        Refuse(BlockedReason),
+        /// Accept, print nothing, and exit with this code.
+        Exit(i32),
+    }
+
+    impl SpyRunner {
+        fn new(outcome: SpyOutcome) -> (Self, Arc<AtomicUsize>) {
+            let submissions = Arc::new(AtomicUsize::new(0));
+            (
+                Self {
+                    submissions: Arc::clone(&submissions),
+                    outcome,
+                },
+                submissions,
+            )
+        }
+    }
+
+    impl SandboxRunner for SpyRunner {
+        async fn submit(
+            &self,
+            _job: &ExecutionJob,
+            _request: &SandboxRequest,
+        ) -> Result<SandboxSession, Blocked> {
+            self.submissions.fetch_add(1, Ordering::SeqCst);
+            match self.outcome {
+                SpyOutcome::Refuse(reason) => Err(Blocked::new(reason, "spy runner refused")),
+                SpyOutcome::Exit(code) => {
+                    let (session, driver) =
+                        SandboxSession::channel("spy", IsolationClass::Container);
+                    drop(driver.output);
+                    let _ = driver.exit.send(Ok(SandboxExit::Exited { code }));
+                    Ok(session)
+                }
+            }
+        }
+
+        fn isolation_class(&self) -> IsolationClass {
+            IsolationClass::Container
+        }
+    }
+
+    fn spy_task() -> TaskContract {
+        TaskContract::new(
+            "do the thing".to_string(),
+            cortex_core::provider::Tier::Execute,
+            cortex_core::routing::RiskLevel::Low,
+        )
+    }
+
+    fn spy_decision(provider: ProviderId, model: &str) -> RoutingDecision {
+        RoutingDecision {
+            provider,
+            tier: cortex_core::provider::Tier::Execute,
+            model_id: model.to_string(),
+            rationale: Vec::new(),
+            score: 1.0,
+            alternatives_considered: Vec::new(),
+        }
+    }
+
+    fn spy_step() -> StepExecution {
+        StepExecution {
+            step_id: format!("step-{}", uuid::Uuid::new_v4()),
+            attempt_id: "attempt-1".to_string(),
+            lease_gen: 3,
+        }
+    }
+
+    /// A directory that is definitively not a git repository.
+    fn non_repo_dir() -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("cortex-sbx-test-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    #[tokio::test]
+    async fn worktree_failure_blocks_and_does_not_fall_back() {
+        // The exact behaviour that used to live at executor.rs:49-70: worktree
+        // creation failing and execution silently continuing in the caller's
+        // directory. It must now refuse, and it must refuse before the sandbox
+        // is even asked.
+        let dir = non_repo_dir();
+        let (runner, submissions) = SpyRunner::new(SpyOutcome::Exit(0));
+        let (tx, mut rx) = mpsc::channel(16);
+        let step = spy_step();
+
+        let result = Executor::execute(
+            &spy_task(),
+            &spy_decision(ProviderId::Claude, "claude-opus-5"),
+            &step,
+            tx,
+            &dir,
+            &runner,
+        )
+        .await;
+
+        assert!(
+            result.is_err(),
+            "a step that cannot be isolated must not succeed"
+        );
+        assert_eq!(
+            submissions.load(Ordering::SeqCst),
+            0,
+            "nothing may be executed when the workspace cannot be isolated"
+        );
+
+        let mut saw_blocked = false;
+        while let Ok(event) = rx.try_recv() {
+            if let WorkerEvent::Blocked { blocked, .. } = event {
+                assert_eq!(blocked.reason, BlockedReason::WorktreeUnavailable);
+                saw_blocked = true;
+            }
+        }
+        assert!(saw_blocked, "the refusal must be reported, not swallowed");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[tokio::test]
+    async fn sandbox_failure_blocks_and_does_not_invoke_cli() {
+        // A refusing sandbox must produce Blocked rather than Failed. The
+        // distinction matters: Failed is a fact about the customer's code,
+        // Blocked is a fact about Cortex.
+        let (runner, _) = SpyRunner::new(SpyOutcome::Refuse(BlockedReason::SandboxUnavailable));
+        let (tx, mut rx) = mpsc::channel(16);
+        let step = spy_step();
+        let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
+        let invocation = build_command(&decision).unwrap();
+        let job = build_job(&step, &decision, &runner, &invocation);
+        let request = SandboxRequest::new(std::env::temp_dir(), "claude", Vec::new());
+
+        let refused = runner.submit(&job, &request).await;
+        let blocked = refused.err().expect("the spy runner refuses");
+        assert_eq!(blocked.reason, BlockedReason::SandboxUnavailable);
+
+        let result = Executor::block(&step, &tx, blocked).await;
+        assert!(result.is_err());
+
+        match rx.try_recv().expect("a blocked event") {
+            WorkerEvent::Blocked { blocked, .. } => {
+                assert_eq!(blocked.reason, BlockedReason::SandboxUnavailable);
+            }
+            other => panic!("expected Blocked, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn gemini_invocation_carries_the_routed_model() {
+        // The regression at executor.rs:520 — a bare `gemini` with no model,
+        // so the router picked one model and another one ran.
+        let invocation = build_command(&spy_decision(ProviderId::Gemini, "gemini-3-pro"))
+            .expect("gemini is a CLI provider");
+        assert_eq!(invocation.program, "gemini");
+        assert!(
+            invocation
+                .args
+                .windows(2)
+                .any(|w| w == ["--model", "gemini-3-pro"]),
+            "the routed model must reach the invocation, got {:?}",
+            invocation.args
+        );
+    }
+
+    #[test]
+    fn every_cli_invocation_carries_its_model() {
+        for (provider, model) in [
+            (ProviderId::Claude, "claude-opus-5"),
+            (ProviderId::Openai, "gpt-5"),
+            (ProviderId::Gemini, "gemini-3-pro"),
+        ] {
+            let invocation = build_command(&spy_decision(provider, model)).expect("cli provider");
+            let rendered = invocation.args.join(" ");
+            assert!(
+                rendered.contains(model),
+                "{provider:?} dropped its routed model: {rendered}"
+            );
+        }
+    }
+
+    #[test]
+    fn cli_backend_does_not_claim_an_effort_it_cannot_apply() {
+        // Invariant 10: a receipt never claims a setting the backend did not
+        // apply. These CLIs have no effort control, so the job must not carry
+        // an applied level.
+        let invocation = build_command(&spy_decision(ProviderId::Claude, "claude-opus-5")).unwrap();
+        assert_eq!(invocation.backend_kind, BackendKind::Cli);
+        assert_eq!(invocation.effort_applied.applied_level(), None);
+    }
+
+    #[test]
+    fn job_carries_the_full_field_set_at_dispatch() {
+        // Fields nothing populates yet must still be present, so the interface
+        // does not need re-cutting when they are.
+        let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
+        let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
+        let step = spy_step();
+        let job = build_job(&step, &decision, &runner, &build_command(&decision).unwrap());
+
+        assert_eq!(job.job_version, EXECUTION_JOB_VERSION);
+        assert_eq!(job.attempt_id, "attempt-1");
+        assert_eq!(job.lease_gen, 3);
+        assert_eq!(job.model_ref.catalog_id, "claude-opus-5");
+        assert_eq!(job.model_ref.catalog_version, None);
+        assert_eq!(job.backend_kind, BackendKind::Cli);
+        assert_eq!(job.effort, None);
+        assert_eq!(job.network_policy, NetworkPolicy::Deny);
+        assert!(job.capability_grants.is_empty());
+        assert_eq!(job.context_bundle, None);
+        assert_eq!(job.quote_id, None);
+        assert_eq!(job.plan_receipt_id, None);
+        assert_eq!(job.isolation_class, IsolationClass::Container);
+        assert!(!job.image_ref.is_empty());
+        assert!(!job.resource_profile.profile_version.is_empty());
+        // Unquoted, but never unbounded.
+        assert!(job.budgets.is_unquoted());
+        assert_eq!(job.budgets.wall_clock, Budgets::DEFAULT_WALL_CLOCK);
+    }
+
+    #[test]
+    fn a_check_that_could_not_run_is_not_a_check_that_passed() {
+        // A blocked check records no exit code, so nothing downstream can read
+        // it as success and auto-commit on the strength of it.
+        let blocked_check = CheckEvidence {
+            name: "cargo:test".to_string(),
+            command: "cargo test".to_string(),
+            required: true,
+            exit_code: None,
+            stdout_excerpt: None,
+            stderr_excerpt: Some("blocked (sandbox_unavailable): no runtime".to_string()),
+            timed_out: false,
+            duration_ms: 0,
+        };
+        assert!(!required_checks_allow_commit(&[blocked_check]));
     }
 }
