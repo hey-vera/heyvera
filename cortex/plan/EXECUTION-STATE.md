@@ -14,10 +14,20 @@ re-deriving anything.
 
 | Task | What | State |
 |---|---|---|
-| 1 | Land the harness plan on `main` | PR [#500](https://github.com/hey-vera/heyvera/pull/500) open, auto-merge armed |
-| 1a | Split-out auth commit from the same branch | branch `fix/auth-remove-subscription-flow` pushed, **PR deliberately not opened** — see Findings |
-| 2 | Briefs for PR C, PR A, PR B | in progress on `docs/cortex-execution-briefs` |
+| 1 | Land the harness plan on `main` | **done** — PR [#500](https://github.com/hey-vera/heyvera/pull/500) merged |
+| 1a | Split-out auth commit from the same branch | branch `fix/auth-remove-subscription-flow` pushed, **PR deliberately not opened** — see F1 |
+| 2 | Briefs for PR C, PR A, PR B | written, PR open |
 | 3 | Implement PR C (execution sandbox) | not started |
+
+Briefs live in `cortex/plan/briefs/`. An implementer reads only the brief.
+
+## Migration numbers — the shared-counter hazard
+
+`schema_version` is one counter shared with the HeyVera Socials product. Max on
+`main` was **v61** (`crates/api/src/db.rs:3445`). PRs A, B, and C each need a
+migration and all three briefs point at the next free number. **Whichever lands
+second takes the next one; resolve at rebase, not at design time.** Each brief
+says so; do not let two branches claim v62.
 
 ## What was verified directly (not inherited)
 
