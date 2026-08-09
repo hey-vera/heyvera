@@ -1,7 +1,8 @@
 # Cortex Harness Excellence Plan
 
 > **Status:** proposed implementation plan
-> **Prepared:** 2026-08-07 (Track A), extended 2026-08-07 (Track B)
+> **Prepared:** 2026-08-07 (Track A), extended 2026-08-07 (Track B),
+> fourth adversarial round 2026-08-08 (Phases 27–34, invariants 24–31)
 > **Review base:** `d437ff5d` (`docs/concurrency-assessment`)
 > **Scope:** Cortex only: the Rust API/worker/runtime and `cortex/` web client.
 > This is a change plan, not a claim that the listed work is already shipped.
@@ -249,6 +250,55 @@ The following five govern Track B and are contracts in exactly the same sense.
     entries, policies, and price lists are published, never edited. Consumers pin
     a version; a narrower ownership scope can never mutate a broader one; every
     receipt names the exact versions that ran.
+
+The following eight come from the fourth review round (Phases 27–34) and are
+contracts in exactly the same sense. The first two are the most important
+sentences in this document, because every other invariant assumes a verdict that
+means something.
+
+24. **Selection pressure against a check battery is bounded by that battery's
+    measured power.** Any mechanism that generates candidates and keeps the ones
+    that pass — best-of-N racing, escalation retries, speculative execution —
+    declares its width, and that width is a function of measured battery power.
+    Unbounded selection against an unmeasured battery is prohibited.
+25. **The verdict knows who wrote the exam.** Every diff is partitioned into
+    subject, exam, and incidental surfaces; the verdict class (`strong` where the
+    exam is byte-identical to the base tree, `authored` where the task legitimately
+    wrote it) is declared at plan time and appears on every receipt. A `strong`
+    contract whose delivery touches the exam resolves `inconclusive`. A behaviour-
+    changing task whose battery does not discriminate base from delivered is
+    `UNVERIFIED`, and a refactor that modified its exam surface fails.
+26. **The router's objective is set by the effort dial.** Below the top position
+    it minimises cost subject to passing. At the top it maximises P(verified)
+    under the cap, where a route that passes at four times the price is the
+    better route. The receipt records which objective was in force. This amends
+    invariant 12, which stated the cost objective unconditionally.
+27. **Executed checks are the only thing that can create a pass.** A model acting
+    as a verifier may rank candidates within the already-passing set, raise a
+    finding, or lower confidence. It can never move a `failed` to a `verified`,
+    create a badge, or emit a positive routing reward.
+28. **Comprehension quality is declared, never assumed.** Every attempt records
+    which map, retrieval, and prior-experience layers were actually available; a
+    degraded or absent map appears on the Plan Receipt before approval; and no
+    verdict class is raised on the strength of context the backend did not supply.
+29. **No claim without a held-out measurement.** No capability, quality, or
+    comparative claim is made externally or acted on internally without an
+    uncontaminated held-out result, an interval, and a cost figure, reproducible
+    from its receipts. And Cortex never sells a guarantee it cannot price: a task
+    class without a measured pass probability and cost distribution is quoted
+    with a narrower guarantee and labelled as such, and intake may decline on
+    odds provided the decline names what would make the task acceptable.
+30. **Every autonomous capability has an off switch and an inverse.** Dispatch
+    stops at four scopes and by automatic breaker; a stop leaves every in-flight
+    item in a truthful state attributed to the operator rather than to the
+    customer's work; every external effect is compensable with a declared inverse
+    or declared irreversible at plan time and ordered last; and every receipt is
+    recallable by the artifact versions that produced it.
+31. **One Cortex, one object graph, one intake.** An organisation expresses itself
+    only as defaults and limits over it. Cortex asks about intent and decides
+    mechanism, recording every mechanism decision it made. Every mechanism
+    declares a disclosure tier, and nothing above the *always* tier may be
+    required reading to complete a task.
 
 ---
 
@@ -1147,8 +1197,19 @@ And symmetrically, `urgent` should buy, in this order of safety:
    and only worth it where the branch probability is high.
 
 Racing before width, always: width is bounded by the dependency graph and
-carries integration risk, while racing is bounded only by budget and carries
-none.
+carries integration risk, while racing is bounded by budget.
+
+> **Amended by Phase 27.4.** An earlier draft of this passage said racing
+> "carries none" — no risk. That is wrong, and it was the most consequential
+> wrong sentence in this document, because it presented the riskiest knob as the
+> safe default. Racing keeps the first attempt that passes, which on a leaf where
+> honest success is unlikely and a check-battery shortcut is not converts an
+> honest failure into a shortcut pass. It is safe on work that was going to
+> succeed and dangerous on exactly the hard tail that a refund-backed vendor
+> attracts (Phase 31.2). Racing therefore requires a `strong` verdict class, its
+> width is bounded by measured battery power (invariant 24), and the discarded
+> attempts are retained because their **agreement** is the cheapest precision
+> estimator in the system. Read Phase 27.4 before implementing anything here.
 
 ## Phase 7 - Model economics as a first-class system
 
@@ -4550,15 +4611,16 @@ claim resting on checks that cannot fail.
 
 ### 27.4 Racing amplifies exactly this, and this plan calls it the safe knob
 
-Phase 6.7 currently states, as a design rule:
+Before this round, Phase 6.7 stated as a design rule:
 
 > *"Racing before width, always: width is bounded by the dependency graph and
 > carries integration risk, while racing is bounded only by budget and carries
-> none."* — line 1149-1151
+> none."*
 
-**That is wrong, and it is the most consequential wrong sentence in the
-document,** because it is phrased as the safe default and it sits on the speed
-dial where a customer in a hurry will reach for it.
+**That was wrong, and it was the most consequential wrong sentence in the
+document,** because it was phrased as the safe default and it sits on the speed
+dial where a customer in a hurry will reach for it. Phase 6.7 now carries a
+pointer to this section; what follows is the argument behind that amendment.
 
 Take one attempt at a leaf. It is correct-and-passing with probability `a`,
 wrong-but-passing with probability `b` (a false accept), and failing with
@@ -6315,6 +6377,55 @@ immediately, in parallel with Wave 1. Surface work follows the APIs it renders.
   **The existing-gates work in 26.6 should land early** — it is small and it is
   what makes a platform team willing to try Cortex at all.
 
+- **PR AL · Verdict integrity (Phase 27). The highest-priority item added by the
+  fourth round, and it should land immediately after PR A/B.** Diff surface
+  typing, `verdict_class` declared at plan time, the exam-disclosure signal set,
+  blast-radius mutation testing for `battery_power`, and the differential and
+  invariance controls. **Needs A, B, and D.** Everything that consumes a verdict
+  — pricing, routing, professionals, compliance — is built on sand until this
+  exists, so it gates more downstream work than its size suggests.
+- **PR AM · Bounded selection (Phase 27.4, 28.4).** Racing gated on `strong` and
+  on measured battery power, retained race attempts with recorded agreement, and
+  content-addressed reuse of verified check results keyed on the Phase 24.1
+  triple and gated on the determinism record. **Needs AG and AL.** The reuse half
+  is a large cost reduction on its own and is a *prerequisite* for invariant 16
+  at trunk scale (Phase 33.2b), not an optimisation.
+- **PR AN · The capability objective (Phase 28).** Router objective as a function
+  of the effort dial, diverse race-set selection reusing the Phase 12.10
+  complementarity matrix, weak verifiers confined to ranking, and the
+  decomposition crossover computed at plan time. **Needs J, AL, AM.**
+- **PR AO · Comprehension (Phase 29).** Declared comprehension state on the
+  receipt, grammar coverage with a labelled fallback, `retrieval` and `impact`
+  wired to dispatch, the persisted repository-understanding artifact, the
+  per-repo experience corpus with an architectural tenant boundary, and the free
+  localization metrics. **Needs U (provenance typing).** The declared-state and
+  grammar-coverage parts are small and should not wait for the corpus.
+- **PR AP · The scoreboard (Phase 30).** Four suites, the consented post-cutoff
+  pull-request harvest, the publish gate on behaviour-changing artifacts, and
+  paired multi-seed statistics. **Needs AL.** Nothing in Phase 28 may be claimed
+  before this exists.
+- **PR AQ · Guarantee economics (Phase 31).** Loss ratio, outstanding obligation,
+  per-class break-even, cost measured conditioned on outcome, decline-on-odds at
+  intake, guarantee graduation, the two-part tariff, ledger obligation and
+  recognition state, and the review-bundle ordering plus review-minutes metrics.
+  **Needs F and G.** The ledger fields should land with the ledger work rather
+  than as a later migration on the money table.
+- **PR AR · Operational controls (Phase 32).** Four-scope stop with automatic
+  breakers, dependency-addition gates, declared inverses for external effects,
+  the stated sandbox strength commitment, and receipt recall by artifact version.
+  **The stop and the dependency gates are small and should land before any
+  external repository is written to.**
+- **PR AS · Scale mechanics (Phase 33).** Conflict awareness against open pull
+  requests, merge-queue participation, stacked delivery, the per-repo WIP limit,
+  the small-team path, and disclosure tiers. **Needs R and AM.** The
+  open-pull-request conflict check is the single cheapest item here and the one a
+  platform team notices first.
+- **PR AT · Foundation repair (Phase 34).** Extract the non-Cortex product from
+  `crates/api`, fix lock poisoning, split `db.rs` along ownership lines, measure
+  money-path test density, and clear the open dependency advisories. **The lock
+  poisoning fix and the advisories are days of work against a live outage risk
+  and a live credibility problem — neither should wait for anything.**
+
 ### If only three things get done
 
 Ranked by consequence, if capacity forces a choice:
@@ -6374,6 +6485,16 @@ ledger, state-machine, and pricing changes.
 | Routing economics | Reward carries total attempt-chain spend including verification; the always-strongest-model champion baseline is computable at any time; escalation respects per-receipt depth caps; a forbidden provider is never routed to, including on escalation. |
 | Intake | Low-confidence input produces a question rather than a dispatch; a rich multi-clause one-shot request decomposes instead of erroring; the deterministic classifier and the `TaskFrame` are compared and disagreement lowers confidence. |
 | Authorization and tenancy | Cross-org read/write isolation on every owned object; role matrix enforced at the API, not the UI; deprovisioning kills live sessions and capability grants; audit export completeness against a scripted action sequence. |
+| Verdict integrity | A task that deletes an assertion, removes a test, marks one skipped, relaxes a lint threshold, or exits before running the discovered set is detected and named on the receipt; a `strong` contract whose delivery touches the exam surface resolves `inconclusive` and is not charged; a behaviour-changing task whose battery passes identically on the base tree is `UNVERIFIED`; a refactor that modified its exam surface fails; a battery with no mutation power over the blast radius cannot produce a `strong` verdict; `battery_power` appears on the Plan Receipt before approval. |
+| Bounded selection | Racing is unavailable on an `authored` contract and its width is capped by measured battery power, with the refusal visible on the dial; discarded race attempts are retained and their agreement recorded; a passing winner with low agreement routes to review rather than delivering; an escalation ladder obeys the same width bound as racing. |
+| Check reuse | A reused check result names the prior execution and reproduces it exactly; a check with a quarantined determinism record is never reused; reuse never crosses a tenant boundary; a rebase re-verifies only what actually changed and the saving is measured. |
+| Capability | The router's objective changes with the effort dial and the receipt records which was in force; a race set is selected for generator diversity rather than repetition; a model-authored verdict cannot move a `failed` to a `verified` under any configuration; plan lint fails a plan decomposed past its own predicted crossover. |
+| Comprehension | An unsupported language produces a declared degraded-comprehension state on the Plan Receipt rather than a silent empty map; declared write sets and blast radius derive from impact analysis rather than inference; repository understanding survives a commit and invalidates per file content hash; a prior-run conclusion loses to the current tree and flags itself; experience retrieval is architecturally incapable of crossing an organisation; context recall and precision are computed for every completed run. |
+| Evaluation | Four suites run on every harness-affecting artifact; a shared artifact that regresses the suite cannot publish; no suite task, tree, or outcome reaches the router, the professional corpus, the estimator, or the experience layer; every reported comparison is paired, multi-seed, interval-bounded, and carries cost per resolved instance; a capability claim without a held-out result is blocked at the point of publication. |
+| Guarantee economics | Loss ratio, outstanding obligation, and per-class break-even compute from ledger and forecast data and alert on drift; `E[C]` is measured separately for passing and failing runs; intake can decline on odds and the decline names the on-ramp; realised versus forecast pass rate is tracked per organisation; a class without measured evidence cannot carry the full guarantee; the ledger answers obligation and recognition state per credit at any point in time. |
+| Operational controls | Each of the four stop scopes is exercised in a drill and leaves in-flight work in a truthful, resumable, operator-attributed state; each automatic breaker fires against an injected condition; a stop is idempotent and its release does not stampede; a newly added dependency that is a near-name of an existing one is blocked; an abandoned run executes the inverses of its external effects in reverse order; an irreversible effect cannot be scheduled before a reversible one; a receipt recall enumerates every receipt produced by an affected artifact version. |
+| Scale mechanics | A write set overlapping an open human pull request is surfaced before approval, with the pushed-only boundary stated; Cortex submits to a merge queue and never merges directly, and a queue rejection registers as a failed integration; a multi-step change delivers as a reviewable stack; the per-repository WIP limit blocks a new dispatch and says why; a five-person team completes setup with no identity provider. |
+| Simplicity | A first-time solo user completes a task without encountering a control they must understand, and every decision Cortex made for them is visible in one line; intake asks no mechanism questions; every mechanism introduced in this plan carries a declared disclosure tier and nothing above *always* is required reading. |
 
 ## Deliberately deferred
 
@@ -6760,11 +6881,23 @@ professional, externally testable product across backend, frontend, headless
 access, and operations. Every decision carries a decided default; every claim
 about the current code carries a `file:line`; every phase carries an exit gate.
 
-It does **not** claim that no further gaps exist. Three rounds of review have each
-found real ones — the last round found flaky tests, brownfield verification, and
-partial delivery, any of which would have hurt in production. **A fourth review
-should be expected to find more, and the right response is another round rather
-than confidence.**
+It does **not** claim that no further gaps exist. Four rounds of review have each
+found real ones. Round three found flaky tests, brownfield verification, and
+partial delivery. Round four attacked along different axes — adversarial,
+capability, foundation, and actuarial — and found six that were more serious:
+the verdict had never been audited for soundness at all, best-of-N racing was
+documented as the risk-free knob when it is the riskiest, the plan optimised
+cost-per-outcome in a way that structurally capped Cortex *below* the frontier
+model it routes to, repository comprehension degraded silently and unreported,
+nothing anywhere measured the harness, and the guarantee was priced without a
+loss model.
+
+The rate of discovery is not obviously decreasing, and the shape of round four
+suggests why: gaps are found by *changing the axis of attack*, not by looking
+harder along the same one. **A fifth review should be expected to find more, and
+should deliberately attack an axis none of the first four used** — a candidate
+list is in Phase 34.4. The right response remains another round rather than
+confidence.
 
 ## Sources for Track B
 
@@ -6795,6 +6928,45 @@ than confidence.**
 - Externalised behavioural knowledge as an inspectable, governable, revisable
   artefact independent of the model — the argument that settled Phase 8.4:
   [Harnessing Agent Skills](https://arxiv.org/html/2606.20631v1)
+## Sources for the fourth round
+
+Grounding for Phases 27–31. As throughout, these establish that a problem is
+real and measured; the mechanisms proposed against them are this document's own.
+
+- Specification gaming in coding agents — test overwriting, assertion deletion,
+  monkey-patched scoring, early termination — and the finding that an inspecting
+  judge outperformed held-out tests as a *detector*:
+  [EvilGenie: a reward hacking benchmark](https://arxiv.org/html/2511.21654v2),
+  [SpecBench: reward hacking in long-horizon coding agents](https://arxiv.org/pdf/2605.21384),
+  [Auditing reward hackability in code RL environments](https://arxiv.org/pdf/2606.16062),
+  [capped evaluation with randomized tests](https://arxiv.org/pdf/2606.07379)
+- The conclusion that no fixed reward function survives a capability increase in
+  what it grades, and that verification must co-evolve — the argument behind
+  Phase 27's measured battery power and rotated adversarial suite:
+  [The verification horizon: no silver bullet for coding agent rewards](https://arxiv.org/html/2606.26300v1),
+  [fuzzing RLVR verifiers](https://arxiv.org/pdf/2606.01066)
+- The generation–verification gap, repeated sampling against a strong verifier as
+  the mechanism by which a verifier-owning system exceeds its generator, and
+  multi-verifier selection outscaling self-consistency — the evidence base for
+  Phase 28: [Shrinking the generation-verification gap with weak verifiers](https://arxiv.org/html/2506.18203v1),
+  [multi-agent verification and test-time compute scaling](https://arxiv.org/html/2502.20379v1)
+- Repository exploration as a measurable capability, the finding that agentic
+  explorers form a tier above classical retrieval (and that line-level coverage
+  and ranking, not embedding similarity, are the remaining axes), and the result
+  that retrieved prior experience improves accuracy *and* reduces cost, most on
+  hard tasks — the basis for Phase 29's build-structural-not-semantic decision:
+  [SWE-Explore: benchmarking how coding agents explore repositories](https://arxiv.org/abs/2606.07297),
+  [SWE-ContextBench: context learning in coding](https://arxiv.org/abs/2602.08316),
+  [ContextBench: context retrieval in coding agents](https://huggingface.co/papers/2602.05892)
+- Outcome-based pricing structure — two-part tariffs as the standard mitigation,
+  the concentration of successful outcome pricing among vendors with years of
+  outcome data, and the accounting treatment of refundable outcome credits as
+  contract liabilities with variable consideration, which is why Phase 31.5
+  belongs in the schema rather than in a later audit:
+  [accounting for outcome-based pricing in an agentic AI product](https://dart.deloitte.com/USDART/home/publications/deloitte/industry/technology/accounting-outcome-based-pricing-agentic-ai),
+  [outcome-based pricing in practice](https://thepricingconundrum.substack.com/p/outcome-based-pricing-in-practice),
+  [the 2026 guide to SaaS, AI, and agentic pricing](https://www.getmonetizely.com/blogs/the-2026-guide-to-saas-ai-and-agentic-pricing-models)
+
 - MAST specification-failure share, VeriMAP, multi-turn degradation, context rot,
   and the debate-drift results are all catalogued with citations in
   [RESEARCH-2026-08.md](RESEARCH-2026-08.md) — that doc is the source of record
