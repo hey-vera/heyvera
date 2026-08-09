@@ -332,33 +332,37 @@ async fn the_wall_clock_budget_terminates_a_hung_job() {
 }
 
 #[tokio::test]
-async fn a_granted_registry_is_reachable_and_nothing_else_is() {
+async fn a_granted_registry_is_refused_until_scoped_egress_exists() {
     let Some(image) = enabled() else { return };
     let dir = workspace();
 
-    // The positive case, so "deny everything" is not passing these tests by
-    // making the sandbox useless. A grant plus a matching allowlist entry must
-    // actually open that host.
-    let (output, _) = run(
-        &image,
-        &dir,
-        "a11",
-        "getent hosts deb.debian.org >/dev/null && echo granted-ok || echo granted-blocked; \
-         getent hosts example.com >/dev/null && echo OTHER-REACHABLE || echo other-blocked",
-        |job| {
-            job.network_policy = NetworkPolicy::Allowlist {
-                hosts: vec!["deb.debian.org".to_string()],
-            };
-            job.capability_grants = vec![CapabilityGrant::ResolveDependencies {
-                registries: vec!["deb.debian.org".to_string()],
-            }];
-        },
-    )
-    .await;
+    // Scoped egress is not implemented. The failure mode this guards is the
+    // tempting shortcut: attach a Docker network so the allowlist "works",
+    // which actually grants the whole internet. Invariant 8 says fail closed
+    // and explain the blocker.
+    //
+    // When scoped egress lands, this test inverts: the granted host becomes
+    // reachable and every other host must stay blocked.
+    let mut job = job(&image, "a11");
+    job.network_policy = NetworkPolicy::Allowlist {
+        hosts: vec!["deb.debian.org".to_string()],
+    };
+    job.capability_grants = vec![CapabilityGrant::ResolveDependencies {
+        registries: vec!["deb.debian.org".to_string()],
+    }];
 
-    assert!(
-        !output.contains("OTHER-REACHABLE"),
-        "a scoped grant opened more than the host it named:\n{output}"
+    let runner = ContainerSandbox::new(&image).expect("container runtime must be reachable");
+    let request = SandboxRequest::new(&dir, "sh", vec!["-c".to_string(), "true".to_string()]);
+
+    let blocked = runner
+        .submit(&job, &request)
+        .await
+        .err()
+        .expect("an unenforceable network policy must be refused, not opened");
+
+    assert_eq!(
+        blocked.reason,
+        cortex_core::execution_job::BlockedReason::NetworkPolicyUnenforceable
     );
 
     let _ = std::fs::remove_dir_all(&dir);

@@ -25,9 +25,42 @@ use super::policy::{binds, effective_hosts, sanctioned_env, ungranted_hosts, WOR
 use super::{OutputStream, SandboxDriver, SandboxExit, SandboxLine, SandboxRequest, SandboxRunner};
 use super::SandboxSession;
 
-/// Unprivileged user inside the runner image. Matches the check runner's
-/// image contract.
+/// Unprivileged user baked into the runner image, used when the workspace
+/// owner cannot be determined.
 const SANDBOX_USER: &str = "sandbox";
+
+/// Who the sandbox runs as.
+///
+/// The workspace is a bind-mounted worktree owned by whichever user the worker
+/// runs as, and a bind mount carries host ownership through unchanged. A
+/// sandbox running as a *different* unprivileged user therefore cannot write to
+/// its own workspace — every task would produce an empty delivery. So the
+/// sandbox runs as the workspace's owner: still unprivileged, still confined to
+/// one mount, and now able to do the work.
+///
+/// This does not widen the boundary. Nothing else is mounted, so a uid grants
+/// access to no file the sandbox could not already reach.
+fn sandbox_user(workspace: &std::path::Path) -> String {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        if let Ok(metadata) = std::fs::metadata(workspace) {
+            let (uid, gid) = (metadata.uid(), metadata.gid());
+            // Never root, whatever the host says. A workspace owned by root is
+            // a deployment mistake, and inheriting it would hand the sandbox
+            // uid 0.
+            if uid != 0 {
+                return format!("{uid}:{gid}");
+            }
+            tracing::warn!(
+                workspace = %workspace.display(),
+                "workspace is owned by root; falling back to the image's unprivileged user"
+            );
+        }
+    }
+    let _ = workspace;
+    SANDBOX_USER.to_string()
+}
 
 pub struct ContainerSandbox {
     docker: Docker,
@@ -60,18 +93,13 @@ impl ContainerSandbox {
     /// are the security boundary; they must not be the ones that get skipped.
     fn build_config(image: &str, job: &ExecutionJob, request: &SandboxRequest) -> Config<String> {
         let profile = &job.resource_profile;
-        let hosts = effective_hosts(job);
 
-        // Deny and "an allowlist nothing justifies" are the same thing here.
-        // `none` is the only mode with no route out; an allowlist is enforced
-        // by attaching the sandbox to a network whose egress rules name
-        // exactly those hosts, which is provisioned per task and torn down
-        // with it.
-        let network_mode = if hosts.is_empty() {
-            "none".to_string()
-        } else {
-            format!("cortex-egress-{}", job.attempt_id)
-        };
+        // Always `none`. Scoped egress is not implemented yet, and this
+        // function must not be the place where that becomes a full network:
+        // `submit` refuses a job that asks for hosts, so nothing reaches here
+        // with an allowlist to honour. Keeping the deny unconditional means a
+        // future bug in that check cannot silently open the sandbox.
+        let network_mode = "none".to_string();
 
         Config {
             image: Some(image.to_string()),
@@ -79,8 +107,8 @@ impl ContainerSandbox {
             working_dir: Some(WORKSPACE_MOUNT.to_string()),
             // Empty, not filtered. See `policy::sanctioned_env`.
             env: Some(sanctioned_env()),
-            user: Some(SANDBOX_USER.to_string()),
-            network_disabled: Some(hosts.is_empty()),
+            user: Some(sandbox_user(&request.workspace)),
+            network_disabled: Some(true),
             attach_stdout: Some(true),
             attach_stderr: Some(true),
             host_config: Some(HostConfig {
@@ -139,6 +167,25 @@ impl SandboxRunner for ContainerSandbox {
                 hosts = ?ungranted,
                 "allowlist entries without a capability grant were dropped"
             );
+        }
+
+        // Scoped egress does not exist yet. Enforcing a host allowlist needs a
+        // proxy or per-task firewall rules; a Docker network alone would grant
+        // the whole internet, which is not the policy that was asked for.
+        //
+        // So a job requesting hosts is refused. That is invariant 8 — if a
+        // required isolation cannot be obtained, dispatch fails closed and
+        // explains the blocker — and it is the opposite of the tempting
+        // alternative, which is to open a full network and call it an
+        // allowlist.
+        let granted = effective_hosts(job);
+        if !granted.is_empty() {
+            return Err(Blocked::new(
+                BlockedReason::NetworkPolicyUnenforceable,
+                format!(
+                    "scoped egress is not implemented; refusing rather than opening                      an unrestricted network for {granted:?}"
+                ),
+            ));
         }
 
         if job.budgets.is_unquoted() {
@@ -285,6 +332,14 @@ async fn drive(
 
         waited = wait.next() => match waited {
             Some(Ok(response)) => SandboxExit::Exited { code: response.status_code as i32 },
+            // bollard reports a non-zero exit as a *wait error*, not as a
+            // response. Treating that as a sandbox failure would report every
+            // legitimately failing task as infrastructure trouble — precisely
+            // the Failed/Blocked confusion this module exists to prevent. The
+            // work ran and the boundary held; a non-zero code is a result.
+            Some(Err(bollard::errors::Error::DockerContainerWaitError { code, .. })) => {
+                SandboxExit::Exited { code: code as i32 }
+            }
             // The sandbox vanished or the runtime failed mid-wait. We do not
             // know what happened, and a guess here becomes an unverified
             // delivery — refuse instead.
@@ -378,7 +433,12 @@ mod tests {
             host.security_opt,
             Some(vec!["no-new-privileges:true".to_string()])
         );
-        assert_eq!(config_of(&job()).user, Some(SANDBOX_USER.to_string()));
+        // On Unix this is the workspace owner's uid; elsewhere it is the
+        // image's unprivileged user. Either way it must never be root.
+        let user = config_of(&job()).user.expect("a user is always set");
+        assert!(!user.is_empty());
+        assert!(!user.starts_with("0:"), "the sandbox must not run as root");
+        assert_ne!(user, "root");
     }
 
     #[test]
@@ -422,10 +482,12 @@ mod tests {
         );
     }
 
-    #[test]
-    fn granted_allowlist_uses_a_per_attempt_network() {
-        // Scoped to the attempt, so it is torn down with it and cannot be
-        // reached by the next task.
+    #[tokio::test]
+    async fn a_granted_allowlist_is_refused_rather_than_opened() {
+        // Scoped egress does not exist yet. The tempting alternative is to
+        // attach a Docker network and call it an allowlist, which would grant
+        // the whole internet. Invariant 8 says fail closed and explain, so a
+        // job asking for hosts is refused.
         let mut job = job();
         job.network_policy = NetworkPolicy::Allowlist {
             hosts: vec!["crates.io".to_string()],
@@ -433,12 +495,26 @@ mod tests {
         job.capability_grants = vec![CapabilityGrant::ResolveDependencies {
             registries: vec!["crates.io".to_string()],
         }];
+
+        // The configuration stays denied regardless, so a bug in the refusal
+        // cannot open the sandbox.
         let config = config_of(&job);
-        assert_eq!(config.network_disabled, Some(false));
+        assert_eq!(config.network_disabled, Some(true));
         assert_eq!(
             config.host_config.expect("host config").network_mode,
-            Some("cortex-egress-attempt-1".to_string())
+            Some("none".to_string())
         );
+
+        let Ok(runner) = ContainerSandbox::new("cortex/sandbox:test") else {
+            // No runtime on this machine; the config assertion above is the
+            // part that matters here and it already ran.
+            return;
+        };
+        let blocked = match runner.submit(&job, &request()).await {
+            Ok(_) => panic!("an unenforceable policy must be refused, not opened"),
+            Err(blocked) => blocked,
+        };
+        assert_eq!(blocked.reason, BlockedReason::NetworkPolicyUnenforceable);
     }
 
     #[test]
