@@ -17,7 +17,7 @@ re-deriving anything.
 | 1 | Land the harness plan on `main` | **done** — PR [#500](https://github.com/hey-vera/heyvera/pull/500) merged |
 | 1a | Split-out auth commit from the same branch | branch `fix/auth-remove-subscription-flow` pushed, **PR deliberately not opened** — see F1 |
 | 2 | Briefs for PR C, PR A, PR B | **done** — PR [#501](https://github.com/hey-vera/heyvera/pull/501) merged |
-| 3 | Implement PR C (execution sandbox) | implemented on `feat/pr-c-execution-sandbox` |
+| 3 | Implement PR C (execution sandbox) | **done** — PR [#502](https://github.com/hey-vera/heyvera/pull/502) merged |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -57,6 +57,32 @@ rather than becoming a separate PR.
   the API supplies it when recording. Harmless today, but a `NOT NULL` column
   fed from a `resolve_run_id` that can return `None` will want revisiting when
   PR D reads these rows.
+- **Scoped egress is not implemented.** A job requesting an allowlist is
+  refused with `NetworkPolicyUnenforceable` rather than being given an
+  unrestricted Docker network under the name of an allowlist. Dependency
+  resolution therefore cannot run inside the sandbox yet — a real constraint on
+  what tasks can do, and the correct one until a proxy or per-task firewall
+  rules exist. The adversarial test inverts when that lands.
+
+**Three things CI found that local testing could not**, worth remembering
+because they are the class of bug a container unit test cannot reach:
+
+1. bollard reports a **non-zero exit as a wait error**, so every legitimately
+   failing task was being classified `SandboxUnavailable` — the exact
+   Failed/Blocked confusion the design set out to prevent.
+2. A bind mount **carries host ownership through unchanged**, so a sandbox
+   running as a different unprivileged user could not write to its own
+   workspace. Every task would have delivered nothing. The sandbox now runs as
+   the workspace owner, never uid 0.
+3. The allowlist path named a per-attempt Docker network that **nothing
+   provisions**, so it failed at submit rather than silently opening egress.
+
+## Next
+
+Wave 1 is now the frontier. `PR-A-truth-model.md` is ready to dispatch and is
+the prerequisite for `PR-B-durable-verifier.md`. PR A also closes PR C's known
+gap, since the `BLOCKED:`-prefixed failure exists only because there is no
+blocked state to transition to.
 
 Briefs live in `cortex/plan/briefs/`. An implementer reads only the brief.
 
