@@ -26,6 +26,7 @@ pub mod docker;
 pub mod github;
 pub mod github_repos;
 mod integrations;
+mod lock;
 pub mod llm_client;
 pub mod media;
 mod messaging;
@@ -71,6 +72,7 @@ use tower_http::services::ServeDir;
 use axum::response::IntoResponse;
 
 use state::AppState;
+use crate::lock::LockRecovering;
 
 async fn vera_snapshot(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
@@ -110,7 +112,7 @@ async fn soma_identity(
 ) -> impl axum::response::IntoResponse {
     match &state.soma_heart {
         Some(heart) => {
-            let chain = heart.heartbeat_chain.lock().unwrap();
+            let chain = heart.heartbeat_chain.lock_recovering();
             let capabilities = heart.lineage.as_ref()
                 .map(|l| ::soma::lineage::effective_capabilities(l))
                 .unwrap_or_else(|| vec!["*".into()]);

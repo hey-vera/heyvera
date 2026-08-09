@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+use crate::lock::LockRecovering;
 use crate::social_policy::{
     authorize_post, authorize_profile, PolicyDecision, PostAction, PostAudience, PostPolicyFacts,
     ProfileAction, ProfilePolicyFacts, ProfileVisibility,
@@ -4743,9 +4744,7 @@ impl Database {
     ///
     /// The field is private precisely so this is the only way to reach it.
     pub(crate) fn conn(&self) -> MutexGuard<'_, Connection> {
-        self.conn
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.conn.lock_recovering()
     }
 
     pub fn open(path: &Path) -> Self {

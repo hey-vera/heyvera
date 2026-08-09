@@ -15,6 +15,7 @@ use soma::lineage::HeartLineage;
 use soma::spend::SpendLog;
 
 use crate::state::AppState;
+use crate::lock::LockRecovering;
 
 /// Cortex's own Soma heart identity — the agent's cryptographic self.
 /// Created once at startup, used to sign heartbeats, birth certificates, and spend receipts.
@@ -107,7 +108,7 @@ impl CortexHeart {
         event_type: HeartbeatEventType,
         event_data: &str,
     ) -> soma::heartbeat::Heartbeat {
-        let mut chain = self.heartbeat_chain.lock().unwrap();
+        let mut chain = self.heartbeat_chain.lock_recovering();
         let hb = chain.record(event_type, event_data);
         if chain.len() % 50 == 0 {
             Self::persist_chain_inner(&chain);
@@ -135,7 +136,7 @@ impl CortexHeart {
     }
 
     pub fn persist_heartbeats(&self) {
-        let chain = self.heartbeat_chain.lock().unwrap();
+        let chain = self.heartbeat_chain.lock_recovering();
         Self::persist_chain_inner(&chain);
         tracing::info!("heartbeat chain persisted ({} entries)", chain.len());
     }
@@ -171,7 +172,7 @@ impl CortexHeart {
         amount: f64,
         capability: &str,
     ) -> Result<soma::spend::SpendReceipt, soma::SomaError> {
-        let mut logs = self.spend_logs.lock().unwrap();
+        let mut logs = self.spend_logs.lock_recovering();
         let log = logs
             .entry(delegation_id.to_string())
             .or_insert_with(|| SpendLog::new(delegation_id));
@@ -188,7 +189,7 @@ impl CortexHeart {
 
     /// Get cumulative spend for a delegation.
     pub fn cumulative_spend(&self, delegation_id: &str) -> f64 {
-        let logs = self.spend_logs.lock().unwrap();
+        let logs = self.spend_logs.lock_recovering();
         logs.get(delegation_id)
             .map(|l| l.cumulative())
             .unwrap_or(0.0)
@@ -214,7 +215,7 @@ impl CortexHeart {
     }
 
     pub fn persist_spend_logs(&self) {
-        let logs = self.spend_logs.lock().unwrap();
+        let logs = self.spend_logs.lock_recovering();
         Self::persist_spend_logs_inner(&logs);
         tracing::info!("spend logs persisted ({} delegations)", logs.len());
     }
@@ -238,7 +239,7 @@ impl CortexHeart {
     }
 
     pub fn revoke_delegation(&self, delegation_id: &str) {
-        let mut revoked = self.revoked_delegations.lock().unwrap();
+        let mut revoked = self.revoked_delegations.lock_recovering();
         revoked.insert(delegation_id.to_string());
         Self::persist_revoked_inner(&revoked);
         self.record_heartbeat(
@@ -252,7 +253,7 @@ impl CortexHeart {
     }
 
     pub fn is_revoked(&self, delegation_id: &str) -> bool {
-        self.revoked_delegations.lock().unwrap().contains(delegation_id)
+        self.revoked_delegations.lock_recovering().contains(delegation_id)
     }
 
     fn revoked_path() -> std::path::PathBuf {
@@ -300,7 +301,7 @@ impl CortexHeart {
             .as_millis() as u64;
         let cutoff = now_ms.saturating_sub(retention_ms);
 
-        let mut logs = self.spend_logs.lock().unwrap();
+        let mut logs = self.spend_logs.lock_recovering();
         let before = logs.len();
         logs.retain(|_, log| log.last_activity_ms() > cutoff);
         let pruned = before - logs.len();
@@ -313,7 +314,7 @@ impl CortexHeart {
 
     /// Get the current invocation count for a delegation and increment it.
     pub fn increment_invocations(&self, delegation_id: &str) -> u64 {
-        let mut counts = self.invocation_counts.lock().unwrap();
+        let mut counts = self.invocation_counts.lock_recovering();
         let count = counts.entry(delegation_id.to_string()).or_insert(0);
         let current = *count;
         *count += 1;
@@ -353,7 +354,7 @@ impl CortexHeart {
     }
 
     pub fn persist_invocation_counts(&self) {
-        let counts = self.invocation_counts.lock().unwrap();
+        let counts = self.invocation_counts.lock_recovering();
         Self::persist_invocation_counts_inner(&counts);
     }
 
@@ -652,7 +653,7 @@ pub async fn soma_headers_middleware(
         let headers = response.headers_mut();
         headers.insert("X-Soma-Protocol", "soma-delegation/0.1".parse().unwrap());
         headers.insert("X-Soma-Heart-DID", heart.did().parse().unwrap());
-        let chain = heart.heartbeat_chain.lock().unwrap();
+        let chain = heart.heartbeat_chain.lock_recovering();
         if let Ok(val) = chain.head_hash().parse() {
             headers.insert("X-Soma-Heartbeat-Head", val);
         }

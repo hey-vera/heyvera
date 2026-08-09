@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::clerk;
 use crate::state::AppState;
+use crate::lock::LockRecovering;
 
 /// Events pushed to Mission Control frontend clients.
 #[derive(Debug, Clone, Serialize)]
@@ -327,8 +328,8 @@ pub async fn mc_snapshot(
 ) -> axum::Json<McSnapshot> {
     // Heart state
     let heart = state.soma_heart.as_ref().map(|h| {
-        let chain = h.heartbeat_chain.lock().unwrap();
-        let revoked = h.revoked_delegations.lock().unwrap();
+        let chain = h.heartbeat_chain.lock_recovering();
+        let revoked = h.revoked_delegations.lock_recovering();
         let capabilities = h.lineage.as_ref()
             .map(|l| soma::lineage::effective_capabilities(l))
             .unwrap_or_else(|| vec!["*".into()]);
@@ -388,7 +389,7 @@ pub async fn mc_snapshot(
 
     // Spend state
     let spend = state.soma_heart.as_ref().map(|h| {
-        let logs = h.spend_logs.lock().unwrap();
+        let logs = h.spend_logs.lock_recovering();
         let mut total = 0.0;
         let mut active = 0usize;
         for log in logs.values() {

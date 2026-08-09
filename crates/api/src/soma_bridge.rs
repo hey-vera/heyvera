@@ -13,6 +13,7 @@ use soma::identity::HeartIdentity;
 use crate::clerk::ClerkUser;
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
+use crate::lock::LockRecovering;
 
 /// A user's Soma identity — created on first session request, persisted across sessions.
 #[derive(Debug, Serialize)]
@@ -310,7 +311,7 @@ pub async fn get_spend(
         )
     })?;
 
-    let logs = heart.spend_logs.lock().unwrap();
+    let logs = heart.spend_logs.lock_recovering();
     let mut total_spend = 0.0;
     let delegations: Vec<DelegationSpendSummary> = logs
         .values()
@@ -347,7 +348,7 @@ pub async fn get_spend_detail(
         )
     })?;
 
-    let logs = heart.spend_logs.lock().unwrap();
+    let logs = heart.spend_logs.lock_recovering();
     let log = logs.get(&delegation_id).ok_or_else(|| {
         (
             StatusCode::NOT_FOUND,

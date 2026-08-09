@@ -9,6 +9,7 @@ use soma_core::types::HeartId;
 use soma_core::vera;
 
 use cortex_core::routing::Intent;
+use crate::lock::LockRecovering;
 
 pub fn heart_id_from_user(user_id: &str) -> HeartId {
     use sha2::{Sha256, Digest};
@@ -116,7 +117,7 @@ impl VeraTracker {
         };
 
         let should_compact = {
-            let mut interactions = self.interactions.lock().unwrap();
+            let mut interactions = self.interactions.lock_recovering();
             interactions.push(interaction);
             interactions.len() >= COMPACTION_THRESHOLD
         };
@@ -128,7 +129,7 @@ impl VeraTracker {
 
     fn run_compaction(&self) {
         let interactions: Vec<Interaction> = {
-            let mut lock = self.interactions.lock().unwrap();
+            let mut lock = self.interactions.lock_recovering();
             std::mem::take(&mut *lock)
         };
 
@@ -150,7 +151,7 @@ impl VeraTracker {
             distilled.signal.stability,
         );
 
-        let mut compacted = self.compacted.lock().unwrap();
+        let mut compacted = self.compacted.lock_recovering();
         compacted.push(distilled);
 
         // If we have enough level-1 compactions, distill them into level 2
@@ -247,8 +248,8 @@ impl VeraTracker {
     pub fn snapshot(&self) -> VeraSnapshot {
         let now = now_ms();
 
-        let interactions = self.interactions.lock().unwrap();
-        let compacted = self.compacted.lock().unwrap();
+        let interactions = self.interactions.lock_recovering();
+        let compacted = self.compacted.lock_recovering();
 
         let mut heart_ids = std::collections::HashSet::new();
         for i in interactions.iter() {
@@ -358,7 +359,7 @@ impl VeraTracker {
 
     pub fn heart_trust(&self, heart_id: &HeartId, capability: &Capability) -> f64 {
         let now = now_ms();
-        let interactions = self.interactions.lock().unwrap();
+        let interactions = self.interactions.lock_recovering();
         let relevant: Vec<Interaction> = interactions
             .iter()
             .filter(|i| (i.from == *heart_id || i.to == *heart_id) && i.capability == *capability)
@@ -372,8 +373,8 @@ impl VeraTracker {
     pub fn personal_view(&self, user_id: &str) -> PersonalVeraView {
         let heart = heart_id_from_user(user_id);
         let now = now_ms();
-        let interactions = self.interactions.lock().unwrap();
-        let compacted = self.compacted.lock().unwrap();
+        let interactions = self.interactions.lock_recovering();
+        let compacted = self.compacted.lock_recovering();
 
         let my_interactions: Vec<&Interaction> = interactions
             .iter()

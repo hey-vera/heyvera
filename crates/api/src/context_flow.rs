@@ -13,6 +13,7 @@ use chrono::{DateTime, Utc};
 
 use cortex_core::protocol::{StepContext, PredecessorSummary};
 use crate::db::Database;
+use crate::lock::LockRecovering;
 
 /// Health status for Context-Flow Pipeline monitoring
 #[derive(Debug, Clone, serde::Serialize)]
@@ -132,7 +133,7 @@ impl CircuitBreakerState {
 
     fn record_failure(&self) {
         let count = self.failure_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
-        *self.last_failure.lock().unwrap() = Some(Utc::now());
+        *self.last_failure.lock_recovering() = Some(Utc::now());
 
         // Open circuit after 5 consecutive failures
         if count >= 5 {
@@ -150,7 +151,7 @@ impl CircuitBreakerState {
         }
 
         // Check if we should try again (half-open state)
-        if let Some(last_failure) = *self.last_failure.lock().unwrap() {
+        if let Some(last_failure) = *self.last_failure.lock_recovering() {
             let recovery_window = chrono::Duration::minutes(5);
             if Utc::now().signed_duration_since(last_failure) > recovery_window {
                 tracing::info!("context-flow circuit breaker attempting recovery");
@@ -564,7 +565,7 @@ impl ContextBus {
     pub fn get_health_status(&self) -> ContextFlowHealth {
         let is_circuit_open = self.circuit_breaker.is_open.load(std::sync::atomic::Ordering::Relaxed);
         let failure_count = self.circuit_breaker.failure_count.load(std::sync::atomic::Ordering::Relaxed);
-        let last_failure = *self.circuit_breaker.last_failure.lock().unwrap();
+        let last_failure = *self.circuit_breaker.last_failure.lock_recovering();
 
         let status = if is_circuit_open {
             HealthStatus::CircuitOpen
