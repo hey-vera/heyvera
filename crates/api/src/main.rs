@@ -9,25 +9,26 @@ use cortex_api::state::AppState;
 /// Returns the tracer provider so it can be shut down on exit.
 #[cfg(feature = "otel")]
 fn init_otel(endpoint: &str) -> Result<opentelemetry_sdk::trace::SdkTracerProvider, Box<dyn std::error::Error>> {
-    use opentelemetry::trace::TracerProvider as _;
-    use opentelemetry_otlp::WithExportConfig;
-    use opentelemetry_sdk::trace::{SdkTracerProvider, Config};
-    use opentelemetry_sdk::Resource;
     use opentelemetry::KeyValue;
+    use opentelemetry_otlp::WithExportConfig;
+    use opentelemetry_sdk::trace::SdkTracerProvider;
+    use opentelemetry_sdk::Resource;
 
     let exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_tonic()
         .with_endpoint(endpoint)
         .build()?;
 
-    let resource = Resource::new(vec![
-        KeyValue::new("service.name", env!("CARGO_PKG_NAME")),
-        KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
-    ]);
+    let resource = Resource::builder()
+        .with_attributes([
+            KeyValue::new("service.name", env!("CARGO_PKG_NAME")),
+            KeyValue::new("service.version", env!("CARGO_PKG_VERSION")),
+        ])
+        .build();
 
     let provider = SdkTracerProvider::builder()
         .with_batch_exporter(exporter)
-        .with_config(Config::default().with_resource(resource))
+        .with_resource(resource)
         .build();
 
     opentelemetry::global::set_tracer_provider(provider.clone());

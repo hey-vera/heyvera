@@ -71,7 +71,7 @@ rand = "0.8"
 
 # For trait objects with async fns (Embedder, XDataSource)
 async-trait = "0.1"
-jsonwebtoken = "9"
+jsonwebtoken = "10.3"
 
 [dev-dependencies]
 axum-test = "15"
@@ -79,3 +79,5 @@ axum-test = "15"
 [[bin]]
 name = "pulse-backend"
 path = "src/main.rs"
+
+[workspace]
