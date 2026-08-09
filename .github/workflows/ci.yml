@@ -136,6 +136,12 @@ jobs:
       - name: Test Rust workspace
         run: cargo test --workspace --locked
 
+      # Optional features are invisible to `--workspace`, and `otel` had rotted
+      # to the point of not compiling at all while still pinning a dependency
+      # with an open advisory. Check the feature so it cannot rot again.
+      - name: Check optional features
+        run: cargo check -p cortex-api --features otel --bins --locked
+
       # Advisory until someone reads the output. clippy has never run against
       # this workspace, so its warning count is unknown and could not be
       # measured before opening this PR (no working linker on the authoring
