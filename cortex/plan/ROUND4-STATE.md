@@ -39,5 +39,9 @@ Each phase lands as its own commit so an interrupted session loses at most one.
 - `32` operational controls — done
 - `33` solo-to-200-developer range — done
 - `34` foundation assessment — done
-- housekeeping: invariants 24–29, delivery order PRs AL–AR, acceptance rows,
-  completeness claim, sources — done
+- housekeeping: invariants 24–31, the Phase 6.7 racing amendment, delivery
+  order PRs AL–AT, ten acceptance rows, completeness claim, sources — done
+
+Round 4 is closed. The doc is 6,973 lines, 34 phases, 31 invariants.
+A fifth round should attack an axis none of the first four used — candidates
+are listed in Phase 34.4.
