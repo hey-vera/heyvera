@@ -3777,6 +3777,17 @@ fn migrate_v65(conn: &Connection) {
     );
 }
 
+/// The cost of every attempt at one step, successful or not.
+///
+/// `Default` is zero attempts and zero time, which is what a step with no
+/// recorded attempts should report — the caller treats that as "no evidence"
+/// rather than as "free".
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AttemptChain {
+    pub attempts: u64,
+    pub total_duration_ms: u64,
+}
+
 /// What a customer is shown when they ask why they were charged, and what a
 /// dispute reads first.
 ///
@@ -10196,6 +10207,86 @@ impl Database {
         )
         .ok()
         .flatten()
+    }
+
+    /// The intent the router classified this step as, if one was recorded.
+    ///
+    /// Read from `decisions` rather than from `steps`, because intent is a
+    /// routing classification and `steps.kind` is a plan-shape one — they are
+    /// not the same vocabulary and mapping between them would invent a fact.
+    /// The most recent decision wins: a re-leased step was routed again, and
+    /// the last routing is the one the verdict is about.
+    ///
+    /// `None` when nothing was recorded, which the caller must treat as
+    /// "unknown" rather than substituting a default — the intent selects which
+    /// capability the trust signal lands under, so guessing it puts the
+    /// interaction in the wrong domain.
+    ///
+    /// The parse is a hand-written match, not serde, and that is not a
+    /// preference. `record_decision` is called with `format!("{:?}", intent)`
+    /// (`scheduler.rs`), so the column holds `"Fix"` — while `Intent` carries
+    /// `#[serde(rename_all = "snake_case")]` and would only accept `"fix"`.
+    /// Round-tripping through serde here compiles, type-checks, and returns
+    /// `None` for every row ever written.
+    pub fn get_step_intent(&self, step_id: &str) -> Option<cortex_core::routing::Intent> {
+        use cortex_core::routing::Intent;
+        let conn = self.conn();
+        let raw: String = conn
+            .query_row(
+                "SELECT intent FROM decisions WHERE step_id = ?1
+                 ORDER BY timestamp DESC LIMIT 1",
+                params![step_id],
+                |row| row.get(0),
+            )
+            .ok()?;
+        // Accepts either spelling, so a future writer that switches to the
+        // serde form does not silently blind this.
+        match raw.trim().to_ascii_lowercase().as_str() {
+            "fix" => Some(Intent::Fix),
+            "add" => Some(Intent::Add),
+            "explore" => Some(Intent::Explore),
+            "review" => Some(Intent::Review),
+            "think" => Some(Intent::Think),
+            "test" => Some(Intent::Test),
+            "refactor" => Some(Intent::Refactor),
+            "ship" => Some(Intent::Ship),
+            other => {
+                tracing::debug!(intent = other, "unrecognised intent on a decision row");
+                None
+            }
+        }
+    }
+
+    /// What the whole attempt chain for a step cost.
+    ///
+    /// A step that was verified on its fourth try cost four dispatches, not
+    /// one. A routing signal that only ever sees the attempt that happened to
+    /// succeed cannot tell a model that gets it right first time from one that
+    /// needs coaxing — and the second is the more expensive model, which is
+    /// exactly what the signal exists to notice.
+    ///
+    /// `attempts` is the count, which is integer-denominated by construction —
+    /// the unit the ledger uses and the one CREDITS.md insists on. Wall time
+    /// comes back alongside it as evidence, not as the unit.
+    pub fn attempt_chain_spend(&self, step_id: &str) -> AttemptChain {
+        let conn = self.conn();
+        conn.query_row(
+            // An attempt still in flight has no `finished_at`; it contributes
+            // to the count and nothing to the duration, rather than being
+            // dropped or counted as zero-length by coalescing to `started_at`.
+            "SELECT COUNT(*),
+                    COALESCE(SUM(CASE WHEN finished_at IS NOT NULL
+                                      THEN finished_at - started_at END), 0)
+             FROM step_attempts WHERE step_id = ?1",
+            params![step_id],
+            |row| {
+                Ok(AttemptChain {
+                    attempts: row.get::<_, i64>(0)?.max(0) as u64,
+                    total_duration_ms: row.get::<_, i64>(1)?.max(0) as u64,
+                })
+            },
+        )
+        .unwrap_or_default()
     }
 
     pub fn get_run_user_id(&self, run_id: &str) -> Option<String> {
@@ -26502,6 +26593,79 @@ mod tests {
             .expect("not an error");
         assert_eq!(out.subscription_remaining, 50);
         assert_eq!(db.credit_ledger_totals("user-1"), (0, 0));
+    }
+
+    /// The routing signal picks its domain from this, and the column holds the
+    /// `{:?}` form — so a serde round-trip would return `None` for every row
+    /// ever written and silently file every verdict under "Conversation".
+    #[test]
+    fn the_stored_debug_form_of_an_intent_parses_back() {
+        let db = test_db();
+        db.record_decision(
+            "dec-1",
+            "user-1",
+            Some("run-i"),
+            Some("step-i"),
+            // Exactly what scheduler.rs writes.
+            &format!("{:?}", cortex_core::routing::Intent::Refactor),
+            "low",
+            "standard",
+            "claude",
+            "claude-opus-5",
+            None,
+            "",
+            "auto",
+        );
+
+        assert_eq!(
+            db.get_step_intent("step-i"),
+            Some(cortex_core::routing::Intent::Refactor)
+        );
+        assert_eq!(db.get_step_intent("step-never-routed"), None);
+    }
+
+    #[test]
+    fn the_attempt_chain_counts_every_try_not_just_the_last() {
+        let db = test_db();
+        assert_eq!(db.attempt_chain_spend("step-none"), AttemptChain::default());
+
+        let conn = db.conn();
+        // `step_attempts.step_id` is a foreign key, so the chain needs a real
+        // step to hang off.
+        conn.execute(
+            "INSERT INTO runs (id, user_id, goal, created_at, updated_at)
+             VALUES ('run-c', 'user-1', 'g', 0, 0)",
+            [],
+        )
+        .expect("insert run");
+        conn.execute(
+            "INSERT INTO steps (id, run_id, kind, tier, risk, objective, created_at, updated_at)
+             VALUES ('step-c', 'run-c', 'execute', 'standard', 'low', 'o', 0, 0)",
+            [],
+        )
+        .expect("insert step");
+
+        // Three attempts: two finished, one still in flight.
+        for (n, started, finished) in [
+            (1i64, 1_000i64, Some(3_000i64)),
+            (2, 4_000, Some(9_000)),
+            (3, 10_000, None),
+        ] {
+            conn.execute(
+                "INSERT INTO step_attempts
+                    (step_id, run_id, attempt_number, lease_gen, status, started_at, finished_at)
+                 VALUES ('step-c', 'run-c', ?1, ?1, 'done', ?2, ?3)",
+                params![n, started, finished],
+            )
+            .expect("insert attempt");
+        }
+        drop(conn);
+
+        let chain = db.attempt_chain_spend("step-c");
+        assert_eq!(chain.attempts, 3, "the unfinished attempt still cost a dispatch");
+        // 2000 + 5000; the in-flight attempt contributes no duration rather
+        // than being counted as zero-length.
+        assert_eq!(chain.total_duration_ms, 7_000);
     }
 
     #[test]

@@ -6,6 +6,8 @@ use cortex_core::vera::{
 };
 
 use cortex_core::routing::Intent;
+use cortex_core::verification::Verdict;
+use crate::db::AttemptChain;
 use crate::lock::LockRecovering;
 
 pub fn heart_id_from_user(user_id: &str) -> HeartId {
@@ -79,6 +81,32 @@ impl From<&CompactedVera> for CompactedVeraView {
             diversity: cv.signal.diversity,
             stability: cv.signal.stability,
         }
+    }
+}
+
+/// What a verdict is allowed to say about the model that produced the work.
+///
+/// The rule this encodes, from invariant 6: **only the independent verdict may
+/// produce a positive reward.** Two of the four verdicts produce no signal at
+/// all, and the reason is the same in both cases — neither is evidence about
+/// the model:
+///
+/// - `Inconclusive` means a required check could not be run. That is our
+///   infrastructure failing, not the model's work. Recording it as a failure
+///   would penalise whichever model happened to be routed during our outage,
+///   which is how a routing table learns to avoid a model for our reasons.
+/// - `Unverified` means no executable ground truth was derivable. Nothing was
+///   proven either way. It must not become a badge, and by the same argument it
+///   must not become a penalty.
+///
+/// `None` is therefore a deliberate answer, not a missing case.
+fn outcome_for_verdict(verdict: Verdict) -> Option<SessionOutcome> {
+    match verdict {
+        Verdict::Verified => Some(SessionOutcome::Success),
+        Verdict::Failed => Some(SessionOutcome::Failure {
+            error_class: "verification_failed".to_string(),
+        }),
+        Verdict::Inconclusive | Verdict::Unverified => None,
     }
 }
 
@@ -213,27 +241,44 @@ impl VeraTracker {
         );
     }
 
-    pub fn record_step_completed(
+    /// The routing signal for one finished step, from the independent verdict.
+    ///
+    /// This replaces `record_step_completed`, which derived its outcome from
+    /// the worker's exit code. Invariant 6 forbids a self-report from improving
+    /// a score, so PR A stopped calling it and the positive signal has been
+    /// suspended since. This is the restoration, and the difference that
+    /// matters is the source: the verdict is produced by checks that ran
+    /// against the delivered tree in a runner the task did not choose.
+    ///
+    /// **Spend is the whole attempt chain, not the winning attempt.** A step
+    /// verified on its fourth try cost four dispatches. A signal that only sees
+    /// the attempt that happened to succeed cannot tell a model that gets it
+    /// right first time from one that needs coaxing — and the second is the
+    /// expensive one, which is the thing the signal exists to notice.
+    ///
+    /// Returns whether a signal was emitted, so a caller can log the silence.
+    pub fn record_verdict(
         &self,
         user_id: &str,
-        duration_ms: u64,
-        exit_code: i32,
+        verdict: Verdict,
+        chain: AttemptChain,
         intent: Option<Intent>,
-    ) {
-        let outcome = if exit_code == 0 {
-            SessionOutcome::Success
-        } else {
-            SessionOutcome::Failure {
-                error_class: format!("exit_{exit_code}"),
-            }
+    ) -> bool {
+        let Some(outcome) = outcome_for_verdict(verdict) else {
+            return false;
         };
         self.record_interaction(
             heart_id_from_user(user_id),
             Self::capability_for_intent(intent),
-            1,
+            // Never zero: a step that reached a verdict was attempted at least
+            // once, and a zero-mass interaction contributes nothing to V = S·C²
+            // no matter how coherent it was — it would be recorded and then
+            // silently ignored, which is worse than not recording it.
+            chain.attempts.max(1),
             outcome,
-            duration_ms,
+            chain.total_duration_ms,
         );
+        true
     }
 
     pub fn record_step_failed(&self, user_id: &str, failure_kind: &str, intent: Option<Intent>) {
@@ -522,4 +567,138 @@ pub struct FlowingBack {
     pub intelligence_level: String,
     pub your_contribution_pct: f64,
     pub proof: String,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chain(attempts: u64, ms: u64) -> AttemptChain {
+        AttemptChain {
+            attempts,
+            total_duration_ms: ms,
+        }
+    }
+
+    fn tracker() -> VeraTracker {
+        VeraTracker::new(heart_id_from_user("cortex"))
+    }
+
+    /// Invariant 6, stated as a test: nothing but a `Verified` verdict may
+    /// produce a positive reward.
+    ///
+    /// The two silent verdicts are the point. `Inconclusive` is our
+    /// infrastructure failing and `Unverified` is the absence of ground truth;
+    /// recording either as a failure would teach the routing table to avoid a
+    /// model for reasons that are not about the model.
+    #[test]
+    fn only_a_verified_verdict_rewards_and_only_a_failed_one_penalises() {
+        assert!(matches!(
+            outcome_for_verdict(Verdict::Verified),
+            Some(SessionOutcome::Success)
+        ));
+        assert!(matches!(
+            outcome_for_verdict(Verdict::Failed),
+            Some(SessionOutcome::Failure { .. })
+        ));
+        assert!(outcome_for_verdict(Verdict::Inconclusive).is_none());
+        assert!(outcome_for_verdict(Verdict::Unverified).is_none());
+    }
+
+    #[test]
+    fn a_silent_verdict_records_nothing_at_all() {
+        let tracker = tracker();
+        for verdict in [Verdict::Inconclusive, Verdict::Unverified] {
+            assert!(
+                !tracker.record_verdict("user-1", verdict, chain(3, 900), None),
+                "{verdict:?} must not emit a signal"
+            );
+        }
+        assert_eq!(tracker.snapshot().total_interactions, 0);
+    }
+
+    /// The correction this task exists to make: the reward carries the cost of
+    /// the whole attempt chain, not of the attempt that happened to succeed.
+    #[test]
+    fn the_reward_carries_the_whole_attempt_chain() {
+        let tracker = tracker();
+        assert!(tracker.record_verdict(
+            "user-1",
+            Verdict::Verified,
+            chain(4, 12_000),
+            Some(Intent::Fix)
+        ));
+
+        let snapshot = tracker.snapshot();
+        assert_eq!(snapshot.total_interactions, 1);
+        // Mass is the attempt count, so a step that took four tries weighs four
+        // times what a first-try step does — which is the whole point of a cost
+        // signal.
+        assert!(
+            (snapshot.total_warmth - 4.0).abs() < 1e-6,
+            "expected warmth 4.0 from a four-attempt chain, got {}",
+            snapshot.total_warmth
+        );
+    }
+
+    #[test]
+    fn a_cheap_success_outweighs_nothing_it_should_not() {
+        let one_try = tracker();
+        one_try.record_verdict("user-1", Verdict::Verified, chain(1, 500), Some(Intent::Fix));
+        let cheap = one_try.snapshot().total_warmth;
+
+        let six_tries = tracker();
+        six_tries.record_verdict("user-2", Verdict::Verified, chain(6, 500), Some(Intent::Fix));
+        let expensive = six_tries.snapshot().total_warmth;
+
+        assert!(
+            expensive > cheap,
+            "a six-attempt success must carry more spend than a one-attempt one"
+        );
+    }
+
+    /// A step that reached a verdict was attempted at least once. Zero mass
+    /// would be recorded and then contribute nothing to V = S·C², which is
+    /// worse than not recording it — it looks like a signal and is not one.
+    #[test]
+    fn an_empty_chain_still_carries_one_unit_of_spend() {
+        let tracker = tracker();
+        assert!(tracker.record_verdict("user-1", Verdict::Verified, chain(0, 0), None));
+        assert!(tracker.snapshot().total_warmth > 0.0);
+    }
+
+    /// The intent selects the domain the signal lands in, so an unknown intent
+    /// must not be silently filed under a code-execution capability it was
+    /// never classified as.
+    #[test]
+    fn the_intent_selects_the_domain() {
+        let fixing = tracker();
+        fixing.record_verdict("user-1", Verdict::Verified, chain(1, 0), Some(Intent::Fix));
+        let domains = fixing.snapshot().domains;
+        assert!(domains.iter().any(|d| d.capability == "CodeExecution"));
+
+        let thinking = tracker();
+        thinking.record_verdict("user-1", Verdict::Verified, chain(1, 0), Some(Intent::Think));
+        let domains = thinking.snapshot().domains;
+        assert!(domains.iter().any(|d| d.capability == "Intelligence"));
+    }
+
+    /// A failed verdict must move trust down while still counting as observed
+    /// work — coherence is observation completeness, not judgement.
+    #[test]
+    fn a_failed_verdict_lowers_trust_without_erasing_the_observation() {
+        let tracker = tracker();
+        tracker.record_verdict("user-1", Verdict::Failed, chain(2, 4_000), Some(Intent::Fix));
+
+        let snapshot = tracker.snapshot();
+        assert_eq!(snapshot.total_interactions, 1);
+        // Warmth is unsigned observation mass, so the failure still shows up.
+        assert!(snapshot.total_warmth > 0.0);
+        // Trust is signed, so it does not.
+        let trust = tracker.heart_trust(
+            &heart_id_from_user("user-1"),
+            &Capability::CodeExecution,
+        );
+        assert!(trust < 0.0, "a failed verdict must lower trust, got {trust}");
+    }
 }

@@ -212,6 +212,49 @@ async fn run_claimed_job(
     let verdict = verification_driver::verify_delivery(db, &runner, &facts).await;
     heartbeat.abort();
 
+    // The routing signal, restored against a real verdict.
+    //
+    // PR A suspended it because `record_step_completed` derived its outcome
+    // from the worker's exit code, which invariant 6 forbids from improving a
+    // score. This is the only place a positive reward can now originate, and
+    // the verdict here was produced by checks that ran against the delivered
+    // tree in a runner the task did not choose.
+    //
+    // The spend is the whole attempt chain, read at verdict time: a step
+    // verified on its fourth try cost four dispatches, and a signal that only
+    // sees the winning attempt cannot tell a model that gets it right first
+    // time from one that needs coaxing.
+    if let Some(verdict) = verdict {
+        match db.get_run_user_id(&job.run_id) {
+            Some(user_id) => {
+                let chain = db.attempt_chain_spend(&job.step_id);
+                let emitted = state.vera_tracker.record_verdict(
+                    &user_id,
+                    verdict,
+                    chain,
+                    db.get_step_intent(&job.step_id),
+                );
+                tracing::debug!(
+                    step_id = %job.step_id,
+                    verdict = ?verdict,
+                    attempts = chain.attempts,
+                    chain_ms = chain.total_duration_ms,
+                    emitted,
+                    "routing signal from verdict"
+                );
+            }
+            // No owner means no heart to attribute the interaction to. Dropping
+            // the signal is right: attributing it to a placeholder would put a
+            // synthetic actor in the diversity term, and diversity is exactly
+            // what stops a single repeated observer reaching high coherence.
+            None => tracing::warn!(
+                run_id = %job.run_id,
+                step_id = %job.step_id,
+                "no owner for this run; routing signal dropped rather than misattributed"
+            ),
+        }
+    }
+
     let (state_name, reason) = match verdict {
         Some(cortex_core::verification::Verdict::Verified) => ("succeeded", "required checks passed"),
         Some(cortex_core::verification::Verdict::Failed) => ("failed", "a required check failed"),

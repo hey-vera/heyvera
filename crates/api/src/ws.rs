@@ -725,17 +725,29 @@ async fn handle_worker_msg(
                                 None,
                             );
                         }
-                        // No success interaction is recorded on delivery.
-                        // `record_step_completed` derives its outcome from the
-                        // worker's exit code, which is precisely the signal
-                        // invariant 6 forbids from improving a score.
+                        // No success interaction is recorded on delivery, and
+                        // there is no longer a `record_step_completed` to do
+                        // it with: it derived its outcome from the worker's
+                        // exit code, which is precisely the signal invariant 6
+                        // forbids from improving a score.
                         //
-                        // KNOWN GAP: it is not recorded from the verdict path
-                        // either. `VeraTracker` lives in `AppState` by value
-                        // and cannot be moved into the spawned verifier task,
-                        // so PR A suspends the positive signal rather than
-                        // crediting unverified work. PR B's durable verifier
-                        // restores it against a real verdict.
+                        // The positive signal now comes from the verdict, in
+                        // `verification_dispatcher`. That is the only place it
+                        // can originate.
+                        //
+                        // The asymmetry above is deliberate, not an oversight:
+                        // a self-reported *failure* is recorded here while a
+                        // self-reported success is not. Invariant 6 forbids a
+                        // self-report from improving a score; nobody reports
+                        // themselves failing in order to look better, so the
+                        // negative direction carries no such incentive.
+                        //
+                        // Nor does it double-count. `completion_accepted` is
+                        // `verified_success && step_transitioned`, so a
+                        // delivery rejected here never transitions to
+                        // `verifying`, never enqueues a verification job, and
+                        // therefore never produces a verdict that could record
+                        // the same failure a second time.
                     }
                 }
             }
