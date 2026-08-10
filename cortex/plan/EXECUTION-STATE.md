@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-10 (wave 2)
+**Last updated:** 2026-08-10 (wave 2 complete)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -23,7 +23,7 @@ re-deriving anything.
 | 5 | Implement PR A (truth model) | **done** — PR [#505](https://github.com/hey-vera/heyvera/pull/505) merged |
 | 6 | Brief + implement PR C2 (scoped egress) | **done** — PRs [#506](https://github.com/hey-vera/heyvera/pull/506), [#507](https://github.com/hey-vera/heyvera/pull/507) merged |
 | 7 | Handle PR #499 (28 cargo bumps) | **done** — reviewed, not merged; grouping fixed in PR [#508](https://github.com/hey-vera/heyvera/pull/508) |
-| 8 | Implement PR B (durable verifier) | **not started** — the frontier |
+| 8 | Implement PR B (durable verifier) | **done** — PR [#513](https://github.com/hey-vera/heyvera/pull/513) merged |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -132,10 +132,9 @@ that was never true.
 
 **Known gaps, stated rather than papered over:**
 
-- **A step can strand in `verifying`.** The verifier is still `tokio::spawn`.
-  If the process dies between the transition and the verdict, nothing resumes
-  it. There is deliberately no timeout — a timeout that invents a verdict is
-  the same fault as trusting the worker, one layer down. **PR B closes it.**
+- ~~**A step can strand in `verifying`.**~~ **Closed by PR B (#513).** The job
+  row is inserted in the same transaction as the transition, and a dispatcher
+  that dies leaves a claim that expires rather than a delivery that is lost.
 - **The positive routing signal is suspended.** `record_step_completed`
   derived its outcome from the worker's exit code, which invariant 6 forbids
   from improving a score, so it no longer fires on delivery. It does not fire
@@ -211,30 +210,74 @@ and patch stay grouped (which is what makes them safe to automerge), majors
 arrive alone. The rule was already written in `dependabot.yml` for `rusqlite`;
 it now applies to every crate.
 
-## Next
+## PR B — what landed, and what it deliberately did not
 
-**`PR-B-durable-verifier.md` is the frontier.** Its prerequisite (PR A) has
-landed and its brief is current except for the migration number — v64 is now the
-max, so PR B takes v65. Re-check before claiming.
+Two commits. Migration **v65**.
 
-PR B is large: a durable job table, a claim/heartbeat/reclaim dispatcher,
-startup and interval reconciliation, the `tokio::spawn` deletion at `ws.rs`, and
-eighteen failure-injection tests. It closes the two gaps PR A left open — the
-strand-in-`verifying` and the suspended routing signal.
+1. `verification_jobs` + the claim/heartbeat/reclaim/retry/seal SQL, and the
+   enqueue threaded through `begin_verifying_step` so it is inside PR A's
+   transition transaction.
+2. `crates/api/src/verification_dispatcher.rs`, the startup wiring in both
+   binaries, the single-node assertion, and the metrics.
 
-After that the plan's delivery order is PR I, J, Q (the catalog, the cost
-objective, the forecast), plus PR R (step-level leases) and PR U (provenance
-typing).
+**The durability argument.** The job row is inserted inside the
+`delivered -> verifying` transaction. If the transition commits the job exists;
+if it rolls back neither happened. `enqueue_verification_job_in` is private and
+takes a transaction for exactly that reason — a public enqueue is a way to end
+up with a job without a state, or a state without a job.
+
+**⚠️ Deployment changed.** `CORTEX_SINGLE_NODE=1` is required and the server
+**exits** without it. The SQLite store is a `Mutex<Connection>` two processes do
+not share, so a second dispatcher grades every delivery twice. Set in
+`deploy/cortex-api.service`, `docker-compose.yml`, `docker-compose.dev.yml`, and
+`.env.example`. **Anything that deploys Cortex outside those files needs it
+added.**
+
+**Known gaps, stated rather than papered over:**
+
+- **The positive routing signal is still suspended.** PR A dropped it because it
+  derived from the worker's exit code; PR B did not restore it, because the
+  dispatcher reaches a `Database` and not `AppState`, where `VeraTracker` lives
+  by value. Restoring it means either putting the tracker behind an `Arc` or
+  routing the verdict back through the scheduler channel. Neither is large;
+  both are out of PR B's brief.
+- **The verdict still emits no live Mission Control event**, for the same
+  reason. A pane shows `verifying` until it refreshes, and run completion is
+  reconciled on the 30s scheduler tick.
+- **One dispatcher, one process, by assertion.** The claim CAS is written so a
+  Postgres `FOR UPDATE SKIP LOCKED` port has the same semantics, but the rest of
+  the write path is not yet safe for two writers. The assertion is the guard
+  until the write-actor + read-pool work in ARCHITECTURE.md §13 exists.
+- **Rollback requires draining.** Dropping `verification_jobs` with jobs in
+  flight loses the queue.
+
+## Next — wave 2 is complete
+
+Every task in the wave-2 handoff has landed. The plan's delivery order from
+here:
+
+- **PR I, J, Q** — the catalog, the cost objective, the forecast. The whole
+  economic claim, and the reason `quoted_credits` is still `None` everywhere.
+- **PR R** — step-level leases. Cheap, and it unlocks the speed dial.
+- **PR U** — provenance typing. The plan's highest consequence-to-effort item
+  and the prerequisite for pointing Cortex at unvetted repositories.
+
+Two things worth doing before or alongside those, both found during this wave:
+
+- **Issue capability grants** (see PR C2's gaps). The egress enforcement is
+  complete and unused until the planning path decides a task needs npm.
+- **Fix the soma-crypto vectors** (F5). It blocks five RustCrypto majors.
 
 Briefs live in `cortex/plan/briefs/`. An implementer reads only the brief.
 
 ## Migration numbers — the shared-counter hazard
 
 `schema_version` is one counter shared with the HeyVera Socials product. The
-hazard is real and it already bit: PR C took **v62**, so PR A took **v63** even
-though its brief says v62, and PR C2 took **v64**. **PR B must re-check the
-maximum before claiming a number** — a collision means whichever branch merges
-second has its migration silently skipped. Max on `main` is **v64**.
+hazard is real and it bit three times this wave: PR C took **v62**, PR A took
+**v63** against a brief that said v62, PR C2 took **v64**, and PR B took
+**v65**. **Re-check the maximum before claiming a number** — a collision means
+whichever branch merges second has its migration silently skipped. Max on `main`
+is **v65**.
 
 ## What was verified directly (not inherited)
 
