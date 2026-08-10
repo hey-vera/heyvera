@@ -12,7 +12,10 @@ path = "src/bin/worker.rs"
 
 [dependencies]
 cortex-core = { path = "../core" }
-soma = { path = "../soma" }
+# Fenced behind the `soma` feature, OFF by default — must stay in lockstep with
+# `cortex-api`'s feature of the same name. A worker built with the feature ON
+# demands a per-step delegation that an API built with it OFF never issues.
+soma = { path = "../soma", optional = true }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
@@ -23,3 +26,9 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 bollard = "0.18"
+
+[features]
+default = []
+# Verify the per-step Soma delegation before executing a step. See the note on
+# the `soma` dependency: this must match `cortex-api`'s `soma` feature.
+soma = ["dep:soma"]

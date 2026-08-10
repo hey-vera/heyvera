@@ -55,10 +55,30 @@ impl DmSubscriber {
             .is_ok()
     }
 }
+#[cfg(feature = "soma")]
 use crate::soma::CortexHeart;
 use crate::storage::Storage;
 use crate::vera::VeraTracker;
 use crate::context_flow::{ContextBus, ContextBusConfig};
+
+/// The local identifier `VeraTracker` groups interactions under when there is
+/// no Soma heart to borrow a DID from — which is every default build.
+///
+/// Deterministic on purpose: restarting the process must not fragment a
+/// tracker's history into two apparent Cortexes.
+fn default_cortex_heart_id() -> soma_core::types::HeartId {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    "cortex-heart-v1".hash(&mut hasher);
+    let hash = hasher.finish().to_le_bytes();
+    let mut id = [0u8; 32];
+    id[..8].copy_from_slice(&hash);
+    id[8..16].copy_from_slice(&hash);
+    id[16..24].copy_from_slice(&hash);
+    id[24..32].copy_from_slice(&hash);
+    soma_core::types::HeartId(id)
+}
 
 #[derive(Debug, Clone)]
 pub struct PendingAuthSession {
@@ -138,6 +158,11 @@ pub struct AppState {
     /// UCB bandit scorer for adaptive provider selection.
     pub ucb_scorer: RwLock<UcbScorer>,
     /// Cortex's Soma heart — cryptographic identity for this agent.
+    ///
+    /// Absent from the struct entirely unless the `soma` feature is on, so a
+    /// default build has no field for the execution path to read. See
+    /// `crate::soma_fence`.
+    #[cfg(feature = "soma")]
     pub soma_heart: Option<CortexHeart>,
     /// Stripe API client for billing operations.
     pub stripe_client: Option<crate::stripe_client::StripeClient>,
@@ -271,6 +296,7 @@ impl AppState {
             }
         };
 
+        #[cfg(feature = "soma")]
         let soma_heart = match CortexHeart::new() {
             Ok(heart) => {
                 tracing::info!("soma heart alive — DID: {}", heart.did());
@@ -294,6 +320,12 @@ impl AppState {
                 }
             };
 
+        // The tracker needs a stable local identifier for "this Cortex". With
+        // the Soma feature on it borrows the heart's DID; otherwise it comes
+        // from a constant. Either way it is a local label for grouping
+        // interactions — never a credential, and it never leaves the process.
+        // That is why `VeraTracker` survives the fence and the heart does not.
+        #[cfg(feature = "soma")]
         let cortex_heart_id = soma_heart
             .as_ref()
             .map(|h| {
@@ -304,19 +336,9 @@ impl AppState {
                 }
                 soma_core::types::HeartId(id)
             })
-            .unwrap_or_else(|| {
-                use std::collections::hash_map::DefaultHasher;
-                use std::hash::{Hash, Hasher};
-                let mut hasher = DefaultHasher::new();
-                "cortex-heart-v1".hash(&mut hasher);
-                let hash = hasher.finish().to_le_bytes();
-                let mut id = [0u8; 32];
-                id[..8].copy_from_slice(&hash);
-                id[8..16].copy_from_slice(&hash);
-                id[16..24].copy_from_slice(&hash);
-                id[24..32].copy_from_slice(&hash);
-                soma_core::types::HeartId(id)
-            });
+            .unwrap_or_else(default_cortex_heart_id);
+        #[cfg(not(feature = "soma"))]
+        let cortex_heart_id = default_cortex_heart_id();
         let vera_tracker = VeraTracker::new(cortex_heart_id);
         tracing::info!("vera tracker alive — cortex heart: {cortex_heart_id}");
 
@@ -366,6 +388,7 @@ impl AppState {
             github_client,
             cortex_store,
             ucb_scorer: RwLock::new(ucb_scorer),
+            #[cfg(feature = "soma")]
             soma_heart,
             stripe_client,
             stripe_webhook_secret,
@@ -748,6 +771,7 @@ impl AppState {
         }
 
         // Persist Soma state on shutdown
+        #[cfg(feature = "soma")]
         if let Some(heart) = &self.soma_heart {
             heart.persist_heartbeats();
             heart.persist_spend_logs();

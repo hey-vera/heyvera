@@ -65,6 +65,7 @@ async fn scheduler_loop(state: Arc<AppState>, mut rx: mpsc::Receiver<SchedulerEv
             }
             _ = prune_interval.tick() => {
                 // Prune spend logs for delegations inactive for 48h (2x default session TTL)
+                #[cfg(feature = "soma")]
                 if let Some(heart) = &state.soma_heart {
                     heart.prune_spend_logs(48 * 3600 * 1000);
                 }
@@ -104,6 +105,7 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             cost_estimate,
         } => {
             tracing::info!("scheduler: step delivered {step_id} in run {run_id}");
+            #[cfg(feature = "soma")]
             if let Some(heart) = &state.soma_heart {
                 heart.record_heartbeat(
                     soma::heartbeat::HeartbeatEventType::RouteCompleted,
@@ -162,6 +164,7 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
 
         SchedulerEvent::StepFailed { run_id, step_id } => {
             tracing::info!("scheduler: step failed {step_id} in run {run_id}");
+            #[cfg(feature = "soma")]
             if let Some(heart) = &state.soma_heart {
                 heart.record_heartbeat(
                     soma::heartbeat::HeartbeatEventType::RouteFailed,
@@ -425,6 +428,9 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
     }
 
     // --- Soma heartbeat: record routing decision ---
+    // Observation only: the heartbeat records the decision, it never makes it.
+    // The decision above is already final by this point.
+    #[cfg(feature = "soma")]
     if let Some(heart) = &state.soma_heart {
         heart.record_heartbeat(
             soma::heartbeat::HeartbeatEventType::RouteSelected,
@@ -1053,7 +1059,11 @@ async fn update_bandit_from_outcome(
         trials,
     );
 
-    // Record Soma spend receipt with real cost (falls back to 1.0 credit if no estimate)
+    // Record Soma spend receipt with real cost (falls back to 1.0 credit if no
+    // estimate). This is Soma's own ledger, not the Cortex credit ledger — the
+    // Cortex ledger is written in `verification_driver.rs` and does not read
+    // this. Compiled out by default.
+    #[cfg(feature = "soma")]
     if success {
         if let Some(heart) = &state.soma_heart {
             let cost = cost_estimate.unwrap_or(1.0);
@@ -1124,6 +1134,23 @@ fn record_evidence(db: &Database, decision_id: &str, evidence: &DecisionEvidence
 
 // --- Sub-delegation for worker steps ---
 
+/// No delegation to issue: a default build has no heart to sign one with.
+///
+/// The worker's matching fence is what makes this safe. A worker built without
+/// the `soma` feature does not ask for a delegation; a worker built *with* it
+/// rejects every step this returns `None` for. The two features must be set
+/// the same way on both binaries — see `docs/adr/ADR-0003-soma-feature-fence.md`.
+#[cfg(not(feature = "soma"))]
+fn issue_step_delegation(
+    _state: &AppState,
+    _step_id: &str,
+    _lease_deadline_ms: i64,
+    _worker_id: &str,
+) -> Option<serde_json::Value> {
+    None
+}
+
+#[cfg(feature = "soma")]
 fn issue_step_delegation(
     state: &AppState,
     step_id: &str,
@@ -1889,6 +1916,35 @@ pub async fn create_run_from_goal(
     );
 
     Ok(run_id)
+}
+
+#[cfg(all(test, not(feature = "soma")))]
+mod soma_fence_tests {
+    use super::*;
+
+    /// The dispatch payload carries no Soma-issued credential.
+    ///
+    /// This is the load-bearing half of the fence's promise: a step leaves
+    /// Cortex with `delegation: None`, so nothing a worker executes, nothing it
+    /// reports, and nothing that lands on a receipt traces back to a Soma
+    /// signature. If this ever returns `Some`, a value from a WIP subsystem has
+    /// re-entered the execution path.
+    #[tokio::test]
+    async fn no_step_delegation_is_issued() {
+        let temporary = tempfile::tempdir().expect("temporary workspace");
+        let workspace = temporary.path().to_path_buf();
+        std::fs::create_dir_all(workspace.join(".cortex")).expect("workspace metadata");
+        let state =
+            AppState::new(workspace.join(".cortex/ledger.jsonl"), workspace, None).await;
+
+        let issued = issue_step_delegation(&state, "step-1", 1_000_000, "worker-1");
+
+        assert!(
+            issued.is_none(),
+            "a build without the soma feature must not attach a delegation to a \
+             dispatched step, got {issued:?}"
+        );
+    }
 }
 
 #[cfg(test)]

@@ -205,6 +205,16 @@ jobs:
       - name: Check optional features
         run: cargo check -p cortex-api --features otel --bins --locked
 
+      # The `soma` feature is off by default, so `--workspace` above compiles
+      # the fenced-out configuration and never the fenced-in one. Check the
+      # opt-in path too: the failure mode being prevented is a feature that
+      # silently stops compiling while still shipping in the manifest, which is
+      # exactly what happened to `otel`. Both binaries, because the API and the
+      # worker have to agree — an API without the feature issues no per-step
+      # delegation, and a worker with it rejects every step that lacks one.
+      - name: Check the Soma feature still compiles
+        run: cargo check -p cortex-api -p cortex-worker --features cortex-api/soma,cortex-worker/soma --locked
+
       # Advisory until someone reads the output. clippy has never run against
       # this workspace, so its warning count is unknown and could not be
       # measured before opening this PR (no working linker on the authoring
@@ -215,3 +225,52 @@ jobs:
         continue-on-error: true
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
+
+  # A feature that is off by default is a feature nothing compiles, and a
+  # configuration nothing compiles is a configuration that rots. `otel` proved
+  # that: it stopped building entirely while still pinning a dependency with an
+  # open advisory, and `--workspace` never noticed because optional features are
+  # invisible to it.
+  #
+  # This job compiles and tests the workspace with every default feature off. It
+  # is the gate on the Soma fence: `crates/api` and `crates/worker` must build,
+  # and their `soma_fence` tests must pass, with no Soma in the tree at all.
+  #
+  # No `paths:` filter and no change detection, for the same reason `sandbox`
+  # has none — a required check that sometimes does not report never goes green
+  # and wedges the repository.
+  no-default-features:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+
+      - name: Check the workspace with no default features
+        run: cargo check --workspace --no-default-features --locked
+
+      - name: Test the workspace with no default features
+        run: cargo test --workspace --no-default-features --locked
+
+      # The fence's own assertions. They are `#[cfg(not(feature = "soma"))]`, so
+      # they exist only in this configuration — if they stop being collected the
+      # fence is no longer being checked by anything, and a count that can only
+      # go up catches that where a passing run would not.
+      - name: Prove the fence assertions ran
+        run: |
+          set -euo pipefail
+          output=$(cargo test -p cortex-api --locked --no-default-features soma_ -- --nocapture 2>&1)
+          echo "$output"
+          passed=$(echo "$output" | grep -cE '^test [a-z_:]+ \.\.\. ok' || true)
+          echo "soma fence assertions passed: $passed"
+          if [ "$passed" -lt 6 ]; then
+            echo "::error::expected at least 6 soma fence assertions to run, saw $passed"
+            exit 1
+          fi

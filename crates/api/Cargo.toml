@@ -19,7 +19,14 @@ cortex-core = { path = "../core" }
 cortex-engine = { path = "../engine" }
 cortex-context = { path = "../context" }
 cortex-worker = { path = "../worker" }
-soma = { path = "../soma" }
+# Soma is a work-in-progress project that is not part of Cortex. It is fenced
+# behind the `soma` feature, which is OFF by default, so nothing on the Cortex
+# execution path can reach it unless a build opts in. See
+# docs/adr/ADR-0003-soma-feature-fence.md.
+soma = { path = "../soma", optional = true }
+# `soma-core` is NOT fenced: it is the pure trust/compaction arithmetic behind
+# `VeraTracker`, carries no identity, delegation, keys, or network, and the
+# routing signal depends on it. Fencing it would delete the routing tracker.
 soma-core = { path = "../soma-core" }
 dirs-next = "2"
 serde.workspace = true
@@ -59,6 +66,12 @@ opentelemetry-otlp = { version = "0.32", optional = true, features = ["grpc-toni
 tracing-opentelemetry = { version = "0.33", optional = true }
 
 [features]
+default = []
+# Compile in the Soma identity/delegation surface: the Cortex heart, the
+# `/api/soma/*` routes, the Soma header middleware, the `Soma ` authorization
+# scheme, the worker-connect delegation branch, and the per-step delegations
+# the scheduler issues. OFF by default — Soma is WIP and not part of Cortex.
+soma = ["dep:soma"]
 sentry-tracking = ["sentry"]
 otel = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp", "tracing-opentelemetry"]
 

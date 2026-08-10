@@ -11,6 +11,7 @@ use uuid::Uuid;
 
 use crate::clerk;
 use crate::state::AppState;
+#[cfg(feature = "soma")]
 use crate::lock::LockRecovering;
 
 /// Events pushed to Mission Control frontend clients.
@@ -331,7 +332,8 @@ pub async fn mc_snapshot(
     State(state): State<Arc<AppState>>,
     _user: crate::clerk::ClerkUser,
 ) -> axum::Json<McSnapshot> {
-    // Heart state
+    // Heart state. `None` in a default build — there is no heart to report.
+    #[cfg(feature = "soma")]
     let heart = state.soma_heart.as_ref().map(|h| {
         let chain = h.heartbeat_chain.lock_recovering();
         let revoked = h.revoked_delegations.lock_recovering();
@@ -348,6 +350,8 @@ pub async fn mc_snapshot(
             revoked_count: revoked.len(),
         }
     });
+    #[cfg(not(feature = "soma"))]
+    let heart: Option<McHeartState> = None;
 
     // Worker states
     let workers_guard = state.workers.read().await;
@@ -392,7 +396,9 @@ pub async fn mc_snapshot(
     }).collect();
     drop(providers_guard);
 
-    // Spend state
+    // Spend state. Soma's spend log is not the Cortex ledger; it is Soma's own
+    // record and it is absent in a default build.
+    #[cfg(feature = "soma")]
     let spend = state.soma_heart.as_ref().map(|h| {
         let logs = h.spend_logs.lock_recovering();
         let mut total = 0.0;
@@ -409,6 +415,8 @@ pub async fn mc_snapshot(
             active_delegation_count: active,
         }
     });
+    #[cfg(not(feature = "soma"))]
+    let spend: Option<McSpendState> = None;
 
     axum::Json(McSnapshot {
         heart,

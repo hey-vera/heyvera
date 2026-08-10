@@ -144,10 +144,24 @@ async fn connect_and_run(
                                 step_id, attempt_id, lease_gen,
                                 task, decision, delegation, ..
                             } => {
+                                // Without the `soma` feature this worker does
+                                // not ask for a per-step delegation, because
+                                // an API built the same way never issues one.
+                                // Enforcing here would reject every step. The
+                                // authenticated WebSocket the step arrived on
+                                // is the gate in that configuration.
+                                #[cfg(not(feature = "soma"))]
+                                let delegation_ok = {
+                                    let _ = &delegation;
+                                    true
+                                };
+
+                                #[cfg(feature = "soma")]
                                 let enforce = std::env::var("SOMA_ENFORCE_DELEGATION")
                                     .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
                                     .unwrap_or(true);
 
+                                #[cfg(feature = "soma")]
                                 let delegation_ok = if let Some(ref deleg_val) = delegation {
                                     match serde_json::from_value::<soma::delegation::Delegation>(deleg_val.clone()) {
                                         Ok(deleg) => {

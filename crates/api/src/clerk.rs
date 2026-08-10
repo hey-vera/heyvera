@@ -444,6 +444,7 @@ where
 
         if let Some(ref header) = raw_auth {
             if header.starts_with("Soma ") {
+                #[cfg(feature = "soma")]
                 match crate::soma::extract_identity(parts, &app_state).await {
                     Ok(identity) => {
                         reject_if_account_blocked(&app_state, &identity.user_id)?;
@@ -459,6 +460,18 @@ where
                         ));
                     }
                 }
+
+                // With the feature off the `Soma ` scheme is not a credential
+                // format this build understands. Reject it rather than falling
+                // through to the Clerk verifier, which would report the far
+                // more confusing "invalid JWT" for a token that is not a JWT.
+                #[cfg(not(feature = "soma"))]
+                return Err((
+                    StatusCode::UNAUTHORIZED,
+                    Json(ErrorResponse {
+                        error: "unsupported authorization scheme: Soma".into(),
+                    }),
+                ));
             }
         }
 

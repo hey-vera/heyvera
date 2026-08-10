@@ -47,8 +47,11 @@ mod run_stream;
 pub mod social;
 pub mod social_policy;
 pub mod scheduler;
+#[cfg(feature = "soma")]
 pub mod soma;
+#[cfg(feature = "soma")]
 mod soma_bridge;
+pub mod soma_fence;
 mod sse;
 pub mod state;
 pub mod token_refresh;
@@ -73,6 +76,7 @@ use tower_http::services::ServeDir;
 use axum::response::IntoResponse;
 
 use state::AppState;
+#[cfg(feature = "soma")]
 use crate::lock::LockRecovering;
 
 async fn vera_snapshot(
@@ -108,6 +112,7 @@ async fn vera_simulate(
     axum::Json(state.vera_tracker.snapshot())
 }
 
+#[cfg(feature = "soma")]
 async fn soma_identity(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
 ) -> impl axum::response::IntoResponse {
@@ -643,7 +648,7 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         .merge(rate_limited)
         // 12 MB: mock media PUT may carry image bytes when R2 is not configured.
         .layer(DefaultBodyLimit::max(12 * 1024 * 1024))
-        .layer(middleware::from_fn_with_state(state.clone(), soma::soma_headers_middleware))
+        .layer(middleware::from_fn_with_state(state.clone(), soma_fence::headers_middleware))
         .layer(cors_layer())
         .layer(middleware::from_fn(request_id_middleware))
         .with_state(state)
@@ -953,18 +958,13 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/deployment/events", get(deploy_status::deployment_events))
         .route("/api/deployment/adapters", get(routes::get_deployment_adapters))
         // auth/status moved to protected layer (requires ClerkUser)
-        // Soma identity (public — lets clients discover Cortex's DID)
-        .route("/api/soma/identity", get(soma_identity))
         // Vera observation layer — live network state
         .route("/api/vera/network", get(vera_snapshot))
         .route("/api/vera/me", get(vera_personal))
         .route("/api/vera/simulate", post(vera_simulate))
-        // Soma delegation bridge (Clerk user → Soma session)
-        .route("/api/soma/session", post(soma_bridge::create_session))
-        .route("/api/soma/revoke", post(soma_bridge::revoke_delegation))
-        .route("/api/soma/me", get(soma_bridge::get_user_identity))
-        .route("/api/soma/spend", get(soma_bridge::get_spend))
-        .route("/api/soma/spend/{delegation_id}", get(soma_bridge::get_spend_detail))
+        // Soma identity + delegation bridge. Empty unless the `soma` feature
+        // is on; see `soma_fence`.
+        .merge(soma_fence::routes())
         // Social layer (HeyVera) — real DB-backed endpoints
         .route("/v1/social/trending", get(social::get_trending))
         .route("/v1/social/search", get(social::search))
@@ -1178,7 +1178,7 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .layer(DefaultBodyLimit::max(12 * 1024 * 1024)) // mock media PUT without R2
         .layer(middleware::from_fn_with_state(
             state.clone(),
-            soma::soma_headers_middleware,
+            soma_fence::headers_middleware,
         ))
         .layer(cors_layer())
         .layer(middleware::from_fn(request_id_middleware))

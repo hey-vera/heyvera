@@ -1373,7 +1373,19 @@ async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, St
         return Err("empty auth token".into());
     }
 
+    // A token that starts with '{' is a JSON Soma delegation. Without the
+    // `soma` feature this build has no way to verify one, so it is an unknown
+    // credential format and is rejected here. It must not fall through to the
+    // Clerk verifier: a JSON blob is not a JWT, the failure would be reported
+    // as a bad JWT, and — worse — an empty `clerk_secret_key` makes that path
+    // return `Ok("local")`, which would authenticate an unverifiable token.
+    #[cfg(not(feature = "soma"))]
+    if token.starts_with('{') {
+        return Err("unsupported worker credential format".into());
+    }
+
     // Try Soma delegation first (token is JSON starting with '{')
+    #[cfg(feature = "soma")]
     if token.starts_with('{') {
         let delegation: soma::delegation::Delegation =
             serde_json::from_str(token).map_err(|e| format!("invalid soma token: {e}"))?;
@@ -1445,6 +1457,65 @@ async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, St
                 clerk::get_or_refresh_jwks_pub(&state.jwks_cache, &state.jwks_stampede, clerk_secret, true).await?;
             clerk::verify_token_pub(token, &keys)
         }
+    }
+}
+
+#[cfg(all(test, not(feature = "soma")))]
+mod soma_fence_tests {
+    use super::*;
+
+    async fn test_state() -> std::sync::Arc<AppState> {
+        let temporary = tempfile::tempdir().expect("temporary workspace");
+        let workspace = temporary.path().to_path_buf();
+        std::fs::create_dir_all(workspace.join(".cortex")).expect("workspace metadata");
+        // `None` for the Clerk secret is the local-dev configuration, and it is
+        // the dangerous one: it is the configuration in which the fallback path
+        // at the bottom of `authenticate_worker` returns `Ok("local")` for
+        // anything it is handed. Leaving it unset here is the point of the test
+        // — the rejection has to come from the format check, not from Clerk.
+        let state =
+            AppState::new(workspace.join(".cortex/ledger.jsonl"), workspace, None).await;
+        std::mem::forget(temporary);
+        state
+    }
+
+    /// A Soma delegation is JSON. Without the feature this build cannot verify
+    /// one, so it must be refused as an unknown credential format — not
+    /// accepted, and not quietly handed to the Clerk verifier, which in a
+    /// no-Clerk deployment would answer `Ok("local")` and authenticate it.
+    #[tokio::test]
+    async fn json_worker_token_is_rejected_rather_than_falling_through_to_local() {
+        let state = test_state().await;
+
+        let delegation = serde_json::json!({
+            "id": "deleg-1",
+            "issuer_did": "did:soma:whoever",
+            "subject_did": "did:soma:attacker",
+            "capabilities": ["route:*"],
+        })
+        .to_string();
+
+        let outcome = authenticate_worker(&state, &delegation).await;
+
+        assert!(
+            outcome.is_err(),
+            "a JSON credential must not authenticate a worker in a build \
+             without the soma feature, got {outcome:?}"
+        );
+        assert_ne!(
+            outcome.ok().as_deref(),
+            Some("local"),
+            "the no-Clerk fallback must never see a Soma-shaped token"
+        );
+    }
+
+    /// The empty-token local-dev path is untouched by the fence. Asserted so a
+    /// later tightening of the rejection above cannot silently break local
+    /// development and be mistaken for the fence working.
+    #[tokio::test]
+    async fn empty_token_still_means_local_dev() {
+        let state = test_state().await;
+        assert_eq!(authenticate_worker(&state, "").await.ok().as_deref(), Some("local"));
     }
 }
 
