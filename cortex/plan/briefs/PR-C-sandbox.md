@@ -328,8 +328,8 @@ Mechanically checkable. No judgment calls.
 - [ ] The runner supports kill-and-teardown of an in-flight sandbox.
 - [ ] The deployment change that makes the runner available is in the PR, and
       the PR body states what must be true on the VPS before merge takes effect.
-- [ ] All six required checks green: `heyvera`, `rust`, `cortex`,
-      `npm-audit (cortex)`, `npm-audit (heyvera)`, `cargo-deny`.
+- [ ] All seven required checks green: `heyvera`, `rust`, `cortex`,
+      `npm-audit (cortex)`, `npm-audit (heyvera)`, `cargo-deny`, `sandbox`.
 - [ ] `cargo fmt` was **not** run.
 
 ## Open questions

@@ -277,8 +277,8 @@ pre-existing failure, not a regression:
       historical `delivered` rows.
 - [ ] Migration applies cleanly on a fresh database and on a copy of the current
       production schema; the fresh-database assertion in `db.rs` is updated.
-- [ ] All six required checks green: `heyvera`, `rust`, `cortex`,
-      `npm-audit (cortex)`, `npm-audit (heyvera)`, `cargo-deny`.
+- [ ] All seven required checks green: `heyvera`, `rust`, `cortex`,
+      `npm-audit (cortex)`, `npm-audit (heyvera)`, `cargo-deny`, `sandbox`.
 - [ ] `cargo fmt` was **not** run.
 
 ## Open questions

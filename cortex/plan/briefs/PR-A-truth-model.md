@@ -250,8 +250,8 @@ pre-existing failure, not a regression:
 - [ ] Every test in the matrix exists, is named as written, and passes.
 - [ ] The ADR is committed and describes the machine as implemented.
 - [ ] The PR body names the strand-in-`verifying` gap that PR B closes.
-- [ ] All six required checks green: `heyvera`, `rust`, `cortex`,
-      `npm-audit (cortex)`, `npm-audit (heyvera)`, `cargo-deny`.
+- [ ] All seven required checks green: `heyvera`, `rust`, `cortex`,
+      `npm-audit (cortex)`, `npm-audit (heyvera)`, `cargo-deny`, `sandbox`.
 - [ ] `cargo fmt` was **not** run.
 
 ## Open questions
