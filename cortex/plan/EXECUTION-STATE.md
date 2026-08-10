@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-10 (wave 3 in progress)
+**Last updated:** 2026-08-10 (wave 3 in progress — Task 1a done, Task 2 next)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -26,6 +26,7 @@ re-deriving anything.
 | 8 | Implement PR B (durable verifier) | **done** — PR [#513](https://github.com/hey-vera/heyvera/pull/513) merged |
 | **Wave 3** | | |
 | 9 | Fence Soma behind a cargo feature, default off | **done** — see "Wave 3 / Task 1" below |
+| 9a | Corrections to the fence: soma-core, `/api/vera/simulate`, frontend | **done** — see "Wave 3 / Task 1a" below |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -260,9 +261,10 @@ added.**
 a `soma` feature that is not in `default`. `crate::soma_fence` is the single
 place the two projects meet.
 
-**`soma-core` is deliberately not fenced.** It is the trust arithmetic behind
+~~**`soma-core` is deliberately not fenced.** It is the trust arithmetic behind
 `VeraTracker` — no identity, no delegation, no keys, no network — and fencing it
-would delete the routing signal that Task 3 exists to restore.
+would delete the routing signal that Task 3 exists to restore.~~ **This
+justification was false of the crate and is corrected in Task 1a below.**
 
 **Two things found while doing it, neither of which the brief anticipated:**
 
@@ -289,7 +291,107 @@ wave 3 / Task 4.
 **Customer-facing consequence for Josh:** `cortex/src/lib/cortexApi.ts` calls
 six `/api/soma/*` endpoints that now 404 in a default build, and `/api/health`
 no longer carries a `soma` block. Nothing in Cortex's execution, routing, or
-billing path depends on them.
+billing path depends on them. **Decided and closed in Task 1a: fence the
+frontend, do not opt the deploy into `--features soma`.**
+
+## Wave 3 / Task 1a — three corrections to the fence
+
+Three commits on `fix/cortex-owns-trust-arithmetic`. No migration.
+
+### The fence was half a fence
+
+`crates/api/Cargo.toml` said `soma-core` "carries no identity, delegation, keys,
+or network." That is false of the crate: `crates/soma-core/src` holds
+`delegation.rs`, `heart.rs`, `envelope.rs`, `trust.rs`, `death.rs`,
+`pulse_tree.rs`, `room.rs`, and its manifest depends on `soma-crypto` and
+`rand_core`/`getrandom`. The true claim was narrower — the path Cortex
+exercised, `VeraTracker`, touched none of it.
+
+The gap was not cosmetic. Confirmed before changing anything:
+
+```
+$ cargo tree -p cortex-api --no-default-features -i soma-crypto
+soma-crypto v0.1.0
+└── soma-core v0.1.0
+    └── cortex-api v0.1.0
+```
+
+`soma-crypto` was linked into **every default Cortex build**, including
+`--no-default-features` — the crate whose test vectors assert nothing (was F5).
+
+Fixed by moving, not by fencing. `crates/core/src/vera.rs` is a verbatim copy of
+soma-core's `trust`, `compaction`, and `vera` modules plus the three plain types
+they need, so every value it computes is the value computed before. `crates/api`
+declares no `soma-core` dependency. `crates/soma`, `crates/soma-core` and
+`crates/soma-crypto` are unmodified — the "do not modify crates/soma\*"
+instruction held; the arithmetic was copied out, not edited in place.
+
+**The generalisable lesson, and the reason this is worth the space:** a
+`#[cfg(feature = ...)]` gate fences the code it is written on and says nothing
+about what is *linked*. No Rust construct can see a dependency graph, so no test
+in the fence could ever have caught this. The `no-default-features` job now
+asserts the graph directly — `cargo tree -p <bin> --no-default-features -i
+<crate>` for all three soma crates against both binaries, where a *successful*
+invocation is the failure — plus the opposite direction, so the feature cannot
+silently become a no-op.
+
+soma-core had **no tests at all** (`grep -rn "cfg(test)" crates/soma-core/src`
+returns nothing), so the arithmetic behind the routing signal was entirely
+unexercised. The copy lands with ten, covering what Task 3 will lean on: decay
+saturates rather than underflowing on a future timestamp; a failure lowers trust
+without lowering warmth; and one repeated observer cannot reach high coherence
+(C=0.05 gamed vs 1.0 diverse) — the anti-gaming property that makes the
+bottleneck multiplicative rather than additive.
+
+### `/api/vera/simulate` was a denial-of-service lever, and unauthenticated
+
+Worse than the brief recorded. It was not "any authenticated caller": the
+handler took **no auth extractor at all** and sat in the public,
+un-rate-limited block. `agents=1000&per_agent=100` is 100,000 synthetic
+interactions, each a SHA-256 and a `format!`, run synchronously on an async
+handler.
+
+The precise mechanism, since it matters for the fix: it does not take the
+database lock. It occupies a Tokio **worker thread** for the whole run, and
+enough concurrent calls starve the runtime that every database handler shares —
+so the effect is a stalled process, reached by thread starvation rather than by
+lock contention.
+
+Both halves, because neither alone is sufficient: the route moved to
+`/api/admin/vera/simulate` behind `require_admin_middleware`, and the bound
+moved *into* `simulate_ecosystem` and onto the **product** rather than each
+factor — which is why 1000 and 100 each looked modest. `authorize_admin` fails
+closed in production but returns `Ok(())` when no admin list is configured *and*
+`CLERK_SECRET_KEY` is unset, so the internal bound is what covers a
+misconfigured deployment.
+
+Also bounded the compaction history: level-2 values were retained for the life
+of the process, one per hundred interactions, and serialised in full into every
+response from the public `/api/vera/network`.
+
+### The frontend is fenced, and the deploy is not
+
+`SOMA_API_ENABLED` (off unless `VITE_CORTEX_SOMA_ENABLED=true`) follows the
+existing `MEMORY_API_ENABLED` pattern. Three live call sites go quiet: the
+sign-in session POST, the spend hooks, and the "Soma spend" settings tab.
+Nothing is deleted — Soma returns, and the flag turns on with the cargo feature.
+
+**Found while doing it:** `setSomaDelegation` is guarded inside the setter, not
+just at the call site, because `authedFetch` sends `Authorization: Soma <json>`
+*instead of* the Clerk bearer token whenever a delegation is set. With the
+backend fence up, that scheme is refused — a delegation arriving from anywhere
+would not degrade Soma features, it would **unauthenticate the entire app**.
+Latent today only because the session POST 404s before it can set one.
+
+On the dropped `/api/health` soma block: no change needed and none made.
+Nothing under `cortex/src` ever read a soma field off the health response.
+
+**Verified:** `cortex-api` lib 335/335. `soma_isolation` 3/3 with default
+features off. The five new `vera_surface` tests pass. `cortex-core` vera 10/10.
+`cargo check -p cortex-api --features soma` still compiles. `cargo tree -i`
+reports all three soma crates absent from `cortex-api` and `cortex-worker` with
+default features off, and `soma` present with the feature on. `npm run build`
+passes; `npm run lint` reports 11 problems, identical to an unmodified tree.
 
 ## Next — wave 2 is complete
 
@@ -305,8 +407,11 @@ here:
 Two things worth doing before or alongside those, both found during this wave:
 
 - **Issue capability grants** (see PR C2's gaps). The egress enforcement is
-  complete and unused until the planning path decides a task needs npm.
-- **Fix the soma-crypto vectors** (F5). It blocks five RustCrypto majors.
+  complete and unused until the planning path decides a task needs npm. **This
+  is wave 3 / Task 2.**
+- ~~**Fix the soma-crypto vectors** (F5).~~ Out of Cortex's lane since Task 1a
+  removed soma-crypto from the dependency graph. Now gate **G2** in ADR-0003.
+  Still blocks the five RustCrypto majors in #499.
 
 Briefs live in `cortex/plan/briefs/`. An implementer reads only the brief.
 
@@ -364,7 +469,16 @@ byte-identical content, so commit `d437ff5d` was dropped during the rebase.
 Cosmetic; noted so the next reader is not confused by a 16-commit branch
 producing 15 commits.
 
-### F5. The soma-crypto test vectors do not test anything *(unresolved, matters)*
+### F5. The soma-crypto test vectors do not test anything *(reclassified — now gate G2)*
+
+**No longer a Cortex to-do.** Since Task 1a, `soma-crypto` is not in any Cortex
+binary's dependency graph, so this cannot affect a Cortex build. It is recorded
+as **G2 in ADR-0003's "Gates on ever re-enabling the feature"** — a condition on
+turning `--features soma` back on, not a task in anyone's queue. It remains a
+prerequisite for the five RustCrypto majors in #499, which are soma-crypto's
+bumps.
+
+Kept below in full because the reasoning is the evidence for the gate.
 
 Upgraded from F4, which recorded only the symptom.
 
@@ -382,7 +496,16 @@ catch it. This blocks taking those five majors from #499 with any confidence.
 Not fixed here — it is a soma-crypto change, not a Cortex-harness one — but it
 should be fixed before those bumps move.
 
-### F6. The worker verifies a delegation against itself *(unresolved, recorded)*
+### F6. The worker verifies a delegation against itself *(reclassified — now gate G1)*
+
+**No longer a to-do.** It is reachable only with `--features soma`, which no
+deployment sets, so leaving it on a task list would mean carrying an item that
+cannot be triggered — the reliable way for a known defect to become a forgotten
+one. It is recorded as **G1 in ADR-0003's "Gates on ever re-enabling the
+feature"**: a condition that must be cleared *before* the feature can come back,
+written down where someone turning the feature on will be reading.
+
+Kept below in full because the reasoning is the evidence for the gate.
 
 `crates/worker/src/bin/worker.rs:154` builds its `InvocationContext` with
 `invoker_did: deleg.issuer_did` — the issuer taken from the delegation being
