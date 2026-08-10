@@ -1799,7 +1799,12 @@ pub fn build_resource_lease_requests_extended(
         }
     } else {
         for path in file_paths {
-            let key = path.trim_matches('/').to_string();
+            // Normalised rather than merely trimmed. `src/` and `src` are the
+            // same directory but different strings, and `path_keys_overlap`
+            // tests a prefix followed by `/` — so on the unnormalised forms
+            // `src/` and `src/a.rs` are reported as NOT overlapping, and two
+            // steps writing the same directory both get a lease.
+            let key = cortex_core::write_set::normalise(path);
             if key.is_empty() {
                 continue;
             }
@@ -1845,6 +1850,19 @@ pub fn build_resource_lease_requests_extended(
             });
         }
     }
+
+    // Canonical acquisition order.
+    //
+    // Two transactions taking the same locks in opposite orders can deadlock.
+    // That is latent today rather than live — acquisition happens inside one
+    // transaction that checks every conflict before inserting anything — but it
+    // depends on caller assembly order, which is not a property anyone is
+    // maintaining. Sorting here makes every acquirer agree without needing to
+    // coordinate, and costs nothing.
+    requests.sort_by(|a, b| {
+        (&a.resource_type, &a.repo_key, &a.resource_key)
+            .cmp(&(&b.resource_type, &b.repo_key, &b.resource_key))
+    });
 
     requests
 }
@@ -2009,16 +2027,77 @@ mod tests {
             Some("group-1"),
         );
 
+        // Asserted by content, not position: requests come back in canonical
+        // acquisition order now, and the old positional assertions were
+        // encoding assembly order as though it meant something.
         assert_eq!(requests.len(), 3);
-        assert_eq!(requests[0].resource_type, "task");
-        assert_eq!(requests[0].repo_key, "github:hey-vera/heyvera");
-        assert_eq!(requests[0].resource_key, "group-1:task-1");
-        assert_eq!(requests[0].mode, "exclusive");
-        assert_eq!(requests[1].resource_type, "path");
-        assert_eq!(requests[1].repo_key, "github:hey-vera/heyvera");
-        assert_eq!(requests[1].resource_key, "src/main.rs");
-        assert_eq!(requests[1].mode, "write");
-        assert_eq!(requests[2].resource_key, "src/lib.rs");
+
+        let task = requests
+            .iter()
+            .find(|r| r.resource_type == "task")
+            .expect("task lease");
+        assert_eq!(task.repo_key, "github:hey-vera/heyvera");
+        assert_eq!(task.resource_key, "group-1:task-1");
+        assert_eq!(task.mode, "exclusive");
+
+        let mut paths: Vec<&str> = requests
+            .iter()
+            .filter(|r| r.resource_type == "path")
+            .map(|r| r.resource_key.as_str())
+            .collect();
+        paths.sort();
+        // The duplicate `src/main.rs` collapses.
+        assert_eq!(paths, vec!["src/lib.rs", "src/main.rs"]);
+        assert!(
+            requests
+                .iter()
+                .filter(|r| r.resource_type == "path")
+                .all(|r| r.mode == "write" && r.repo_key == "github:hey-vera/heyvera")
+        );
+    }
+
+    /// Every acquirer must derive the same order without coordinating, or two
+    /// transactions can take the same locks in opposite orders.
+    #[test]
+    fn lease_requests_come_back_in_a_canonical_order() {
+        let forward = build_resource_lease_requests(
+            &["src/z.rs".to_string(), "crates/api".to_string()],
+            Some("r"),
+            Some("t"),
+            Some("g"),
+        );
+        let reversed = build_resource_lease_requests(
+            &["crates/api".to_string(), "src/z.rs".to_string()],
+            Some("r"),
+            Some("t"),
+            Some("g"),
+        );
+
+        let key_of = |rs: &[ResourceLeaseRequest]| -> Vec<(String, String)> {
+            rs.iter()
+                .map(|r| (r.resource_type.clone(), r.resource_key.clone()))
+                .collect()
+        };
+        assert_eq!(key_of(&forward), key_of(&reversed));
+    }
+
+    /// `src/` and `src` are the same directory. Left untrimmed, the overlap
+    /// check (prefix followed by `/`) reports `src/` and `src/a.rs` as NOT
+    /// overlapping, and both steps get a lease on the same directory.
+    #[test]
+    fn a_trailing_slash_does_not_create_a_second_key_for_one_directory() {
+        let requests = build_resource_lease_requests(
+            &["src/".to_string(), "src".to_string(), "/src/".to_string()],
+            None,
+            None,
+            None,
+        );
+        let paths: Vec<&str> = requests
+            .iter()
+            .filter(|r| r.resource_type == "path")
+            .map(|r| r.resource_key.as_str())
+            .collect();
+        assert_eq!(paths, vec!["src"], "three spellings of one directory");
     }
 
     #[test]
