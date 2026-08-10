@@ -44,9 +44,25 @@ updates:
       interval: weekly
     open-pull-requests-limit: 5
     groups:
+      # Minor and patch only. A major arrives as its own PR, ungrouped.
+      #
+      # This grouping used to be `patterns: ["*"]` with no update-type split,
+      # and PR #499 is what that produces: twenty-eight crates in one branch,
+      # fifteen of them major, welded to thirteen harmless ones. It could not
+      # compile — bollard 0.18 -> 0.21 moved half its module tree — so none of
+      # the safe bumps could land either, and the review it needed was a
+      # 3,900-line diff spanning a web framework arriving through Sentry and
+      # five RustCrypto majors.
+      #
+      # The rule was already written in this file for rusqlite: "upgrade these
+      # deliberately, in their own PR, where the diff is reviewable." It just
+      # applied to one crate. It applies to all of them now.
       cargo:
         patterns:
           - "*"
+        update-types:
+          - minor
+          - patch
     ignore:
       # Both need a code migration, and grouping them with thirty-odd harmless
       # bumps means none of the group can land — including security fixes.
