@@ -1509,6 +1509,27 @@ fn migrate_v24(conn: &Connection) {
             metadata_json TEXT NOT NULL DEFAULT '{}'
         );
 
+        -- Numbers the scheduler hands out so no agent has to pick one.
+        --
+        -- A migration version is not mergeable: two branches that each choose
+        -- the next number both produce a clean file, the merge succeeds, and
+        -- the one that lands second is silently skipped. Allocation is
+        -- serialised through this table so the value is decided once, by us.
+        CREATE TABLE IF NOT EXISTS sequence_allocations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            repo_key TEXT NOT NULL,
+            sequence TEXT NOT NULL,
+            value INTEGER NOT NULL,
+            step_id TEXT,
+            run_id TEXT,
+            allocated_at INTEGER NOT NULL
+        );
+
+        -- The uniqueness that does the work. Two concurrent allocations of the
+        -- same value cannot both commit, whatever the readers raced on.
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sequence_allocations_value
+            ON sequence_allocations(repo_key, sequence, value);
+
         CREATE INDEX IF NOT EXISTS idx_resource_leases_active
             ON resource_leases(user_id, status, resource_type, repo_key, resource_key, expires_at);
 
@@ -10478,6 +10499,81 @@ impl Database {
     /// value `build_resource_lease_requests` uses, so a step lease and a run
     /// lease on the same repo land on the same key rather than silently
     /// failing to contend.
+    /// Hand out the next value on a sequence.
+    ///
+    /// The scheduler decides the number; the agent is told it. That removes an
+    /// entire class of conflict rather than scheduling around it — a migration
+    /// version chosen by two agents is a conflict git cannot see, because both
+    /// files are syntactically clean and the merge succeeds while the meaning
+    /// is wrong.
+    ///
+    /// Correctness rests on the unique index over `(repo_key, sequence, value)`,
+    /// not on the read: two callers can read the same max, and only one insert
+    /// can commit. The loser retries and gets the next value. A `SELECT max`
+    /// followed by an unguarded insert would be the same race the mechanism is
+    /// supposed to remove, moved one layer down.
+    ///
+    /// `start_at` seeds an empty sequence — for a repository already on v65,
+    /// the first allocation must be 66, not 1.
+    pub fn allocate_sequence_value(
+        &self,
+        repo_key: &str,
+        sequence: &str,
+        start_at: i64,
+        run_id: Option<&str>,
+        step_id: Option<&str>,
+    ) -> Option<i64> {
+        let conn = self.conn();
+        let now = Utc::now().timestamp_millis();
+
+        // Bounded: each attempt loses only to a genuine concurrent winner, so
+        // the loop terminates in the number of concurrent allocators. The cap
+        // stops an unexpected constraint failure spinning forever.
+        for _ in 0..16 {
+            let next: i64 = conn
+                .query_row(
+                    "SELECT COALESCE(MAX(value), ?3 - 1) + 1
+                     FROM sequence_allocations WHERE repo_key = ?1 AND sequence = ?2",
+                    params![repo_key, sequence, start_at],
+                    |row| row.get(0),
+                )
+                .unwrap_or(start_at);
+
+            match conn.execute(
+                "INSERT INTO sequence_allocations
+                    (repo_key, sequence, value, step_id, run_id, allocated_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+                params![repo_key, sequence, next, step_id, run_id, now],
+            ) {
+                Ok(_) => return Some(next),
+                // Someone else took this value. Re-read and try the next.
+                Err(rusqlite::Error::SqliteFailure(err, _))
+                    if err.code == rusqlite::ErrorCode::ConstraintViolation =>
+                {
+                    continue;
+                }
+                Err(err) => {
+                    tracing::error!(repo_key, sequence, error = %err, "sequence allocation failed");
+                    return None;
+                }
+            }
+        }
+        tracing::error!(repo_key, sequence, "sequence allocation gave up after 16 attempts");
+        None
+    }
+
+    /// The highest value handed out on a sequence, if any.
+    pub fn latest_sequence_value(&self, repo_key: &str, sequence: &str) -> Option<i64> {
+        let conn = self.conn();
+        conn.query_row(
+            "SELECT MAX(value) FROM sequence_allocations WHERE repo_key = ?1 AND sequence = ?2",
+            params![repo_key, sequence],
+            |row| row.get::<_, Option<i64>>(0),
+        )
+        .ok()
+        .flatten()
+    }
+
     pub fn get_run_repo_key(&self, run_id: &str) -> Option<String> {
         let conn = self.conn();
         conn.query_row(
@@ -26793,6 +26889,99 @@ mod tests {
             .expect("not an error");
         assert_eq!(out.subscription_remaining, 50);
         assert_eq!(db.credit_ledger_totals("user-1"), (0, 0));
+    }
+
+    use cortex_core::hotspot::MIGRATION_SEQUENCE;
+
+    /// The failure this exists to remove: two agents each picking "the next"
+    /// migration number, both files clean, the merge succeeding, and the
+    /// second migration silently skipped.
+    #[test]
+    fn a_sequence_never_hands_out_the_same_value_twice() {
+        let db = test_db();
+        let mut seen = std::collections::HashSet::new();
+        for _ in 0..50 {
+            let v = db
+                .allocate_sequence_value("repo-1", MIGRATION_SEQUENCE, 1, None, None)
+                .expect("allocation");
+            assert!(seen.insert(v), "value {v} was handed out twice");
+        }
+        assert_eq!(seen.len(), 50);
+    }
+
+    #[test]
+    fn allocation_starts_where_the_repository_already_is() {
+        let db = test_db();
+        // A repo already on v65 must be handed 66, not 1.
+        assert_eq!(
+            db.allocate_sequence_value("repo-1", MIGRATION_SEQUENCE, 66, None, None),
+            Some(66)
+        );
+        assert_eq!(
+            db.allocate_sequence_value("repo-1", MIGRATION_SEQUENCE, 66, None, None),
+            Some(67)
+        );
+    }
+
+    /// `start_at` must not pull an advanced sequence backwards.
+    #[test]
+    fn a_lower_start_does_not_reissue_a_used_value() {
+        let db = test_db();
+        db.allocate_sequence_value("repo-1", MIGRATION_SEQUENCE, 100, None, None);
+        assert_eq!(
+            db.allocate_sequence_value("repo-1", MIGRATION_SEQUENCE, 1, None, None),
+            Some(101),
+            "a stale start_at must not rewind the sequence"
+        );
+    }
+
+    #[test]
+    fn sequences_are_independent_per_repo_and_per_name() {
+        let db = test_db();
+        assert_eq!(
+            db.allocate_sequence_value("repo-1", MIGRATION_SEQUENCE, 1, None, None),
+            Some(1)
+        );
+        // A different repo is a different sequence.
+        assert_eq!(
+            db.allocate_sequence_value("repo-2", MIGRATION_SEQUENCE, 1, None, None),
+            Some(1)
+        );
+        // So is a different name in the same repo.
+        assert_eq!(
+            db.allocate_sequence_value("repo-1", "port", 1, None, None),
+            Some(1)
+        );
+    }
+
+    /// An allocation must be traceable to the work that asked for it, or a
+    /// number appears in a diff with no explanation.
+    #[test]
+    fn an_allocation_records_who_asked() {
+        let db = test_db();
+        db.allocate_sequence_value("repo-1", MIGRATION_SEQUENCE, 1, Some("run-1"), Some("step-1"));
+        let conn = db.conn();
+        let (run, step): (Option<String>, Option<String>) = conn
+            .query_row(
+                "SELECT run_id, step_id FROM sequence_allocations WHERE repo_key = 'repo-1'",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .expect("row");
+        assert_eq!(run.as_deref(), Some("run-1"));
+        assert_eq!(step.as_deref(), Some("step-1"));
+    }
+
+    #[test]
+    fn the_latest_value_reports_what_was_handed_out() {
+        let db = test_db();
+        assert_eq!(db.latest_sequence_value("repo-1", MIGRATION_SEQUENCE), None);
+        db.allocate_sequence_value("repo-1", MIGRATION_SEQUENCE, 10, None, None);
+        db.allocate_sequence_value("repo-1", MIGRATION_SEQUENCE, 10, None, None);
+        assert_eq!(
+            db.latest_sequence_value("repo-1", MIGRATION_SEQUENCE),
+            Some(11)
+        );
     }
 
     fn seed_run_and_step(db: &Database, run_id: &str, step_id: &str, paths: &[&str]) {

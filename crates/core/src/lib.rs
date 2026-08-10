@@ -11,6 +11,7 @@ pub mod contamination;
 pub mod provenance;
 pub mod assumption;
 pub mod write_set;
+pub mod hotspot;
 pub mod autonomy;
 pub mod billing_binding;
 pub mod check_derivation;
