@@ -27270,6 +27270,21 @@ impl Database {
             .collect()
     }
 
+    /// Record an operations-timeline event against a step.
+    ///
+    /// Public because the dispatcher needs it: a job that failed twice and
+    /// succeeded on the third try is correct behaviour that nobody can see
+    /// unless it is written down.
+    pub fn record_step_operations_event(
+        &self,
+        step_id: &str,
+        event_type: &str,
+        payload: &serde_json::Value,
+    ) {
+        let conn = self.conn();
+        insert_step_operations_event(&conn, step_id, event_type, payload);
+    }
+
     /// Queue depth by state, for the metrics the operator watches.
     pub fn verification_queue_depth(&self) -> Vec<(String, i64)> {
         let conn = self.conn();

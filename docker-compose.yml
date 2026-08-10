@@ -9,6 +9,9 @@ services:
       - .env
     environment:
       - CORTEX_PORT=3001
+      # The verification dispatcher refuses to start without this. One
+      # container, one dispatcher — see deploy/cortex-api.service.
+      - CORTEX_SINGLE_NODE=1
       - CORTEX_DB_PATH=/data/cortex.db
       # Uncomment and set these for BYOS (Bring Your Own Subscription) mode:
       # - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}

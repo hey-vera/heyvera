@@ -20,6 +20,12 @@ Environment=CORTEX_PORT=3001
 Environment=CORTEX_WORKSPACE=/opt/cortex/workspace
 Environment=CORTEX_LEDGER_PATH=/opt/cortex/data/ledger.jsonl
 Environment=RUST_LOG=info
+# The verification dispatcher refuses to start without this. The SQLite store
+# is a Mutex<Connection> that two processes do not share, so a second
+# dispatcher would double-dispatch every delivery. This unit is the single
+# node; the day a second one exists, this line is the thing that has to be
+# thought about rather than the thing that was forgotten.
+Environment=CORTEX_SINGLE_NODE=1
 
 # Resource limits
 LimitNOFILE=65536

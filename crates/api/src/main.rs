@@ -192,6 +192,12 @@ async fn main() {
     let scheduler_tx = scheduler::spawn_scheduler(state.clone());
     state.set_scheduler_tx(scheduler_tx).await;
 
+    // Verification. Refuse to start rather than risk two dispatchers on a
+    // Mutex<Connection>, then recover whatever the previous process left
+    // behind — before this server accepts a single request, because a
+    // delivery stranded by the last deploy is the case this exists for.
+    start_verification_dispatcher(&state);
+
     // Start background token refresh job
     cortex_api::token_refresh::spawn_token_refresh_job(state.clone());
 
@@ -231,4 +237,24 @@ async fn main() {
     tracing::info!("server stopped accepting connections, running shutdown sequence");
     state.shutdown().await;
     tracing::info!("cortex server exited cleanly");
+}
+
+/// Assert single-node mode, reconcile what the previous process left, and start
+/// the dispatcher.
+///
+/// A missing assertion is a hard failure. The SQLite store is a
+/// `Mutex<Connection>` that two processes do not share, so a second dispatcher
+/// double-dispatches; a warning here would be a warning nobody reads on the day
+/// it matters.
+fn start_verification_dispatcher(state: &std::sync::Arc<cortex_api::state::AppState>) {
+    use cortex_api::verification_dispatcher;
+
+    if let Err(reason) = verification_dispatcher::assert_single_node() {
+        tracing::error!("{reason}");
+        std::process::exit(1);
+    }
+    if let Some(db) = state.db.as_ref() {
+        verification_dispatcher::reconcile_on_startup(db);
+    }
+    verification_dispatcher::spawn(state.clone());
 }

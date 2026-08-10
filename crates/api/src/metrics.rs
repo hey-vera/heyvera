@@ -63,6 +63,16 @@ pub struct Metrics {
     /// Exec invocations inside containers that returned a non-zero exit code.
     pub container_exec_failures_total: IntCounter,
 
+    // ── Verification queue ──────────────────────────────────────────────────
+    /// Verification jobs by state. The number an operator watches to know
+    /// whether deliveries are being graded or merely accumulating.
+    pub verification_jobs: IntGaugeVec,
+    /// Jobs handed back for a bounded retry, cumulative. A rising count means
+    /// the container runtime is flapping.
+    pub verification_retries_total: IntCounter,
+    /// Time from claim to sealed verdict, labeled by outcome.
+    pub verification_time_to_verdict_seconds: HistogramVec,
+
     // ── Subsystems ──────────────────────────────────────────────────────────
     /// 1 if the subsystem is healthy, 0 otherwise. Labeled by subsystem name.
     pub subsystem_up: IntGaugeVec,
@@ -182,6 +192,30 @@ impl Metrics {
         )
         .expect("register subsystem_up");
 
+        let verification_jobs = register_int_gauge_vec_with_registry!(
+            "cortex_verification_jobs",
+            "Verification jobs by queue state",
+            &["state"],
+            registry
+        )
+        .expect("register verification_jobs");
+
+        let verification_retries_total = register_int_counter_with_registry!(
+            "cortex_verification_retries_total",
+            "Verification jobs handed back for a bounded retry",
+            registry
+        )
+        .expect("register verification_retries_total");
+
+        let verification_time_to_verdict_seconds = register_histogram_vec_with_registry!(
+            "cortex_verification_time_to_verdict_seconds",
+            "Time from claiming a verification job to sealing its verdict",
+            &["outcome"],
+            CONTAINER_OP_BUCKETS.to_vec(),
+            registry
+        )
+        .expect("register verification_time_to_verdict_seconds");
+
         Self {
             registry,
             http_requests_total,
@@ -193,6 +227,9 @@ impl Metrics {
             containers,
             containers_reaped_total,
             container_exec_failures_total,
+            verification_jobs,
+            verification_retries_total,
+            verification_time_to_verdict_seconds,
             subsystem_up,
         }
     }
@@ -203,6 +240,44 @@ static METRICS: Lazy<Metrics> = Lazy::new(Metrics::new);
 /// Access the process-global metrics registry.
 pub fn metrics() -> &'static Metrics {
     &METRICS
+}
+
+/// Publish the verification queue depth.
+///
+/// States that are currently empty are published as zero rather than omitted:
+/// a gauge that disappears when a queue drains looks identical to a scrape
+/// that failed.
+pub fn set_verification_queue_depth(depth: &[(String, i64)]) {
+    let m = metrics();
+    for state in [
+        "queued",
+        "claimed",
+        "retry_wait",
+        "succeeded",
+        "failed",
+        "inconclusive",
+        "dead",
+    ] {
+        let count = depth
+            .iter()
+            .find(|(name, _)| name == state)
+            .map(|(_, count)| *count)
+            .unwrap_or(0);
+        m.verification_jobs.with_label_values(&[state]).set(count);
+    }
+}
+
+/// A verification job was handed back for a bounded retry.
+pub fn record_verification_retry() {
+    metrics().verification_retries_total.inc();
+}
+
+/// A verification job reached a terminal state.
+pub fn record_time_to_verdict(seconds: f64, outcome: &str) {
+    metrics()
+        .verification_time_to_verdict_seconds
+        .with_label_values(&[outcome])
+        .observe(seconds);
 }
 
 /// Record one container lifecycle operation. `started` is the instant the
