@@ -130,7 +130,7 @@ jobs:
           rustup toolchain install 1.97.1 --profile minimal
           rustup default 1.97.1
 
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Build the sandbox image
         run: docker build -f Dockerfile.sandbox -t cortex/sandbox:ci .
@@ -191,7 +191,7 @@ jobs:
 
       # This job is the sole critical path and had no caching at all — every run
       # recompiled the full dependency graph from scratch. Measured 3m04s-4m45s.
-      - uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Check Rust workspace
         run: cargo check --workspace --locked
