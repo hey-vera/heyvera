@@ -19,6 +19,7 @@ use crate::github;
 use crate::run_payload::{build_run_graph_payload, build_run_step_payloads};
 use crate::scheduler;
 use crate::state::AppState;
+#[cfg(feature = "soma")]
 use crate::lock::LockRecovering;
 
 #[derive(Deserialize)]
@@ -66,14 +67,22 @@ pub async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     crate::metrics::set_subsystem_up("docker", docker_ok);
 
     // ── Soma identity (non-critical) ──────────────────────────────────────
-    let soma_did = state.soma_heart.as_ref().map(|h| h.did().to_string());
-    let heartbeat_count = state
-        .soma_heart
-        .as_ref()
-        .map(|h| h.heartbeat_chain.lock_recovering().len())
-        .unwrap_or(0);
-    let soma_ok = state.soma_heart.is_some();
-    crate::metrics::set_subsystem_up("soma", soma_ok);
+    // Compiled out by default. A build without the feature does not report a
+    // Soma subsystem at all, rather than reporting one that is permanently
+    // down — a health check that always shows a red light teaches operators to
+    // ignore it.
+    #[cfg(feature = "soma")]
+    let (soma_did, heartbeat_count, soma_ok) = {
+        let did = state.soma_heart.as_ref().map(|h| h.did().to_string());
+        let beats = state
+            .soma_heart
+            .as_ref()
+            .map(|h| h.heartbeat_chain.lock_recovering().len())
+            .unwrap_or(0);
+        let ok = state.soma_heart.is_some();
+        crate::metrics::set_subsystem_up("soma", ok);
+        (did, beats, ok)
+    };
 
     // ── Scheduler + workers (informational) ───────────────────────────────
     let scheduler_ok = state.scheduler_tx.read().await.is_some();
@@ -100,9 +109,13 @@ pub async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
     } else {
         ("ok", StatusCode::OK)
     };
+    #[cfg(feature = "soma")]
     let degraded = !docker_ok || !soma_ok || !scheduler_ok;
+    #[cfg(not(feature = "soma"))]
+    let degraded = !docker_ok || !scheduler_ok;
 
-    let body = serde_json::json!({
+    #[cfg_attr(not(feature = "soma"), allow(unused_mut))]
+    let mut body = serde_json::json!({
         "status": status,
         "degraded": degraded,
         "service": "cortex",
@@ -111,7 +124,6 @@ pub async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
         "checks": {
             "database": { "ok": db_ok, "critical": true },
             "docker": { "ok": docker_ok, "critical": false },
-            "soma": { "ok": soma_ok, "critical": false },
             "scheduler": { "ok": scheduler_ok, "critical": false },
         },
         "workers": worker_count,
@@ -119,13 +131,20 @@ pub async fn health(State(state): State<Arc<AppState>>) -> impl IntoResponse {
             "total": containers_total,
             "running": containers_running,
         },
-        "soma": {
+        "check_duration_ms": started.elapsed().as_millis() as u64,
+    });
+
+    // Added rather than nulled, so the absence of the keys is the signal that
+    // this build has no Soma in it.
+    #[cfg(feature = "soma")]
+    {
+        body["checks"]["soma"] = serde_json::json!({ "ok": soma_ok, "critical": false });
+        body["soma"] = serde_json::json!({
             "did": soma_did,
             "protocol": "soma-delegation/0.1",
             "heartbeats": heartbeat_count,
-        },
-        "check_duration_ms": started.elapsed().as_millis() as u64,
-    });
+        });
+    }
 
     (http_status, Json(body))
 }

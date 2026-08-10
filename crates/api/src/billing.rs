@@ -408,19 +408,26 @@ pub fn check_chat_access(state: &AppState, user_id: &str) -> Option<AccessState>
 // --- Helpers ---
 
 fn build_delegation_status(state: &AppState) -> DelegationStatus {
-    state.soma_heart.as_ref().map(|_| {
-        DelegationStatus {
+    #[cfg(feature = "soma")]
+    if state.soma_heart.is_some() {
+        return DelegationStatus {
             status: DelegationState::Active,
             budget_enforced: true,
             delegation_id: None,
             expires_at: None,
-        }
-    }).unwrap_or(DelegationStatus {
+        };
+    }
+
+    // No heart — and with the `soma` feature off there is no heart to have.
+    // Reporting `NotIssued` with `budget_enforced: false` is the truthful
+    // answer in both configurations: nothing is enforcing a delegation budget.
+    let _ = state;
+    DelegationStatus {
         status: DelegationState::NotIssued,
         budget_enforced: false,
         delegation_id: None,
         expires_at: None,
-    })
+    }
 }
 
 /// No-DB / unavailable status — never invent Active/premium.

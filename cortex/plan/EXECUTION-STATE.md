@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-10 (wave 2 complete)
+**Last updated:** 2026-08-10 (wave 3 in progress)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -24,6 +24,8 @@ re-deriving anything.
 | 6 | Brief + implement PR C2 (scoped egress) | **done** — PRs [#506](https://github.com/hey-vera/heyvera/pull/506), [#507](https://github.com/hey-vera/heyvera/pull/507) merged |
 | 7 | Handle PR #499 (28 cargo bumps) | **done** — reviewed, not merged; grouping fixed in PR [#508](https://github.com/hey-vera/heyvera/pull/508) |
 | 8 | Implement PR B (durable verifier) | **done** — PR [#513](https://github.com/hey-vera/heyvera/pull/513) merged |
+| **Wave 3** | | |
+| 9 | Fence Soma behind a cargo feature, default off | **done** — see "Wave 3 / Task 1" below |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -251,6 +253,44 @@ added.**
 - **Rollback requires draining.** Dropping `verification_jobs` with jobs in
   flight loses the queue.
 
+## Wave 3 / Task 1 — the Soma fence
+
+`docs/adr/ADR-0003-soma-feature-fence.md` carries the reasoning. What landed:
+`soma` is an optional dependency of `crates/api` **and** `crates/worker`, behind
+a `soma` feature that is not in `default`. `crate::soma_fence` is the single
+place the two projects meet.
+
+**`soma-core` is deliberately not fenced.** It is the trust arithmetic behind
+`VeraTracker` — no identity, no delegation, no keys, no network — and fencing it
+would delete the routing signal that Task 3 exists to restore.
+
+**Two things found while doing it, neither of which the brief anticipated:**
+
+1. **The worker refuses every step without a delegation.**
+   `crates/worker/src/bin/worker.rs:180` fails the step `PermissionDenied` when
+   `delegation` is `None`, gated on `SOMA_ENFORCE_DELEGATION` which **defaults
+   to on** and is set nowhere in `deploy/`. Turning the feature off in the API
+   alone would have stopped Cortex executing any work at all. The worker is
+   fenced by the same feature, so the two must be built the same way; a
+   mismatched pair fails loudly rather than degrading.
+2. **A `{`-prefixed worker token could have reached the `Ok("local")`
+   fallback.** `authenticate_worker` returns `Ok("local")` when
+   `clerk_secret_key` is `None`. Had the Soma branch simply been deleted, a JSON
+   token in a no-Clerk deployment would have authenticated. It is now rejected
+   by format check before that path, with a test that leaves
+   `clerk_secret_key` unset on purpose.
+
+**Guarded against rot:** a `no-default-features` CI job builds and tests the
+whole workspace with everything off and counts its fence assertions (floor 6),
+and a step in `rust` compiles `--features soma` on both binaries. The
+`no-default-features` job should be added to the required-checks list — see
+wave 3 / Task 4.
+
+**Customer-facing consequence for Josh:** `cortex/src/lib/cortexApi.ts` calls
+six `/api/soma/*` endpoints that now 404 in a default build, and `/api/health`
+no longer carries a `soma` block. Nothing in Cortex's execution, routing, or
+billing path depends on them.
+
 ## Next — wave 2 is complete
 
 Every task in the wave-2 handoff has landed. The plan's delivery order from
@@ -341,6 +381,22 @@ catch it. This blocks taking those five majors from #499 with any confidence.
 
 Not fixed here — it is a soma-crypto change, not a Cortex-harness one — but it
 should be fixed before those bumps move.
+
+### F6. The worker verifies a delegation against itself *(unresolved, recorded)*
+
+`crates/worker/src/bin/worker.rs:154` builds its `InvocationContext` with
+`invoker_did: deleg.issuer_did` — the issuer taken from the delegation being
+checked. `verify_delegation` therefore confirms the signature is consistent with
+the DID the token itself claims, and nothing establishes that the DID is
+Cortex's. A self-issued delegation verifies.
+
+The API side does check this (`ws.rs`: `delegation.issuer_did != heart.did()`
+is rejected), so the exposure is worker-side only and requires an attacker
+already able to send `ExecuteStep` frames over an authenticated socket.
+
+Not fixed in the fence PR: fixing it means changing the worker authentication
+path, which is precisely what ADR-0003 exists to avoid doing while Track A
+lands. It matters whenever the `soma` feature is turned back on.
 
 ### F4. A test run mutates a tracked file *(superseded by F5)*
 

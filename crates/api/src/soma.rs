@@ -641,23 +641,6 @@ impl IntoResponse for AuthError {
     }
 }
 
-/// Axum middleware that adds Soma provenance headers to every response.
-pub async fn soma_headers_middleware(
-    State(state): State<Arc<AppState>>,
-    request: axum::http::Request<axum::body::Body>,
-    next: axum::middleware::Next,
-) -> Response {
-    let mut response = next.run(request).await;
-
-    if let Some(heart) = &state.soma_heart {
-        let headers = response.headers_mut();
-        headers.insert("X-Soma-Protocol", "soma-delegation/0.1".parse().unwrap());
-        headers.insert("X-Soma-Heart-DID", heart.did().parse().unwrap());
-        let chain = heart.heartbeat_chain.lock_recovering();
-        if let Ok(val) = chain.head_hash().parse() {
-            headers.insert("X-Soma-Heartbeat-Head", val);
-        }
-    }
-
-    response
-}
+// `soma_headers_middleware` moved to `crate::soma_fence`. It is a layer in the
+// middle of a router builder, so it has to exist in both configurations; the
+// fence owns it and gates its body.
