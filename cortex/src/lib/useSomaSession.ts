@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createSomaSession, setSomaDelegation, type SomaSession } from './cortexApi';
+import { createSomaSession, setSomaDelegation, SOMA_API_ENABLED, type SomaSession } from './cortexApi';
 
 const STORAGE_PREFIX = 'cortex:soma-session:';
 const REFRESH_MARGIN_MS = 60 * 60 * 1000; // refresh 1 hour before expiry
@@ -61,6 +61,10 @@ export function useSomaSession(userId: string, isSignedIn: boolean): SomaSession
   const refreshTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
+    // The fence. `/api/soma/session` 404s in every default build, so without
+    // this every sign-in made a request that could only fail, and left a
+    // console error that reads like a real outage.
+    if (!SOMA_API_ENABLED) return;
     if (!isSignedIn || !userId || userId === 'local' || userId === 'anonymous') return;
     if (requested.current) return;
 

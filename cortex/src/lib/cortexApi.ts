@@ -12,6 +12,24 @@ const CONFIGURED_API_BASE = import.meta.env.VITE_CORTEX_API as string | undefine
 const BASE_URL = CONFIGURED_API_BASE ?? (import.meta.env.DEV ? '' : 'https://api.heyvera.org');
 export const MEMORY_API_ENABLED = import.meta.env.VITE_CORTEX_MEMORY_ENABLED === 'true';
 
+/**
+ * The frontend half of the Soma fence.
+ *
+ * The backend fences `/api/soma/*` behind a cargo feature that is off by
+ * default, so in every deployed build those six endpoints 404. The frontend was
+ * still calling them: a failed session POST on every sign-in, and a spend tab
+ * that could only ever render an error.
+ *
+ * This is off by default and matches the backend's default. It must NOT be
+ * turned on to make the tab work — turning the backend feature on in production
+ * is what the fence exists to prevent. It is here so the surface is hidden
+ * rather than deleted, because Soma returns later; the day it does, this flag
+ * and the cargo feature go on together.
+ *
+ * See docs/adr/ADR-0003-soma-feature-fence.md.
+ */
+export const SOMA_API_ENABLED = import.meta.env.VITE_CORTEX_SOMA_ENABLED === 'true';
+
 /** Returns true when the browser believes it has no network connectivity. */
 export function isOffline(): boolean {
   return typeof navigator !== 'undefined' && !navigator.onLine;
@@ -69,6 +87,12 @@ export function setAuthTokenGetter(getter: () => Promise<string | null>) {
 }
 
 export function setSomaDelegation(delegation: SomaDelegation | null) {
+  // Guarded here rather than only at the call site because of what a delegation
+  // does downstream: `authedFetch` sends `Authorization: Soma <json>` *instead
+  // of* the Clerk bearer token whenever one is set. With the backend fence on,
+  // the `Soma ` scheme is refused — so a delegation arriving from anywhere would
+  // not degrade the Soma features, it would unauthenticate the entire app.
+  if (!SOMA_API_ENABLED) return;
   _somaDelegation = delegation;
 }
 
