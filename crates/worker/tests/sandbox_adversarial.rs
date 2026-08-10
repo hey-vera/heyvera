@@ -20,9 +20,15 @@
 //!
 //! ```bash
 //! docker build -f Dockerfile.sandbox -t cortex/sandbox:test .
+//! docker build -f Dockerfile.egress  -t cortex/egress:test .
 //! CORTEX_SANDBOX_IT=1 CORTEX_SANDBOX_IMAGE=cortex/sandbox:test \
+//!   CORTEX_EGRESS_IMAGE=cortex/egress:test \
 //!   cargo test -p cortex-worker --test sandbox_adversarial
 //! ```
+//!
+//! The egress tests reach a real registry. That is deliberate: a mediator
+//! checked only against a local stub proves the stub is reachable, not that a
+//! task can resolve a dependency and nothing else.
 
 use cortex_core::execution_job::{
     BackendKind, Budgets, CapabilityGrant, EffortApplication, ExecutionJob, IsolationClass,
@@ -66,6 +72,8 @@ fn job(image: &str, attempt: &str) -> ExecutionJob {
         image_ref: image.to_string(),
         isolation_class: IsolationClass::Container,
         resource_profile: ResourceProfile::default(),
+        effective_egress: Some(Vec::new()),
+        egress_mediator: None,
     }
 }
 
@@ -331,39 +339,378 @@ async fn the_wall_clock_budget_terminates_a_hung_job() {
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+// --- Scoped egress -------------------------------------------------------
+//
+// The mediator design in one sentence: the sandbox gets a network with no route
+// off the host, and the mediator is the only thing on it that has one.
+//
+// Everything below exists to check that sentence rather than the configuration
+// that is supposed to produce it. The one that matters most is
+// `egress_a_direct_connection_bypassing_the_proxy_fails`: if a task can reach an
+// allowlisted host without going through the mediator, then the allowlist is a
+// suggestion and this whole feature is decorative.
+
+/// The mediator image, built alongside the sandbox image in CI.
+fn egress_image() -> String {
+    std::env::var("CORTEX_EGRESS_IMAGE").unwrap_or_else(|_| "cortex/egress:test".to_string())
+}
+
+/// A job granted exactly the npm registry, which is the smallest real grant:
+/// one host, HTTPS only.
+fn npm_granted(job: &mut ExecutionJob) {
+    job.network_policy = NetworkPolicy::Allowlist {
+        hosts: vec!["registry.npmjs.org".to_string()],
+    };
+    job.capability_grants = vec![CapabilityGrant::ResolveDependencies {
+        registries: vec!["npm".to_string()],
+    }];
+}
+
+/// Run a script in a sandbox whose runner uses the locally built mediator.
+async fn run_with_egress(
+    image: &str,
+    workspace: &std::path::Path,
+    attempt: &str,
+    script: &str,
+    mutate: impl FnOnce(&mut ExecutionJob),
+) -> (String, SandboxExit) {
+    let mut job = job(image, attempt);
+    mutate(&mut job);
+
+    let runner = ContainerSandbox::new(image)
+        .expect("container runtime must be reachable")
+        .with_egress_image(egress_image());
+    let request = SandboxRequest::new(workspace, "sh", vec!["-c".to_string(), script.to_string()]);
+
+    let mut session = runner.submit(&job, &request).await.expect("sandbox must start");
+
+    let mut output = String::new();
+    while let Some(line) = session.next_line().await {
+        output.push_str(&line.text);
+        output.push('\n');
+    }
+    let exit = session.wait().await.expect("sandbox must report an outcome");
+    (output, exit)
+}
+
 #[tokio::test]
-async fn a_granted_registry_is_refused_until_scoped_egress_exists() {
+async fn egress_an_allowed_host_is_reachable() {
     let Some(image) = enabled() else { return };
     let dir = workspace();
 
-    // Scoped egress is not implemented. The failure mode this guards is the
-    // tempting shortcut: attach a Docker network so the allowlist "works",
-    // which actually grants the whole internet. Invariant 8 says fail closed
-    // and explain the blocker.
+    // The whole point of the PR. If this fails, no task can resolve a
+    // dependency and the sandbox is safe and useless.
+    let (output, _) = run_with_egress(
+        &image,
+        &dir,
+        "e1",
+        "curl -sS -o /dev/null -w 'code=%{http_code}\\n' --max-time 30 \
+         https://registry.npmjs.org/ || echo UNREACHABLE",
+        npm_granted,
+    )
+    .await;
+
+    assert!(
+        output.contains("code=200"),
+        "the granted registry was not reachable through the mediator:\n{output}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_a_denied_host_is_denied() {
+    let Some(image) = enabled() else { return };
+    let dir = workspace();
+
+    // Same network, same mediator, a host nobody granted.
+    let (output, _) = run_with_egress(
+        &image,
+        &dir,
+        "e2",
+        "curl -sS -o /dev/null -w 'code=%{http_code}\\n' --max-time 30 \
+         https://example.com/ || echo REFUSED",
+        npm_granted,
+    )
+    .await;
+
+    assert!(
+        !output.contains("code=200"),
+        "a host outside the allowlist was reachable:\n{output}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_a_direct_connection_bypassing_the_proxy_fails() {
+    let Some(image) = enabled() else { return };
+    let dir = workspace();
+
+    // **The test that matters.** `--noproxy '*'` is exactly what a task would
+    // do to escape: ignore the proxy variables entirely and dial the
+    // allowlisted host itself. It must fail, and it must fail for lack of a
+    // route rather than because anything inspected the request.
     //
-    // When scoped egress lands, this test inverts: the granted host becomes
-    // reachable and every other host must stay blocked.
-    let mut job = job(&image, "a11");
+    // If this ever passes, the allowlist is advice and every other test in this
+    // section is measuring the honour system.
+    let (output, _) = run_with_egress(
+        &image,
+        &dir,
+        "e3",
+        "curl -sS -o /dev/null -w 'code=%{http_code}\\n' --max-time 20 --noproxy '*' \
+         https://registry.npmjs.org/ || echo NO_ROUTE",
+        npm_granted,
+    )
+    .await;
+
+    assert!(
+        !output.contains("code=200"),
+        "a task reached an allowlisted host without the mediator, so the \
+         allowlist is not enforced:\n{output}"
+    );
+    assert!(
+        output.contains("NO_ROUTE"),
+        "the direct connection should have failed outright:\n{output}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_unsetting_the_proxy_variables_does_not_restore_the_internet() {
+    let Some(image) = enabled() else { return };
+    let dir = workspace();
+
+    // The same claim from the task's point of view: the variables are a
+    // convenience for well-behaved clients, never the boundary.
+    let (output, _) = run_with_egress(
+        &image,
+        &dir,
+        "e4",
+        "unset HTTP_PROXY HTTPS_PROXY http_proxy https_proxy; \
+         curl -sS -o /dev/null -w 'code=%{http_code}\\n' --max-time 20 \
+         https://registry.npmjs.org/ || echo NO_ROUTE",
+        npm_granted,
+    )
+    .await;
+
+    assert!(
+        !output.contains("code=200"),
+        "unsetting the proxy variables restored real network access:\n{output}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_raw_tcp_to_an_arbitrary_address_fails() {
+    let Some(image) = enabled() else { return };
+    let dir = workspace();
+
+    // Not HTTP at all. A task that opens a socket to a public resolver is
+    // exfiltrating or command-and-controlling, and there must be no route for
+    // it whatever protocol it speaks.
+    let (output, _) = run_with_egress(
+        &image,
+        &dir,
+        "e5",
+        "nc -w 5 -z 1.1.1.1 443 && echo CONNECTED || echo NO_ROUTE",
+        npm_granted,
+    )
+    .await;
+
+    assert!(
+        !output.contains("CONNECTED"),
+        "raw TCP left the sandbox:\n{output}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_an_allowed_host_on_an_ungranted_port_is_denied() {
+    let Some(image) = enabled() else { return };
+    let dir = workspace();
+
+    // The allowlist grants `registry.npmjs.org:443`. A host entry that
+    // permitted every port would also permit an SSH daemon, a database, or an
+    // internal admin port on the same name.
+    //
+    // `--proxytunnel` forces CONNECT for a plain http:// URL, which is how a
+    // task would ask the mediator for port 80.
+    let (output, _) = run_with_egress(
+        &image,
+        &dir,
+        "e6",
+        "curl -sS -o /dev/null -w 'code=%{http_code}\\n' --max-time 20 --proxytunnel \
+         http://registry.npmjs.org/ || echo REFUSED",
+        npm_granted,
+    )
+    .await;
+
+    assert!(
+        !output.contains("code=200"),
+        "an ungranted port on an allowlisted host was reachable:\n{output}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_a_non_connect_request_is_refused_not_forwarded() {
+    let Some(image) = enabled() else { return };
+    let dir = workspace();
+
+    // The mediator tunnels CONNECT and nothing else. Absolute-URI forwarding
+    // would mean header, keep-alive, and chunked-body parsing in the one
+    // component between a task and the internet. A client that asks for it is
+    // told 405 rather than left to hang.
+    let (output, _) = run_with_egress(
+        &image,
+        &dir,
+        "e7",
+        "curl -sS -o /dev/null -w 'code=%{http_code}\\n' --max-time 20 \
+         http://registry.npmjs.org/ || echo REFUSED",
+        npm_granted,
+    )
+    .await;
+
+    assert!(
+        output.contains("code=405") || output.contains("REFUSED"),
+        "a non-CONNECT request was neither refused nor reported:\n{output}"
+    );
+    assert!(
+        !output.contains("code=200"),
+        "the mediator forwarded a plain HTTP request:\n{output}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_an_unknown_registry_grant_is_refused() {
+    let Some(image) = enabled() else { return };
+    let dir = workspace();
+
+    // A grant naming something the registry table does not know justifies
+    // nothing. Running the job anyway would give it less reach than its author
+    // believed, which fails later and looks like a broken network rather than
+    // a policy we declined to honour.
+    let mut job = job(&image, "e8");
     job.network_policy = NetworkPolicy::Allowlist {
-        hosts: vec!["deb.debian.org".to_string()],
+        hosts: vec!["evil.example.com".to_string()],
     };
     job.capability_grants = vec![CapabilityGrant::ResolveDependencies {
-        registries: vec!["deb.debian.org".to_string()],
+        registries: vec!["evil.example.com".to_string()],
     }];
 
-    let runner = ContainerSandbox::new(&image).expect("container runtime must be reachable");
+    let runner = ContainerSandbox::new(&image)
+        .expect("container runtime must be reachable")
+        .with_egress_image(egress_image());
     let request = SandboxRequest::new(&dir, "sh", vec!["-c".to_string(), "true".to_string()]);
 
     let blocked = runner
         .submit(&job, &request)
         .await
         .err()
-        .expect("an unenforceable network policy must be refused, not opened");
-
+        .expect("an unknown registry must be refused, not silently narrowed");
     assert_eq!(
         blocked.reason,
         cortex_core::execution_job::BlockedReason::NetworkPolicyUnenforceable
     );
 
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_a_broken_mediator_blocks_rather_than_opening_a_network() {
+    let Some(image) = enabled() else { return };
+    let dir = workspace();
+
+    // Invariant 8's forbidden downgrade, in the exact place it would be
+    // tempting: the proxy did not come up, so start the sandbox on a normal
+    // network and let the task get on with it. That would silently undo the
+    // sandbox, so it must refuse instead.
+    let mut job = job(&image, "e9");
+    npm_granted(&mut job);
+
+    let runner = ContainerSandbox::new(&image)
+        .expect("container runtime must be reachable")
+        .with_egress_image("cortex/egress-does-not-exist:never-built");
+    let request = SandboxRequest::new(&dir, "sh", vec!["-c".to_string(), "true".to_string()]);
+
+    let blocked = runner
+        .submit(&job, &request)
+        .await
+        .err()
+        .expect("a mediator that cannot start must block the job");
+    assert_eq!(
+        blocked.reason,
+        cortex_core::execution_job::BlockedReason::NetworkPolicyUnenforceable
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_the_network_and_mediator_are_removed_after_the_attempt() {
+    let Some(image) = enabled() else { return };
+    let dir = workspace();
+
+    // A surviving network or mediator is the leftover state that makes reuse a
+    // leak: one task's allowlist would be sitting there serving the next one.
+    let attempt = "e10";
+    let (_, _) = run_with_egress(&image, &dir, attempt, "true", npm_granted).await;
+
+    let docker = bollard::Docker::connect_with_local_defaults().expect("runtime");
+    let networks = docker
+        .list_networks::<String>(None)
+        .await
+        .expect("can list networks");
+    let leaked: Vec<String> = networks
+        .into_iter()
+        .filter_map(|n| n.name)
+        .filter(|name| name.contains(&format!("cortex-egress-{attempt}-")))
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "the attempt's egress network survived it: {leaked:?}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_records_the_effective_host_set_on_the_job() {
+    // Not a runtime test: this is what a receipt will show, and it has to be
+    // the resolved set rather than the requested one. Runs everywhere so the
+    // claim is checked even without a container runtime.
+    let mut job = job("cortex/runner@sha256:abc", "e11");
+    job.network_policy = NetworkPolicy::Allowlist {
+        hosts: vec![
+            "crates.io".to_string(),
+            "index.crates.io".to_string(),
+            "evil.example.com".to_string(),
+        ],
+    };
+    job.capability_grants = vec![CapabilityGrant::ResolveDependencies {
+        registries: vec!["crates".to_string()],
+    }];
+
+    let endpoints: Vec<String> = cortex_worker::sandbox::policy::effective_endpoints(&job)
+        .iter()
+        .map(|e| e.to_string())
+        .collect();
+
+    assert!(endpoints.contains(&"crates.io:443".to_string()));
+    assert!(endpoints.contains(&"index.crates.io:443".to_string()));
+    assert!(
+        !endpoints.iter().any(|e| e.starts_with("evil.example.com")),
+        "an entry no grant justifies must not appear on the receipt: {endpoints:?}"
+    );
+    assert!(
+        endpoints.iter().all(|e| e.ends_with(":443")),
+        "every entry carries the port it was granted on: {endpoints:?}"
+    );
 }

@@ -12,6 +12,7 @@ members = [
     "crates/cortex-server",
     "crates/heyvera-server",
     "crates/context",
+    "crates/egress",
 ]
 resolver = "2"
 

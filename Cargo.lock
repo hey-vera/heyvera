@@ -637,6 +637,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "cortex-egress"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
 name = "cortex-engine"
 version = "0.1.0"
 dependencies = [
