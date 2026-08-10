@@ -2553,7 +2553,7 @@ mod tests {
         assert!(db.deliver_step(&step_id, "attempt-1", lease_gen, None, None, None, None));
         // Evidence-backed completion means *verified*, so the delivery has to
         // survive our own runner before the task may be marked done.
-        assert!(db.begin_verifying_step(&step_id, "attempt-1", lease_gen));
+        assert!(db.begin_verifying_step(&step_id, "attempt-1", lease_gen, None));
         assert!(db.record_verification_outcome(
             &step_id,
             "attempt-1",

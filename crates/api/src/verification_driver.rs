@@ -61,6 +61,13 @@ pub struct DeliveryFacts {
 /// "It passed" is only reproducible if *where* it passed is pinned, so this is
 /// recorded on every execution. Overridable per deployment because Phase A
 /// (containers) and Phase B (microVMs) use different images.
+/// Which set of runner rules was in force when a job was enqueued.
+///
+/// Recorded on the job so a receipt can say what the rules *were* rather than
+/// what they are now. Bumped whenever the runner's behaviour changes in a way
+/// that would make two verdicts incomparable.
+pub const RUNNER_POLICY_VERSION: &str = "runner-policy-1";
+
 pub fn runner_image() -> String {
     std::env::var("CORTEX_RUNNER_IMAGE").unwrap_or_else(|_| "cortex/runner:phase-a".to_string())
 }

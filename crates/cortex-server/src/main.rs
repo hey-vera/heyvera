@@ -61,6 +61,9 @@ async fn main() {
     let scheduler_tx = scheduler::spawn_scheduler(state.clone());
     state.set_scheduler_tx(scheduler_tx).await;
 
+    // See the note in crates/api/src/main.rs: assert, reconcile, then serve.
+    start_verification_dispatcher(&state);
+
     cortex_api::token_refresh::spawn_token_refresh_job(state.clone());
     cortex_api::docker::spawn_idle_reaper(state.clone());
 
@@ -96,4 +99,24 @@ async fn main() {
     tracing::info!("shutting down");
     state.shutdown().await;
     tracing::info!("cortex server exited");
+}
+
+/// Assert single-node mode, reconcile what the previous process left, and start
+/// the dispatcher.
+///
+/// A missing assertion is a hard failure. The SQLite store is a
+/// `Mutex<Connection>` that two processes do not share, so a second dispatcher
+/// double-dispatches; a warning here would be a warning nobody reads on the day
+/// it matters.
+fn start_verification_dispatcher(state: &std::sync::Arc<cortex_api::state::AppState>) {
+    use cortex_api::verification_dispatcher;
+
+    if let Err(reason) = verification_dispatcher::assert_single_node() {
+        tracing::error!("{reason}");
+        std::process::exit(1);
+    }
+    if let Some(db) = state.db.as_ref() {
+        verification_dispatcher::reconcile_on_startup(db);
+    }
+    verification_dispatcher::spawn(state.clone());
 }

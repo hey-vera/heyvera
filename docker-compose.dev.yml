@@ -10,6 +10,9 @@ services:
       - .env
     environment:
       - CORTEX_PORT=3001
+      # The verification dispatcher refuses to start without this. One
+      # container, one dispatcher — see deploy/cortex-api.service.
+      - CORTEX_SINGLE_NODE=1
       - CORTEX_DB_PATH=/data/cortex.db
       - RUST_LOG=info,cortex_api=debug
     volumes:
