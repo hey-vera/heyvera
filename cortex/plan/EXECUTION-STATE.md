@@ -18,6 +18,7 @@ re-deriving anything.
 | 1a | Split-out auth commit from the same branch | branch `fix/auth-remove-subscription-flow` pushed, **PR deliberately not opened** — see F1 |
 | 2 | Briefs for PR C, PR A, PR B | **done** — PR [#501](https://github.com/hey-vera/heyvera/pull/501) merged |
 | 3 | Implement PR C (execution sandbox) | **done** — PR [#502](https://github.com/hey-vera/heyvera/pull/502) merged |
+| 4 | Promote `sandbox` to a required status check | **done** — branch protection updated 2026-08-09 |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -50,9 +51,8 @@ rather than becoming a separate PR.
   overstates it. The `SandboxRunner` trait carries no container vocabulary, so
   the microVM implementation is a swap. **Phase 32.4 asks for a date on that
   commitment; the date is Josh's to set.**
-- **The `sandbox` CI job is not in the required-checks list.** It runs on every
-  PR but cannot block a merge until it is added to branch protection. Adding it
-  is a one-line settings change and should happen once it has a green history.
+- ~~**The `sandbox` CI job is not in the required-checks list.**~~ **Closed
+  2026-08-09** — see "Task 4" below.
 - **`run_id` on the job is empty at the worker.** The worker does not know it;
   the API supplies it when recording. Harmless today, but a `NOT NULL` column
   fed from a `resolve_run_id` that can return `None` will want revisiting when
@@ -76,6 +76,38 @@ because they are the class of bug a container unit test cannot reach:
    the workspace owner, never uid 0.
 3. The allowlist path named a per-attempt Docker network that **nothing
    provisions**, so it failed at submit rather than silently opening egress.
+
+## Task 4 — `sandbox` is now a required check
+
+Required contexts on `main` are now:
+
+```
+heyvera, rust, cortex, npm-audit (cortex), npm-audit (heyvera), cargo-deny, sandbox
+```
+
+A check that runs but cannot block a merge is not a gate. That is the precise
+shape of the fault that let seven dependency advisories accumulate before #498,
+and the `sandbox` job is the only thing standing between a task and host
+execution — so it had to become blocking rather than advisory.
+
+Two properties made it safe to require rather than merely desirable:
+
+- The job is **unconditional**. It has no `paths:` filter and no change-detection
+  gate, so it reports on every pull request. A required check that sometimes
+  does not report never goes green and wedges the repository — the failure mode
+  that killed the old `web` job in reverse.
+- It **cannot pass vacuously**. The adversarial tests skip silently when
+  `CORTEX_SANDBOX_IT` is unset, so the job counts the passing tests and fails
+  below ten (`.github/workflows/ci.yml:146`). A green `sandbox` therefore means
+  the tests ran, not that they were skipped.
+
+Branch protection is read-modify-write: `PUT .../branches/main/protection`
+replaces the entire object, and every field omitted from the payload is reset to
+its default. The current settings were read first, the one context added, and
+the rest resent unchanged. Re-read afterwards to confirm the settings that were
+not the point of the change survived: `required_conversation_resolution` still
+enabled, `allow_force_pushes` and `allow_deletions` still disabled, `strict`
+still false, no review requirement or push restriction introduced.
 
 ## Next
 
@@ -110,9 +142,9 @@ change" rule:
   fresh-database assertion at `db.rs:25375` requires `>= 61`. **Next free number
   is v62.**
 - Branch protection required checks: `heyvera`, `rust`, `cortex`,
-  `npm-audit (cortex)`, `npm-audit (heyvera)`, `cargo-deny`. Auto-merge is armed
-  on every PR by `.github/workflows/automerge.yml`; the required checks are the
-  only gate.
+  `npm-audit (cortex)`, `npm-audit (heyvera)`, `cargo-deny` — and, since
+  2026-08-09, `sandbox`. Auto-merge is armed on every PR by
+  `.github/workflows/automerge.yml`; the required checks are the only gate.
 
 ## Findings — plan/repo inconsistencies
 
