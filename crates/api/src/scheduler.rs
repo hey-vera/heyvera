@@ -305,6 +305,44 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
         return DispatchOutcome::RetryLater;
     }
 
+    // --- Path leases, at step scope ---
+    //
+    // Acquired here rather than at run creation. A run-scoped lease is held
+    // from creation until the run finishes, so two runs touching the same
+    // directory serialise end to end even when only one step in each writes
+    // there. Holding at step scope shortens that to the step.
+    //
+    // A conflict is not a failure. The step stays pending and is retried next
+    // tick, exactly as it does for a missing worker or a closed billing gate —
+    // which is queue-on-conflict using the mechanism already here, rather than
+    // a new waiting state to keep correct.
+    let write_set = cortex_core::write_set::derive_write_set(
+        step_changes_the_tree(step.kind),
+        &db.get_step_target_paths(&step.step_id).unwrap_or_default(),
+        &[],
+    );
+    let mut lease_keys = write_set.lease_keys();
+    cortex_core::write_set::canonical_order(&mut lease_keys);
+
+    if !lease_keys.is_empty() {
+        let repo_key = normalize_repo_key(db.get_run_repo_key(&step.run_id).as_deref());
+        if let Err(conflict) = db.acquire_step_path_leases(
+            &step.user_id,
+            &step.run_id,
+            &step.step_id,
+            &repo_key,
+            &lease_keys,
+        ) {
+            tracing::info!(
+                step_id = %step.step_id,
+                path = %conflict.resource_key,
+                held_by_step = ?conflict.step_id,
+                "path is leased by another step — waiting, will retry next tick"
+            );
+            return DispatchOutcome::RetryLater;
+        }
+    }
+
     // --- Build evidence and route through evaluator ---
     let tier = parse_tier(&step.tier);
     let risk = parse_risk(&step.risk);
