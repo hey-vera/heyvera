@@ -5,8 +5,9 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-09
+**Last updated:** 2026-08-09 (wave 2)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
+**Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
 ---
 
@@ -18,7 +19,8 @@ re-deriving anything.
 | 1a | Split-out auth commit from the same branch | branch `fix/auth-remove-subscription-flow` pushed, **PR deliberately not opened** — see F1 |
 | 2 | Briefs for PR C, PR A, PR B | **done** — PR [#501](https://github.com/hey-vera/heyvera/pull/501) merged |
 | 3 | Implement PR C (execution sandbox) | **done** — PR [#502](https://github.com/hey-vera/heyvera/pull/502) merged |
-| 4 | Promote `sandbox` to a required status check | **done** — branch protection updated 2026-08-09 |
+| 4 | Promote `sandbox` to a required status check | **done** — PR [#504](https://github.com/hey-vera/heyvera/pull/504) merged |
+| 5 | Implement PR A (truth model) | **done** — PR [#505](https://github.com/hey-vera/heyvera/pull/505) |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -41,11 +43,10 @@ rather than becoming a separate PR.
 
 **Known gaps, stated rather than papered over:**
 
-- **The wire protocol has no `blocked` state.** A refusal travels as
-  `StepFailed` with its reason prefixed `BLOCKED:`. That attributes an
-  operator's infrastructure problem to the customer's step. **PR A closes it**
-  by giving the refusal its own state. Inventing a lifecycle state in PR C
-  would have created a second source of truth for step status.
+- ~~**The wire protocol has no `blocked` state.**~~ **Closed by PR A.** The
+  protocol has `StepBlocked` (version 2 to 3), and a refusal is recorded as
+  `execution_failed` against Cortex rather than as the customer's step failing.
+  The `BLOCKED:` prefix is gone.
 - **Isolation is `Container`, not `MicroVm`.** Phase 32.4 requires kernel-level
   isolation and the container class is recorded on every job so no receipt
   overstates it. The `SandboxRunner` trait carries no container vocabulary, so
@@ -109,22 +110,67 @@ not the point of the change survived: `required_conversation_resolution` still
 enabled, `allow_force_pushes` and `allow_deletions` still disabled, `strict`
 still false, no review requirement or push restriction introduced.
 
+## PR A — what landed, and what it deliberately did not
+
+Three commits. Migration **v63**, not the v62 the brief anticipated: PR C
+landed first and took v62.
+
+1. `crates/engine/src/captain.rs` + `docs/adr/ADR-0001-step-truth-model.md` —
+   the states, and why they exist.
+2. `crates/api/src/db.rs`, `storage.rs`, `ws.rs`, `scheduler.rs`,
+   `verification_driver.rs`, `run_payload.rs` — migration v63, the
+   transactional transitions, and the wiring.
+3. `crates/core/src/protocol.rs`, `crates/worker/src/bin/worker.rs`,
+   `cortex/src/**` — `StepBlocked` and the truthful panes.
+
+**The consequential decision.** The migration rewrites every historical
+`succeeded` step to `delivered`, never `verified`. Those rows were never
+independently verified, so labelling them verified would assert a claim about
+work already delivered to customers that we never checked. Old runs now show
+fewer verified steps. Forward-only: reversing it means re-asserting a claim
+that was never true.
+
+**Known gaps, stated rather than papered over:**
+
+- **A step can strand in `verifying`.** The verifier is still `tokio::spawn`.
+  If the process dies between the transition and the verdict, nothing resumes
+  it. There is deliberately no timeout — a timeout that invents a verdict is
+  the same fault as trusting the worker, one layer down. **PR B closes it.**
+- **The positive routing signal is suspended.** `record_step_completed`
+  derived its outcome from the worker's exit code, which invariant 6 forbids
+  from improving a score, so it no longer fires on delivery. It does not fire
+  from the verdict path either: `VeraTracker` lives in `AppState` by value and
+  cannot be moved into the spawned task. Dropping a metric beats crediting
+  unverified work. **PR B restores it against a real verdict.**
+- **The verdict emits no live event.** Same constraint — the spawned task holds
+  a `Database` and nothing else, so it cannot reach the Mission Control
+  channel. A pane shows `verifying` until it refreshes. Run completion is
+  reconciled on the 30s scheduler tick (`reconcile_run_completion`) so a run
+  whose last step verified in the background does finish.
+- **`success_required` serialises more than strictly necessary.** Every
+  dependent waits for `verified`, including read-only ones. The scheduler
+  cannot establish that a dependent does not write, and unknown scope is never
+  optimistically unblocked. Narrowing this needs write-scope on the step.
+- **`inconclusive` holds its dependents indefinitely.** It is not terminal and
+  not accepted, so a run with an inconclusive step waits for an operator. Its
+  retry policy is PR B's.
+
 ## Next
 
-Wave 1 is now the frontier. `PR-A-truth-model.md` is ready to dispatch and is
-the prerequisite for `PR-B-durable-verifier.md`. PR A also closes PR C's known
-gap, since the `BLOCKED:`-prefixed failure exists only because there is no
-blocked state to transition to.
+`PR-B-durable-verifier.md` is unblocked — PR A was its prerequisite and has
+landed. Before it, PR C2 (scoped egress) is the gate on Cortex doing any real
+work: without it there is no `npm install` and no `cargo fetch` inside the
+sandbox.
 
 Briefs live in `cortex/plan/briefs/`. An implementer reads only the brief.
 
 ## Migration numbers — the shared-counter hazard
 
-`schema_version` is one counter shared with the HeyVera Socials product. Max on
-`main` was **v61** (`crates/api/src/db.rs:3445`). PRs A, B, and C each need a
-migration and all three briefs point at the next free number. **Whichever lands
-second takes the next one; resolve at rebase, not at design time.** Each brief
-says so; do not let two branches claim v62.
+`schema_version` is one counter shared with the HeyVera Socials product. The
+hazard is real and it already bit: PR C took **v62**, so PR A took **v63** even
+though its brief says v62. **PR B must re-check the maximum before claiming a
+number** — a collision means whichever branch merges second has its migration
+silently skipped. Max on `main` after PR A is **v63**.
 
 ## What was verified directly (not inherited)
 
@@ -171,6 +217,14 @@ byte-identical content, so commit `d437ff5d` was dropped during the rebase.
 Cosmetic; noted so the next reader is not confused by a 16-commit branch
 producing 15 commits.
 
+### F4. A test run mutates a tracked file *(unresolved, low severity)*
+
+`cargo test --workspace` rewrites `crates/soma-crypto/test-vectors/composite.json`
+— the vectors are regenerated rather than asserted against. It cost one
+amended commit here after `git add -A` swept it in. Anyone running the full
+suite should expect a dirty tree in that one file. Not fixed: it is unrelated
+to this wave and belongs to whoever owns soma-crypto.
+
 ### F3. PR C is Wave 2, but is being implemented before PR A
 
 The plan's delivery order puts PR C in "Wave 2 — execution and durability
@@ -192,6 +246,7 @@ Reconciled, not deferred. No plan change needed.
 - Commit and push after each coherent unit.
 - Rust: `cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --lib`.
   **Never run `cargo fmt` on this repo.**
-- Known pre-existing local failure, not a regression:
-  `validate::tests::normalizes_dot_segments` (Windows path separators).
+- The handoff lists `validate::tests::normalizes_dot_segments` as a known local
+  failure. It **passed** on this machine during PR A (316/316 on the api lib).
+  Treat any failure of it as suspect rather than expected.
 - If a brief and the plan disagree, the plan wins and the brief is fixed.
