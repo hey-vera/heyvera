@@ -249,7 +249,9 @@ pub enum SchedulerEvent {
     RunCreated {
         run_id: String,
     },
-    StepCompleted {
+    /// A worker handed back a commit. **Not** a success: the step is
+    /// `delivered` and nothing has been checked yet.
+    StepDelivered {
         run_id: String,
         step_id: String,
         cost_estimate: Option<f64>,

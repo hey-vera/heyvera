@@ -2550,7 +2550,17 @@ mod tests {
             "pass",
             "{}",
         );
-        assert!(db.complete_step(&step_id, lease_gen, None, None, None, None));
+        assert!(db.deliver_step(&step_id, "attempt-1", lease_gen, None, None, None, None));
+        // Evidence-backed completion means *verified*, so the delivery has to
+        // survive our own runner before the task may be marked done.
+        assert!(db.begin_verifying_step(&step_id, "attempt-1", lease_gen));
+        assert!(db.record_verification_outcome(
+            &step_id,
+            "attempt-1",
+            lease_gen,
+            "verified",
+            None
+        ));
         assert!(db.update_run_status(&run_id, "succeeded", None));
         let (next, _, _) = apply_task_patch(
             "group-1",

@@ -70,15 +70,45 @@ pub trait Storage: Send + Sync {
     /// Returns `true` if the step was successfully unleased.
     fn unlease_step(&self, step_id: &str, lease_gen: i64) -> bool;
 
-    /// Mark a leased/running step as succeeded.  Returns `true` if a row was updated.
-    fn complete_step(
+    /// Record that a worker handed back a commit.  Returns `true` if a row was
+    /// updated.
+    ///
+    /// The step becomes `delivered`, not succeeded — a worker's report is a
+    /// diagnostic, and only our own verifier can produce `verified`.
+    #[allow(clippy::too_many_arguments)]
+    fn deliver_step(
         &self,
         step_id: &str,
+        attempt_id: &str,
         lease_gen: i64,
         summary: Option<&str>,
         files: Option<&str>,
         base: Option<&str>,
         head: Option<&str>,
+    ) -> bool;
+
+    /// Hand a delivered step to our own verifier.
+    fn begin_verifying_step(&self, step_id: &str, attempt_id: &str, lease_gen: i64) -> bool;
+
+    /// Seal a verdict our runner produced: `verified`, `failed`, or
+    /// `inconclusive`.
+    fn record_verification_outcome(
+        &self,
+        step_id: &str,
+        attempt_id: &str,
+        lease_gen: i64,
+        state: &str,
+        reason: Option<&str>,
+    ) -> bool;
+
+    /// Record that the delivery never happened — the sandbox or the harness
+    /// failed before the step could produce a tree.
+    fn record_execution_failure(
+        &self,
+        step_id: &str,
+        attempt_id: &str,
+        lease_gen: i64,
+        reason: &str,
     ) -> bool;
 
     /// Mark a leased/running step as failed.  Returns `true` if a row was updated.
@@ -226,16 +256,44 @@ impl Storage for Database {
         Database::unlease_step(self, step_id, lease_gen)
     }
 
-    fn complete_step(
+    fn deliver_step(
         &self,
         step_id: &str,
+        attempt_id: &str,
         lease_gen: i64,
         summary: Option<&str>,
         files: Option<&str>,
         base: Option<&str>,
         head: Option<&str>,
     ) -> bool {
-        Database::complete_step(self, step_id, lease_gen, summary, files, base, head)
+        Database::deliver_step(
+            self, step_id, attempt_id, lease_gen, summary, files, base, head,
+        )
+    }
+
+    fn begin_verifying_step(&self, step_id: &str, attempt_id: &str, lease_gen: i64) -> bool {
+        Database::begin_verifying_step(self, step_id, attempt_id, lease_gen)
+    }
+
+    fn record_verification_outcome(
+        &self,
+        step_id: &str,
+        attempt_id: &str,
+        lease_gen: i64,
+        state: &str,
+        reason: Option<&str>,
+    ) -> bool {
+        Database::record_verification_outcome(self, step_id, attempt_id, lease_gen, state, reason)
+    }
+
+    fn record_execution_failure(
+        &self,
+        step_id: &str,
+        attempt_id: &str,
+        lease_gen: i64,
+        reason: &str,
+    ) -> bool {
+        Database::record_execution_failure(self, step_id, attempt_id, lease_gen, reason)
     }
 
     fn fail_step(&self, step_id: &str, lease_gen: i64, error: &str, kind: Option<&str>) -> bool {

@@ -41,6 +41,9 @@ const RUNNER_RETRIES: usize = 2;
 pub struct DeliveryFacts {
     pub run_id: String,
     pub step_id: String,
+    /// The attempt this delivery belongs to. Carried so the verdict can be
+    /// written against the same lifecycle row the delivery opened.
+    pub attempt_id: String,
     pub attempt: i64,
     /// The repository the worker delivered into. Used only as the source for
     /// a detached checkout — never mounted directly.
@@ -158,6 +161,7 @@ pub async fn verify_delivery<R: CheckRunner>(
                 "could not snapshot the delivered tree; verification is inconclusive"
             );
             let _ = db.finish_verification(&verification_id, Verdict::Inconclusive);
+            project_verdict(db, facts, Verdict::Inconclusive, Some(&e));
             return Some(Verdict::Inconclusive);
         }
     };
@@ -192,7 +196,45 @@ pub async fn verify_delivery<R: CheckRunner>(
     );
 
     finish_and_bill(db, &verification_id, report.verdict, facts).await;
+    project_verdict(db, facts, report.verdict, None);
     Some(report.verdict)
+}
+
+/// Move the step itself to the state the verdict implies.
+///
+/// This is the line that makes verification mean something. Before it existed
+/// the verdict was recorded beside the step and the step had already been
+/// marked succeeded by the worker's own report; the grade was written on a
+/// paper nobody read.
+///
+/// A verdict for a superseded attempt is a no-op — the transition carries the
+/// `lease_gen` CAS, so a verifier that finishes after its step was re-leased
+/// cannot move the live attempt.
+fn project_verdict(db: &Database, facts: &DeliveryFacts, verdict: Verdict, detail: Option<&str>) {
+    let state = match verdict {
+        Verdict::Verified => "verified",
+        Verdict::Failed => "failed",
+        // Unverified means no executable ground truth existed, so nothing was
+        // proven. It is not a pass. It stays visible as an unanswered question
+        // rather than becoming a badge.
+        Verdict::Unverified | Verdict::Inconclusive => "inconclusive",
+    };
+    let applied = db.record_verification_outcome(
+        &facts.step_id,
+        &facts.attempt_id,
+        facts.attempt,
+        state,
+        detail,
+    );
+    if !applied {
+        tracing::warn!(
+            run_id = %facts.run_id,
+            step_id = %facts.step_id,
+            attempt = facts.attempt,
+            state,
+            "verdict did not move the step — the attempt was superseded or was not verifying"
+        );
+    }
 }
 
 /// Run one check, retrying only when the *runner* failed.
@@ -479,6 +521,7 @@ mod tests {
         DeliveryFacts {
             run_id: "run-1".to_string(),
             step_id: "step-1".to_string(),
+            attempt_id: "attempt-1".to_string(),
             attempt: 1,
             workspace_dir: dir.to_path_buf(),
             head_commit: head.to_string(),

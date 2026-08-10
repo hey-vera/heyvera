@@ -40,7 +40,12 @@ pub enum MissionControlEvent {
         step_id: String,
         line: String,
     },
-    StepCompleted {
+    /// A worker handed back a commit and our verifier has started grading it.
+    ///
+    /// Deliberately not `StepCompleted`: nothing has been checked, so no pane
+    /// may render this as done. `exit_code` and `files_changed` are the
+    /// worker's own report and are labelled as diagnostics where they surface.
+    StepDelivered {
         run_id: String,
         step_id: String,
         exit_code: i32,
@@ -197,7 +202,7 @@ async fn handle_mc_connection(
                     // Non-output events: send immediately
                     // If this is a StepCompleted/StepFailed, flush any pending output first
                     let flush_step = match &event {
-                        MissionControlEvent::StepCompleted { step_id, .. }
+                        MissionControlEvent::StepDelivered { step_id, .. }
                         | MissionControlEvent::StepFailed { step_id, .. } => Some(step_id.clone()),
                         _ => None,
                     };
