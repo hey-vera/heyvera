@@ -263,6 +263,18 @@ pub struct BundleRef {
     /// Recorded per attempt so context growth is measurable rather than
     /// anecdotal.
     pub packed_bytes: Option<u64>,
+    /// What the bundle was made of, by provenance.
+    ///
+    /// The question this answers, and which a packed prompt cannot answer after
+    /// the fact: how much of what this step was told came from the repository
+    /// it was pointed at? Also carries any directive found in observed content,
+    /// so a receipt can show that a repository tried to give the step orders.
+    ///
+    /// `Option`, and absent rather than empty when there is no record —
+    /// present-but-empty would claim "nothing was composed", which is a
+    /// different fact from "this attempt predates the record".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub composition: Option<crate::provenance::ContextComposition>,
 }
 
 /// Cost containment, enforced at the sandbox boundary rather than trusted to
@@ -547,6 +559,7 @@ mod tests {
         original.context_bundle = Some(BundleRef {
             bundle_id: "bundle-1".to_string(),
             packed_bytes: Some(4096),
+                    composition: None,
         });
         original.quote_id = Some("quote-1".to_string());
         original.plan_receipt_id = Some("receipt-1".to_string());
