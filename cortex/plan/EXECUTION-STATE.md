@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-10 (wave 3 in progress — Tasks 1, 1a, 2, 3, 4 done; Task 5 next)
+**Last updated:** 2026-08-10 (wave 3 — Tasks 1, 1a, 2, 3, 4, 5 done; Task 6 next)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -30,6 +30,7 @@ re-deriving anything.
 | 10 | Derive the egress allowlist at plan time | **done** — PR [#518](https://github.com/hey-vera/heyvera/pull/518) merged |
 | 11 | Restore the routing signal from the verdict | **done** — PR [#519](https://github.com/hey-vera/heyvera/pull/519) merged |
 | 12 | Governance: required checks, CODEOWNERS, environments | **done** — see "Wave 3 / Task 4" below. **Two recommendations need Josh.** |
+| 13 | Rebase PR #105 and report what is true | **done, not merged** — see "Wave 3 / Task 5" below. **#105 cannot be rebased; one real gap survives it.** |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -526,6 +527,21 @@ cargo-deny, sandbox, no-default-features
 
 and `strict` is **true** (branches must be up to date before merging).
 
+**What `strict` actually costs, measured rather than assumed.** The question was
+whether GitHub's auto-merge updates a stale branch by itself. It does not. PRs
+#520 and #521 were both opened from the same base; #520 merged, and #521
+immediately went to `mergeStateStatus: BEHIND` with auto-merge still armed and
+every check green. It sat there until the branch was rebased by hand, at which
+point it re-ran checks and proceeded.
+
+So the standing cost is: **when two PRs are open at once, the second needs a
+manual rebase after the first merges.** That is a real tax on a workflow that
+runs PRs back to back, and it is the argument for either merging one at a time
+or adopting a merge queue. It is not a reason to turn `strict` off — the
+protection it buys is that a PR green against a stale base cannot merge into a
+main it was never tested against — but it should be a deliberate cost rather
+than a surprise.
+
 `no-default-features` had to become blocking for the same reason `sandbox` did
 in wave 2: it is the only thing that checks the Soma fence in the configuration
 the fence is *for*, and a check that cannot block a merge is not a gate. It is
@@ -618,6 +634,71 @@ before the `git reset --hard` / `git clean -fd`. That snapshot matters more than
 it looks - `clean -fd` deletes *untracked* files, so untracking the database
 without it would have converted a revert into a deletion. "Do not run Deploy
 Production" no longer applies.
+
+## Wave 3 / Task 5 — PR #105 cannot be rebased, and should not be
+
+**Not merged.** Not as a judgement about the feature, but because there is
+nothing mergeable there: the PR targets a repository that no longer exists.
+
+### What it is
+
+`feat(social): P09 usability completion — member directory, leave community,
+longform by handle`. Opened **2026-05-11**, three months stale. Six files, +464
+/ −47. Its merge base is `1faee091`.
+
+At that merge base this repository was a TypeScript project with `src/`,
+`web/`, `dashboard/`, `packages/`, and `internal/` at the root. **None of those
+directories exist on `main` today.** The Node backend was archived to
+`archive/src-nodejs/` and rewritten in Rust; the web frontend moved to
+`heyvera/src/`.
+
+### What the rebase actually does
+
+Attempted, rather than predicted. `git rebase origin/main` on the branch:
+
+- **The backend changes land in `archive/`.** Git's rename detection follows
+  `src/` → `archive/src-nodejs/` and cleanly auto-merges
+  `archive/src-nodejs/{db/index.ts, db/social.ts, routes/social.ts}`. That is
+  the worst possible outcome, because it *succeeds*: the PR would merge green,
+  having added three months-old features to a directory nothing compiles or
+  runs.
+- `tests/unit/social-p09.test.ts` conflicts as `file location`, with git
+  suggesting `archive/tests-nodejs/unit/` — same problem.
+- `web/src/api/social.ts` is a modify/delete conflict; the file moved to
+  `heyvera/src/api/social.ts`.
+- `heyvera/src/components/app/VeraSocials.tsx` is a genuine content conflict
+  against three months of divergence.
+
+A rebase is the wrong operation here. This is a port, and the backend half has
+no destination — its runtime was replaced.
+
+### What is actually still missing
+
+Checked feature by feature against `main` rather than assumed from the title:
+
+| Feature | Status on `main` |
+|---|---|
+| Member directory | **Exists.** `GET /v1/social/communities/{id}/members` → `social::list_community_members` |
+| Leave community | **Exists.** `DELETE /v1/social/communities/{id}/leave` → `social::leave_community` |
+| Longform by handle | **Missing.** No `/profiles/{handle}/longform`, and `get_longform` takes a `FeedQuery` of limit/cursor only — there is no author filter by any spelling. |
+
+So two of the three shipped independently during the Rust rewrite, and one did
+not.
+
+### The one gap, and why it is worth a small change
+
+`ProfileStats.longformCount` is rendered in two places
+(`heyvera/src/components/app/VeraSocials.tsx:802` and `:2089`, both "N
+longform"). A profile therefore displays a count of longform entries with no
+endpoint that can list them — a number the reader cannot click through.
+
+**Recommendation:** close #105 and open a small change against the Rust API for
+`GET /v1/social/profiles/{handle}/longform`, sized to that one gap. Porting a
+three-month-old TypeScript PR to recover a single missing route costs more than
+writing the route, and carries three months of unreviewed divergence with it.
+
+**Not closed here.** Closing a PR is a product call on the Socials lane, and
+Socials is Josh's — this is a report, not an action.
 
 ## Next — wave 2 is complete
 
