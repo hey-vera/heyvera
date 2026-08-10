@@ -134,16 +134,24 @@ Conclusions only.
    looks like a bug. Add them explicitly, in one place, with that reasoning in a
    comment. Do not open a general passthrough.
 
-3. **The mediator speaks `CONNECT` and matches on the requested host name.**
+3. **The mediator speaks `CONNECT`, and only `CONNECT`.**
 
    The client names the host; the mediator resolves it. The task never
    influences which address the name resolves to, which closes DNS rebinding
    without any special case. TLS is tunnelled, never terminated: the mediator
    sees a host and a port and forwards bytes.
 
-   Plain `http://` proxying is allowed for the same allowlist under Design
-   decision 4's port rule, because some registries still redirect through it,
-   but the mediator does not rewrite or inspect bodies.
+   Absolute-URI forwarding — the `GET http://host/path` form a client uses for
+   plain `http://` URLs through a proxy — is **not** implemented. Handling it
+   means parsing and re-emitting headers, keep-alive, and chunked bodies, which
+   is a meaningful amount of protocol surface inside the one component that
+   sits between a task and the internet. Every registry this PR grants is
+   HTTPS. A `CONNECT host:80` tunnel still works if an entry names port 80, so
+   nothing is lost except the parsing.
+
+   `HTTP_PROXY` is still set, and the mediator answers a non-`CONNECT` request
+   with `405 Method Not Allowed` and a one-line body saying why. An explicit
+   refusal is better than the hang a client would get from an unset variable.
 
 4. **Ports are part of the allowlist, and the default is 443 only.**
 
@@ -231,6 +239,7 @@ asserts a minimum count of adversarial tests; raise that floor to match.
 | `egress::network_and_mediator_are_removed_after_the_attempt` | A leaked network or container surviving into the next task. |
 | `egress::sandbox_cannot_reach_the_docker_socket_or_host_gateway` | The internal network still exposing the host itself. |
 | `egress::receipt_records_the_effective_host_set` | A receipt that says "allowlist" without saying which hosts. |
+| `egress::non_connect_request_is_refused_not_forwarded` | Absolute-URI forwarding creeping in, or a client hanging instead of being told no. |
 
 Run locally with `CORTEX_SANDBOX_IT=1` and a container runtime. Rust:
 `cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-worker`. Never run
@@ -246,6 +255,8 @@ Run locally with `CORTEX_SANDBOX_IT=1` and a container runtime. Rust:
       separate explicit branch and not a defaulted variable.
 - [ ] `sanctioned_env()` gained exactly three variables, each with a comment
       saying why it is not a secret and why it is not the enforcement.
+- [ ] The mediator implements `CONNECT` and refuses every other method with
+      `405`. No header parsing, no body rewriting.
 - [ ] The mediator image runs no task-supplied code and holds no credential the
       task can reach; the ADR says so and the Dockerfile shows it.
 - [ ] `effective_egress` and `egress_mediator` are recorded for every job,
