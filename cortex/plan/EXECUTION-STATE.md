@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-10 (wave 3 in progress — Tasks 1, 1a, 2, 3 done; Task 4 next)
+**Last updated:** 2026-08-10 (wave 3 in progress — Tasks 1, 1a, 2, 3, 4 done; Task 5 next)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -28,7 +28,8 @@ re-deriving anything.
 | 9 | Fence Soma behind a cargo feature, default off | **done** — see "Wave 3 / Task 1" below |
 | 9a | Corrections to the fence: soma-core, `/api/vera/simulate`, frontend | **done** — PR [#517](https://github.com/hey-vera/heyvera/pull/517) merged |
 | 10 | Derive the egress allowlist at plan time | **done** — PR [#518](https://github.com/hey-vera/heyvera/pull/518) merged |
-| 11 | Restore the routing signal from the verdict | **done** — see "Wave 3 / Task 3" below |
+| 11 | Restore the routing signal from the verdict | **done** — PR [#519](https://github.com/hey-vera/heyvera/pull/519) merged |
+| 12 | Governance: required checks, CODEOWNERS, environments | **done** — see "Wave 3 / Task 4" below. **Two recommendations need Josh.** |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -511,6 +512,112 @@ produces a verdict that could record the same failure twice. Both facts are now
 comments at the site rather than inferences.
 
 **Verified:** api lib 346, core 94, worker 56, engine 111, context 44.
+
+## Wave 3 / Task 4 — governance
+
+### What changed on `main`
+
+One read-modify-write on the protection object. Required contexts are now:
+
+```
+heyvera, rust, cortex, npm-audit (cortex), npm-audit (heyvera),
+cargo-deny, sandbox, no-default-features
+```
+
+and `strict` is **true** (branches must be up to date before merging).
+
+`no-default-features` had to become blocking for the same reason `sandbox` did
+in wave 2: it is the only thing that checks the Soma fence in the configuration
+the fence is *for*, and a check that cannot block a merge is not a gate. It is
+also the job carrying the `cargo tree -i` graph assertion from Task 1a — the one
+check that can catch a soma crate re-entering the default build, which no
+`#[cfg]` gate can see.
+
+**The read-modify-write, done the same careful way as wave 2.** `PUT
+.../branches/main/protection` replaces the entire object and resets every
+omitted field to its default. The live object was re-read immediately before
+building the payload — not reused from an earlier snapshot, since a stale read
+would silently revert whatever changed meanwhile — the two intended fields were
+mutated, and every other field was resent unchanged. Re-read afterwards and
+confirmed field by field:
+
+| Field | Before | After |
+|---|---|---|
+| `required_status_checks.strict` | false | **true** |
+| contexts | 7 | **8** |
+| `required_pull_request_reviews` | null | null |
+| `required_conversation_resolution` | true | true |
+| `allow_force_pushes` | false | false |
+| `allow_deletions` | false | false |
+| `enforce_admins` | false | false |
+| `required_linear_history` | false | false |
+| `restrictions` | null | null |
+| `block_creations` / `lock_branch` / `allow_fork_syncing` | false | false |
+| `required_signatures` | false | false |
+
+`.github/CODEOWNERS` was rewritten to paths that exist — the previous file
+listed `/src/`, which has never existed in this repository. A pattern that
+matches nothing reads as coverage and provides none.
+
+### Recommendation 1 - required reviews: **do not enable yet**
+
+Recommended against for now, and the reason is mechanical rather than
+philosophical: **it would stop these PRs auto-merging.** `automerge.yml` arms
+auto-merge on every PR, and a review requirement with a single human owner means
+every PR waits for Josh. That converts an agent-driven workflow into a queue in
+front of one person, and the predictable outcome is that the requirement gets
+bypassed or removed rather than satisfied.
+
+CODEOWNERS is now correct and ready, so enabling it later is a one-field change.
+
+**What would make it worth enabling:** a second reviewer, or narrowing the
+requirement to the paths where "looks fine" is not a sufficient review - the
+sandbox, egress policy, `db.rs`, billing, and the verdict path. Classic branch
+protection cannot express "reviews required, but only for these paths".
+Rulesets can.
+
+### Recommendation 2 - rulesets: **worth migrating, as its own change**
+
+The repository is on classic branch protection. Rulesets would be better here
+for three specific reasons, not as general modernisation:
+
+1. **They remove the whole-object-replace hazard.** Every protection change so
+   far has been a careful RMW where forgetting a field silently disables it.
+   Ruleset rules are individually editable; that class of accident disappears.
+2. **Evaluate mode answers the reviews question with data.** A ruleset can run
+   in "evaluate" and report what it *would* have blocked without blocking
+   anything. That turns recommendation 1 from a judgement call into an
+   observation - run required-reviews in evaluate for a week and count.
+3. **Path-scoped rules.** The narrowing that would make required reviews
+   affordable is expressible in a ruleset and not in classic protection.
+
+**The cost, stated honestly:** rulesets and classic protection can both be
+active, and the effective policy is their union. During a migration it is easy
+to believe a rule is off when it is on, or the reverse. That is why this should
+be its own change with its own verification pass, not folded into a wave.
+
+### Production is already behind an Environment - with a gap
+
+`deploy-production.yml` already declares `environment: production`, and the
+environment exists. Its only protection rule is a **branch policy**. There is no
+required reviewer and no wait timer, so the environment currently constrains
+*which branch* can deploy and not *whether a human agreed*.
+
+**Recommendation:** add a required reviewer to the `production` environment.
+Unlike branch-protection reviews this does not create a queue in front of the
+agent workflow - it gates only `workflow_dispatch` deploys, self-approval is
+permitted, and the deploy is already a deliberate manual action. Not enabled
+here because it changes how deploys work, which is Josh's to decide.
+
+### The deploy hazard recorded in wave 2 is resolved
+
+Worth correcting explicitly, because it was recorded as blocking. PR #411
+merged: the live database is no longer a tracked file, `CORTEX_DB_PATH` points
+outside the repository, and the script snapshots a legacy in-tree database
+before the `git reset --hard` / `git clean -fd`. That snapshot matters more than
+it looks - `clean -fd` deletes *untracked* files, so untracking the database
+without it would have converted a revert into a deletion. "Do not run Deploy
+Production" no longer applies.
 
 ## Next — wave 2 is complete
 
