@@ -9,7 +9,7 @@ description = "Cryptographic primitives for the Soma Protocol — composite sign
 [dependencies]
 ed25519-dalek = { workspace = true }
 blake3 = "1"
-chacha20poly1305 = "0.10"
+chacha20poly1305 = "0.11"
 x25519-dalek = { version = "3", features = ["static_secrets"] }
 fips204 = "0.4"
 fips203 = "0.4"
