@@ -37,6 +37,12 @@ fn create_test_artifact(
         summary: summary.to_string(),
         files_changed: vec!["test.rs".to_string()],
         confidence: 0.8,
+        // An artifact is a step's own account of its own work, so this is what
+        // `ContextBus::create_artifact` sets. Constructed literally here to keep
+        // the helper independent of that constructor.
+        provenance: cortex_core::provenance::Provenance::AgentOutput {
+            producer_step_id: step_id.to_string(),
+        },
         tokens: (content.len() / 4) as u32,
         created_at: Utc::now(),
         metadata: HashMap::new(),

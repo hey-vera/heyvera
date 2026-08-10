@@ -698,6 +698,14 @@ async fn handle_worker_msg(
                         // — but it cannot claim the confidence of a verified
                         // result. Raising it is the verifier's job, once there
                         // is a verdict to raise it on.
+                        //
+                        // The artifact's *provenance* is `AgentOutput`
+                        // regardless of which branch this takes, set inside
+                        // `create_artifact`. That is the load-bearing part: a
+                        // downstream step renders it as an unverified prior
+                        // account either way, and cannot be persuaded otherwise
+                        // by a float. This number only orders artifacts against
+                        // each other during retrieval.
                         let confidence = if verified_success { 0.5 } else { 0.1 };
                         let artifact = ContextBus::create_artifact(
                             &step_id,
