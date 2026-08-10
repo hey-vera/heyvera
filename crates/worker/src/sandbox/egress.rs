@@ -142,8 +142,8 @@ pub async fn provision(
     docker: &Docker,
     job: &ExecutionJob,
     endpoints: &[Endpoint],
+    image: String,
 ) -> Result<Egress, Blocked> {
-    let image = mediator_image();
     let network_name = network_name_for(job);
     let mediator_name = mediator_name_from(&network_name);
 

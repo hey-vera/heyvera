@@ -273,6 +273,8 @@ mod tests {
             image_ref: "cortex/runner@sha256:abc".to_string(),
             isolation_class: IsolationClass::Container,
             resource_profile: ResourceProfile::default(),
+            effective_egress: Some(Vec::new()),
+            egress_mediator: None,
         }
     }
 

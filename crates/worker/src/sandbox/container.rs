@@ -73,6 +73,12 @@ pub struct ContainerSandbox {
     /// registry; this runner records whatever it was given so the receipt is
     /// honest either way.
     image: String,
+    /// The egress mediator image. `None` means the deployment default.
+    ///
+    /// Overridable per runner rather than only by environment variable so a
+    /// test can point one runner at a broken image and assert the refusal,
+    /// without a global that leaks into every other test in the process.
+    egress_image: Option<String>,
 }
 
 impl ContainerSandbox {
@@ -86,7 +92,14 @@ impl ContainerSandbox {
         Ok(Self {
             docker,
             image: image.into(),
+            egress_image: None,
         })
+    }
+
+    /// Use a specific egress mediator image instead of the deployment default.
+    pub fn with_egress_image(mut self, image: impl Into<String>) -> Self {
+        self.egress_image = Some(image.into());
+        self
     }
 
     /// Build the container configuration.
@@ -228,7 +241,15 @@ impl SandboxRunner for ContainerSandbox {
         let egress = if granted.is_empty() {
             None
         } else {
-            Some(egress::provision(&self.docker, job, &granted).await?)
+            Some(
+                egress::provision(
+                    &self.docker,
+                    job,
+                    &granted,
+                    self.egress_image.clone().unwrap_or_else(egress::mediator_image),
+                )
+                .await?,
+            )
         };
 
         if job.budgets.is_unquoted() {
@@ -470,6 +491,8 @@ mod tests {
             image_ref: "cortex/runner@sha256:abc".to_string(),
             isolation_class: IsolationClass::Container,
             resource_profile: ResourceProfile::default(),
+            effective_egress: Some(Vec::new()),
+            egress_mediator: None,
         }
     }
 

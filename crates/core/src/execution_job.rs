@@ -329,6 +329,28 @@ pub struct ExecutionJob {
     pub image_ref: String,
     pub isolation_class: IsolationClass,
     pub resource_profile: ResourceProfile,
+
+    /// What was actually reachable, as `host:port`, after the allowlist was
+    /// intersected with the capability grants and the registry names expanded.
+    ///
+    /// `network_policy` above records what was *asked for*. This records what
+    /// was *enforced*, and the two can legitimately differ — an allowlist entry
+    /// no grant justifies is dropped. A receipt that says "allowlist" without
+    /// saying which hosts is not an answer to "what could this task reach".
+    ///
+    /// `Some(vec![])` means nothing was reachable. `None` means the field was
+    /// not recorded, which is what a job from a worker predating scoped egress
+    /// looks like — deliberately distinguishable, because a plausible default
+    /// here would be a claim we did not verify.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective_egress: Option<Vec<String>>,
+
+    /// The image that enforced it, digest-pinned in production.
+    ///
+    /// Recorded for the same reason `image_ref` is: "it could only reach the
+    /// registry" is only checkable if you know what was deciding.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub egress_mediator: Option<String>,
 }
 
 impl ExecutionJob {
@@ -438,6 +460,8 @@ mod tests {
             image_ref: "cortex/runner@sha256:abc".to_string(),
             isolation_class: IsolationClass::Container,
             resource_profile: ResourceProfile::default(),
+            effective_egress: Some(Vec::new()),
+            egress_mediator: None,
         }
     }
 

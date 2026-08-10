@@ -611,7 +611,7 @@ fn build_job<R: SandboxRunner>(
     runner: &R,
     invocation: &BackendInvocation,
 ) -> ExecutionJob {
-    ExecutionJob {
+    let mut job = ExecutionJob {
         job_id: uuid::Uuid::new_v4().to_string(),
         job_version: EXECUTION_JOB_VERSION,
         run_id: String::new(),
@@ -638,7 +638,25 @@ fn build_job<R: SandboxRunner>(
         image_ref: runner_image(),
         isolation_class: runner.isolation_class(),
         resource_profile: ResourceProfile::default(),
-    }
+        // Filled in below from the policy above, so the receipt cannot drift
+        // from what the runner will actually enforce.
+        effective_egress: None,
+        egress_mediator: None,
+    };
+
+    // What was *enforced*, derived from the job rather than asserted beside it.
+    // The policy is `Deny` today because nothing in the planning path issues a
+    // capability grant yet, so this records an empty set — "we opened nothing",
+    // which is a different fact from "we did not write it down". The moment a
+    // grant is issued this is right without another change here.
+    let endpoints = crate::sandbox::policy::effective_endpoints(&job);
+    job.egress_mediator = if endpoints.is_empty() {
+        None
+    } else {
+        Some(crate::sandbox::egress::mediator_image())
+    };
+    job.effective_egress = Some(endpoints.iter().map(|e| e.to_string()).collect());
+    job
 }
 
 /// The image the agent sandbox runs.
