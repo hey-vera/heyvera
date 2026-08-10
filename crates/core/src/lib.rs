@@ -9,6 +9,7 @@ pub mod failure;
 pub mod usage;
 pub mod contamination;
 pub mod provenance;
+pub mod assumption;
 pub mod autonomy;
 pub mod billing_binding;
 pub mod check_derivation;
