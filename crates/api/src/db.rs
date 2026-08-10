@@ -9473,6 +9473,19 @@ impl Database {
             args.push(state);
         }
         let rows = tx.execute(&sql, args.as_slice()).unwrap_or(0);
+        // A step that has reached a terminal state is no longer writing, so it
+        // must not keep holding paths. Released inside the same transaction as
+        // the transition: a release that committed separately could leave a
+        // path held by a finished step if the process died between the two,
+        // and nothing would ever free it except the TTL.
+        if rows > 0 && matches!(to_state, "verified" | "failed" | "inconclusive") {
+            let _ = tx.execute(
+                "UPDATE resource_leases
+                 SET status = 'released', released_at = ?1
+                 WHERE step_id = ?2 AND holder_type = 'step' AND status = 'active'",
+                params![now, step_id],
+            );
+        }
         if rows == 0 {
             // Either the attempt moved on or the step is not in a state this
             // transition may leave. Both mean: do nothing, quietly.
@@ -10287,6 +10300,193 @@ impl Database {
             },
         )
         .unwrap_or_default()
+    }
+
+    /// Take path leases for one step, or report the first conflict.
+    ///
+    /// **Step scope, not run scope.** A run-scoped lease is held from run creation
+    /// until the run finishes, so two runs touching the same directory serialise
+    /// end to end even when only one step in each actually writes there. Holding at
+    /// step scope shortens that to the step, which is the whole point of PR R.
+    ///
+    /// Conflict is reported, not raised: the caller leaves the step pending and
+    /// tries again next tick. That is the queueing behaviour — a step waits for a
+    /// path instead of a run failing to be created.
+    ///
+    /// One transaction: every key is checked before any is inserted, so two
+    /// dispatchers cannot each acquire half of an overlapping pair. Keys are taken
+    /// in canonical order (the scheduler sorts them) so concurrent acquirers agree.
+    pub fn acquire_step_path_leases(
+        &self,
+        user_id: &str,
+        run_id: &str,
+        step_id: &str,
+        repo_key: &str,
+        keys: &[String],
+    ) -> Result<(), ResourceLeaseConflict> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let mut conn = self.conn();
+        let now = Utc::now().timestamp_millis();
+        let expires_at = now + RUN_RESOURCE_LEASE_TTL_MS;
+
+        let tx = match conn.transaction() {
+            Ok(tx) => tx,
+            Err(err) => {
+                tracing::error!(step_id, error = %err, "could not begin lease acquisition");
+                // Treat an unopenable transaction as a conflict so the step waits
+                // rather than dispatching unleased. Failing open here would put two
+                // steps in the same directory, which is the thing being prevented.
+                return Err(ResourceLeaseConflict {
+                    lease_id: String::new(),
+                    run_id: run_id.to_string(),
+                    step_id: Some(step_id.to_string()),
+                    holder_type: "step".to_string(),
+                    resource_type: "path".to_string(),
+                    repo_key: repo_key.to_string(),
+                    resource_key: keys[0].clone(),
+                    mode: "write".to_string(),
+                    expires_at: now,
+                });
+            }
+        };
+
+        tx.execute(
+            "UPDATE resource_leases
+             SET status = 'expired', released_at = ?1
+             WHERE status = 'active' AND expires_at <= ?1",
+            params![now],
+        )
+        .ok();
+
+        for key in keys {
+            let request = ResourceLeaseRequest {
+                resource_type: "path".to_string(),
+                repo_key: repo_key.to_string(),
+                resource_key: key.clone(),
+                mode: "write".to_string(),
+                reason: Some("step write set".to_string()),
+                metadata: serde_json::json!({ "repo_key": repo_key, "path": key }),
+            };
+            match find_resource_lease_conflict_tx(&tx, user_id, None, &request, now) {
+                Ok(Some(mut conflict)) => {
+                    // A lease this same step already holds is not a conflict — a
+                    // redispatch after a retry must not deadlock against itself.
+                    if conflict.step_id.as_deref() == Some(step_id) {
+                        continue;
+                    }
+                    conflict.resource_key = key.clone();
+                    return Err(conflict);
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    tracing::error!(step_id, error = %err, "lease conflict check failed");
+                    return Err(ResourceLeaseConflict {
+                        lease_id: String::new(),
+                        run_id: run_id.to_string(),
+                        step_id: Some(step_id.to_string()),
+                        holder_type: "step".to_string(),
+                        resource_type: "path".to_string(),
+                        repo_key: repo_key.to_string(),
+                        resource_key: key.clone(),
+                        mode: "write".to_string(),
+                        expires_at: now,
+                    });
+                }
+            }
+        }
+
+        for key in keys {
+            let id = Uuid::new_v4().to_string();
+            let metadata = serde_json::json!({ "repo_key": repo_key, "path": key }).to_string();
+            if let Err(err) = tx.execute(
+                "INSERT INTO resource_leases (
+                    id, user_id, authority_scope_id, group_id, task_id, run_id, step_id,
+                    holder_type, resource_type, repo_key, resource_key, mode, status,
+                    lease_gen, acquired_at, expires_at, reason, metadata_json
+                 )
+                 VALUES (?1, ?2, NULL, NULL, NULL, ?3, ?4, 'step', 'path', ?5, ?6, 'write',
+                         'active', 1, ?7, ?8, 'step write set', ?9)",
+                params![id, user_id, run_id, step_id, repo_key, key, now, expires_at, metadata],
+            ) {
+                tracing::error!(step_id, error = %err, "could not insert a step lease");
+            }
+        }
+
+        if let Err(err) = tx.commit() {
+            tracing::error!(step_id, error = %err, "could not commit step leases");
+            return Err(ResourceLeaseConflict {
+                lease_id: String::new(),
+                run_id: run_id.to_string(),
+                step_id: Some(step_id.to_string()),
+                holder_type: "step".to_string(),
+                resource_type: "path".to_string(),
+                repo_key: repo_key.to_string(),
+                resource_key: keys[0].clone(),
+                mode: "write".to_string(),
+                expires_at: now,
+            });
+        }
+        Ok(())
+    }
+
+    /// Release every lease this step holds.
+    ///
+    /// Called when a step reaches a terminal state. Idempotent — releasing twice is
+    /// a no-op, which matters because the transition that calls it carries a CAS
+    /// and may legitimately run for an attempt that has already been superseded.
+    pub fn release_step_resource_leases(&self, step_id: &str) -> usize {
+        let conn = self.conn();
+        let now = Utc::now().timestamp_millis();
+        conn.execute(
+            "UPDATE resource_leases
+             SET status = 'released', released_at = ?1
+             WHERE step_id = ?2 AND holder_type = 'step' AND status = 'active'",
+            params![now, step_id],
+        )
+        .unwrap_or(0)
+    }
+
+    /// The paths a step declared it would write, from its planner seed.
+    ///
+    /// `None` when the step has no seed or the seed declares nothing — which the
+    /// caller must treat as *unknown*, not as *nothing*. A step that declared no
+    /// paths is repo-wide, exactly as today.
+    pub fn get_step_target_paths(&self, step_id: &str) -> Option<Vec<String>> {
+        let conn = self.conn();
+        let raw: Option<String> = conn
+            .query_row(
+                "SELECT recipe_seed_json FROM steps WHERE id = ?1",
+                params![step_id],
+                |row| row.get(0),
+            )
+            .ok()?;
+        let seed: serde_json::Value = serde_json::from_str(&raw?).ok()?;
+        let paths: Vec<String> = seed
+            .get("target_paths")?
+            .as_array()?
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        if paths.is_empty() { None } else { Some(paths) }
+    }
+
+    /// The repo this run is scoped to, for keying leases.
+    ///
+    /// `None` when unset, which the caller normalises to `"default"` — the same
+    /// value `build_resource_lease_requests` uses, so a step lease and a run
+    /// lease on the same repo land on the same key rather than silently
+    /// failing to contend.
+    pub fn get_run_repo_key(&self, run_id: &str) -> Option<String> {
+        let conn = self.conn();
+        conn.query_row(
+            "SELECT repo_key FROM runs WHERE id = ?1",
+            params![run_id],
+            |row| row.get::<_, Option<String>>(0),
+        )
+        .ok()
+        .flatten()
     }
 
     pub fn get_run_user_id(&self, run_id: &str) -> Option<String> {
@@ -26593,6 +26793,153 @@ mod tests {
             .expect("not an error");
         assert_eq!(out.subscription_remaining, 50);
         assert_eq!(db.credit_ledger_totals("user-1"), (0, 0));
+    }
+
+    fn seed_run_and_step(db: &Database, run_id: &str, step_id: &str, paths: &[&str]) {
+        let conn = db.conn();
+        conn.execute(
+            "INSERT OR IGNORE INTO runs (id, user_id, goal, created_at, updated_at, repo_key)
+             VALUES (?1, 'user-1', 'g', 0, 0, 'repo-1')",
+            params![run_id],
+        )
+        .expect("run");
+        let seed = serde_json::json!({ "target_paths": paths }).to_string();
+        conn.execute(
+            "INSERT INTO steps (id, run_id, kind, tier, risk, objective, created_at, updated_at, recipe_seed_json)
+             VALUES (?1, ?2, 'execute', 'standard', 'low', 'o', 0, 0, ?3)",
+            params![step_id, run_id, seed],
+        )
+        .expect("step");
+    }
+
+    #[test]
+    fn a_step_reads_the_paths_its_planner_seed_declared() {
+        let db = test_db();
+        seed_run_and_step(&db, "run-1", "step-1", &["src/a.rs", "src/b.rs"]);
+        assert_eq!(
+            db.get_step_target_paths("step-1"),
+            Some(vec!["src/a.rs".to_string(), "src/b.rs".to_string()])
+        );
+        // No seed at all is `None` — unknown, which the caller treats as
+        // repo-wide rather than as "writes nothing".
+        seed_run_and_step(&db, "run-1", "step-2", &[]);
+        assert_eq!(db.get_step_target_paths("step-2"), None);
+        assert_eq!(db.get_step_target_paths("step-missing"), None);
+    }
+
+    #[test]
+    fn the_first_step_takes_the_path_and_the_second_is_refused() {
+        let db = test_db();
+        seed_run_and_step(&db, "run-1", "step-1", &["src/a.rs"]);
+        seed_run_and_step(&db, "run-2", "step-2", &["src/a.rs"]);
+
+        assert!(
+            db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &["src/a.rs".to_string()])
+                .is_ok()
+        );
+        let conflict = db
+            .acquire_step_path_leases("user-1", "run-2", "step-2", "repo-1", &["src/a.rs".to_string()])
+            .expect_err("the path is already held");
+        assert_eq!(conflict.resource_key, "src/a.rs");
+        assert_eq!(conflict.step_id.as_deref(), Some("step-1"));
+    }
+
+    /// Disjoint paths must not serialise — that is the whole point.
+    #[test]
+    fn two_steps_on_different_paths_both_acquire() {
+        let db = test_db();
+        seed_run_and_step(&db, "run-1", "step-1", &["src/a.rs"]);
+        seed_run_and_step(&db, "run-2", "step-2", &["src/b.rs"]);
+        assert!(
+            db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &["src/a.rs".to_string()])
+                .is_ok()
+        );
+        assert!(
+            db.acquire_step_path_leases("user-1", "run-2", "step-2", "repo-1", &["src/b.rs".to_string()])
+                .is_ok()
+        );
+    }
+
+    /// A redispatch after a retry must not deadlock the step against itself.
+    #[test]
+    fn a_step_re_acquiring_its_own_path_is_not_a_conflict() {
+        let db = test_db();
+        seed_run_and_step(&db, "run-1", "step-1", &["src/a.rs"]);
+        let keys = vec!["src/a.rs".to_string()];
+        assert!(db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &keys).is_ok());
+        assert!(
+            db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &keys).is_ok(),
+            "the same step must be able to re-acquire what it already holds"
+        );
+    }
+
+    /// Releasing is what makes the next step's retry succeed. Without it the
+    /// queue never drains and a waiting step spins until the TTL.
+    #[test]
+    fn releasing_a_steps_leases_lets_the_waiting_step_through() {
+        let db = test_db();
+        seed_run_and_step(&db, "run-1", "step-1", &["src/a.rs"]);
+        seed_run_and_step(&db, "run-2", "step-2", &["src/a.rs"]);
+        let keys = vec!["src/a.rs".to_string()];
+
+        db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &keys)
+            .expect("first acquires");
+        assert!(db.acquire_step_path_leases("user-1", "run-2", "step-2", "repo-1", &keys).is_err());
+
+        assert_eq!(db.release_step_resource_leases("step-1"), 1);
+        assert!(
+            db.acquire_step_path_leases("user-1", "run-2", "step-2", "repo-1", &keys).is_ok(),
+            "the waiting step must get the path once it is freed"
+        );
+        // Idempotent: releasing twice frees nothing more.
+        assert_eq!(db.release_step_resource_leases("step-1"), 0);
+    }
+
+    /// Overlap is by directory, so a step holding `src` blocks one wanting
+    /// `src/a.rs`. If this ever passes, two steps write the same file.
+    #[test]
+    fn a_directory_lease_blocks_a_file_inside_it() {
+        let db = test_db();
+        seed_run_and_step(&db, "run-1", "step-1", &["src"]);
+        seed_run_and_step(&db, "run-2", "step-2", &["src/a.rs"]);
+        db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &["src".to_string()])
+            .expect("directory acquires");
+        assert!(
+            db.acquire_step_path_leases("user-1", "run-2", "step-2", "repo-1", &["src/a.rs".to_string()])
+                .is_err()
+        );
+    }
+
+    /// Leases are keyed per repo, so the same path in two repos does not
+    /// contend.
+    #[test]
+    fn the_same_path_in_a_different_repo_does_not_contend() {
+        let db = test_db();
+        seed_run_and_step(&db, "run-1", "step-1", &["src/a.rs"]);
+        seed_run_and_step(&db, "run-2", "step-2", &["src/a.rs"]);
+        let keys = vec!["src/a.rs".to_string()];
+        db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &keys)
+            .expect("repo-1 acquires");
+        assert!(
+            db.acquire_step_path_leases("user-1", "run-2", "step-2", "repo-2", &keys).is_ok(),
+            "a different repo is a different resource"
+        );
+    }
+
+    #[test]
+    fn a_step_with_no_write_set_takes_no_lease() {
+        let db = test_db();
+        seed_run_and_step(&db, "run-1", "step-1", &[]);
+        assert!(db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &[]).is_ok());
+        assert_eq!(db.release_step_resource_leases("step-1"), 0);
+    }
+
+    #[test]
+    fn a_run_repo_key_round_trips() {
+        let db = test_db();
+        seed_run_and_step(&db, "run-1", "step-1", &["src/a.rs"]);
+        assert_eq!(db.get_run_repo_key("run-1").as_deref(), Some("repo-1"));
+        assert_eq!(db.get_run_repo_key("run-absent"), None);
     }
 
     /// The routing signal picks its domain from this, and the column holds the

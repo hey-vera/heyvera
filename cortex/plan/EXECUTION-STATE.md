@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-10 (wave 3 — Tasks 1–6 done, PR R part 1 done; PR R part 2 next)
+**Last updated:** 2026-08-10 (wave 3 — Tasks 1–6, PR R parts 1 and 2 done; PR I/J/Q next)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -33,6 +33,7 @@ re-deriving anything.
 | 13 | Rebase PR #105 and report what is true | **done, not merged** — see "Wave 3 / Task 5" below. **#105 cannot be rebased; one real gap survives it.** |
 | 14 | Task 6 — PR U (provenance typing) | **done** — see "Wave 3 / Task 6" below. Six of seven deliverables; the seventh needs the context wired. |
 | 15 | PR R part 1 — plan-derived write sets | **done** — see "Wave 3 / Task 7" below. Step-scope leases and queueing remain. |
+| 16 | PR R part 2 — step-scoped leases, queue on conflict | **done** — see "Wave 3 / Task 8" below. Hotspots/sequence resources remain. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -860,6 +861,55 @@ fails.
 **Verified:** core 136; workspace **878 passed / 0 failed** across all targets
 (`--all-targets`, matching CI — `--lib` alone does not compile
 `crates/api/tests/`).
+
+## Wave 3 / Task 8 — PR R, part 2: step-scoped leases and queueing
+
+One commit on `feat/step-scoped-path-leases`. No migration — `resource_leases`
+already had `step_id` and `holder_type`, and nothing had ever written `'step'`
+into them.
+
+### Scope moved
+
+A run-scoped path lease is held from run creation until the run finishes, so two
+runs touching the same directory serialise end to end even when only one step in
+each writes there. Leases are now taken at **dispatch**, by the step, and
+released when the step reaches a terminal state.
+
+### Queueing came free, and that was the surprise
+
+`dispatch_step` already had `DispatchOutcome::RetryLater` — the step stays
+pending and is retried on the next tick — used for a missing worker and a closed
+billing gate. A path conflict returns the same thing.
+
+That is queue-on-conflict with no new waiting state, no wake-up plumbing, and
+nothing extra to keep correct. The piece of PR R that looked largest turned out
+to be a three-line decision once the lease call was in the right place. The
+earlier estimate ("a waiting state and a wake-up when the holder releases — the
+largest piece") was wrong because it assumed the scheduler had no retry loop,
+and it has had one all along.
+
+### The release rides the transition
+
+Releasing inside the same transaction as the state change, not after it. A
+separate commit could leave a path held by a finished step if the process died
+between the two, and nothing would free it but the TTL. Terminal states are
+`verified`/`failed`/`inconclusive`, and the release rides the CAS already
+guarding the transition, so a superseded attempt cannot free a live step's paths.
+
+### Two failure modes closed rather than open
+
+An unopenable transaction and a failed conflict check both return **conflict**,
+so the step waits rather than dispatching unleased. Failing open there would put
+two steps in the same directory — the exact thing being prevented.
+
+A step re-acquiring a path it already holds is not a conflict, or a redispatch
+after a retry would deadlock the step against itself.
+
+### What remains of PR R
+
+Hotspot declaration and scheduler-allocated sequence resources. Nothing else.
+
+**Verified:** workspace **887 passed / 0 failed** across all targets.
 
 ## Next — wave 2 is complete
 
