@@ -135,10 +135,16 @@ jobs:
       - name: Build the sandbox image
         run: docker build -f Dockerfile.sandbox -t cortex/sandbox:ci .
 
+      # The egress mediator. Built here rather than pulled so the tests check
+      # the tree they are running against, not whatever was last published.
+      - name: Build the egress mediator image
+        run: docker build -f Dockerfile.egress -t cortex/egress:ci .
+
       - name: Adversarial sandbox tests
         env:
           CORTEX_SANDBOX_IT: "1"
           CORTEX_SANDBOX_IMAGE: cortex/sandbox:ci
+          CORTEX_EGRESS_IMAGE: cortex/egress:ci
         run: cargo test -p cortex-worker --locked --test sandbox_adversarial
 
       # The tests above skip silently when the gate is unset, which is exactly
@@ -147,6 +153,7 @@ jobs:
         env:
           CORTEX_SANDBOX_IT: "1"
           CORTEX_SANDBOX_IMAGE: cortex/sandbox:ci
+          CORTEX_EGRESS_IMAGE: cortex/egress:ci
         run: |
           set -euo pipefail
           output=$(cargo test -p cortex-worker --locked --test sandbox_adversarial -- --nocapture 2>&1)
@@ -155,8 +162,11 @@ jobs:
           # were unset they would still "pass", so count them instead.
           passed=$(echo "$output" | grep -cE '^test [a-z_]+ \.\.\. ok' || true)
           echo "adversarial tests passed: $passed"
-          if [ "$passed" -lt 10 ]; then
-            echo "::error::expected at least 10 adversarial tests to run, saw $passed"
+          # Raised from 10 when scoped egress added its section. The floor is
+          # the point of this step: a gated test that never runs reads like
+          # coverage, so the count has to move whenever the file grows.
+          if [ "$passed" -lt 20 ]; then
+            echo "::error::expected at least 20 adversarial tests to run, saw $passed"
             exit 1
           fi
 

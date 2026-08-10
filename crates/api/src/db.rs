@@ -602,6 +602,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 63 {
         migrate_v63(conn);
     }
+    if current < 64 {
+        migrate_v64(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -3640,6 +3643,34 @@ fn migrate_v63(conn: &Connection) {
     )
     .expect("migration v63 failed creating the truth-model tables");
     tracing::info!("applied migration v63: step_verification_state, manual_overrides");
+}
+
+fn migrate_v64(conn: &Connection) {
+    // PR C2 — what egress was actually enforced, not just what was requested.
+    //
+    // `network_policy` already records what the job asked for. These record
+    // what held: the `host:port` set that survived intersecting the allowlist
+    // with the capability grants and expanding registry names, and the image
+    // that enforced it. "It could only reach the registry" is not a checkable
+    // claim unless a reader can see which hosts and what was deciding.
+    //
+    // Both nullable, because rows written before this migration genuinely do
+    // not have the values and a plausible default would be a claim nobody
+    // verified. A job that ran under `Deny` records `'[]'` rather than NULL, so
+    // "nothing was reachable" stays distinguishable from "not recorded".
+    //
+    // Numbered v64: v62 is PR C, v63 is PR A. `schema_version` is a single
+    // counter shared with the HeyVera Socials product, so re-check the maximum
+    // before claiming a number — whichever branch merges second has its
+    // migration silently skipped.
+    conn.execute_batch(
+        "ALTER TABLE execution_jobs ADD COLUMN effective_egress TEXT;
+        ALTER TABLE execution_jobs ADD COLUMN egress_mediator TEXT;
+
+        UPDATE schema_version SET version = 64;",
+    )
+    .expect("migration v64 failed adding the egress enforcement columns");
+    tracing::info!("applied migration v64: execution_jobs.effective_egress, egress_mediator");
 }
 
 /// What a customer is shown when they ask why they were charged, and what a
@@ -8906,6 +8937,13 @@ impl Database {
             .unwrap_or_else(|_| "\"unserializable\"".to_string());
         let effort_applied = serde_json::to_string(&job.effort_applied)
             .unwrap_or_else(|_| "\"unserializable\"".to_string());
+        // NULL when the worker did not record it — a job from before scoped
+        // egress. `'[]'` when it recorded that nothing was reachable. The two
+        // are different facts and the column keeps them apart.
+        let effective_egress = job
+            .effective_egress
+            .as_ref()
+            .map(|hosts| serde_json::to_string(hosts).unwrap_or_else(|_| "[]".to_string()));
 
         conn.execute(
             "INSERT OR IGNORE INTO execution_jobs (
@@ -8916,7 +8954,8 @@ impl Database {
                 network_policy, capability_grants, context_bundle, packed_bytes,
                 quote_id, plan_receipt_id,
                 image_ref, isolation_class, resource_profile, profile_version,
-                submitted_at
+                submitted_at,
+                effective_egress, egress_mediator
             ) VALUES (
                 ?1, ?2, ?3, ?4, ?5, ?6,
                 ?7, ?8, ?9,
@@ -8925,7 +8964,8 @@ impl Database {
                 ?15, ?16, ?17, ?18,
                 ?19, ?20,
                 ?21, ?22, ?23, ?24,
-                ?25
+                ?25,
+                ?26, ?27
             )",
             params![
                 job.job_id,
@@ -8958,6 +8998,8 @@ impl Database {
                 resource_profile,
                 job.resource_profile.profile_version,
                 Utc::now().timestamp_millis(),
+                effective_egress,
+                job.egress_mediator,
             ],
         )
         .unwrap_or(0)
@@ -26017,6 +26059,30 @@ mod tests {
         assert_eq!(found, 1, "execution_jobs must exist after migration");
     }
 
+    #[test]
+    fn migration_v64_records_what_egress_was_enforced() {
+        // `network_policy` says what was asked for. These say what held. A
+        // receipt that names a policy without naming the hosts it resolved to,
+        // or what enforced them, is not an answer to "what could this reach".
+        let db = test_db();
+        let conn = db.conn();
+
+        let columns: Vec<String> = conn
+            .prepare("PRAGMA table_info(execution_jobs)")
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
+
+        for column in ["effective_egress", "egress_mediator"] {
+            assert!(
+                columns.iter().any(|c| c == column),
+                "execution_jobs must record {column}; have {columns:?}"
+            );
+        }
+    }
+
     fn sample_execution_job() -> cortex_core::execution_job::ExecutionJob {
         use cortex_core::execution_job::*;
         ExecutionJob {
@@ -26702,7 +26768,7 @@ mod truth {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
             .unwrap();
-        assert!(version >= 63, "fresh database must reach v63, got {version}");
+        assert!(version >= 64, "fresh database must reach v64, got {version}");
 
         for table in ["step_verification_state", "manual_overrides"] {
             let found: i64 = conn
