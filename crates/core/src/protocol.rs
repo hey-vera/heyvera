@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 
+use crate::egress::EgressPlan;
 use crate::failure::WorkerFailureReport;
 use crate::provider::ProviderId;
 use crate::routing::RoutingDecision;
@@ -8,6 +9,13 @@ use crate::task::TaskContract;
 // 3: adds `StepBlocked`. A worker that speaks 3 can tell an operator's
 // infrastructure failure apart from a customer's step failing, which v2 could
 // only express by prefixing a failure string.
+//
+// Still 3 after `ExecuteStep.egress`, deliberately. A version bump is for a
+// change an old peer cannot handle safely; this one it can. The field is
+// `serde(default)`, and its default is `Deny` — so an old worker that ignores
+// it behaves exactly as it does today, and a new worker talking to an old brain
+// gets the same. Bumping would break every running worker's handshake to
+// announce a change whose failure mode is already closed.
 pub const PROTOCOL_VERSION: u32 = 3;
 
 // --- Brain → Worker ---
@@ -32,6 +40,17 @@ pub enum BrainMessage {
         task: TaskContract,
         decision: RoutingDecision,
         context: StepContext,
+        /// The egress the planner decided this step justifies, derived from the
+        /// repository's manifests and the step's kind.
+        ///
+        /// `serde(default)` is load-bearing in one direction only: a worker
+        /// running older code that has never heard of this field ignores it and
+        /// keeps its own `Deny`, and a worker running this code against a brain
+        /// that does not send it defaults to `Deny` too. Both directions of a
+        /// version skew fail closed, which is the only acceptable default for a
+        /// field whose absence would otherwise mean "unrestricted".
+        #[serde(default)]
+        egress: EgressPlan,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         delegation: Option<serde_json::Value>,
     },

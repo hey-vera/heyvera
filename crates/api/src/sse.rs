@@ -72,6 +72,10 @@ pub async fn execute_task(
             step_id: Uuid::new_v4().to_string(),
             attempt_id: Uuid::new_v4().to_string(),
             lease_gen: 1,
+            // This path does not plan against a repository, so it has nothing
+            // to derive a grant from. Denying is both the safe answer and
+            // exactly what this path did before the field existed.
+            egress: cortex_core::egress::EgressPlan::deny(),
         };
 
         let result = Executor::execute_sandboxed(
