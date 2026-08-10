@@ -31,6 +31,7 @@ re-deriving anything.
 | 11 | Restore the routing signal from the verdict | **done** — PR [#519](https://github.com/hey-vera/heyvera/pull/519) merged |
 | 12 | Governance: required checks, CODEOWNERS, environments | **done** — see "Wave 3 / Task 4" below. **Two recommendations need Josh.** |
 | 13 | Rebase PR #105 and report what is true | **done, not merged** — see "Wave 3 / Task 5" below. **#105 cannot be rebased; one real gap survives it.** |
+| 14 | Task 6 — brief PR U | **brief written** — `cortex/plan/briefs/PR-U-provenance-typing.md`. Implementation not started. See **F8**. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -775,6 +776,41 @@ The handoff states the plan docs exist only on `docs/concurrency-assessment`.
 byte-identical content, so commit `d437ff5d` was dropped during the rebase.
 Cosmetic; noted so the next reader is not confused by a 16-commit branch
 producing 15 commits.
+
+### F8. The worker discards the assembled context *(unresolved, reframes PR U)*
+
+Found while grounding PR U. `crates/worker/src/bin/worker.rs:143-145`
+destructures `ExecuteStep` as `{ step_id, attempt_id, lease_gen, task, decision,
+delegation, egress, .. }` — `context` falls into the `..`. There is no `context`
+identifier anywhere in `crates/worker/src/`, `build_task_prompt`
+(`executor.rs:684`) builds from `TaskContract` alone, and `TaskContract`
+(`crates/core/src/task.rs:9`) has no context field.
+
+So the API assembles context — `ContextBus`, the repo map, predecessor summaries
+— serialises it, sends it over the socket, and the worker throws it away. **The
+model never sees any of it.** The whole context-flow investment is inert on the
+execution path.
+
+Two consequences:
+
+1. **The injection hole PR U is meant to close is not open through this path
+   yet.** The plan's launch gate (line 6698) says repository content is an
+   unreviewed injection surface. That is right about what will happen and not
+   about what happens today, because the field carrying repository content is
+   dropped before the prompt is built.
+2. **It makes PR U cheaper and more urgent at once.** Cheaper: there is no
+   rendering path to retrofit, so the typing can be designed in before anything
+   consumes it. More urgent: the moment someone wires `context` through — a
+   one-line change to that destructure, which looks like a bug fix — the hole
+   opens with no typing in place.
+
+**PR U must land before the context is connected, not after.** Recorded in
+`cortex/plan/briefs/PR-U-provenance-typing.md` so an implementer does not read
+the disconnected field as an oversight to fix in passing.
+
+Separately: whether the context *should* be wired through is a real product
+question this does not answer. It has been dead for long enough that nobody
+noticed, which is its own signal about how much the current prompt depends on it.
 
 ### F7. The sandboxed provider CLI has no route to the model API *(unresolved, needs Josh)*
 
