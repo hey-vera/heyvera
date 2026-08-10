@@ -4,6 +4,7 @@
 //! This is the core gap identified by Opus - currently steps get StepContext::default()
 //! with empty predecessor_summaries. This module fills that gap.
 
+use cortex_core::provenance::Provenance;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -51,6 +52,14 @@ pub struct Artifact {
     pub summary: String,
     pub files_changed: Vec<String>,
     pub confidence: f32,
+    /// Where this artifact's content came from, so a downstream step that
+    /// consumes it renders it as what it is.
+    ///
+    /// Always `AgentOutput` at creation: an artifact is a step's own account of
+    /// its own work, which is unverified by construction however confident the
+    /// summary sounds. Raising it to `VerifiedEvidence` is the verifier's job,
+    /// once there is a verdict to raise it on.
+    pub provenance: Provenance,
     pub tokens: u32,
     pub created_at: DateTime<Utc>,
     pub metadata: HashMap<String, serde_json::Value>,
@@ -426,6 +435,14 @@ impl ContextBus {
                                     Utc::now()
                                 });
 
+                            // Reconstructed rather than read: provenance is
+                            // not a stored column, and every persisted artifact
+                            // is a step's own account of its own work. Deriving
+                            // it here keeps the load path from producing an
+                            // artifact that outranks the one that created it.
+                            let provenance = Provenance::AgentOutput {
+                                producer_step_id: producer_step_id.clone(),
+                            };
                             Some(Artifact {
                                 id,
                                 producer_step_id,
@@ -435,6 +452,7 @@ impl ContextBus {
                                 summary,
                                 files_changed,
                                 confidence: validated_confidence,
+                                provenance,
                                 tokens: validated_tokens,
                                 created_at,
                                 metadata: HashMap::new(),
@@ -533,6 +551,9 @@ impl ContextBus {
             summary: summary.to_string(),
             files_changed,
             confidence,
+            provenance: Provenance::AgentOutput {
+                producer_step_id: step_id.to_string(),
+            },
             tokens: Self::estimate_tokens(content),
             created_at: Utc::now(),
             metadata: HashMap::new(),
