@@ -39,6 +39,19 @@ export interface VerdictReport {
   not_executed: string[];
 }
 
+/**
+ * What the sandbox could reach while the step ran.
+ *
+ * Absent for a step that ran before scoped egress was recorded. Present with an
+ * empty `endpoints` means the sandbox reached nothing — a different fact, and
+ * the one worth being able to rely on.
+ */
+export interface EgressReceipt {
+  granted_registries: string[];
+  endpoints: string[];
+  mediator_image?: string;
+}
+
 export interface Receipt {
   verification_id: string;
   run_id: string;
@@ -47,6 +60,7 @@ export interface Receipt {
   tree_hash: string;
   gate: VerdictReport;
   executions: CheckExecution[];
+  egress?: EgressReceipt;
 }
 
 const VERDICT_COPY: Record<Verdict, { label: string; detail: string; banner: string }> = {
@@ -193,6 +207,23 @@ export function ReceiptCard({ receipt }: { receipt: Receipt }) {
         <p>
           attempt {receipt.attempt} · verification {receipt.verification_id.slice(0, 12)}
         </p>
+        {/* What the sandbox could reach. Rendered only when the job recorded
+            it: a step from before scoped egress has no such record, and
+            printing "no network" for it would be a claim without evidence.
+            "no network" is stated positively when the record says so, because
+            that is the strong case and it should not read as missing data. */}
+        {receipt.egress && (
+          <p title={receipt.egress.endpoints.join(', ')}>
+            network{' '}
+            {receipt.egress.endpoints.length === 0
+              ? 'none'
+              : `${receipt.egress.endpoints.join(', ')}${
+                  receipt.egress.granted_registries.length > 0
+                    ? ` (${receipt.egress.granted_registries.join(', ')})`
+                    : ''
+                }`}
+          </p>
+        )}
       </div>
     </div>
   );
