@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-09 (wave 2)
+**Last updated:** 2026-08-10 (wave 2)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -20,7 +20,10 @@ re-deriving anything.
 | 2 | Briefs for PR C, PR A, PR B | **done** — PR [#501](https://github.com/hey-vera/heyvera/pull/501) merged |
 | 3 | Implement PR C (execution sandbox) | **done** — PR [#502](https://github.com/hey-vera/heyvera/pull/502) merged |
 | 4 | Promote `sandbox` to a required status check | **done** — PR [#504](https://github.com/hey-vera/heyvera/pull/504) merged |
-| 5 | Implement PR A (truth model) | **done** — PR [#505](https://github.com/hey-vera/heyvera/pull/505) |
+| 5 | Implement PR A (truth model) | **done** — PR [#505](https://github.com/hey-vera/heyvera/pull/505) merged |
+| 6 | Brief + implement PR C2 (scoped egress) | **done** — PRs [#506](https://github.com/hey-vera/heyvera/pull/506), [#507](https://github.com/hey-vera/heyvera/pull/507) merged |
+| 7 | Handle PR #499 (28 cargo bumps) | **done** — reviewed, not merged; grouping fixed in PR [#508](https://github.com/hey-vera/heyvera/pull/508) |
+| 8 | Implement PR B (durable verifier) | **not started** — the frontier |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -58,12 +61,9 @@ rather than becoming a separate PR.
   the API supplies it when recording. Harmless today, but a `NOT NULL` column
   fed from a `resolve_run_id` that can return `None` will want revisiting when
   PR D reads these rows.
-- **Scoped egress is not implemented.** A job requesting an allowlist is
-  refused with `NetworkPolicyUnenforceable` rather than being given an
-  unrestricted Docker network under the name of an allowlist. Dependency
-  resolution therefore cannot run inside the sandbox yet — a real constraint on
-  what tasks can do, and the correct one until a proxy or per-task firewall
-  rules exist. The adversarial test inverts when that lands.
+- ~~**Scoped egress is not implemented.**~~ **Closed by PR C2 (#507).** The
+  adversarial test inverted as predicted: a granted registry is now reachable
+  and everything else is not.
 
 **Three things CI found that local testing could not**, worth remembering
 because they are the class of bug a container unit test cannot reach:
@@ -155,12 +155,76 @@ that was never true.
   not accepted, so a run with an inconclusive step waits for an operator. Its
   retry policy is PR B's.
 
+## PR C2 — what landed, and what it deliberately did not
+
+Three commits. Migration **v64**.
+
+1. `crates/egress/` (the mediator binary) + `crates/worker/src/sandbox/egress.rs`
+   (its lifecycle) + the policy rules that decide what gets opened.
+2. `ExecutionJob.effective_egress` / `.egress_mediator` + `Dockerfile.egress`.
+3. Ten adversarial tests, the CI wiring, and `docs/adr/ADR-0002-egress-mediation.md`.
+
+**The decision.** Enforcement is network topology, not client configuration. The
+sandbox joins a Docker network created `internal: true` — Docker installs no
+gateway, so nothing on it can reach off the host by any route — and the mediator
+is the only dual-homed member. A task that unsets `HTTPS_PROXY` and dials an
+allowlisted host's IP does not get filtered; it gets no route.
+
+`egress_a_direct_connection_bypassing_the_proxy_fails` is the test that proves
+it, and it passed against a real runtime in the `sandbox` job. If it ever goes
+red, the allowlist is advice.
+
+**Known gaps, stated rather than papered over:**
+
+- **Nothing issues a capability grant.** The planning path never decides that a
+  task needs npm, so `effective_egress` records an empty set in practice. The
+  enforcement is complete and currently unused. Issuing grants is a planning
+  decision, not a boundary one, and it is the next thing that makes the sandbox
+  useful rather than merely capable.
+- **DNS resolves inside the sandbox even under `internal`.** Docker's embedded
+  resolver forwards through the daemon, so a lookup can succeed where no packet
+  can follow it. Harmless — resolution is not access — and it is why the tests
+  assert at the TCP level rather than on `getent`.
+- **Registry host sets drift.** `REGISTRIES` in `policy.rs` needs an owner and a
+  review cadence; a stale entry looks to a customer like a broken build.
+- **Container-specific.** The microVM phase needs its own mediator attachment,
+  most likely over vsock. `SandboxRunner` still carries no container vocabulary.
+
+## Task 7 — PR #499, reviewed rather than merged
+
+28 cargo crates in one Dependabot group, 15 of them major. It was already red:
+`bollard` 0.18 → 0.21 moved half its module tree and `crates/worker/src/sandbox/`
+imports six of the moved items, so `rust` and `sandbox` both failed. The gate
+worked; it was never going to merge unread.
+
+Two findings from reading it, both recorded on the PR:
+
+1. **`sentry` 0.35 → 0.49 pulls `sentry-actix`**, and with it `actix-web` plus
+   seven more actix crates, into the lockfile of an axum product. Behind an
+   optional feature so it does not compile by default — but it is in
+   `Cargo.lock` and therefore in `cargo-deny`'s surface.
+2. **Five RustCrypto majors** land in `soma-crypto`, whose test vectors cannot
+   detect a behavioural change. See F5.
+
+The grouping that produced it is the actual defect, and PR #508 fixes it: minor
+and patch stay grouped (which is what makes them safe to automerge), majors
+arrive alone. The rule was already written in `dependabot.yml` for `rusqlite`;
+it now applies to every crate.
+
 ## Next
 
-`PR-B-durable-verifier.md` is unblocked — PR A was its prerequisite and has
-landed. Before it, PR C2 (scoped egress) is the gate on Cortex doing any real
-work: without it there is no `npm install` and no `cargo fetch` inside the
-sandbox.
+**`PR-B-durable-verifier.md` is the frontier.** Its prerequisite (PR A) has
+landed and its brief is current except for the migration number — v64 is now the
+max, so PR B takes v65. Re-check before claiming.
+
+PR B is large: a durable job table, a claim/heartbeat/reclaim dispatcher,
+startup and interval reconciliation, the `tokio::spawn` deletion at `ws.rs`, and
+eighteen failure-injection tests. It closes the two gaps PR A left open — the
+strand-in-`verifying` and the suspended routing signal.
+
+After that the plan's delivery order is PR I, J, Q (the catalog, the cost
+objective, the forecast), plus PR R (step-level leases) and PR U (provenance
+typing).
 
 Briefs live in `cortex/plan/briefs/`. An implementer reads only the brief.
 
@@ -168,9 +232,9 @@ Briefs live in `cortex/plan/briefs/`. An implementer reads only the brief.
 
 `schema_version` is one counter shared with the HeyVera Socials product. The
 hazard is real and it already bit: PR C took **v62**, so PR A took **v63** even
-though its brief says v62. **PR B must re-check the maximum before claiming a
-number** — a collision means whichever branch merges second has its migration
-silently skipped. Max on `main` after PR A is **v63**.
+though its brief says v62, and PR C2 took **v64**. **PR B must re-check the
+maximum before claiming a number** — a collision means whichever branch merges
+second has its migration silently skipped. Max on `main` is **v64**.
 
 ## What was verified directly (not inherited)
 
@@ -217,13 +281,25 @@ byte-identical content, so commit `d437ff5d` was dropped during the rebase.
 Cosmetic; noted so the next reader is not confused by a 16-commit branch
 producing 15 commits.
 
-### F4. A test run mutates a tracked file *(unresolved, low severity)*
+### F5. The soma-crypto test vectors do not test anything *(unresolved, matters)*
 
-`cargo test --workspace` rewrites `crates/soma-crypto/test-vectors/composite.json`
-— the vectors are regenerated rather than asserted against. It cost one
-amended commit here after `git add -A` swept it in. Anyone running the full
-suite should expect a dirty tree in that one file. Not fixed: it is unrelated
-to this wave and belongs to whoever owns soma-crypto.
+Upgraded from F4, which recorded only the symptom.
+
+`export_test_vectors` in `crates/soma-crypto/src/{aead,composite,hash,pulse}.rs`
+generates a **fresh random keypair**, signs, and writes the result to
+`crates/soma-crypto/test-vectors/*.json`. It asserts nothing. The files are
+named as though they were the regression protection for the crypto primitives
+and are in fact exported samples that overwrite themselves on every run — which
+is also why `cargo test --workspace` leaves a dirty tree.
+
+Consequence: a behavioural change in `aes-gcm`, `chacha20poly1305`, `sha2`,
+`hmac`, or `ed25519-dalek` would be absorbed silently by the artifact meant to
+catch it. This blocks taking those five majors from #499 with any confidence.
+
+Not fixed here — it is a soma-crypto change, not a Cortex-harness one — but it
+should be fixed before those bumps move.
+
+### F4. A test run mutates a tracked file *(superseded by F5)*
 
 ### F3. PR C is Wave 2, but is being implemented before PR A
 
