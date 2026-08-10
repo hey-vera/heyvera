@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use cortex_core::check_derivation::{DerivationInput, derive_checks};
+use cortex_core::egress::{derive_egress, EgressPlan};
 use cortex_core::evaluator::{
     AutoMode, BudgetEvidence, CandidateScore, DecisionEvidence, DefaultPolicy, IntentEvidence,
     PressureState, Profile, ProviderFitEvidence, RiskEvidence, WINDOW_SECS, token_budget,
@@ -593,6 +594,23 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
     // Issue a step-scoped sub-delegation from Cortex's heart to the worker
     let step_delegation = issue_step_delegation(state, &step.step_id, deadline, &worker_id);
 
+    // What this step may reach, decided here and only here.
+    //
+    // Derived from the same two facts the check floor is derived from — the
+    // repository on disk and the kind of step — so a grant is justified by
+    // something the task did not author. The task contract has no say: an
+    // objective that says "install the dependencies" does not open npm; a
+    // `package.json` does.
+    let egress = derive_step_egress(step.kind, &state.workspace_dir);
+    if !egress.is_deny() {
+        tracing::info!(
+            step_id = %step.step_id,
+            registries = ?egress.granted_registries(),
+            hosts = ?egress.network_policy.allowed_hosts(),
+            "granting scoped egress for this step"
+        );
+    }
+
     let msg = BrainMessage::ExecuteStep {
         run_id: step.run_id.clone(),
         step_id: step.step_id.clone(),
@@ -605,6 +623,7 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
         task,
         decision,
         context,
+        egress,
         delegation: step_delegation,
     };
 
@@ -671,6 +690,24 @@ fn step_changes_the_tree(kind: StepKind) -> bool {
         | StepKind::Heal => true,
         StepKind::Search | StepKind::Think | StepKind::Review | StepKind::Gate => false,
     }
+}
+
+/// Derive the egress this step justifies.
+///
+/// Same shape as [`derive_step_check_specs`] and for the same reason: every
+/// rule lives in a pure function in `cortex_core` that is unit tested without a
+/// disk, and this is the thin piece that needs a filesystem.
+///
+/// [`step_changes_the_tree`] is reused rather than re-expressed. A step that
+/// cannot change the tree cannot have resolved a dependency into it, so the two
+/// questions — "does verification attach here" and "may this reach a registry"
+/// — happen to have the same answer, and writing the predicate twice is how
+/// they would stop having it.
+fn derive_step_egress(kind: StepKind, workspace_dir: &Path) -> EgressPlan {
+    derive_egress(
+        &crate::ecosystem_probe::probe_manifests(workspace_dir),
+        step_changes_the_tree(kind),
+    )
 }
 
 /// Derive the required checks for a step.

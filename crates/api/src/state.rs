@@ -534,6 +534,9 @@ impl AppState {
                 task,
                 decision,
                 context,
+                // Direct dispatch, with no plan-time repository probe behind
+                // it. No repository, no manifest, no grant.
+                egress: cortex_core::egress::EgressPlan::deny(),
                 delegation: None,
             })
             .await

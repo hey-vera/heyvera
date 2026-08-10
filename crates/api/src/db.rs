@@ -3791,6 +3791,31 @@ pub struct Receipt {
     pub tree_hash: String,
     pub gate: VerdictReport,
     pub executions: Vec<CheckExecution>,
+    /// What the sandbox could reach while this step ran.
+    ///
+    /// `None` for a step executed before scoped egress was recorded. `Some`
+    /// with an empty `endpoints` means the sandbox reached nothing, which is a
+    /// different fact and the one a reader should be able to rely on.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub egress: Option<EgressReceipt>,
+}
+
+/// The egress half of a receipt: what was asked for, and what was opened.
+///
+/// Both, not one. `granted_registries` is the planner's decision and
+/// `endpoints` is the intersection the sandbox actually enforced — if they ever
+/// disagree, a reader can see it rather than having to trust that they cannot.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EgressReceipt {
+    /// Registry aliases the plan granted, e.g. `["crates"]`.
+    pub granted_registries: Vec<String>,
+    /// `host:port` entries the sandbox was actually opened to. Empty means no
+    /// network at all.
+    pub endpoints: Vec<String>,
+    /// The mediator image that enforced it, or `None` when nothing was opened
+    /// and no mediator was stood up.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub mediator_image: Option<String>,
 }
 
 // Enum <-> TEXT mapping for the verification tables. These are spelled out
@@ -12296,6 +12321,52 @@ impl Database {
             .filter_map(|row| row.ok())
             .collect();
 
+        // The egress the sandbox actually ran under, read from the job rather
+        // than recomputed. Ordered by lease generation because a step that was
+        // re-leased ran more than once, and the last lease is the one whose
+        // sandbox produced the tree this verdict is about.
+        //
+        // A missing row is `None`, not an empty allowlist: a step executed
+        // before scoped egress existed has no record of what it reached, and
+        // reporting that as "reached nothing" would be a claim we cannot make.
+        let egress = conn
+            .query_row(
+                "SELECT capability_grants, effective_egress, egress_mediator
+                 FROM execution_jobs WHERE run_id = ?1 AND step_id = ?2
+                 ORDER BY lease_gen DESC, submitted_at DESC LIMIT 1",
+                params![run_id, step_id],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                    ))
+                },
+            )
+            .ok()
+            .and_then(|(grants_json, endpoints_json, mediator)| {
+                // Only a job that recorded its effective egress can produce a
+                // receipt for it. `NULL` predates the feature.
+                let endpoints: Vec<String> =
+                    serde_json::from_str(endpoints_json.as_deref()?).ok()?;
+                let grants: Vec<cortex_core::execution_job::CapabilityGrant> =
+                    serde_json::from_str(&grants_json).unwrap_or_default();
+                let granted_registries = grants
+                    .iter()
+                    .flat_map(|grant| match grant {
+                        cortex_core::execution_job::CapabilityGrant::ResolveDependencies {
+                            registries,
+                        } => registries.clone(),
+                        cortex_core::execution_job::CapabilityGrant::ReadSecret { .. } => Vec::new(),
+                    })
+                    .collect();
+                Some(EgressReceipt {
+                    granted_registries,
+                    endpoints,
+                    mediator_image: mediator,
+                })
+            });
+
         Some(Receipt {
             verification_id,
             run_id: run_id.to_string(),
@@ -12304,6 +12375,7 @@ impl Database {
             tree_hash,
             gate: compute_verdict(&specs, &executions),
             executions,
+            egress,
         })
     }
 
@@ -26475,6 +26547,106 @@ mod tests {
         assert!(
             db.get_receipt("run-1", "never-verified").is_none(),
             "no verification means no receipt, not an empty one"
+        );
+
+        // A step that ran before scoped egress was recorded carries no egress
+        // block at all. Reporting it as "reached nothing" would be a claim we
+        // have no evidence for.
+        assert!(
+            receipt.egress.is_none(),
+            "a step with no execution job must not claim an egress"
+        );
+        assert!(
+            json.get("egress").is_none(),
+            "an absent egress must be absent from the wire, not null"
+        );
+    }
+
+    #[test]
+    fn the_receipt_reports_what_the_sandbox_could_reach() {
+        let db = test_db();
+        let specs = vec![spec("check-pass", true)];
+        db.save_check_specs("run-2", "step-2", &specs).expect("freeze");
+
+        // A job whose planner granted crates.io, recorded the way the worker
+        // records it.
+        let mut job = sample_execution_job();
+        job.run_id = "run-2".to_string();
+        job.step_id = "step-2".to_string();
+        job.capability_grants = vec![cortex_core::execution_job::CapabilityGrant::ResolveDependencies {
+            registries: vec!["crates".to_string()],
+        }];
+        job.effective_egress = Some(vec![
+            "index.crates.io:443".to_string(),
+            "static.crates.io:443".to_string(),
+        ]);
+        job.egress_mediator = Some("cortex/egress:dev".to_string());
+        db.record_execution_job("run-2", &job);
+
+        let vid = db
+            .claim_verification("run-2", "step-2", 1, "tree-xyz", "img@sha256:1")
+            .expect("claim");
+        db.record_check_execution(
+            &vid,
+            &specs[0],
+            &execution("check-pass", CheckOutcome::Passed, Some(0)),
+        )
+        .expect("record execution");
+        db.finish_verification(&vid, Verdict::Verified).expect("seal");
+
+        let receipt = db.get_receipt("run-2", "step-2").expect("receipt exists");
+        let egress = receipt.egress.clone().expect("the job recorded an egress");
+
+        // What was granted and what was opened, both — so a reader can see them
+        // disagree rather than having to trust that they cannot.
+        assert_eq!(egress.granted_registries, vec!["crates".to_string()]);
+        assert!(egress.endpoints.contains(&"index.crates.io:443".to_string()));
+        assert!(
+            !egress.endpoints.iter().any(|e| e.contains("npmjs")),
+            "a cargo grant must not show npm on the receipt"
+        );
+        assert_eq!(egress.mediator_image.as_deref(), Some("cortex/egress:dev"));
+
+        let json = serde_json::to_value(&receipt).expect("serializes");
+        assert!(json["egress"]["endpoints"].is_array());
+    }
+
+    #[test]
+    fn a_receipt_for_a_sandbox_that_opened_nothing_says_so() {
+        let db = test_db();
+        let specs = vec![spec("check-pass", true)];
+        db.save_check_specs("run-3", "step-3", &specs).expect("freeze");
+
+        let mut job = sample_execution_job();
+        job.run_id = "run-3".to_string();
+        job.step_id = "step-3".to_string();
+        // Recorded, and empty. Distinct from the `None` above.
+        job.effective_egress = Some(Vec::new());
+        job.egress_mediator = None;
+        db.record_execution_job("run-3", &job);
+
+        let vid = db
+            .claim_verification("run-3", "step-3", 1, "tree-none", "img@sha256:1")
+            .expect("claim");
+        db.record_check_execution(
+            &vid,
+            &specs[0],
+            &execution("check-pass", CheckOutcome::Passed, Some(0)),
+        )
+        .expect("record execution");
+        db.finish_verification(&vid, Verdict::Verified).expect("seal");
+
+        let egress = db
+            .get_receipt("run-3", "step-3")
+            .expect("receipt")
+            .egress
+            .expect("recorded, even though it is empty");
+
+        assert!(egress.endpoints.is_empty(), "nothing was opened");
+        assert!(egress.granted_registries.is_empty());
+        assert!(
+            egress.mediator_image.is_none(),
+            "no mediator is stood up for a sandbox with no network"
         );
     }
 

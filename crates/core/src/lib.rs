@@ -13,4 +13,5 @@ pub mod billing_binding;
 pub mod check_derivation;
 pub mod verification;
 pub mod execution_job;
+pub mod egress;
 pub mod vera;

@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-10 (wave 3 in progress — Task 1a done, Task 2 next)
+**Last updated:** 2026-08-10 (wave 3 in progress — Tasks 1, 1a, 2 done; Task 3 next)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -26,7 +26,8 @@ re-deriving anything.
 | 8 | Implement PR B (durable verifier) | **done** — PR [#513](https://github.com/hey-vera/heyvera/pull/513) merged |
 | **Wave 3** | | |
 | 9 | Fence Soma behind a cargo feature, default off | **done** — see "Wave 3 / Task 1" below |
-| 9a | Corrections to the fence: soma-core, `/api/vera/simulate`, frontend | **done** — see "Wave 3 / Task 1a" below |
+| 9a | Corrections to the fence: soma-core, `/api/vera/simulate`, frontend | **done** — PR [#517](https://github.com/hey-vera/heyvera/pull/517) merged |
+| 10 | Derive the egress allowlist at plan time | **done** — see "Wave 3 / Task 2" below |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -393,6 +394,67 @@ reports all three soma crates absent from `cortex-api` and `cortex-worker` with
 default features off, and `soma` present with the feature on. `npm run build`
 passes; `npm run lint` reports 11 problems, identical to an unmodified tree.
 
+## Wave 3 / Task 2 — the egress allowlist is derived at plan time
+
+Three commits on `feat/plan-time-egress-grants`. No migration — v64 already
+added `effective_egress` and `egress_mediator`.
+
+Closes PR C2's "enforcement complete and unused": the planning path now issues
+capability grants, so `effective_egress` records real endpoints instead of an
+empty set.
+
+### The rule
+
+`cortex_core::egress::derive_egress` requires two conditions, and **neither is
+authored by the task**:
+
+1. **The step must be able to change the tree.** Search, Think, Review and Gate
+   steps never resolve a dependency. `step_changes_the_tree` is reused rather
+   than re-expressed — the same predicate that decides whether verification
+   attaches — because writing it twice is how the two would stop agreeing.
+2. **The repository must contain the manifest.** A repo with no `Cargo.toml`
+   gets no route to crates.io regardless of what the objective claims to need.
+
+So an objective saying "install the dependencies" opens nothing; a
+`package.json` opens npm.
+
+### The registry table moved, rather than being copied
+
+`REGISTRIES` and `expand_registry` now live in `cortex_core::egress`. Both ends
+need them — the planner names the allowlist, the worker refuses any entry no
+grant justifies — and two copies would agree only until one was edited. The
+failure mode is silent and misdiagnosable: the sandbox opens strictly *less*
+than the planner believed, so a task fails looking like a broken network rather
+than like a policy mismatch. Enforcement is unchanged and now reads the same
+table the planner did.
+
+`EcosystemManifests` is deliberately **not** `check_derivation::EcosystemFacts`.
+The two answer different questions — a `go.mod` justifies the module proxy and
+contributes nothing to the check floor — and keeping them apart means a change
+to what egress opens cannot change what verification requires, or the reverse.
+`check_derivation` is untouched. It also let the manifest probe cover pypi and
+go, which the check floor does not know about.
+
+### Protocol version stays at 3
+
+A bump is for a change an old peer cannot handle safely; this one it can.
+`ExecuteStep.egress` is `serde(default)` and the default is `Deny`, so an old
+worker ignoring it behaves exactly as today and a new worker against an old
+brain gets the same. **Both directions of a version skew fail closed.** Bumping
+would break every running worker's handshake to announce a change whose failure
+mode is already closed.
+
+### The receipt reports both halves
+
+`granted_registries` (what the planner decided) and `endpoints` (the
+intersection the sandbox enforced). If they ever disagree a reader can see it
+rather than trusting they cannot. Absent means *no record*; present-but-empty
+means *reached nothing* — collapsing those would let a receipt claim "no
+network" for a step where we do not know.
+
+**Verified:** api lib 337, core 94, worker 56, engine 111, context 44 — all
+green, run cold after trimming 26.2 GiB of build cache. Frontend builds.
+
 ## Next — wave 2 is complete
 
 Every task in the wave-2 handoff has landed. The plan's delivery order from
@@ -406,9 +468,9 @@ here:
 
 Two things worth doing before or alongside those, both found during this wave:
 
-- **Issue capability grants** (see PR C2's gaps). The egress enforcement is
-  complete and unused until the planning path decides a task needs npm. **This
-  is wave 3 / Task 2.**
+- ~~**Issue capability grants** (see PR C2's gaps). The egress enforcement is
+  complete and unused until the planning path decides a task needs npm.~~
+  **Closed by wave 3 / Task 2.**
 - ~~**Fix the soma-crypto vectors** (F5).~~ Out of Cortex's lane since Task 1a
   removed soma-crypto from the dependency graph. Now gate **G2** in ADR-0003.
   Still blocks the five RustCrypto majors in #499.
@@ -468,6 +530,39 @@ The handoff states the plan docs exist only on `docs/concurrency-assessment`.
 byte-identical content, so commit `d437ff5d` was dropped during the rebase.
 Cosmetic; noted so the next reader is not confused by a 16-commit branch
 producing 15 commits.
+
+### F7. The sandboxed provider CLI has no route to the model API *(unresolved, needs Josh)*
+
+Found while grounding Task 2. Not fixed there, and Task 2 does not fix it —
+registries are not provider endpoints.
+
+The chain, each link verified at the stated line:
+
+- `executor.rs:103` builds the `SandboxRequest` from `invocation.program` — the
+  provider CLI itself — so the agent runs **inside** the sandbox.
+- `executor.rs:142` uses `ContainerSandbox` unconditionally. PR C deleted the
+  host fallback deliberately; there is no other runner in production.
+- `container.rs:128-135`: with no grants the config is `network_mode: "none"`
+  and `network_disabled: true`.
+
+So a step dispatched to a sandbox with no egress grant runs an agent CLI that
+cannot reach `api.anthropic.com`. Task 2 grants registries when the repo has a
+manifest, which does not help: a cargo grant opens crates.io, not the provider.
+
+**Why this is not fixed here.** Opening egress to provider endpoints is a
+security-boundary decision, not one derivable from a repository's manifests —
+it is the same class of judgement as the isolation-class date in Phase 32.4.
+Guessing it inside a task about ecosystem-derived allowlists would put a
+permanent hole in the boundary as a side effect of a feature. **Josh's call.**
+
+The plausible shapes, for when it is taken: a provider grant issued at plan time
+from the routing decision (the planner already knows which provider was
+chosen), or the CLI moved out of the sandbox with only its filesystem effects
+sandboxed — which is a different architecture and would need its own ADR.
+
+Worth checking before acting: whether any step has in fact executed
+successfully since PR C merged. If the answer is no, this is why, and it means
+the sandbox path has never run a real step end to end.
 
 ### F5. The soma-crypto test vectors do not test anything *(reclassified — now gate G2)*
 

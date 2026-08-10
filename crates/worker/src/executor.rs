@@ -3,8 +3,9 @@ use std::collections::HashSet;
 use cortex_core::error::CortexError;
 use cortex_core::execution_job::{
     BackendKind, Blocked, BlockedReason, Budgets, EffortApplication, ExecutionJob, ModelRef,
-    NetworkPolicy, ResourceProfile, EXECUTION_JOB_VERSION,
+    ResourceProfile, EXECUTION_JOB_VERSION,
 };
+use cortex_core::egress::EgressPlan;
 use cortex_core::failure::{WorkerFailureKind, WorkerFailureReport};
 use cortex_core::protocol::{
     CheckEvidence, CommandEvidence, GitEvidence, StepOutput, WorkerEvidencePacket,
@@ -24,6 +25,13 @@ pub struct StepExecution {
     pub step_id: String,
     pub attempt_id: String,
     pub lease_gen: i64,
+    /// What the planner decided this step may reach.
+    ///
+    /// Carried rather than computed: the worker cannot see the repository the
+    /// plan was made against, and a boundary that re-derives its own permission
+    /// is a boundary that can disagree with the record of what was authorised.
+    /// [`Default`] is `Deny`, so a caller that does not set it opens nothing.
+    pub egress: EgressPlan,
 }
 
 /// How the provider was invoked, and what the backend did with the effort
@@ -630,8 +638,11 @@ fn build_job<R: SandboxRunner>(
         // bounds this attempt. The runner logs that rather than treating an
         // unpriced job as a bounded one.
         budgets: Budgets::unquoted(),
-        network_policy: NetworkPolicy::Deny,
-        capability_grants: Vec::new(),
+        // Decided at plan time, against a repository this process cannot see.
+        // Both halves come from the same derivation, which is what keeps the
+        // allowlist from naming a host no grant justifies.
+        network_policy: step.egress.network_policy.clone(),
+        capability_grants: step.egress.capability_grants.clone(),
         context_bundle: None,
         quote_id: None,
         plan_receipt_id: None,
@@ -645,10 +656,10 @@ fn build_job<R: SandboxRunner>(
     };
 
     // What was *enforced*, derived from the job rather than asserted beside it.
-    // The policy is `Deny` today because nothing in the planning path issues a
-    // capability grant yet, so this records an empty set — "we opened nothing",
-    // which is a different fact from "we did not write it down". The moment a
-    // grant is issued this is right without another change here.
+    // This intersects the allowlist with the grants, so it records what the
+    // sandbox will actually open — not what the planner asked for. The two
+    // agree when the plan came from `derive_egress`; the intersection is what
+    // makes them provably agree rather than assumed to.
     let endpoints = crate::sandbox::policy::effective_endpoints(&job);
     job.egress_mediator = if endpoints.is_empty() {
         None
@@ -1513,6 +1524,15 @@ mod tests {
             step_id: format!("step-{}", uuid::Uuid::new_v4()),
             attempt_id: "attempt-1".to_string(),
             lease_gen: 3,
+            egress: EgressPlan::deny(),
+        }
+    }
+
+    /// A step whose planner granted the crates.io registry.
+    fn spy_step_with_egress(plan: EgressPlan) -> StepExecution {
+        StepExecution {
+            egress: plan,
+            ..spy_step()
         }
     }
 
@@ -1638,6 +1658,53 @@ mod tests {
     }
 
     #[test]
+    fn the_job_carries_the_plan_s_egress_rather_than_the_worker_s_opinion() {
+        // The worker cannot see the repository the plan was made against, so it
+        // must not decide this for itself. What arrives on the frame is what
+        // ends up on the job, and `effective_egress` is the intersection of the
+        // allowlist with the grants — so it records what the sandbox will
+        // actually open, not what was asked for.
+        let manifests = cortex_core::egress::EcosystemManifests {
+            cargo: true,
+            ..Default::default()
+        };
+        let plan = cortex_core::egress::derive_egress(&manifests, true);
+        let step = spy_step_with_egress(plan.clone());
+        let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
+        let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
+
+        let job = build_job(&step, &decision, &runner, &build_command(&decision).unwrap());
+
+        assert_eq!(job.network_policy, plan.network_policy);
+        assert_eq!(job.capability_grants, plan.capability_grants);
+
+        let effective = job.effective_egress.expect("effective egress is recorded");
+        assert!(
+            effective.iter().any(|e| e.starts_with("index.crates.io:")),
+            "a cargo grant must reach the sparse index, got {effective:?}"
+        );
+        assert!(
+            !effective.iter().any(|e| e.contains("registry.npmjs.org")),
+            "a cargo-only grant must not reach npm, got {effective:?}"
+        );
+        // A job that opens something needs a mediator; one that opens nothing
+        // must not stand one up.
+        assert!(job.egress_mediator.is_some());
+    }
+
+    #[test]
+    fn a_denied_plan_opens_nothing_and_stands_up_no_mediator() {
+        let step = spy_step_with_egress(EgressPlan::deny());
+        let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
+        let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
+
+        let job = build_job(&step, &decision, &runner, &build_command(&decision).unwrap());
+
+        assert!(job.effective_egress.expect("recorded").is_empty());
+        assert!(job.egress_mediator.is_none());
+    }
+
+    #[test]
     fn job_carries_the_full_field_set_at_dispatch() {
         // Fields nothing populates yet must still be present, so the interface
         // does not need re-cutting when they are.
@@ -1653,7 +1720,10 @@ mod tests {
         assert_eq!(job.model_ref.catalog_version, None);
         assert_eq!(job.backend_kind, BackendKind::Cli);
         assert_eq!(job.effort, None);
-        assert_eq!(job.network_policy, NetworkPolicy::Deny);
+        assert_eq!(
+            job.network_policy,
+            cortex_core::execution_job::NetworkPolicy::Deny
+        );
         assert!(job.capability_grants.is_empty());
         assert_eq!(job.context_bundle, None);
         assert_eq!(job.quote_id, None);

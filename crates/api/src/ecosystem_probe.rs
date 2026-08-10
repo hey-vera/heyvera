@@ -12,6 +12,7 @@
 use std::path::Path;
 
 use cortex_core::check_derivation::EcosystemFacts;
+use cortex_core::egress::EcosystemManifests;
 
 /// Scripts a placeholder generator writes, which must never become a required
 /// check: `npm test` on a freshly generated package fails by design, and a
@@ -41,6 +42,28 @@ pub fn probe_ecosystem(workspace_dir: &Path) -> EcosystemFacts {
         has_cargo_manifest,
         has_package_json,
         npm_scripts,
+    }
+}
+
+/// Which dependency manifests the tree contains.
+///
+/// A second, deliberately separate walk from [`probe_ecosystem`]. They answer
+/// different questions — what must pass, versus what must be reachable — and a
+/// `go.mod` is the clearest case: it justifies the Go module proxy and
+/// contributes nothing to the check floor. Sharing one struct would mean a new
+/// ecosystem could only be granted egress by also changing what verification
+/// requires.
+///
+/// Existence checks only. Nothing here parses a manifest, because a grant is
+/// justified by "this repository uses cargo", not by anything inside the file.
+pub fn probe_manifests(workspace_dir: &Path) -> EcosystemManifests {
+    EcosystemManifests {
+        cargo: workspace_dir.join("Cargo.toml").is_file(),
+        npm: workspace_dir.join("package.json").is_file(),
+        // Either of the two ways a Python project declares dependencies.
+        pypi: workspace_dir.join("pyproject.toml").is_file()
+            || workspace_dir.join("requirements.txt").is_file(),
+        go: workspace_dir.join("go.mod").is_file(),
     }
 }
 
