@@ -4,7 +4,25 @@ use serde_json::{json, Value};
 
 use crate::db::{Database, RunStepSnapshot, StepDependencyEdge};
 
-const TERMINAL_STATUSES: &[&str] = &["succeeded", "failed", "recovered", "cancelled", "skipped"];
+/// States a step will not leave on its own.
+///
+/// `delivered` and `verifying` are deliberately absent: work handed over but
+/// not checked is not finished, and a pane that renders it as terminal is
+/// making the claim this model exists to stop. `inconclusive` is absent too —
+/// an unanswered question is not a settled one.
+const TERMINAL_STATUSES: &[&str] = &[
+    "verified",
+    "manual_override",
+    "failed",
+    "execution_failed",
+    "recovered",
+    "cancelled",
+    "skipped",
+];
+
+/// States a dependent may build on: we verified it, or a human took
+/// responsibility for it.
+const ACCEPTED_STATUSES: &[&str] = &["verified", "manual_override"];
 
 pub fn build_run_step_payloads(db: &Database, run_id: &str) -> Vec<Value> {
     let snapshots = db.get_run_step_snapshots(run_id);
@@ -179,7 +197,7 @@ fn dependency_blockers_by_step(
 fn dependency_satisfied(edge_type: &str, dependency_status: &str) -> bool {
     match edge_type {
         "completion_required" => TERMINAL_STATUSES.contains(&dependency_status),
-        _ => dependency_status == "succeeded",
+        _ => ACCEPTED_STATUSES.contains(&dependency_status),
     }
 }
 
@@ -196,6 +214,18 @@ fn step_health(snapshot: &RunStepSnapshot, lease_stale: bool, has_blockers: bool
     }
     if matches!(snapshot.status.as_str(), "leased" | "running") {
         return "in_progress";
+    }
+    // Delivered and verifying are their own visible conditions. Collapsing them
+    // into "in_progress" would hide the fact that the work exists and is being
+    // graded; collapsing them into "terminal" would claim it is done.
+    if snapshot.status == "delivered" {
+        return "delivered";
+    }
+    if snapshot.status == "verifying" {
+        return "verifying";
+    }
+    if snapshot.status == "inconclusive" {
+        return "needs_attention";
     }
     if snapshot.status == "pending" && has_blockers {
         return "waiting_on_dependency";
@@ -353,15 +383,16 @@ mod tests {
             Some("claude"),
             Some("opus"),
         );
-        assert!(db.complete_step(
+        assert!(db.deliver_step(
             "step_a",
+            "attempt-a",
             lease_gen,
             Some("done"),
             Some(r#"["src/main.rs"]"#),
             None,
             None,
         ));
-        db.complete_attempt("step_a", lease_gen);
+        db.deliver_attempt("step_a", lease_gen);
 
         let steps = build_run_step_payloads(&db, &run_id);
 
@@ -370,10 +401,12 @@ mod tests {
         assert_eq!(steps[0]["lease_gen"], lease_gen);
         assert_eq!(steps[0]["assigned_worker"], "worker_1");
         assert_eq!(steps[0]["lease_stale"], false);
-        assert_eq!(steps[0]["health"], "terminal");
+        // A worker handed back a commit. Nothing has graded it, so the step is
+        // delivered — not terminal, and not done.
+        assert_eq!(steps[0]["health"], "delivered");
         assert_eq!(steps[0]["latest_attempt"]["attempt_number"], 1);
         assert_eq!(steps[0]["latest_attempt"]["worker_id"], "worker_1");
-        assert_eq!(steps[0]["latest_attempt"]["status"], "succeeded");
+        assert_eq!(steps[0]["latest_attempt"]["status"], "delivered");
     }
 
     #[test]

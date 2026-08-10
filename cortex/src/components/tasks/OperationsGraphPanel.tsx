@@ -89,7 +89,7 @@ function nodeTone(node: OperationsGraphNode) {
   if (node.type === 'attempt') {
     return 'border-violet-300/30 bg-violet-400/10 text-violet-50';
   }
-  if (node.type === 'evidence' || status === 'succeeded' || status === 'verified') {
+  if (node.type === 'evidence' || status === 'verified' || status === 'manual_override') {
     return 'border-blue-300/30 bg-blue-400/10 text-blue-50';
   }
   return 'border-white/10 bg-white/[0.04] text-white';

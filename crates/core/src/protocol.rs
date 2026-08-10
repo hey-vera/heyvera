@@ -5,7 +5,10 @@ use crate::provider::ProviderId;
 use crate::routing::RoutingDecision;
 use crate::task::TaskContract;
 
-pub const PROTOCOL_VERSION: u32 = 2;
+// 3: adds `StepBlocked`. A worker that speaks 3 can tell an operator's
+// infrastructure failure apart from a customer's step failing, which v2 could
+// only express by prefixing a failure string.
+pub const PROTOCOL_VERSION: u32 = 3;
 
 // --- Brain → Worker ---
 
@@ -98,6 +101,22 @@ pub enum WorkerMessage {
         attempt_id: String,
         lease_gen: i64,
         failure: WorkerFailureReport,
+    },
+    /// The worker refused to execute: it could not establish the isolation the
+    /// job required.
+    ///
+    /// Distinct from `StepFailed`, which is a report about work that ran. A
+    /// refusal is an operator's infrastructure problem, and routing it through
+    /// the failure channel attributes it to the customer's step. PR C had to
+    /// do exactly that — a refusal travelled as a `StepFailed` whose reason
+    /// was prefixed `BLOCKED:` — because there was no blocked state to
+    /// transition to. There is now.
+    StepBlocked {
+        message_id: String,
+        step_id: String,
+        attempt_id: String,
+        lease_gen: i64,
+        blocked: crate::execution_job::Blocked,
     },
     LeaseRenew {
         step_id: String,

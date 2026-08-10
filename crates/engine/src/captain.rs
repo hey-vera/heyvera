@@ -46,6 +46,14 @@ impl RunStatus {
     }
 }
 
+/// Where a step is in its life.
+///
+/// The rule this enum exists to enforce: **a worker's report of success is a
+/// diagnostic, not a transition.** A worker delivering a commit produces
+/// `Delivered`. Only Cortex's own runner, executing the checks frozen at
+/// dispatch, produces `Verified`. `Succeeded` is deliberately absent — it used
+/// to mean both of those at once, which is how the worker's opinion became the
+/// product's truth. See `docs/adr/ADR-0001-step-truth-model.md`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum StepStatus {
@@ -53,8 +61,24 @@ pub enum StepStatus {
     Ready,
     Leased,
     Running,
-    Succeeded,
+    /// The sandbox produced a commit. Nothing has been checked yet.
+    Delivered,
+    /// Our runner is executing the frozen checks against the delivered commit.
+    Verifying,
+    /// We executed the required checks and they passed. The only success.
+    Verified,
+    /// We executed the required checks and a required one did not pass.
     Failed,
+    /// We could not obtain a verdict. Our failure, not the customer's, and
+    /// never silently resolved into success or failure.
+    Inconclusive,
+    /// The delivery never happened: the sandbox or the harness failed before
+    /// the step could produce a commit. Distinct from `Failed`, which is a
+    /// judgement about work that exists.
+    ExecutionFailed,
+    /// A human decided to accept the step without a passing verdict. A real
+    /// fact, and not the same fact as `Verified`.
+    ManualOverride,
     Recovered,
     Cancelled,
     Orphaned,
@@ -62,11 +86,31 @@ pub enum StepStatus {
 }
 
 impl StepStatus {
+    /// Terminal means "this step will not move again on its own".
+    ///
+    /// `Delivered` and `Verifying` are explicitly not terminal: work that has
+    /// been handed over but not checked is not finished. `Inconclusive` is not
+    /// terminal either — it is waiting for an operator or for a retry policy,
+    /// and letting it settle would make an unanswered question look answered.
     pub fn is_terminal(&self) -> bool {
         matches!(
             self,
-            Self::Succeeded | Self::Failed | Self::Recovered | Self::Cancelled | Self::Skipped
+            Self::Verified
+                | Self::Failed
+                | Self::ExecutionFailed
+                | Self::ManualOverride
+                | Self::Recovered
+                | Self::Cancelled
+                | Self::Skipped
         )
+    }
+
+    /// Whether the step reached an outcome that downstream work may build on.
+    ///
+    /// `ManualOverride` counts because a human took responsibility for it.
+    /// Nothing else does.
+    pub fn is_accepted(&self) -> bool {
+        matches!(self, Self::Verified | Self::ManualOverride)
     }
 
     pub fn as_str(&self) -> &'static str {
@@ -75,8 +119,13 @@ impl StepStatus {
             Self::Ready => "ready",
             Self::Leased => "leased",
             Self::Running => "running",
-            Self::Succeeded => "succeeded",
+            Self::Delivered => "delivered",
+            Self::Verifying => "verifying",
+            Self::Verified => "verified",
             Self::Failed => "failed",
+            Self::Inconclusive => "inconclusive",
+            Self::ExecutionFailed => "execution_failed",
+            Self::ManualOverride => "manual_override",
             Self::Recovered => "recovered",
             Self::Cancelled => "cancelled",
             Self::Orphaned => "orphaned",
@@ -90,12 +139,22 @@ impl StepStatus {
             "ready" => Some(Self::Ready),
             "leased" => Some(Self::Leased),
             "running" => Some(Self::Running),
-            "succeeded" => Some(Self::Succeeded),
+            "delivered" => Some(Self::Delivered),
+            "verifying" => Some(Self::Verifying),
+            "verified" => Some(Self::Verified),
             "failed" => Some(Self::Failed),
+            "inconclusive" => Some(Self::Inconclusive),
+            "execution_failed" => Some(Self::ExecutionFailed),
+            "manual_override" => Some(Self::ManualOverride),
             "recovered" => Some(Self::Recovered),
             "cancelled" => Some(Self::Cancelled),
             "orphaned" => Some(Self::Orphaned),
             "skipped" => Some(Self::Skipped),
+            // Deliberately not accepted. Rows carrying it are rewritten to
+            // `delivered` by the truth-model migration, and a live producer of
+            // it is a bug that should surface as an unparseable status rather
+            // than as a silent success.
+            "succeeded" => None,
             _ => None,
         }
     }
@@ -169,9 +228,15 @@ impl EdgeType {
         }
     }
 
+    /// A `success_required` edge is satisfied only by an *accepted* dependency
+    /// — one we verified, or one a human explicitly took responsibility for.
+    ///
+    /// `Delivered` does not satisfy it, even for a dependent that only reads.
+    /// The scheduler cannot currently establish that a dependent does not
+    /// write, and unknown scope is never optimistically unblocked.
     pub fn is_satisfied(&self, dep_status: StepStatus) -> bool {
         match self {
-            Self::SuccessRequired => dep_status == StepStatus::Succeeded,
+            Self::SuccessRequired => dep_status.is_accepted(),
             Self::CompletionRequired => dep_status.is_terminal(),
         }
     }
@@ -184,7 +249,9 @@ pub enum SchedulerEvent {
     RunCreated {
         run_id: String,
     },
-    StepCompleted {
+    /// A worker handed back a commit. **Not** a success: the step is
+    /// `delivered` and nothing has been checked yet.
+    StepDelivered {
         run_id: String,
         step_id: String,
         cost_estimate: Option<f64>,
@@ -517,6 +584,12 @@ pub fn plan_heal(
 
 // --- Run completion check ---
 
+/// Decide whether a run has finished, and how.
+///
+/// A run cannot report success on delivered-but-unverified work: `Delivered`,
+/// `Verifying`, and `Inconclusive` are not terminal, so an unverified run is
+/// simply not done yet. That is the point — the old model had no way to
+/// express "every step delivered, none of them checked".
 pub fn check_run_completion(step_statuses: &[(String, StepStatus)]) -> Option<RunStatus> {
     if step_statuses.is_empty() {
         return None;
@@ -527,9 +600,12 @@ pub fn check_run_completion(step_statuses: &[(String, StepStatus)]) -> Option<Ru
         return None;
     }
 
-    let any_failed = step_statuses
-        .iter()
-        .any(|(_, s)| *s == StepStatus::Failed || *s == StepStatus::Skipped);
+    let any_failed = step_statuses.iter().any(|(_, s)| {
+        matches!(
+            s,
+            StepStatus::Failed | StepStatus::ExecutionFailed | StepStatus::Skipped
+        )
+    });
     let any_cancelled = step_statuses
         .iter()
         .any(|(_, s)| *s == StepStatus::Cancelled);
@@ -549,15 +625,140 @@ mod tests {
 
     #[test]
     fn edge_type_satisfaction() {
-        assert!(EdgeType::SuccessRequired.is_satisfied(StepStatus::Succeeded));
+        assert!(EdgeType::SuccessRequired.is_satisfied(StepStatus::Verified));
         assert!(!EdgeType::SuccessRequired.is_satisfied(StepStatus::Failed));
         assert!(!EdgeType::SuccessRequired.is_satisfied(StepStatus::Running));
 
-        assert!(EdgeType::CompletionRequired.is_satisfied(StepStatus::Succeeded));
+        assert!(EdgeType::CompletionRequired.is_satisfied(StepStatus::Verified));
         assert!(EdgeType::CompletionRequired.is_satisfied(StepStatus::Failed));
         assert!(EdgeType::CompletionRequired.is_satisfied(StepStatus::Cancelled));
         assert!(!EdgeType::CompletionRequired.is_satisfied(StepStatus::Running));
         assert!(!EdgeType::CompletionRequired.is_satisfied(StepStatus::Pending));
+    }
+
+    #[test]
+    fn truth_delivered_work_satisfies_no_dependency_edge() {
+        // The regression this whole state machine exists to prevent: a worker
+        // says it is done, and the next step starts writing on top of a tree
+        // nobody checked.
+        for status in [StepStatus::Delivered, StepStatus::Verifying] {
+            assert!(
+                !EdgeType::SuccessRequired.is_satisfied(status),
+                "{} must not unblock a dependent",
+                status.as_str()
+            );
+            assert!(
+                !EdgeType::CompletionRequired.is_satisfied(status),
+                "{} is not a completed step",
+                status.as_str()
+            );
+            assert!(!status.is_terminal(), "{} is not terminal", status.as_str());
+            assert!(
+                !status.is_accepted(),
+                "{} is not an accepted outcome",
+                status.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn truth_inconclusive_is_neither_done_nor_accepted() {
+        // Inconclusive means we failed to obtain a verdict. Settling it either
+        // way charges the customer for our outage or blames them for it.
+        assert!(!StepStatus::Inconclusive.is_terminal());
+        assert!(!StepStatus::Inconclusive.is_accepted());
+        assert!(!EdgeType::SuccessRequired.is_satisfied(StepStatus::Inconclusive));
+        assert!(!EdgeType::CompletionRequired.is_satisfied(StepStatus::Inconclusive));
+    }
+
+    #[test]
+    fn truth_manual_override_is_accepted_but_is_not_verified() {
+        // A human taking responsibility unblocks work. It is still a different
+        // fact from a passing verdict, and must never render as one.
+        assert!(StepStatus::ManualOverride.is_accepted());
+        assert!(StepStatus::ManualOverride.is_terminal());
+        assert_ne!(
+            StepStatus::ManualOverride.as_str(),
+            StepStatus::Verified.as_str()
+        );
+    }
+
+    #[test]
+    fn truth_succeeded_no_longer_parses() {
+        // `succeeded` meant "delivered" and "verified" at once, which is how a
+        // worker's opinion became the product's truth. A live producer of it
+        // must surface as an unparseable status, not as a silent success.
+        assert_eq!(StepStatus::from_str("succeeded"), None);
+        assert_eq!(StepStatus::from_str("delivered"), Some(StepStatus::Delivered));
+        assert_eq!(StepStatus::from_str("verified"), Some(StepStatus::Verified));
+    }
+
+    #[test]
+    fn truth_every_status_round_trips_through_its_string() {
+        for status in [
+            StepStatus::Pending,
+            StepStatus::Ready,
+            StepStatus::Leased,
+            StepStatus::Running,
+            StepStatus::Delivered,
+            StepStatus::Verifying,
+            StepStatus::Verified,
+            StepStatus::Failed,
+            StepStatus::Inconclusive,
+            StepStatus::ExecutionFailed,
+            StepStatus::ManualOverride,
+            StepStatus::Recovered,
+            StepStatus::Cancelled,
+            StepStatus::Orphaned,
+            StepStatus::Skipped,
+        ] {
+            assert_eq!(
+                StepStatus::from_str(status.as_str()),
+                Some(status),
+                "{} does not survive a round trip through the database",
+                status.as_str()
+            );
+        }
+    }
+
+    #[test]
+    fn truth_a_run_of_delivered_steps_is_not_a_succeeded_run() {
+        let delivered = vec![
+            ("s1".to_string(), StepStatus::Delivered),
+            ("s2".to_string(), StepStatus::Verified),
+        ];
+        assert_eq!(
+            check_run_completion(&delivered),
+            None,
+            "a run with an unverified step has not finished"
+        );
+
+        let verifying = vec![("s1".to_string(), StepStatus::Verifying)];
+        assert_eq!(check_run_completion(&verifying), None);
+
+        let inconclusive = vec![("s1".to_string(), StepStatus::Inconclusive)];
+        assert_eq!(
+            check_run_completion(&inconclusive),
+            None,
+            "an unanswered question must not settle as a finished run"
+        );
+
+        let verified = vec![
+            ("s1".to_string(), StepStatus::Verified),
+            ("s2".to_string(), StepStatus::Verified),
+        ];
+        assert_eq!(check_run_completion(&verified), Some(RunStatus::Succeeded));
+    }
+
+    #[test]
+    fn truth_execution_failure_fails_the_run() {
+        // The sandbox never produced a tree. That is a failed run, not a
+        // succeeded one with a missing step.
+        let statuses = vec![
+            ("s1".to_string(), StepStatus::Verified),
+            ("s2".to_string(), StepStatus::ExecutionFailed),
+        ];
+        assert_eq!(check_run_completion(&statuses), Some(RunStatus::Failed));
     }
 
     #[test]
@@ -693,10 +894,10 @@ mod tests {
     }
 
     #[test]
-    fn check_run_all_succeeded() {
+    fn check_run_all_verified() {
         let steps = vec![
-            ("s1".into(), StepStatus::Succeeded),
-            ("s2".into(), StepStatus::Succeeded),
+            ("s1".into(), StepStatus::Verified),
+            ("s2".into(), StepStatus::Verified),
         ];
         assert_eq!(check_run_completion(&steps), Some(RunStatus::Succeeded));
     }
@@ -704,7 +905,7 @@ mod tests {
     #[test]
     fn check_run_any_failed() {
         let steps = vec![
-            ("s1".into(), StepStatus::Succeeded),
+            ("s1".into(), StepStatus::Verified),
             ("s2".into(), StepStatus::Failed),
         ];
         assert_eq!(check_run_completion(&steps), Some(RunStatus::Failed));
@@ -714,7 +915,7 @@ mod tests {
     fn check_run_recovered_is_terminal_but_not_failed() {
         let steps = vec![
             ("s1".into(), StepStatus::Recovered),
-            ("s2".into(), StepStatus::Succeeded),
+            ("s2".into(), StepStatus::Verified),
         ];
         assert_eq!(check_run_completion(&steps), Some(RunStatus::Succeeded));
     }
@@ -722,7 +923,7 @@ mod tests {
     #[test]
     fn check_run_any_cancelled() {
         let steps = vec![
-            ("s1".into(), StepStatus::Succeeded),
+            ("s1".into(), StepStatus::Verified),
             ("s2".into(), StepStatus::Cancelled),
         ];
         assert_eq!(check_run_completion(&steps), Some(RunStatus::Cancelled));
@@ -731,7 +932,7 @@ mod tests {
     #[test]
     fn check_run_still_running() {
         let steps = vec![
-            ("s1".into(), StepStatus::Succeeded),
+            ("s1".into(), StepStatus::Verified),
             ("s2".into(), StepStatus::Running),
         ];
         assert_eq!(check_run_completion(&steps), None);
@@ -798,6 +999,6 @@ mod tests {
         assert!(EdgeType::CompletionRequired.is_satisfied(StepStatus::Failed));
         // Verify: retry's dependency on heal requires success
         assert!(!EdgeType::SuccessRequired.is_satisfied(StepStatus::Failed));
-        assert!(EdgeType::SuccessRequired.is_satisfied(StepStatus::Succeeded));
+        assert!(EdgeType::SuccessRequired.is_satisfied(StepStatus::Verified));
     }
 }

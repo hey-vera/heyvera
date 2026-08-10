@@ -497,8 +497,9 @@ async fn handle_worker_msg(
                 }
 
                 if verified_success {
-                    step_transitioned = db.complete_step(
+                    step_transitioned = db.deliver_step(
                         &step_id,
+                        &attempt_id,
                         lease_gen,
                         Some(&truncated_summary),
                         files_json.as_deref(),
@@ -507,18 +508,20 @@ async fn handle_worker_msg(
                     );
                     if !step_transitioned {
                         tracing::warn!(
-                            "complete_step returned false for step {step_id} lease_gen={lease_gen} — \
-                             likely stale lease_gen (step may have been re-leased or already completed)"
+                            "deliver_step returned false for step {step_id} lease_gen={lease_gen} — \
+                             likely stale lease_gen (step may have been re-leased or already delivered)"
                         );
                         completion_error =
                             "stale worker completion ignored: step is no longer leased to this attempt"
                                 .to_string();
                     } else {
-                        db.complete_attempt(&step_id, lease_gen);
+                        db.deliver_attempt(&step_id, lease_gen);
 
-                        // V3: grade the delivered tree ourselves, out of band.
+                        // The step is `delivered`: a tree exists and nothing
+                        // has been checked. It is not done, and nothing
+                        // downstream may treat it as done.
                         //
-                        // Reaching this branch means complete_step's CAS on
+                        // Reaching this branch means deliver_step's CAS on
                         // lease_gen held, so this delivery is the live one — a
                         // superseded attempt never gets here and so can never
                         // bill. `lease_gen` is the attempt discriminator: it is
@@ -531,38 +534,73 @@ async fn handle_worker_msg(
                         // own database handle: AppState holds `Database` by
                         // value and this function borrows it, so nothing here
                         // can be moved into a task.
+                        //
+                        // KNOWN GAP, closed by the durable verifier (PR B): if
+                        // this process dies between the `verifying` transition
+                        // and the verdict, the step sits in `verifying` with
+                        // nothing to resume it. There is deliberately no
+                        // timeout here — a timeout that invents a verdict is
+                        // the same fault as trusting the worker, one layer
+                        // down.
                         if let (Some(run_id), Some(head)) =
                             (resolved_run_id.clone(), head_commit.clone())
                         {
-                            let facts = crate::verification_driver::DeliveryFacts {
-                                run_id,
-                                step_id: step_id.clone(),
-                                attempt: lease_gen,
-                                workspace_dir: state.workspace_dir.clone(),
-                                head_commit: head,
-                                // No per-step price is persisted anywhere yet,
-                                // so the verdict is recorded and the ledger is
-                                // left alone. Inventing a price is never right.
-                                quoted_credits: None,
-                            };
-                            let db_path = crate::state::cortex_db_path(&state.workspace_dir);
-                            tokio::spawn(async move {
-                                let db = crate::db::Database::open(&db_path);
-                                match crate::check_runner::ContainerCheckRunner::new(
-                                    crate::verification_driver::runner_image(),
-                                ) {
-                                    Ok(runner) => {
-                                        crate::verification_driver::verify_delivery(
-                                            &db, &runner, &facts,
-                                        )
-                                        .await;
+                            if db.begin_verifying_step(&step_id, &attempt_id, lease_gen) {
+                                let facts = crate::verification_driver::DeliveryFacts {
+                                    run_id,
+                                    step_id: step_id.clone(),
+                                    attempt_id: attempt_id.clone(),
+                                    attempt: lease_gen,
+                                    workspace_dir: state.workspace_dir.clone(),
+                                    head_commit: head,
+                                    // No per-step price is persisted anywhere
+                                    // yet, so the verdict is recorded and the
+                                    // ledger is left alone. Inventing a price
+                                    // is never right.
+                                    quoted_credits: None,
+                                };
+                                let db_path = crate::state::cortex_db_path(&state.workspace_dir);
+                                tokio::spawn(async move {
+                                    let db = crate::db::Database::open(&db_path);
+                                    match crate::check_runner::ContainerCheckRunner::new(
+                                        crate::verification_driver::runner_image(),
+                                    ) {
+                                        Ok(runner) => {
+                                            crate::verification_driver::verify_delivery(
+                                                &db, &runner, &facts,
+                                            )
+                                            .await;
+                                        }
+                                        Err(e) => {
+                                            // We cannot grade it. That is our
+                                            // failure, so the step is
+                                            // inconclusive — never a pass, and
+                                            // never a failure charged to the
+                                            // customer.
+                                            tracing::error!(
+                                                error = %e,
+                                                "no container runner available; delivery is inconclusive"
+                                            );
+                                            db.record_verification_outcome(
+                                                &facts.step_id,
+                                                &facts.attempt_id,
+                                                facts.attempt,
+                                                "inconclusive",
+                                                Some("no container runner available"),
+                                            );
+                                        }
                                     }
-                                    Err(e) => tracing::error!(
-                                        error = %e,
-                                        "no container runner available; delivery left unverified"
-                                    ),
-                                }
-                            });
+                                });
+                            }
+                        } else {
+                            // No run or no commit means there is nothing to
+                            // grade against. The step stays `delivered` rather
+                            // than being promoted, which is the honest state.
+                            tracing::warn!(
+                                step_id = %step_id,
+                                "delivered with no resolvable run or head commit; \
+                                 nothing to verify against, step stays delivered"
+                            );
                         }
                     }
                 } else {
@@ -613,7 +651,7 @@ async fn handle_worker_msg(
 
                         if verified_success {
                             state
-                                .emit_scheduler_event(SchedulerEvent::StepCompleted {
+                                .emit_scheduler_event(SchedulerEvent::StepDelivered {
                                     run_id: run_id.clone(),
                                     step_id: step_id.clone(),
                                     cost_estimate: output.cost_estimate,
@@ -633,7 +671,7 @@ async fn handle_worker_msg(
                                 state
                                     .emit_mc_event(
                                         user_id,
-                                        MissionControlEvent::StepCompleted {
+                                        MissionControlEvent::StepDelivered {
                                             run_id: run_id.clone(),
                                             step_id: step_id.clone(),
                                             exit_code,
@@ -671,7 +709,13 @@ async fn handle_worker_msg(
                             ArtifactKind::Error
                         };
 
-                        let confidence = if verified_success { 0.8 } else { 0.1 };
+                        // A delivered artifact carries the worker's own account
+                        // of its work, and nothing has checked it. It is still
+                        // the best context a downstream step has, so it is kept
+                        // — but it cannot claim the confidence of a verified
+                        // result. Raising it is the verifier's job, once there
+                        // is a verdict to raise it on.
+                        let confidence = if verified_success { 0.5 } else { 0.1 };
                         let artifact = ContextBus::create_artifact(
                             &step_id,
                             &run_id,
@@ -691,28 +735,24 @@ async fn handle_worker_msg(
                     }
 
                     if let Some(user_id) = authed_user_id.as_deref() {
-                        if verified_success {
-                            let duration_ms = if let Some((_, _, started_at)) =
-                                db.get_attempt_provider_model(&step_id, lease_gen)
-                            {
-                                let now = chrono::Utc::now().timestamp_millis();
-                                (now - started_at).max(0) as u64
-                            } else {
-                                0
-                            };
-                            state.vera_tracker.record_step_completed(
-                                user_id,
-                                duration_ms,
-                                exit_code,
-                                None,
-                            );
-                        } else {
+                        if !verified_success {
                             state.vera_tracker.record_step_failed(
                                 user_id,
                                 "VerifierRejected",
                                 None,
                             );
                         }
+                        // No success interaction is recorded on delivery.
+                        // `record_step_completed` derives its outcome from the
+                        // worker's exit code, which is precisely the signal
+                        // invariant 6 forbids from improving a score.
+                        //
+                        // KNOWN GAP: it is not recorded from the verdict path
+                        // either. `VeraTracker` lives in `AppState` by value
+                        // and cannot be moved into the spawned verifier task,
+                        // so PR A suspends the positive signal rather than
+                        // crediting unverified work. PR B's durable verifier
+                        // restores it against a real verdict.
                     }
                 }
             }
@@ -865,6 +905,92 @@ async fn handle_worker_msg(
                         .await;
                 }
             }
+        }
+
+        WorkerMessage::StepBlocked {
+            message_id,
+            step_id,
+            attempt_id,
+            lease_gen,
+            blocked,
+        } => {
+            if let Some(db) = &state.db {
+                if !db.verify_step_worker(&step_id, worker_id) {
+                    tracing::warn!(
+                        "SECURITY: worker {worker_id} attempted StepBlocked for step {step_id} \
+                         which is not assigned to it — dropping message (msg={message_id})"
+                    );
+                    return;
+                }
+            }
+
+            // The worker refused to execute because it could not establish the
+            // isolation the job required. That is our infrastructure failing,
+            // not the customer's step, so it is recorded as `execution_failed`
+            // and never as `failed`. Nothing is charged, and no bandit learns
+            // that a provider did badly — it never ran.
+            tracing::error!(
+                step_id = %step_id,
+                reason = %blocked.reason.as_str(),
+                detail = %blocked.detail,
+                "worker refused to execute; the sandbox could not be established"
+            );
+
+            if let Some(db) = &state.db {
+                let reason = blocked.to_string();
+                let transitioned =
+                    db.record_execution_failure(&step_id, &attempt_id, lease_gen, &reason);
+                if !transitioned {
+                    tracing::warn!(
+                        "execution failure did not apply to step {step_id} lease_gen={lease_gen} — \
+                         likely a stale attempt"
+                    );
+                }
+                db.fail_attempt(
+                    &step_id,
+                    lease_gen,
+                    Some(blocked.reason.as_str()),
+                    Some(&reason),
+                );
+
+                if transitioned {
+                    if let Some(run_id) = resolve_run_id(step_run_cache, state, &step_id) {
+                        state
+                            .emit_scheduler_event(SchedulerEvent::StepFailed {
+                                run_id: run_id.clone(),
+                                step_id: step_id.clone(),
+                            })
+                            .await;
+
+                        if let Some(user_id) = authed_user_id.as_deref() {
+                            state
+                                .emit_mc_event(
+                                    user_id,
+                                    MissionControlEvent::StepFailed {
+                                        run_id,
+                                        step_id: step_id.clone(),
+                                        error: reason.clone(),
+                                        // Named for what it is. An operator
+                                        // reading this needs to know the cause
+                                        // is theirs to fix, not the task's.
+                                        failure_kind: "ExecutionBlocked".to_string(),
+                                    },
+                                )
+                                .await;
+                        }
+                    }
+                }
+            }
+
+            if let Some(tx) = state.get_step_sender(&step_id).await {
+                let _ = tx
+                    .send(StepEvent::Failed {
+                        step_id: step_id.clone(),
+                        error: blocked.to_string(),
+                    })
+                    .await;
+            }
+            state.remove_step_sender(&step_id).await;
         }
 
         WorkerMessage::LeaseRenew { step_id, lease_gen } => {

@@ -60,6 +60,7 @@ async fn scheduler_loop(state: Arc<AppState>, mut rx: mpsc::Receiver<SchedulerEv
                 cleanup_expired_keys(&state);
                 state.rate_limiter.cleanup();
                 reconcile_ready_steps(&state, &mut sched).await;
+                reconcile_run_completion(&state).await;
                 schedule_until_blocked(&state, &mut sched).await;
             }
             _ = prune_interval.tick() => {
@@ -97,12 +98,12 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             load_ready_steps_for_run(state, sched, run_id).await;
         }
 
-        SchedulerEvent::StepCompleted {
+        SchedulerEvent::StepDelivered {
             run_id,
             step_id,
             cost_estimate,
         } => {
-            tracing::info!("scheduler: step completed {step_id} in run {run_id}");
+            tracing::info!("scheduler: step delivered {step_id} in run {run_id}");
             if let Some(heart) = &state.soma_heart {
                 heart.record_heartbeat(
                     soma::heartbeat::HeartbeatEventType::RouteCompleted,
@@ -111,25 +112,47 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
             }
             if let Some(db) = &state.db {
                 let user_id = get_run_user(db, run_id);
+                // The worker is free again regardless of what the verdict turns
+                // out to be, so the concurrency slot is released here.
                 sched.mark_step_done(&user_id);
-                match db.get_latest_verifier_report(step_id) {
-                    Some(report) if report.is_verified_success() => {
-                        update_bandit_from_outcome(state, db, step_id, true, *cost_estimate).await;
-                    }
-                    Some(report) => {
-                        tracing::info!(
-                            step_id = %step_id,
-                            report_id = %report.id,
-                            status = %report.status,
-                            verdict = %report.verdict,
-                            "skipping positive bandit reward for unverified step completion"
-                        );
-                    }
-                    None => {
-                        tracing::info!(
-                            step_id = %step_id,
-                            "skipping positive bandit reward for step completion without verifier report"
-                        );
+
+                // Invariant 6: a worker's report can never emit a positive
+                // routing reward. At delivery the step is `verifying` and no
+                // verdict exists, so this gate is expected to reject — it fires
+                // only for a step an operator has already accepted. The
+                // reward for a genuine verdict belongs to the durable verifier
+                // (PR B), which is the first thing in this system that both
+                // knows a verdict and can reach the bandit.
+                let accepted = db
+                    .get_step_status(step_id)
+                    .map(|status| matches!(status.as_str(), "verified" | "manual_override"))
+                    .unwrap_or(false);
+                if !accepted {
+                    tracing::info!(
+                        step_id = %step_id,
+                        "no positive bandit reward: the step is delivered, not verified"
+                    );
+                } else {
+                    match db.get_latest_verifier_report(step_id) {
+                        Some(report) if report.is_verified_success() => {
+                            update_bandit_from_outcome(state, db, step_id, true, *cost_estimate)
+                                .await;
+                        }
+                        Some(report) => {
+                            tracing::info!(
+                                step_id = %step_id,
+                                report_id = %report.id,
+                                status = %report.status,
+                                verdict = %report.verdict,
+                                "skipping positive bandit reward for unverified step delivery"
+                            );
+                        }
+                        None => {
+                            tracing::info!(
+                                step_id = %step_id,
+                                "skipping positive bandit reward for delivery without verifier report"
+                            );
+                        }
                     }
                 }
             }
@@ -1491,6 +1514,26 @@ async fn reconcile_ready_steps(state: &AppState, sched: &mut SchedulerState) {
             risk,
             objective,
         });
+    }
+}
+
+/// Finish runs whose last step was verified out of band.
+///
+/// Verdicts arrive from a spawned task that holds a `Database` and nothing
+/// else, so it cannot emit a scheduler event. Without this pass a run whose
+/// final step became `verified` in the background would sit at `running`
+/// forever. The reconcile tick is the right home: it is already the loop that
+/// repairs state nothing told the scheduler about.
+///
+/// PR B replaces the spawned task with a durable job that can report for
+/// itself; this pass stays as the backstop for a verdict that lands while the
+/// process is down.
+async fn reconcile_run_completion(state: &AppState) {
+    let Some(db) = &state.db else {
+        return;
+    };
+    for run_id in db.get_active_run_ids() {
+        check_run_done(state, &run_id).await;
     }
 }
 

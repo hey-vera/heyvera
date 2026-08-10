@@ -28,7 +28,12 @@ const STATUS_LABELS: Record<string, string> = {
   ready: 'Ready',
   leased: 'Leased',
   running: 'Running',
-  succeeded: 'Succeeded',
+  delivered: 'Delivered · unverified',
+  verifying: 'Verifying',
+  verified: 'Verified',
+  inconclusive: 'Inconclusive',
+  execution_failed: 'Execution failed',
+  manual_override: 'Manual override',
   failed: 'Failed',
   recovered: 'Recovered',
   cancelled: 'Cancelled',
@@ -41,7 +46,12 @@ const STATUS_CLASSES: Record<string, string> = {
   ready: 'border-white/8 bg-white/4 text-[var(--muted)]',
   leased: 'border-sky-400/20 bg-sky-400/10 text-sky-200',
   running: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200',
-  succeeded: 'border-[var(--accent)]/20 bg-[var(--accent)]/10 text-[var(--accent)]',
+  delivered: 'border-sky-400/20 bg-sky-400/10 text-sky-200',
+  verifying: 'border-sky-400/20 bg-sky-400/10 text-sky-200',
+  verified: 'border-[var(--accent)]/20 bg-[var(--accent)]/10 text-[var(--accent)]',
+  inconclusive: 'border-amber-300/20 bg-amber-300/10 text-amber-200',
+  execution_failed: 'border-orange-300/20 bg-orange-300/10 text-orange-200',
+  manual_override: 'border-amber-300/20 bg-amber-300/10 text-amber-200',
   failed: 'border-red-400/20 bg-red-400/10 text-red-200',
   recovered: 'border-amber-300/20 bg-amber-300/10 text-amber-200',
   cancelled: 'border-zinc-300/20 bg-zinc-300/10 text-zinc-200',
@@ -54,6 +64,9 @@ const HEALTH_LABELS: Record<string, string> = {
   in_progress: 'In progress',
   lease_stale: 'Lease stale',
   ready: 'Ready',
+  delivered: 'Delivered, not verified',
+  verifying: 'Verifying',
+  needs_attention: 'Needs attention',
   terminal: 'Terminal',
   verification_rejected: 'Verification rejected',
   waiting_on_dependency: 'Waiting on dependency',
@@ -126,7 +139,11 @@ function latestAttemptLine(step: RunStep) {
 function getWorkerSignal(run: RunSummary | null) {
   if (!run) return { label: 'Worker status unknown', className: 'border-white/8 bg-white/4 text-[var(--muted)]' };
   const statuses = run.steps.map((step) => step.status);
-  if (statuses.some((status) => status === 'leased' || status === 'running' || status === 'succeeded')) {
+  if (
+    statuses.some((status) =>
+      ['leased', 'running', 'delivered', 'verifying', 'verified'].includes(status),
+    )
+  ) {
     return { label: 'Worker activity detected', className: 'border-emerald-400/20 bg-emerald-400/10 text-emerald-200' };
   }
   if (statuses.length > 0 && statuses.every((status) => status === 'pending')) {

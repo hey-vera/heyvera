@@ -79,6 +79,12 @@ const RUN_STATUS_TONE: Record<string, string> = {
   leased: 'border-sky-300/20 bg-sky-400/10 text-sky-100',
   running: 'border-emerald-300/20 bg-emerald-400/10 text-emerald-100',
   succeeded: 'border-[var(--accent)]/25 bg-[var(--accent)]/10 text-[var(--accent)]',
+  delivered: 'border-sky-300/20 bg-sky-400/10 text-sky-100',
+  verifying: 'border-sky-300/20 bg-sky-400/10 text-sky-100',
+  verified: 'border-[var(--accent)]/25 bg-[var(--accent)]/10 text-[var(--accent)]',
+  inconclusive: 'border-amber-300/20 bg-amber-300/10 text-amber-100',
+  execution_failed: 'border-orange-300/20 bg-orange-300/10 text-orange-100',
+  manual_override: 'border-amber-300/20 bg-amber-300/10 text-amber-100',
   failed: 'border-red-300/20 bg-red-400/10 text-red-100',
   recovered: 'border-amber-300/20 bg-amber-300/10 text-amber-100',
   cancelled: 'border-zinc-300/20 bg-zinc-300/10 text-zinc-100',
@@ -196,7 +202,11 @@ function buildRunSignal(run: RunSummary | null) {
   if (!run) return null;
   const statuses = run.steps.map((step) => step.status);
   const active = statuses.filter((status) => status === 'leased' || status === 'running').length;
-  const done = statuses.filter((status) => status === 'succeeded' || status === 'skipped').length;
+  // Delivered work is not done. Counting it here would put a number on the
+  // dashboard that says more finished than has been checked.
+  const done = statuses.filter(
+    (status) => status === 'verified' || status === 'manual_override' || status === 'skipped',
+  ).length;
   const failed = statuses.filter((status) => status === 'failed' || status === 'orphaned').length;
   return { active, done, failed, total: statuses.length };
 }
