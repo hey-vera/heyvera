@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-10 (wave 3 — Tasks 1, 1a, 2, 3, 4, 5, 6 done; PR R next)
+**Last updated:** 2026-08-10 (wave 3 — Tasks 1–6 done, PR R part 1 done; PR R part 2 next)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -32,6 +32,7 @@ re-deriving anything.
 | 12 | Governance: required checks, CODEOWNERS, environments | **done** — see "Wave 3 / Task 4" below. **Two recommendations need Josh.** |
 | 13 | Rebase PR #105 and report what is true | **done, not merged** — see "Wave 3 / Task 5" below. **#105 cannot be rebased; one real gap survives it.** |
 | 14 | Task 6 — PR U (provenance typing) | **done** — see "Wave 3 / Task 6" below. Six of seven deliverables; the seventh needs the context wired. |
+| 15 | PR R part 1 — plan-derived write sets | **done** — see "Wave 3 / Task 7" below. Step-scope leases and queueing remain. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -784,6 +785,81 @@ is part of connecting the context, which this PR deliberately does not do. The
 field exists so that work has somewhere to land rather than growing a new one.
 
 **Verified:** core 120, api 346, engine 111, worker 56, context 44.
+
+## Wave 3 / Task 7 — PR R, part 1: plan-derived write sets
+
+One commit on `feat/plan-derived-write-sets`. No migration. **This is part of PR
+R, not all of it** — see "what remains" below.
+
+### A live bug, not just groundwork
+
+Lease keys were built with `path.trim_matches('/')`, while the conflict checker
+(`path_keys_overlap`, `db.rs:4707`) tests for a prefix followed by `/`. So
+`src/` and `src/a.rs` were reported as **not** overlapping, and two steps
+writing the same directory could both hold a lease. Keys now go through
+`write_set::normalise`, folding `src`, `/src`, `src/`, `./src` and `/src/` to
+one key.
+
+### Canonical acquisition order
+
+Requests are sorted before being returned. Two transactions taking the same
+locks in opposite orders can deadlock. Today that is latent rather than live —
+acquisition happens inside a single transaction that checks every conflict
+before inserting anything — but it depends on caller assembly order, which is
+not a property anyone is maintaining. Sorting makes every acquirer agree without
+coordinating, and costs nothing.
+
+This changed the order requests come back in, so one scheduler test now asserts
+by content rather than position. The old assertions were encoding assembly order
+as though it meant something.
+
+### `Empty` and `Unknown` are different, deliberately
+
+`WriteSet::Empty` means *this step writes nothing* and can run beside anything.
+`WriteSet::Unknown` means *we cannot tell* and is treated as repo-wide.
+Collapsing them would let a step with undeclared paths run concurrently with one
+touching the same file.
+
+Undeclared paths stay repo-wide, exactly as today: declaring nothing must not be
+rewarded with more concurrency than declaring something. The behaviour only
+improves for plans that declare.
+
+**The main win** is `derive_write_set(changes_tree: false, ..) == Empty` —
+read-only steps stop taking a repo-wide lease. Search/Think/Review steps are
+common, and today any of them serialises every other run against the same repo
+whenever the plan declares no paths.
+
+### Overlap is not an error
+
+`find_overlaps` returns every overlapping pair as *input to scheduling*, not as
+a rejection. A plan where every step writes the same file is a perfectly good
+plan that happens to have no parallelism; failing it would reject most real
+work. It returns all pairs rather than the first, so a plan with four mutually
+overlapping steps is reported once with four facts instead of fixed and re-run
+four times.
+
+### Parity is pinned by a test
+
+`keys_overlap` is a copy of `path_keys_overlap`, and a test asserts they agree
+across a key matrix. Two different answers to "do these paths conflict" is a
+scheduler granting concurrency the conflict checker would refuse — the exact
+failure PR R exists to prevent. If the db-side rule is ever edited, that test
+fails.
+
+### What remains in PR R
+
+1. **Step-scoped leases.** `resource_leases` already has a `step_id` column and
+   `holder_type`; `acquire_run_resource_leases_tx` writes `'run'` with
+   `step_id NULL`. The schema supports the move; the acquisition path does not
+   do it yet.
+2. **Queue on conflict instead of failing.** Today a conflict returns
+   `CreateRunError::ResourceConflict` at run creation. Queueing means a waiting
+   state and a wake-up when the holder releases — the largest piece.
+3. **Hotspot declaration and scheduler-allocated sequence resources.**
+
+**Verified:** core 136; workspace **878 passed / 0 failed** across all targets
+(`--all-targets`, matching CI — `--lib` alone does not compile
+`crates/api/tests/`).
 
 ## Next — wave 2 is complete
 
