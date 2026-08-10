@@ -66,7 +66,7 @@ use crate::context_flow::{ContextBus, ContextBusConfig};
 ///
 /// Deterministic on purpose: restarting the process must not fragment a
 /// tracker's history into two apparent Cortexes.
-fn default_cortex_heart_id() -> soma_core::types::HeartId {
+fn default_cortex_heart_id() -> cortex_core::vera::HeartId {
     use std::collections::hash_map::DefaultHasher;
     use std::hash::{Hash, Hasher};
     let mut hasher = DefaultHasher::new();
@@ -77,7 +77,7 @@ fn default_cortex_heart_id() -> soma_core::types::HeartId {
     id[8..16].copy_from_slice(&hash);
     id[16..24].copy_from_slice(&hash);
     id[24..32].copy_from_slice(&hash);
-    soma_core::types::HeartId(id)
+    cortex_core::vera::HeartId(id)
 }
 
 #[derive(Debug, Clone)]
@@ -334,7 +334,7 @@ impl AppState {
                 for (i, b) in did_bytes.iter().enumerate().take(32) {
                     id[i] = *b;
                 }
-                soma_core::types::HeartId(id)
+                cortex_core::vera::HeartId(id)
             })
             .unwrap_or_else(default_cortex_heart_id);
         #[cfg(not(feature = "soma"))]

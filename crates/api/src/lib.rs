@@ -102,14 +102,31 @@ struct SimulateParams {
 fn default_agent_count() -> usize { 20 }
 fn default_per_agent() -> usize { 10 }
 
+/// POST /api/admin/vera/simulate — fill the tracker with synthetic traffic.
+///
+/// A debug/demo endpoint, and it used to sit in the public, un-rate-limited
+/// block with no auth extractor at all: an anonymous caller could ask for
+/// `agents=1000&per_agent=100` and occupy a Tokio worker thread with 100,000
+/// synthetic interactions, starving the runtime the database handlers share.
+///
+/// Two changes, because either alone is insufficient. It is now behind
+/// `require_admin_middleware` with the rest of the admin surface, so it is not a
+/// lever an anonymous caller can pull; and `simulate_ecosystem` bounds the work
+/// internally, so an admin account — or a bug in the auth path — cannot stall
+/// the process either. The response reports what was actually generated rather
+/// than echoing the request, so a clamped call is visible to its caller.
 async fn vera_simulate(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
     axum::extract::Query(params): axum::extract::Query<SimulateParams>,
 ) -> impl axum::response::IntoResponse {
-    let agents = params.agents.min(1000);
-    let per_agent = params.per_agent.min(100);
-    state.vera_tracker.simulate_ecosystem(agents, per_agent);
-    axum::Json(state.vera_tracker.snapshot())
+    let generated = state
+        .vera_tracker
+        .simulate_ecosystem(params.agents, params.per_agent);
+    axum::Json(serde_json::json!({
+        "generated": generated,
+        "max": vera::VeraTracker::MAX_SIMULATED_INTERACTIONS,
+        "snapshot": state.vera_tracker.snapshot(),
+    }))
 }
 
 #[cfg(feature = "soma")]
@@ -937,6 +954,9 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         .route("/api/admin/reconcile-counters", post(admin::reconcile_counters))
         .route("/api/admin/containers", get(admin::list_containers))
         .route("/api/admin/containers/stats", get(admin::container_stats))
+        // Debug/demo: synthetic traffic for the Vera tracker. Admin-only and
+        // internally bounded — see `vera_simulate`.
+        .route("/api/admin/vera/simulate", post(vera_simulate))
         .layer(middleware::from_fn_with_state(
             state.clone(),
             admin::require_admin_middleware,
@@ -961,7 +981,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         // Vera observation layer — live network state
         .route("/api/vera/network", get(vera_snapshot))
         .route("/api/vera/me", get(vera_personal))
-        .route("/api/vera/simulate", post(vera_simulate))
+        // `/api/vera/simulate` was here, unauthenticated. It is now
+        // `/api/admin/vera/simulate`, inside the admin block.
         // Soma identity + delegation bridge. Empty unless the `soma` feature
         // is on; see `soma_fence`.
         .merge(soma_fence::routes())

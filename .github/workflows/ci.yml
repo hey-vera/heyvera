@@ -253,6 +253,41 @@ jobs:
 
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
+      # The assertion the `soma` feature gate cannot make for itself.
+      #
+      # A `#[cfg(feature = "soma")]` gate only fences the code it is written on.
+      # It says nothing about what is *linked*, so a Cortex crate could — and
+      # did — depend on `soma-core`, which depends on `soma-crypto`
+      # unconditionally, and pull the whole crypto crate into a build with the
+      # feature off. Nothing in Rust catches that; only the dependency graph
+      # shows it.
+      #
+      # `cargo tree -i <pkg>` exits non-zero when the package is not in the
+      # graph, so a *successful* invocation here is the failure.
+      - name: No soma crate is in the default graph
+        run: |
+          set -uo pipefail
+          status=0
+          for crate in soma soma-core soma-crypto; do
+            if cargo tree -p cortex-api --no-default-features --locked -i "$crate" >/dev/null 2>&1; then
+              echo "::error::$crate is reachable from cortex-api with default features off"
+              cargo tree -p cortex-api --no-default-features --locked -i "$crate" || true
+              status=1
+            fi
+            if cargo tree -p cortex-worker --no-default-features --locked -i "$crate" >/dev/null 2>&1; then
+              echo "::error::$crate is reachable from cortex-worker with default features off"
+              cargo tree -p cortex-worker --no-default-features --locked -i "$crate" || true
+              status=1
+            fi
+          done
+          exit "$status"
+
+      # The other direction: with the feature ON the fence must actually reach
+      # Soma. If this stops resolving, the `soma` feature has silently become a
+      # no-op and the "on" configuration is no longer being tested.
+      - name: The soma feature still reaches soma
+        run: cargo tree -p cortex-api --features soma --locked -i soma >/dev/null
+
       - name: Check the workspace with no default features
         run: cargo check --workspace --no-default-features --locked
 
