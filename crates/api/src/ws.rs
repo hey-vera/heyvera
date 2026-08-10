@@ -907,6 +907,92 @@ async fn handle_worker_msg(
             }
         }
 
+        WorkerMessage::StepBlocked {
+            message_id,
+            step_id,
+            attempt_id,
+            lease_gen,
+            blocked,
+        } => {
+            if let Some(db) = &state.db {
+                if !db.verify_step_worker(&step_id, worker_id) {
+                    tracing::warn!(
+                        "SECURITY: worker {worker_id} attempted StepBlocked for step {step_id} \
+                         which is not assigned to it — dropping message (msg={message_id})"
+                    );
+                    return;
+                }
+            }
+
+            // The worker refused to execute because it could not establish the
+            // isolation the job required. That is our infrastructure failing,
+            // not the customer's step, so it is recorded as `execution_failed`
+            // and never as `failed`. Nothing is charged, and no bandit learns
+            // that a provider did badly — it never ran.
+            tracing::error!(
+                step_id = %step_id,
+                reason = %blocked.reason.as_str(),
+                detail = %blocked.detail,
+                "worker refused to execute; the sandbox could not be established"
+            );
+
+            if let Some(db) = &state.db {
+                let reason = blocked.to_string();
+                let transitioned =
+                    db.record_execution_failure(&step_id, &attempt_id, lease_gen, &reason);
+                if !transitioned {
+                    tracing::warn!(
+                        "execution failure did not apply to step {step_id} lease_gen={lease_gen} — \
+                         likely a stale attempt"
+                    );
+                }
+                db.fail_attempt(
+                    &step_id,
+                    lease_gen,
+                    Some(blocked.reason.as_str()),
+                    Some(&reason),
+                );
+
+                if transitioned {
+                    if let Some(run_id) = resolve_run_id(step_run_cache, state, &step_id) {
+                        state
+                            .emit_scheduler_event(SchedulerEvent::StepFailed {
+                                run_id: run_id.clone(),
+                                step_id: step_id.clone(),
+                            })
+                            .await;
+
+                        if let Some(user_id) = authed_user_id.as_deref() {
+                            state
+                                .emit_mc_event(
+                                    user_id,
+                                    MissionControlEvent::StepFailed {
+                                        run_id,
+                                        step_id: step_id.clone(),
+                                        error: reason.clone(),
+                                        // Named for what it is. An operator
+                                        // reading this needs to know the cause
+                                        // is theirs to fix, not the task's.
+                                        failure_kind: "ExecutionBlocked".to_string(),
+                                    },
+                                )
+                                .await;
+                        }
+                    }
+                }
+            }
+
+            if let Some(tx) = state.get_step_sender(&step_id).await {
+                let _ = tx
+                    .send(StepEvent::Failed {
+                        step_id: step_id.clone(),
+                        error: blocked.to_string(),
+                    })
+                    .await;
+            }
+            state.remove_step_sender(&step_id).await;
+        }
+
         WorkerMessage::LeaseRenew { step_id, lease_gen } => {
             // Verify this worker owns the step
             if let Some(db) = &state.db {

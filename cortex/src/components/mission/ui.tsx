@@ -22,7 +22,8 @@ export type StatusTone = 'ok' | 'err' | 'warn' | 'busy' | 'idle';
  */
 export function toneForStatus(status: string | null | undefined): StatusTone {
   switch ((status ?? '').toLowerCase()) {
-    case 'succeeded':
+    // `succeeded` is deliberately absent. A step never reaches it; a run still
+    // can, and `completed` covers that.
     case 'completed':
     case 'complete':
     case 'passed':
@@ -30,6 +31,14 @@ export function toneForStatus(status: string | null | undefined): StatusTone {
     case 'verified_pass':
     case 'success':
       return 'ok';
+    // Delivered and verifying are real, visible conditions — work exists and
+    // is being graded. They are not 'ok': nothing has been checked yet.
+    case 'delivered':
+    case 'verifying':
+      return 'busy';
+    case 'manual_override':
+      return 'warn';
+    case 'execution_failed':
     case 'failed':
     case 'cancelled':
     case 'error':

@@ -6,6 +6,8 @@ import {
   listRuns,
   streamRun,
   type RunListItem,
+  ACCEPTED_STEP_STATUSES,
+  UNVERIFIED_STEP_STATUSES,
   type RunStep,
   type RunSummary,
 } from '../../lib/cortexApi';
@@ -21,9 +23,24 @@ import { EmptyState, ErrorState, PaneHeader, SkeletonRows, StatusChip, StatusIco
  * Receipts pane — the verdict chip here is a claim, and the link is the
  * evidence for it. Steps without a stored report show no verification badge
  * at all: a badge with nothing behind it is worse than no badge.
+ *
+ * A step that a worker delivered but Cortex has not yet graded shows no
+ * verification badge either, even though a worker report exists for it. The
+ * report is the worker's account of its own work; rendering it with a check
+ * mark is how a claim we never checked reaches a customer as though we had.
  */
 
-const TERMINAL = new Set(['succeeded', 'failed', 'cancelled', 'completed']);
+// Delivered and verifying are absent on purpose: work handed over but not
+// checked has not finished, and a row that renders it as terminal makes the
+// claim the truth model exists to stop.
+const TERMINAL = new Set([
+  'verified',
+  'manual_override',
+  'failed',
+  'execution_failed',
+  'cancelled',
+  'completed',
+]);
 
 function StepRow({ step, runId }: { step: RunStep; runId: string }) {
   const [expanded, setExpanded] = useState(false);
@@ -34,6 +51,8 @@ function StepRow({ step, runId }: { step: RunStep; runId: string }) {
   const error = step.error ?? step.last_error;
   const hasDetail = Boolean(step.output_summary || error || (step.files_changed?.length ?? 0) > 0);
   const Chevron = expanded ? ChevronDown : ChevronRight;
+  const accepted = ACCEPTED_STEP_STATUSES.includes(step.status);
+  const unverified = UNVERIFIED_STEP_STATUSES.includes(step.status);
 
   return (
     <li className="border-b border-[var(--line-faint)] last:border-b-0">
@@ -62,24 +81,40 @@ function StepRow({ step, runId }: { step: RunStep; runId: string }) {
             to={`/receipts?run=${encodeURIComponent(runId)}&step=${encodeURIComponent(step.id)}&report=${encodeURIComponent(step.verifier_report_id)}`}
             onClick={(event) => event.stopPropagation()}
             className="mt-0.5 inline-flex shrink-0 items-center gap-1"
-            title="Open the verification receipt"
+            title={accepted ? 'Open the verification receipt' : 'Open the worker-reported diagnostics'}
           >
-            <StatusChip
-              status={step.verification_status ?? step.verifier_verdict}
-              label={
-                <>
-                  <BadgeCheck className="h-3 w-3" aria-hidden />
-                  {(step.verifier_verdict ?? step.verification_status ?? 'report').replaceAll('_', ' ')}
-                </>
-              }
-            />
+            {accepted ? (
+              <StatusChip
+                status={step.verification_status ?? step.verifier_verdict}
+                label={
+                  <>
+                    <BadgeCheck className="h-3 w-3" aria-hidden />
+                    {(step.verifier_verdict ?? step.verification_status ?? 'report').replaceAll('_', ' ')}
+                  </>
+                }
+              />
+            ) : (
+              <StatusChip status="unknown" label="worker-reported" />
+            )}
           </Link>
         ) : null}
       </div>
 
       {expanded && hasDetail && (
         <div className="t-micro space-y-1.5 border-t border-[var(--line-faint)] bg-[var(--inset)] px-3 py-2 pl-9 text-[var(--muted)]">
-          {step.output_summary && <p className="whitespace-pre-wrap">{step.output_summary}</p>}
+          {step.output_summary && (
+            <>
+              <p className="t-micro uppercase tracking-wide text-[var(--muted)]">
+                Worker-reported diagnostics
+              </p>
+              <p className="whitespace-pre-wrap">{step.output_summary}</p>
+              {unverified && (
+                <p className="text-[var(--warn-strong)]">
+                  Cortex has not verified this yet. Nothing here has been checked.
+                </p>
+              )}
+            </>
+          )}
           {error && <p className="text-[var(--err-strong)]">{error}</p>}
           {step.files_changed && step.files_changed.length > 0 && (
             <p className="t-mono truncate" title={step.files_changed.join('\n')}>

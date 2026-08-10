@@ -417,30 +417,24 @@ fn worker_event_to_message(event: WorkerEvent) -> WorkerMessage {
             lease_gen,
             failure,
         },
-        // The wire protocol has no blocked state yet — lifecycle states are
-        // PR A's, and inventing one here would be a second source of truth for
-        // step status. So a refusal travels as a failure, carrying its reason
-        // verbatim and prefixed so it is unambiguous downstream.
-        //
-        // This mapping is lossy in exactly one way: an operator's
-        // infrastructure problem is presently attributed to the step rather
-        // than to Cortex. PR A closes that by giving the refusal its own state.
+        // A refusal travels on its own channel. It used to be a `StepFailed`
+        // whose reason was prefixed `BLOCKED:`, because there was no blocked
+        // state to transition to and inventing one in PR C would have created
+        // a second source of truth for step status. The state exists now, so
+        // the prefix is gone: an operator's infrastructure problem is recorded
+        // as `execution_failed` against Cortex, not as the customer's step
+        // failing.
         WorkerEvent::Blocked {
             step_id,
             attempt_id,
             lease_gen,
             blocked,
-        } => WorkerMessage::StepFailed {
+        } => WorkerMessage::StepBlocked {
             message_id: Uuid::new_v4().to_string(),
             step_id,
             attempt_id,
             lease_gen,
-            failure: WorkerFailureReport {
-                kind: WorkerFailureKind::PermissionDenied,
-                exit_code: None,
-                stderr_excerpt: Some(format!("BLOCKED: {blocked}")),
-                tool: None,
-            },
+            blocked,
         },
     }
 }

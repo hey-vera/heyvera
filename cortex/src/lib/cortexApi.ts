@@ -1068,7 +1068,48 @@ export async function getLedger(): Promise<LedgerEntry[]> {
 
 // Runs
 
-export type RunStepStatus = 'pending' | 'leased' | 'running' | 'succeeded' | 'failed' | string;
+/**
+ * Where a step is in its life.
+ *
+ * `delivered` means a worker handed back a commit and nothing has checked it.
+ * `verified` means Cortex executed the frozen checks and they passed. There is
+ * no `succeeded` — it used to mean both at once, which is how a worker's
+ * opinion became the product's truth. See docs/adr/ADR-0001-step-truth-model.md.
+ */
+export type RunStepStatus =
+  | 'pending'
+  | 'ready'
+  | 'leased'
+  | 'running'
+  | 'delivered'
+  | 'verifying'
+  | 'verified'
+  | 'failed'
+  | 'inconclusive'
+  | 'execution_failed'
+  | 'manual_override'
+  | 'recovered'
+  | 'cancelled'
+  | 'orphaned'
+  | 'skipped'
+  | string;
+
+/** Statuses a step will not leave on its own. */
+export const TERMINAL_STEP_STATUSES: readonly RunStepStatus[] = [
+  'verified',
+  'manual_override',
+  'failed',
+  'execution_failed',
+  'recovered',
+  'cancelled',
+  'skipped',
+];
+
+/** Statuses that mean the work was accepted: we verified it, or a human did. */
+export const ACCEPTED_STEP_STATUSES: readonly RunStepStatus[] = ['verified', 'manual_override'];
+
+/** The work exists but nothing has graded it. Never render these as done. */
+export const UNVERIFIED_STEP_STATUSES: readonly RunStepStatus[] = ['delivered', 'verifying'];
 
 export interface RunStep {
   id: string;

@@ -21238,7 +21238,7 @@ impl Database {
 mod tests {
     use super::*;
 
-    fn test_db() -> Database {
+    pub(super) fn test_db() -> Database {
         let dir = tempfile::tempdir().unwrap().keep();
         Database::open(&dir.join("cortex.sqlite"))
     }
@@ -26275,5 +26275,442 @@ mod tests {
         );
         assert_eq!(check_outcome_from_str("passed"), CheckOutcome::Passed);
         assert_eq!(check_outcome_from_str("timed_out"), CheckOutcome::TimedOut);
+    }
+}
+
+/// The truth model: a worker's report is a diagnostic, never a transition.
+///
+/// Every test here is named for the shortcut it exists to catch. See
+/// `docs/adr/ADR-0001-step-truth-model.md`.
+#[cfg(test)]
+mod truth {
+    use super::tests::test_db;
+    use super::*;
+
+    /// A run with one leased, running step, ready to receive a delivery.
+    fn leased_step(db: &Database, step_id: &str) -> (String, i64) {
+        let now = Utc::now().timestamp_millis();
+        let run_id = db.create_run_with_steps(
+            "user-1",
+            "ship it",
+            "auto",
+            &[],
+            None,
+            None,
+            None,
+            &[(
+                step_id.to_string(),
+                "execute".to_string(),
+                "ship".to_string(),
+                None,
+                "execute".to_string(),
+                "medium".to_string(),
+                "Do the work".to_string(),
+                now,
+            )],
+            &[],
+        );
+        db.update_run_status(&run_id, "running", None);
+        db.register_worker("worker-1", "user-1");
+        let lease_gen = db
+            .lease_step(step_id, "worker-1", now + 600_000)
+            .expect("step leases");
+        assert!(db.start_step(step_id, lease_gen));
+        (run_id, lease_gen)
+    }
+
+    fn status_of(db: &Database, step_id: &str) -> String {
+        db.get_step_status(step_id).expect("step exists")
+    }
+
+    fn parsed_statuses(
+        db: &Database,
+        run_id: &str,
+    ) -> Vec<(String, cortex_engine::captain::StepStatus)> {
+        db.get_all_step_statuses(run_id)
+            .into_iter()
+            .filter_map(|(id, s)| cortex_engine::captain::StepStatus::from_str(&s).map(|p| (id, p)))
+            .collect()
+    }
+
+    #[test]
+    fn worker_success_cannot_make_step_verified() {
+        // The core regression. A worker reports success; the step must be
+        // `delivered` and nothing else.
+        let db = test_db();
+        let (_run, gen) = leased_step(&db, "step-1");
+
+        assert!(db.deliver_step("step-1", "a1", gen, Some("done"), None, None, Some("abc")));
+
+        let status = status_of(&db, "step-1");
+        assert_eq!(status, "delivered");
+        assert_ne!(status, "verified", "a worker cannot verify its own work");
+        assert_ne!(status, "succeeded", "the state that caused this is gone");
+        assert_eq!(
+            db.get_verification_state("step-1", "a1", gen),
+            Some(("delivered".to_string(), 0))
+        );
+    }
+
+    #[test]
+    fn worker_success_cannot_complete_task() {
+        // The same shortcut one level up: a run must not reach a terminal
+        // status while its only step is merely delivered.
+        let db = test_db();
+        let (run_id, gen) = leased_step(&db, "step-1");
+        assert!(db.deliver_step("step-1", "a1", gen, None, None, None, Some("abc")));
+
+        let parsed = parsed_statuses(&db, &run_id);
+        assert_eq!(parsed.len(), 1, "delivered must be a parseable status");
+        assert_eq!(
+            cortex_engine::captain::check_run_completion(&parsed),
+            None,
+            "a run whose work nobody checked has not finished"
+        );
+    }
+
+    #[test]
+    fn failed_independent_check_transitions_to_failure() {
+        let db = test_db();
+        let (_run, gen) = leased_step(&db, "step-1");
+        assert!(db.deliver_step("step-1", "a1", gen, None, None, None, Some("abc")));
+        assert!(db.begin_verifying_step("step-1", "a1", gen));
+        assert_eq!(status_of(&db, "step-1"), "verifying");
+
+        assert!(db.record_verification_outcome("step-1", "a1", gen, "failed", Some("c1 failed")));
+        assert_eq!(status_of(&db, "step-1"), "failed");
+    }
+
+    #[test]
+    fn stale_delivery_cannot_alter_active_attempt() {
+        // A delivery arriving for an attempt that has already been superseded.
+        let db = test_db();
+        let (_run, gen) = leased_step(&db, "step-1");
+
+        assert!(
+            !db.deliver_step("step-1", "a0", gen - 1, None, None, None, Some("old")),
+            "a delivery for a superseded attempt must be a no-op"
+        );
+        assert_eq!(status_of(&db, "step-1"), "running");
+    }
+
+    #[test]
+    fn stale_verifier_result_cannot_alter_active_attempt() {
+        // The same on the verdict side — the case the existing lease_gen CAS
+        // defends, which had to survive this refactor.
+        let db = test_db();
+        let (_run, gen) = leased_step(&db, "step-1");
+        assert!(db.deliver_step("step-1", "a1", gen, None, None, None, Some("abc")));
+        assert!(db.begin_verifying_step("step-1", "a1", gen));
+
+        assert!(
+            !db.record_verification_outcome("step-1", "a1", gen - 1, "verified", None),
+            "a verdict for a superseded attempt must not verify the live one"
+        );
+        assert_eq!(status_of(&db, "step-1"), "verifying");
+    }
+
+    #[test]
+    fn dependent_write_step_blocked_until_verified() {
+        let db = test_db();
+        let now = Utc::now().timestamp_millis();
+        let step = |id: &str| {
+            (
+                id.to_string(),
+                "execute".to_string(),
+                "ship".to_string(),
+                None,
+                "execute".to_string(),
+                "medium".to_string(),
+                format!("work {id}"),
+                now,
+            )
+        };
+        let run_id = db.create_run_with_steps(
+            "user-1",
+            "two steps",
+            "auto",
+            &[],
+            None,
+            None,
+            None,
+            &[step("step-a"), step("step-b")],
+            &[(
+                "step-b".to_string(),
+                "step-a".to_string(),
+                "success_required".to_string(),
+            )],
+        );
+        db.update_run_status(&run_id, "running", None);
+        db.register_worker("worker-1", "user-1");
+        let gen = db.lease_step("step-a", "worker-1", now + 600_000).unwrap();
+        assert!(db.start_step("step-a", gen));
+        assert!(db.deliver_step("step-a", "a1", gen, None, None, None, Some("abc")));
+
+        assert!(
+            !db.find_ready_steps(&run_id).contains(&"step-b".to_string()),
+            "a delivered tree nobody checked must not unblock a dependent"
+        );
+
+        assert!(db.begin_verifying_step("step-a", "a1", gen));
+        assert!(
+            !db.find_ready_steps(&run_id).contains(&"step-b".to_string()),
+            "nor must a step that is still being graded"
+        );
+
+        assert!(db.record_verification_outcome("step-a", "a1", gen, "verified", None));
+        assert!(
+            db.find_ready_steps(&run_id).contains(&"step-b".to_string()),
+            "a verified dependency unblocks its dependent"
+        );
+    }
+
+    #[test]
+    fn inconclusive_does_not_become_done() {
+        let db = test_db();
+        let (run_id, gen) = leased_step(&db, "step-1");
+        assert!(db.deliver_step("step-1", "a1", gen, None, None, None, Some("abc")));
+        assert!(db.begin_verifying_step("step-1", "a1", gen));
+        assert!(db.record_verification_outcome(
+            "step-1",
+            "a1",
+            gen,
+            "inconclusive",
+            Some("no runner")
+        ));
+
+        assert_eq!(status_of(&db, "step-1"), "inconclusive");
+        assert_eq!(
+            cortex_engine::captain::check_run_completion(&parsed_statuses(&db, &run_id)),
+            None,
+            "an unanswered question must not settle as a finished run"
+        );
+    }
+
+    #[test]
+    fn transition_and_event_are_one_transaction() {
+        // The projection and its operations event land together. There is no
+        // seam to inject a failure into from outside — that is the point — so
+        // this asserts the invariant from both directions: every transition
+        // that applied has its event, and one that did not apply has none.
+        let db = test_db();
+        let (_run, gen) = leased_step(&db, "step-1");
+        assert!(db.deliver_step("step-1", "a1", gen, None, None, None, Some("abc")));
+        assert!(db.begin_verifying_step("step-1", "a1", gen));
+        assert!(db.record_verification_outcome("step-1", "a1", gen, "verified", None));
+
+        let conn = db.conn();
+        for event_type in ["step.delivered", "step.verifying", "step.verdict"] {
+            let count: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM operations_events
+                     WHERE step_id = ?1 AND event_type = ?2",
+                    params!["step-1", event_type],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 1, "{event_type} must be recorded with its transition");
+        }
+
+        let refused: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM operations_events
+                 WHERE step_id = ?1 AND event_type = 'step.execution_failed'",
+                params!["step-1"],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            refused, 0,
+            "a transition that never applied must not have left an event"
+        );
+    }
+
+    #[test]
+    fn version_cas_rejects_concurrent_transition() {
+        // Two verdicts race for the same attempt. The first advances the
+        // lifecycle row; the second finds a state it may not leave.
+        let db = test_db();
+        let (_run, gen) = leased_step(&db, "step-1");
+        assert!(db.deliver_step("step-1", "a1", gen, None, None, None, Some("abc")));
+        assert!(db.begin_verifying_step("step-1", "a1", gen));
+
+        assert!(db.record_verification_outcome("step-1", "a1", gen, "verified", None));
+        assert!(
+            !db.record_verification_outcome("step-1", "a1", gen, "failed", None),
+            "the second verdict must not overwrite the first"
+        );
+        assert_eq!(status_of(&db, "step-1"), "verified");
+
+        let (state, version) = db.get_verification_state("step-1", "a1", gen).unwrap();
+        assert_eq!(state, "verified");
+        assert_eq!(
+            version, 2,
+            "delivered -> verifying -> verified advances the row twice"
+        );
+    }
+
+    #[test]
+    fn manual_override_is_not_verified() {
+        let db = test_db();
+        let (_run, gen) = leased_step(&db, "step-1");
+        assert!(db.deliver_step("step-1", "a1", gen, None, None, None, Some("abc")));
+        assert!(db.begin_verifying_step("step-1", "a1", gen));
+        assert!(db.record_verification_outcome("step-1", "a1", gen, "failed", Some("c1")));
+
+        assert!(db.record_manual_override(
+            "step-1",
+            "a1",
+            gen,
+            "operator-7",
+            "shipping this by hand, the check is broken",
+            Some(Utc::now().timestamp_millis() + 86_400_000),
+        ));
+
+        let status = status_of(&db, "step-1");
+        assert_eq!(status, "manual_override");
+        assert_ne!(status, "verified", "a human deciding is a different fact");
+
+        let (actor, reason, expires) = db.get_manual_override("step-1", "a1").expect("recorded");
+        assert_eq!(actor, "operator-7");
+        assert!(reason.contains("by hand"));
+        assert!(
+            expires.is_some(),
+            "an override with no expiry silently becomes permanent"
+        );
+    }
+
+    #[test]
+    fn execution_failure_is_not_a_customer_failure() {
+        // A sandbox that never produced a tree is our problem. It must not
+        // arrive as `failed`, which is a judgement about work that exists.
+        let db = test_db();
+        let (_run, gen) = leased_step(&db, "step-1");
+
+        assert!(db.record_execution_failure("step-1", "a1", gen, "sandbox image missing"));
+        assert_eq!(status_of(&db, "step-1"), "execution_failed");
+
+        let (state, _) = db.get_verification_state("step-1", "a1", gen).unwrap();
+        assert_eq!(state, "execution_failed");
+    }
+
+    #[test]
+    fn legacy_report_survives_as_diagnostic() {
+        // The worker's own account is kept, never deleted — it is the fastest
+        // signal about what the worker thought it did.
+        let db = test_db();
+        let (run_id, gen) = leased_step(&db, "step-1");
+        db.record_attempt(
+            "step-1",
+            &run_id,
+            1,
+            "worker-1",
+            gen,
+            Some("claude"),
+            Some("opus"),
+        );
+        assert!(db.deliver_step(
+            "step-1",
+            "a1",
+            gen,
+            Some("I fixed everything"),
+            Some("[\"src/main.rs\"]"),
+            None,
+            Some("abc"),
+        ));
+        db.deliver_attempt("step-1", gen);
+
+        let snapshots = db.get_run_step_snapshots(&run_id);
+        let step = snapshots.iter().find(|s| s.id == "step-1").expect("step");
+        assert_eq!(
+            step.output_summary.as_deref(),
+            Some("I fixed everything"),
+            "the worker's report must not be dropped by the refactor"
+        );
+
+        let conn = db.conn();
+        let attempt_status: String = conn
+            .query_row(
+                "SELECT status FROM step_attempts WHERE step_id = ?1 AND lease_gen = ?2",
+                params!["step-1", gen],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(
+            attempt_status, "delivered",
+            "the worker's own attempt record must not claim success either"
+        );
+    }
+
+    #[test]
+    fn migration_backfills_succeeded_to_delivered() {
+        // Historical rows become `delivered`, not `verified`. Those steps were
+        // never independently verified, and labelling them so would be a false
+        // claim about work already delivered to customers.
+        let db = test_db();
+        let (_run, gen) = leased_step(&db, "step-1");
+        {
+            let conn = db.conn();
+            conn.execute(
+                "UPDATE steps SET status = 'succeeded' WHERE id = ?1",
+                params!["step-1"],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO step_attempts
+                     (step_id, run_id, attempt_number, worker_id, lease_gen, status, started_at)
+                 VALUES (?1, 'run-x', 9, 'worker-1', ?2, 'succeeded', 0)",
+                params!["step-1", gen + 50],
+            )
+            .unwrap();
+
+            // Re-run the migration against rows that predate it.
+            migrate_v63(&conn);
+
+            let leftovers: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM steps WHERE status = 'succeeded'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(leftovers, 0, "no step may keep the old ambiguous status");
+
+            let attempt_leftovers: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM step_attempts WHERE status = 'succeeded'",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(attempt_leftovers, 0);
+        }
+
+        assert_eq!(
+            status_of(&db, "step-1"),
+            "delivered",
+            "history becomes delivered, never verified"
+        );
+    }
+
+    #[test]
+    fn migration_v63_creates_the_truth_model_tables() {
+        let db = test_db();
+        let conn = db.conn();
+        let version: i64 = conn
+            .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
+            .unwrap();
+        assert!(version >= 63, "fresh database must reach v63, got {version}");
+
+        for table in ["step_verification_state", "manual_overrides"] {
+            let found: i64 = conn
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?1",
+                    params![table],
+                    |r| r.get(0),
+                )
+                .unwrap();
+            assert_eq!(found, 1, "{table} must exist after migration");
+        }
     }
 }
