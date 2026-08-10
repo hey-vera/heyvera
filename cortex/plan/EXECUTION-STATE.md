@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-10 (wave 3 — Tasks 1, 1a, 2, 3, 4, 5 done; Task 6 next)
+**Last updated:** 2026-08-10 (wave 3 — Tasks 1, 1a, 2, 3, 4, 5, 6 done; PR R next)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -31,7 +31,7 @@ re-deriving anything.
 | 11 | Restore the routing signal from the verdict | **done** — PR [#519](https://github.com/hey-vera/heyvera/pull/519) merged |
 | 12 | Governance: required checks, CODEOWNERS, environments | **done** — see "Wave 3 / Task 4" below. **Two recommendations need Josh.** |
 | 13 | Rebase PR #105 and report what is true | **done, not merged** — see "Wave 3 / Task 5" below. **#105 cannot be rebased; one real gap survives it.** |
-| 14 | Task 6 — brief PR U | **brief written** — `cortex/plan/briefs/PR-U-provenance-typing.md`. Implementation not started. See **F8**. |
+| 14 | Task 6 — PR U (provenance typing) | **done** — see "Wave 3 / Task 6" below. Six of seven deliverables; the seventh needs the context wired. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -700,6 +700,90 @@ writing the route, and carries three months of unreviewed divergence with it.
 
 **Not closed here.** Closing a PR is a product call on the Socials lane, and
 Socials is Josh's — this is a report, not an action.
+
+## Wave 3 / Task 6 — PR U, provenance-typed context
+
+Four commits on `feat/provenance-typed-context`. No migration.
+
+### The rule, made unbypassable
+
+Only the task contract may be read as an instruction. Everything else —
+repository files, a prior step's output, summaries of either — is data, and data
+phrased as a command is still data.
+
+That cannot live in a comment, because the failure is silent: prompt text
+assembled from a repository file reads exactly like prompt text assembled from
+the contract, and once both are `String` nothing downstream can tell them apart.
+So provenance is a **type**; every render goes through one function; and that
+function matches exhaustively with no wildcard arm, so a new variant will not
+compile until someone decides how it is framed.
+
+`ContextItem` has no constructor that omits provenance, and the raw accessor is
+named `raw_unframed` — deliberately awkward, so that anything bypassing `render`
+catches a reviewer's eye in a diff.
+
+### Ordering is load-bearing, not tidiness
+
+`Provenance` derives `Ord` most-authoritative-first. `render_bundle` uses it to
+put the contract before any observed content, which is what makes "your
+instructions are the contract above" true rather than aspirational. `compact`
+reuses the same order to drop the least authoritative first.
+
+### Verified evidence is never dropped
+
+Everything else can be re-derived — a repository re-read, a summary regenerated
+— but a verdict is the outcome of a check that ran once, against a tree, at a
+commit. When only evidence is left, `compact` returns an over-budget bundle
+rather than dropping it: that is the honest failure, and the caller can see it.
+Silently discarding the only independently established facts produces a bundle
+that looks fine and is not.
+
+The budget is measured on **rendered** length, matching what reaches the model.
+Budgeting on raw content would undercount the framing — an off-by-a-wrapper that
+only surfaces as a truncated production prompt.
+
+### The directive scan is not the boundary
+
+Crude lowercased substring matching, chosen over anything cleverer on purpose.
+The framing in `render` is the defence and holds whether or not the scan fires;
+the scan exists to make an attempt **visible**, so a miss costs an alert rather
+than the protection. It skips the contract and the user's own words — both are
+entitled to contain instructions, and flagging them would train whoever reads
+these findings to ignore them.
+
+### Assumptions
+
+Every `AssumptionCheck` variant is decidable by looking at the repository, and
+that is the whole constraint: an assumption whose check is "ask an agent" is not
+an assumption, it is another unverified claim wearing a checked one's clothes.
+
+`Indeterminate` is separate from `Violated` and **only `Violated` blocks** —
+the same distinction the verdict model draws between `Failed` and
+`Inconclusive`. Our inability to read a file is not evidence a premise is false,
+and blocking on it converts an infrastructure failure into a product failure.
+
+`paths_to_read` returns only files the assumptions name, because a plan-time
+check that walked the tree would cost time proportional to repository size on
+every plan.
+
+### The artifact is typed
+
+`Artifact` carries `Provenance::AgentOutput`. `confidence` stays for retrieval
+ordering, but no longer carries the weight of "how much should this be trusted":
+the 0.5/0.1 ternary encodes *the worker said it worked*, which is the
+self-report invariant 6 refuses to let improve a score. **A float cannot stop a
+downstream renderer treating text as an instruction; a type can.**
+
+### What is not done, and why
+
+Deliverable 7 — per-attempt composition **recorded** — is half done. `compose`
+and `BundleRef.composition` exist and are tested, but nothing populates them:
+the worker builds the `ExecutionJob` and discards the context (**F8**), so
+nothing on the execution path holds both the bundle and the job. Populating it
+is part of connecting the context, which this PR deliberately does not do. The
+field exists so that work has somewhere to land rather than growing a new one.
+
+**Verified:** core 120, api 346, engine 111, worker 56, context 44.
 
 ## Next — wave 2 is complete
 
