@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-10 (wave 3 — Tasks 1–6, PR R parts 1 and 2 done; PR I/J/Q next)
+**Last updated:** 2026-08-10 (wave 3 — Tasks 1–6 and all of PR R done; **PR I/J/Q needs Josh's pricing decision**)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -34,6 +34,7 @@ re-deriving anything.
 | 14 | Task 6 — PR U (provenance typing) | **done** — see "Wave 3 / Task 6" below. Six of seven deliverables; the seventh needs the context wired. |
 | 15 | PR R part 1 — plan-derived write sets | **done** — see "Wave 3 / Task 7" below. Step-scope leases and queueing remain. |
 | 16 | PR R part 2 — step-scoped leases, queue on conflict | **done** — see "Wave 3 / Task 8" below. Hotspots/sequence resources remain. |
+| 17 | PR R part 3 — hotspots, scheduler-allocated sequences | **done** — see "Wave 3 / Task 9" below. **PR R is complete.** |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -910,6 +911,56 @@ after a retry would deadlock the step against itself.
 Hotspot declaration and scheduler-allocated sequence resources. Nothing else.
 
 **Verified:** workspace **887 passed / 0 failed** across all targets.
+
+## Wave 3 / Task 9 — PR R, part 3: hotspots and sequence allocation
+
+One commit on `feat/hotspots-and-sequence-allocation`. **PR R is complete.**
+
+No migration: `sequence_allocations` is created by the schema block rather than
+a versioned migration, so it does not touch the counter shared with Socials —
+which would have been a poor irony for this particular table.
+
+### Two problems, two answers
+
+Phase 11.5 bundles them, and they are not the same:
+
+- A **hotspot** is a file with real content that many changes touch. Concurrent
+  edits conflict textually, and the conflict is *visible*.
+- A **sequence** is a number that must be unique and increasing. Nothing is
+  merged; a value is chosen. Two branches each choosing the next migration
+  number both produce a syntactically clean file, the merge **succeeds**, and
+  the one that lands second is silently skipped.
+
+`HotspotKind::Counter::is_textually_mergeable() == false` is that written down.
+It is the one kind a stricter lease cannot save, because the failure mode is a
+clean merge rather than a conflict. This organisation has already lost time to
+it on this repository.
+
+### The allocator rests on the index, not the read
+
+Two callers can read the same max; only one insert can commit against the unique
+index over `(repo_key, sequence, value)`, and the loser retries onto the next
+value. A `SELECT max` plus an unguarded insert would be the same race the
+mechanism exists to remove, moved one layer down. The retry is bounded at 16 so
+an unexpected constraint failure cannot spin.
+
+`start_at` seeds an empty sequence — a repo already on v65 must be handed 66,
+not 1 — and a stale `start_at` cannot rewind a sequence that has moved past it.
+Allocations record the run and step that asked, so a number in a diff traces
+back to the work that requested it.
+
+### What was not built
+
+- **Hotspots as short-duration exclusive leases.** The agent would have to take
+  and release the lease mid-execution, which needs worker protocol support. The
+  classification exists; the lease behaviour does not.
+- **Git-history inference** of additional hotspots.
+- **A repo config file format** for declaring them. `classify` already takes a
+  declared list and prefers it over the well-known one, so the plumbing is
+  there — what is missing is where the list comes from, and that is a format
+  decision.
+
+**Verified:** core 143; workspace **898 passed / 0 failed** across all targets.
 
 ## Next — wave 2 is complete
 
