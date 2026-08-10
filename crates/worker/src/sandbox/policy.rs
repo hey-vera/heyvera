@@ -64,31 +64,11 @@ pub fn sanctioned_env() -> Vec<String> {
 /// port — which is not what anyone means by "let this task reach the registry".
 pub const DEFAULT_EGRESS_PORT: u16 = 443;
 
-/// What a registry name expands to.
-///
-/// A grant names a registry; **we** decide what that name reaches. This is what
-/// "package-registry access means exactly the registry" is in code: the task
-/// cannot widen its own grant by naming an extra hostname, because a name this
-/// table does not know expands to nothing.
-///
-/// Every host here is required for the ecosystem's default client to resolve
-/// and download a dependency, and nothing here is required for anything else.
-const REGISTRIES: &[(&str, &[&str])] = &[
-    // `npm install` resolves metadata and tarballs from the same host.
-    ("npm", &["registry.npmjs.org"]),
-    // cargo reads the sparse index from index.crates.io and downloads .crate
-    // files from static.crates.io. crates.io itself is the API, used by
-    // `cargo publish` and `cargo search`.
-    (
-        "crates",
-        &["index.crates.io", "static.crates.io", "crates.io"],
-    ),
-    // pip resolves from pypi.org and downloads wheels from the file host.
-    ("pypi", &["pypi.org", "files.pythonhosted.org"]),
-    // The module proxy serves modules; the checksum database is what makes a
-    // module verifiable, so granting one without the other breaks `go mod`.
-    ("go", &["proxy.golang.org", "sum.golang.org"]),
-];
+// The registry table moved to `cortex_core::egress`. Both ends of the fence
+// need it — the planner names the allowlist, the enforcer refuses anything no
+// grant justifies — and two copies would agree only until one was edited. The
+// enforcement below is unchanged; it now reads the same table the planner did.
+use cortex_core::egress::expand_registry;
 
 /// A host and the port it is permitted on. Both halves matter: the port is not
 /// a detail of the host, it is half of what was granted.
@@ -124,25 +104,6 @@ impl Endpoint {
             }),
         }
     }
-}
-
-/// The hosts a registry name justifies, or `None` if we do not know the name.
-///
-/// A raw hostname is accepted when it is one this table already knows — so a
-/// grant of `crates.io` still means `crates.io` — but a hostname the table has
-/// never heard of justifies nothing and is reported by [`unknown_registries`].
-fn expand_registry(name: &str) -> Option<Vec<String>> {
-    let name = name.trim().to_ascii_lowercase();
-    if let Some((_, hosts)) = REGISTRIES.iter().find(|(alias, _)| *alias == name) {
-        return Some(hosts.iter().map(|host| host.to_string()).collect());
-    }
-    if REGISTRIES
-        .iter()
-        .any(|(_, hosts)| hosts.iter().any(|host| *host == name))
-    {
-        return Some(vec![name]);
-    }
-    None
 }
 
 /// Registry names in the grants that we do not recognise.
