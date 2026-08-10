@@ -42,6 +42,7 @@
 //! actually ran rather than leaving a reader to assume the stronger one.
 
 pub mod container;
+pub mod egress;
 pub mod policy;
 
 use cortex_core::execution_job::{Blocked, ExecutionJob, IsolationClass};

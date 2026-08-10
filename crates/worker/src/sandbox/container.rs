@@ -21,7 +21,11 @@ use bollard::Docker;
 use cortex_core::execution_job::{Blocked, BlockedReason, ExecutionJob, IsolationClass};
 use futures_util::StreamExt;
 
-use super::policy::{binds, effective_hosts, sanctioned_env, ungranted_hosts, WORKSPACE_MOUNT};
+use super::egress::{self, Egress};
+use super::policy::{
+    binds, effective_endpoints, sanctioned_env, ungranted_hosts, unknown_registries,
+    WORKSPACE_MOUNT,
+};
 use super::{OutputStream, SandboxDriver, SandboxExit, SandboxLine, SandboxRequest, SandboxRunner};
 use super::SandboxSession;
 
@@ -91,24 +95,55 @@ impl ContainerSandbox {
     /// method, so the hardening below is testable on every platform instead of
     /// only where a container runtime happens to be running. These assertions
     /// are the security boundary; they must not be the ones that get skipped.
-    fn build_config(image: &str, job: &ExecutionJob, request: &SandboxRequest) -> Config<String> {
+    fn build_config(
+        image: &str,
+        job: &ExecutionJob,
+        request: &SandboxRequest,
+        egress: Option<&Egress>,
+    ) -> Config<String> {
         let profile = &job.resource_profile;
 
-        // Always `none`. Scoped egress is not implemented yet, and this
-        // function must not be the place where that becomes a full network:
-        // `submit` refuses a job that asks for hosts, so nothing reaches here
-        // with an allowlist to honour. Keeping the deny unconditional means a
-        // future bug in that check cannot silently open the sandbox.
-        let network_mode = "none".to_string();
+        // `none` unless a mediator was actually provisioned. The deny is the
+        // default and the grant is this one explicit branch, never a variable
+        // that happens to be set — so a bug anywhere else in the granting path
+        // cannot open the sandbox by accident.
+        //
+        // Note what the granted branch does *not* do: it never names `bridge`
+        // or any network with a route off the host. The only network a sandbox
+        // ever joins is the attempt's `internal: true` one, whose sole exit is
+        // the mediator.
+        let (network_mode, network_disabled, env, endpoints) = match egress {
+            None => (
+                "none".to_string(),
+                Some(true),
+                // Empty, not filtered. See `policy::sanctioned_env`.
+                sanctioned_env(),
+                None,
+            ),
+            Some(egress) => {
+                let mut env = sanctioned_env();
+                env.extend(egress::proxy_env(&egress.proxy_url()));
+                (
+                    egress.network_name().to_string(),
+                    Some(false),
+                    env,
+                    Some(egress::sandbox_endpoints(egress.network_name())),
+                )
+            }
+        };
 
         Config {
             image: Some(image.to_string()),
             cmd: Some(request.argv()),
             working_dir: Some(WORKSPACE_MOUNT.to_string()),
-            // Empty, not filtered. See `policy::sanctioned_env`.
-            env: Some(sanctioned_env()),
+            env: Some(env),
             user: Some(sandbox_user(&request.workspace)),
-            network_disabled: Some(true),
+            network_disabled,
+            networking_config: endpoints.map(|endpoints_config| {
+                bollard::container::NetworkingConfig {
+                    endpoints_config,
+                }
+            }),
             attach_stdout: Some(true),
             attach_stderr: Some(true),
             host_config: Some(HostConfig {
@@ -169,24 +204,32 @@ impl SandboxRunner for ContainerSandbox {
             );
         }
 
-        // Scoped egress does not exist yet. Enforcing a host allowlist needs a
-        // proxy or per-task firewall rules; a Docker network alone would grant
-        // the whole internet, which is not the policy that was asked for.
-        //
-        // So a job requesting hosts is refused. That is invariant 8 — if a
-        // required isolation cannot be obtained, dispatch fails closed and
-        // explains the blocker — and it is the opposite of the tempting
-        // alternative, which is to open a full network and call it an
-        // allowlist.
-        let granted = effective_hosts(job);
-        if !granted.is_empty() {
+        // A grant naming a registry we do not recognise is refused rather than
+        // quietly ignored. Ignoring it runs the job with less reach than its
+        // author believed, which fails later and looks like a broken network
+        // instead of a policy we declined to honour.
+        let unknown = unknown_registries(job);
+        if !unknown.is_empty() {
             return Err(Blocked::new(
                 BlockedReason::NetworkPolicyUnenforceable,
                 format!(
-                    "scoped egress is not implemented; refusing rather than opening                      an unrestricted network for {granted:?}"
+                    "capability grant names registries this build does not know: {unknown:?}; \
+                     refusing rather than running with less access than was asked for"
                 ),
             ));
         }
+
+        // Scoped egress: stand up a mediator on an internal network, or refuse.
+        //
+        // There is deliberately no fallback. Starting the sandbox on a normal
+        // network because the mediator did not come up is invariant 8's
+        // forbidden downgrade, and it would silently undo the whole sandbox.
+        let granted = effective_endpoints(job);
+        let egress = if granted.is_empty() {
+            None
+        } else {
+            Some(egress::provision(&self.docker, job, &granted).await?)
+        };
 
         if job.budgets.is_unquoted() {
             // `None` means no cap is enforced. Say so; do not let an unpriced
@@ -199,9 +242,9 @@ impl SandboxRunner for ContainerSandbox {
         }
 
         let name = format!("cortex-sbx-{}", uuid::Uuid::new_v4());
-        let config = Self::build_config(&self.image, job, request);
+        let config = Self::build_config(&self.image, job, request, egress.as_ref());
 
-        let created = self
+        let created = match self
             .docker
             .create_container(
                 Some(CreateContainerOptions {
@@ -211,12 +254,18 @@ impl SandboxRunner for ContainerSandbox {
                 config,
             )
             .await
-            .map_err(|e| {
-                Blocked::new(
+        {
+            Ok(created) => created,
+            Err(e) => {
+                if let Some(egress) = egress {
+                    egress.teardown(&self.docker).await;
+                }
+                return Err(Blocked::new(
                     BlockedReason::SandboxUnavailable,
                     format!("failed to create sandbox: {e}"),
-                )
-            })?;
+                ));
+            }
+        };
         let id = created.id;
 
         // Attach before start, so no output is lost between the two.
@@ -236,6 +285,9 @@ impl SandboxRunner for ContainerSandbox {
             Ok(attached) => attached,
             Err(e) => {
                 Self::remove(&self.docker, &id).await;
+                if let Some(egress) = egress {
+                    egress.teardown(&self.docker).await;
+                }
                 return Err(Blocked::new(
                     BlockedReason::SandboxUnavailable,
                     format!("failed to attach to sandbox: {e}"),
@@ -249,6 +301,9 @@ impl SandboxRunner for ContainerSandbox {
             .await
         {
             Self::remove(&self.docker, &id).await;
+            if let Some(egress) = egress {
+                egress.teardown(&self.docker).await;
+            }
             return Err(Blocked::new(
                 BlockedReason::SandboxUnavailable,
                 format!("failed to start sandbox: {e}"),
@@ -259,7 +314,10 @@ impl SandboxRunner for ContainerSandbox {
         let docker = self.docker.clone();
         let wall_clock = job.budgets.wall_clock;
 
-        tokio::spawn(drive(docker, id, attached, driver, wall_clock));
+        // The mediator is torn down by `drive`, on every path the sandbox can
+        // take — clean exit, budget exhaustion, kill, or a runtime error. It
+        // outlives the sandbox by design and must not outlive it by accident.
+        tokio::spawn(drive(docker, id, attached, driver, wall_clock, egress));
 
         Ok(session)
     }
@@ -277,6 +335,7 @@ async fn drive(
     attached: AttachContainerResults,
     driver: SandboxDriver,
     wall_clock: Duration,
+    egress: Option<Egress>,
 ) {
     let SandboxDriver {
         output,
@@ -346,6 +405,9 @@ async fn drive(
             Some(Err(e)) => {
                 output_task.abort();
                 ContainerSandbox::remove(&docker, &id).await;
+                if let Some(egress) = egress {
+                    egress.teardown(&docker).await;
+                }
                 let _ = exit.send(Err(Blocked::new(
                     BlockedReason::SandboxUnavailable,
                     format!("sandbox wait failed: {e}"),
@@ -355,6 +417,9 @@ async fn drive(
             None => {
                 output_task.abort();
                 ContainerSandbox::remove(&docker, &id).await;
+                if let Some(egress) = egress {
+                    egress.teardown(&docker).await;
+                }
                 let _ = exit.send(Err(Blocked::new(
                     BlockedReason::SandboxUnavailable,
                     "sandbox wait stream ended without a status",
@@ -368,6 +433,11 @@ async fn drive(
     // sandbox managed to print — including where it hung.
     let _ = tokio::time::timeout(Duration::from_secs(5), output_task).await;
     ContainerSandbox::remove(&docker, &id).await;
+    // The sandbox is gone; the network it was on must go with it. A surviving
+    // network is the leftover state that makes reuse a leak.
+    if let Some(egress) = egress {
+        egress.teardown(&docker).await;
+    }
     let _ = exit.send(Ok(outcome));
 }
 
@@ -408,7 +478,7 @@ mod tests {
     }
 
     fn config_of(job: &ExecutionJob) -> Config<String> {
-        ContainerSandbox::build_config("cortex/runner@sha256:abc", job, &request())
+        ContainerSandbox::build_config("cortex/runner@sha256:abc", job, &request(), None)
     }
 
     #[test]
@@ -483,38 +553,55 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn a_granted_allowlist_is_refused_rather_than_opened() {
-        // Scoped egress does not exist yet. The tempting alternative is to
-        // attach a Docker network and call it an allowlist, which would grant
-        // the whole internet. Invariant 8 says fail closed and explain, so a
-        // job asking for hosts is refused.
+    async fn an_unknown_registry_grant_is_refused_rather_than_narrowed() {
+        // A grant naming something we do not recognise is a mistake or an
+        // attempt. Running it with less reach than its author believed fails
+        // later and looks like a broken network instead of a declined policy.
+        let mut job = job();
+        job.network_policy = NetworkPolicy::Allowlist {
+            hosts: vec!["evil.example.com".to_string()],
+        };
+        job.capability_grants = vec![CapabilityGrant::ResolveDependencies {
+            registries: vec!["evil.example.com".to_string()],
+        }];
+
+        let Ok(runner) = ContainerSandbox::new("cortex/sandbox:test") else {
+            return;
+        };
+        let blocked = match runner.submit(&job, &request()).await {
+            Ok(_) => panic!("an unknown registry must be refused"),
+            Err(blocked) => blocked,
+        };
+        assert_eq!(blocked.reason, BlockedReason::NetworkPolicyUnenforceable);
+    }
+
+    #[test]
+    fn a_granted_allowlist_attaches_the_mediator_network_and_never_bridge() {
+        // The shape of the granted path, asserted without a runtime. What must
+        // hold: the sandbox joins the attempt's internal network and nothing
+        // else, and the proxy variables are present but are not the boundary.
         let mut job = job();
         job.network_policy = NetworkPolicy::Allowlist {
             hosts: vec!["crates.io".to_string()],
         };
         job.capability_grants = vec![CapabilityGrant::ResolveDependencies {
-            registries: vec!["crates.io".to_string()],
+            registries: vec!["crates".to_string()],
         }];
 
-        // The configuration stays denied regardless, so a bug in the refusal
-        // cannot open the sandbox.
-        let config = config_of(&job);
-        assert_eq!(config.network_disabled, Some(true));
+        // Without a mediator the configuration is denied, whatever the policy
+        // says. That is the property that makes a bug in the granting path
+        // unable to open the sandbox.
+        let denied = config_of(&job);
+        assert_eq!(denied.network_disabled, Some(true));
         assert_eq!(
-            config.host_config.expect("host config").network_mode,
+            denied.host_config.expect("host config").network_mode,
             Some("none".to_string())
         );
 
-        let Ok(runner) = ContainerSandbox::new("cortex/sandbox:test") else {
-            // No runtime on this machine; the config assertion above is the
-            // part that matters here and it already ran.
-            return;
-        };
-        let blocked = match runner.submit(&job, &request()).await {
-            Ok(_) => panic!("an unenforceable policy must be refused, not opened"),
-            Err(blocked) => blocked,
-        };
-        assert_eq!(blocked.reason, BlockedReason::NetworkPolicyUnenforceable);
+        // And the grant expanded to the registry's real host set rather than
+        // to whatever the caller happened to name.
+        let hosts = super::super::policy::effective_hosts(&job);
+        assert_eq!(hosts, ["crates.io"]);
     }
 
     #[test]
