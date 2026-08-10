@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-10 (wave 3 in progress — Tasks 1, 1a, 2 done; Task 3 next)
+**Last updated:** 2026-08-10 (wave 3 in progress — Tasks 1, 1a, 2, 3 done; Task 4 next)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -27,7 +27,8 @@ re-deriving anything.
 | **Wave 3** | | |
 | 9 | Fence Soma behind a cargo feature, default off | **done** — see "Wave 3 / Task 1" below |
 | 9a | Corrections to the fence: soma-core, `/api/vera/simulate`, frontend | **done** — PR [#517](https://github.com/hey-vera/heyvera/pull/517) merged |
-| 10 | Derive the egress allowlist at plan time | **done** — see "Wave 3 / Task 2" below |
+| 10 | Derive the egress allowlist at plan time | **done** — PR [#518](https://github.com/hey-vera/heyvera/pull/518) merged |
+| 11 | Restore the routing signal from the verdict | **done** — see "Wave 3 / Task 3" below |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -239,12 +240,10 @@ added.**
 
 **Known gaps, stated rather than papered over:**
 
-- **The positive routing signal is still suspended.** PR A dropped it because it
-  derived from the worker's exit code; PR B did not restore it, because the
-  dispatcher reaches a `Database` and not `AppState`, where `VeraTracker` lives
-  by value. Restoring it means either putting the tracker behind an `Arc` or
-  routing the verdict back through the scheduler channel. Neither is large;
-  both are out of PR B's brief.
+- ~~**The positive routing signal is still suspended.**~~ **Closed by wave 3 /
+  Task 3.** The premise was also wrong: `run_claimed_job` takes
+  `state: &AppState`, so neither the `Arc` nor the scheduler round-trip was
+  needed.
 - **The verdict still emits no live Mission Control event**, for the same
   reason. A pane shows `verifying` until it refreshes, and run completion is
   reconciled on the 30s scheduler tick.
@@ -454,6 +453,64 @@ network" for a step where we do not know.
 
 **Verified:** api lib 337, core 94, worker 56, engine 111, context 44 — all
 green, run cold after trimming 26.2 GiB of build cache. Frontend builds.
+
+## Wave 3 / Task 3 — the routing signal is back, from the verdict
+
+One commit on `feat/routing-signal-from-verdict`. No migration.
+
+### Only the independent verdict rewards
+
+`outcome_for_verdict` is the whole rule, and two of its four arms emit **nothing**:
+
+| Verdict | Signal | Why |
+|---|---|---|
+| `Verified` | positive | The only source of a positive reward. |
+| `Failed` | negative | Checks ran and did not pass. |
+| `Inconclusive` | **none** | Our infrastructure failed, not the model. |
+| `Unverified` | **none** | No ground truth existed; nothing was proven either way. |
+
+Recording `Inconclusive` as a failure is how a routing table learns to avoid a
+model for *our* outage. `None` is an answer, not a missing case.
+
+### Spend is the whole attempt chain
+
+A step verified on its fourth try cost four dispatches. A signal that only sees
+the attempt that happened to succeed cannot tell a model that gets it right
+first time from one that needs coaxing — and the second is the expensive one,
+which is exactly what the signal exists to notice.
+
+`attempt_chain_spend` counts every attempt *including one still in flight*, and
+sums duration only over finished ones, so an open attempt contributes to the
+count and not to the time rather than being counted as zero-length. Mass is the
+attempt count — integer-denominated, per CREDITS.md — with wall time carried
+alongside as evidence rather than as the unit.
+
+### Two things the checkpoint had wrong
+
+1. **The stated blocker was already gone.** PR B's entry says the dispatcher
+   "reaches a `Database` and not `AppState`, where `VeraTracker` lives by
+   value". `run_claimed_job` takes `state: &AppState` and already did. Neither
+   the `Arc` nor the scheduler round-trip that entry anticipated was needed.
+2. **A serde round-trip on `intent` would have silently disabled the domain
+   split.** `record_decision` is called with `format!("{:?}", intent)`
+   (`scheduler.rs`), so the column holds `"Refactor"` — while `Intent` carries
+   `#[serde(rename_all = "snake_case")]` and accepts only `"refactor"`. Parsing
+   through serde compiles, type-checks, and returns `None` for every row ever
+   written, filing every verdict under "Conversation". The parse is an explicit
+   match accepting either spelling, with a test that writes the `{:?}` form
+   exactly as the scheduler does.
+
+### The asymmetry in ws.rs is intended
+
+A self-reported *failure* is still recorded; a self-reported success is not.
+Invariant 6 forbids a self-report from improving a score, and nobody reports
+themselves failing in order to look better. It cannot double-count either:
+`completion_accepted = verified_success && step_transitioned`, so a delivery
+rejected there never transitions to `verifying`, never enqueues a job, and never
+produces a verdict that could record the same failure twice. Both facts are now
+comments at the site rather than inferences.
+
+**Verified:** api lib 346, core 94, worker 56, engine 111, context 44.
 
 ## Next — wave 2 is complete
 
