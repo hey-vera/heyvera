@@ -524,73 +524,56 @@ async fn handle_worker_msg(
                         // Reaching this branch means deliver_step's CAS on
                         // lease_gen held, so this delivery is the live one — a
                         // superseded attempt never gets here and so can never
-                        // bill. `lease_gen` is the attempt discriminator: it is
-                        // already the token the step machine uses to mean "which
-                        // try at this step".
+                        // bill.
                         //
-                        // Spawned rather than awaited because checks run in a
-                        // container and the completion handler must not sit on
-                        // the websocket for container time. The task opens its
-                        // own database handle: AppState holds `Database` by
-                        // value and this function borrows it, so nothing here
-                        // can be moved into a task.
+                        // Delivery *enqueues*; it does not execute. The
+                        // verification job is inserted in the same transaction
+                        // that moves the step to `verifying`, so a crash
+                        // between the two is not representable. The dispatcher
+                        // claims it, and a dispatcher that dies mid-check
+                        // leaves a claim that expires rather than a delivery
+                        // that is stranded.
                         //
-                        // KNOWN GAP, closed by the durable verifier (PR B): if
-                        // this process dies between the `verifying` transition
-                        // and the verdict, the step sits in `verifying` with
-                        // nothing to resume it. There is deliberately no
-                        // timeout here — a timeout that invents a verdict is
-                        // the same fault as trusting the worker, one layer
-                        // down.
+                        // This used to be `tokio::spawn`. A restart, a deploy,
+                        // an unavailable container runtime, or a panic and the
+                        // verification simply never happened — and the code
+                        // said so in a log line nobody was watching.
                         if let (Some(run_id), Some(head)) =
                             (resolved_run_id.clone(), head_commit.clone())
                         {
-                            if db.begin_verifying_step(&step_id, &attempt_id, lease_gen) {
-                                let facts = crate::verification_driver::DeliveryFacts {
-                                    run_id,
-                                    step_id: step_id.clone(),
-                                    attempt_id: attempt_id.clone(),
-                                    attempt: lease_gen,
-                                    workspace_dir: state.workspace_dir.clone(),
-                                    head_commit: head,
-                                    // No per-step price is persisted anywhere
-                                    // yet, so the verdict is recorded and the
-                                    // ledger is left alone. Inventing a price
-                                    // is never right.
-                                    quoted_credits: None,
-                                };
-                                let db_path = crate::state::cortex_db_path(&state.workspace_dir);
-                                tokio::spawn(async move {
-                                    let db = crate::db::Database::open(&db_path);
-                                    match crate::check_runner::ContainerCheckRunner::new(
-                                        crate::verification_driver::runner_image(),
-                                    ) {
-                                        Ok(runner) => {
-                                            crate::verification_driver::verify_delivery(
-                                                &db, &runner, &facts,
-                                            )
-                                            .await;
-                                        }
-                                        Err(e) => {
-                                            // We cannot grade it. That is our
-                                            // failure, so the step is
-                                            // inconclusive — never a pass, and
-                                            // never a failure charged to the
-                                            // customer.
-                                            tracing::error!(
-                                                error = %e,
-                                                "no container runner available; delivery is inconclusive"
-                                            );
-                                            db.record_verification_outcome(
-                                                &facts.step_id,
-                                                &facts.attempt_id,
-                                                facts.attempt,
-                                                "inconclusive",
-                                                Some("no container runner available"),
-                                            );
-                                        }
-                                    }
-                                });
+                            // The exam, frozen at dispatch. Digested now so the
+                            // dispatcher can refuse a job whose specs changed
+                            // between enqueue and claim rather than grading
+                            // against a different exam than the one promised.
+                            let specs = db.load_check_specs(&run_id, &step_id);
+                            let digest = crate::db::spec_set_digest(&specs);
+                            let job_id = uuid::Uuid::new_v4().to_string();
+
+                            let enqueued = db.begin_verifying_step(
+                                &step_id,
+                                &attempt_id,
+                                lease_gen,
+                                Some(crate::db::VerificationEnqueue {
+                                    job_id: &job_id,
+                                    run_id: &run_id,
+                                    delivered_commit: &head,
+                                    spec_set_digest: &digest,
+                                    runner_policy_ver:
+                                        crate::verification_driver::RUNNER_POLICY_VERSION,
+                                }),
+                            );
+                            if enqueued {
+                                tracing::info!(
+                                    step_id = %step_id,
+                                    job_id = %job_id,
+                                    "delivery enqueued for independent verification"
+                                );
+                            } else {
+                                tracing::warn!(
+                                    step_id = %step_id,
+                                    "could not move the delivery to verifying; \
+                                     it stays delivered and reconciliation will see it"
+                                );
                             }
                         } else {
                             // No run or no commit means there is nothing to

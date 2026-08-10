@@ -88,7 +88,17 @@ pub trait Storage: Send + Sync {
     ) -> bool;
 
     /// Hand a delivered step to our own verifier.
-    fn begin_verifying_step(&self, step_id: &str, attempt_id: &str, lease_gen: i64) -> bool;
+    ///
+    /// The durable job is enqueued in the same transaction, so this trait
+    /// deliberately has no separate enqueue: a job without a state, or a state
+    /// without a job, is the failure it exists to make unrepresentable.
+    fn begin_verifying_step(
+        &self,
+        step_id: &str,
+        attempt_id: &str,
+        lease_gen: i64,
+        job: Option<crate::db::VerificationEnqueue<'_>>,
+    ) -> bool;
 
     /// Seal a verdict our runner produced: `verified`, `failed`, or
     /// `inconclusive`.
@@ -271,8 +281,14 @@ impl Storage for Database {
         )
     }
 
-    fn begin_verifying_step(&self, step_id: &str, attempt_id: &str, lease_gen: i64) -> bool {
-        Database::begin_verifying_step(self, step_id, attempt_id, lease_gen)
+    fn begin_verifying_step(
+        &self,
+        step_id: &str,
+        attempt_id: &str,
+        lease_gen: i64,
+        job: Option<crate::db::VerificationEnqueue<'_>>,
+    ) -> bool {
+        Database::begin_verifying_step(self, step_id, attempt_id, lease_gen, job)
     }
 
     fn record_verification_outcome(
