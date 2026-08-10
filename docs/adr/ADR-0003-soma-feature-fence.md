@@ -65,13 +65,39 @@ credential**. The format check rejects before that path is reachable, and
 `json_worker_token_is_rejected_rather_than_falling_through_to_local` pins it
 with `clerk_secret_key` deliberately unset.
 
-### Why `soma-core` is *not* fenced
+### Why `soma-core` is not depended on at all *(superseded 2026-08-10)*
 
-`soma-core` stays a normal, non-optional dependency. It is the trust and
-compaction arithmetic behind `VeraTracker` — `Interaction`, `HeartId`,
-`SessionOutcome`, `distill` — and it carries no identity, no delegation, no
-keys, and no network. `VeraTracker` is the routing signal, which is being
-restored, not removed; fencing `soma-core` would delete it.
+> **This section originally read "Why `soma-core` is *not* fenced" and justified
+> keeping it as an unconditional dependency on the grounds that it "carries no
+> identity, no delegation, no keys, and no network". That claim was false of the
+> crate.** `crates/soma-core/src` contains `delegation.rs`, `heart.rs`,
+> `envelope.rs`, `trust.rs`, `death.rs`, `pulse_tree.rs`, and `room.rs`, and its
+> manifest depends on `soma-crypto` and on `rand_core`/`getrandom`. The true
+> claim was narrower — the *path Cortex exercised* touched none of it — and the
+> gap between the two was not cosmetic. Because the dependency was
+> unconditional, `soma-crypto` was linked into every default Cortex build:
+>
+> ```
+> $ cargo tree -p cortex-api --no-default-features -i soma-crypto
+> soma-crypto v0.1.0
+> └── soma-core v0.1.0
+>     └── cortex-api v0.1.0
+> ```
+>
+> Half of Soma was still in Cortex with the feature off, and it was the half
+> whose test vectors assert nothing (F5). The lesson generalises past this ADR:
+> **a `#[cfg(feature = ...)]` gate fences the code it is written on and says
+> nothing about what is linked.** Only the dependency graph shows that, so the
+> graph is now asserted in CI rather than argued about in prose.
+
+The arithmetic behind `VeraTracker` — `Interaction`, `HeartId`,
+`SessionOutcome`, `distill` — now lives in `cortex_core::vera`, copied verbatim
+so the values it computes are unchanged. It is Cortex-owned code with no soma
+dependency, and the claim that it carries no identity, delegation, keys, or
+network is now a claim about one file that can be checked by reading it.
+
+`crates/soma-core` itself is unmodified. It is simply no longer reachable from
+any Cortex binary.
 
 The distinction that matters for the invariant below: `VeraTracker` is
 write-only telemetry. Nothing reads it to make a routing decision, and its
@@ -139,13 +165,34 @@ is worse than no check. The mismatch fails loudly and in the safe direction.
 
 - `crates/soma`, `crates/soma-core`, `crates/soma-crypto` are untouched. This
   ADR is about what Cortex depends on, not about what Soma is.
-- The worker's delegation verification does not check that the issuer is
-  Cortex's heart — it builds its `InvocationContext` with
-  `invoker_did: deleg.issuer_did`, so a self-issued delegation verifies against
-  itself. The API side *does* check the issuer. Recorded here rather than fixed,
-  because fixing it means changing the worker auth path, which is the thing this
-  ADR exists to avoid doing right now. It is a finding in
-  `cortex/plan/EXECUTION-STATE.md`.
+
+## Gates on ever re-enabling the feature
+
+These are **not** to-do items. They are conditions on turning `soma` back on,
+and they are recorded here because the fence made them unreachable, which is
+exactly how a known defect becomes a forgotten one. Anything that would set
+`--features soma` in a deployment must clear both first.
+
+**G1 — the worker verifies a delegation against itself.** `crates/worker` builds
+its `InvocationContext` with `invoker_did: deleg.issuer_did`, taking the issuer
+from the delegation being checked, so `verify_delegation` confirms only that the
+signature matches the DID the token itself claims. Nothing establishes that the
+DID is Cortex's, and a self-issued delegation therefore verifies. The API side
+*does* check this (`ws.rs` rejects `delegation.issuer_did != heart.did()`), so
+the exposure is worker-side and needs an attacker who can already send
+`ExecuteStep` frames over an authenticated socket. Not fixed when the fence
+landed, because fixing it means changing the worker auth path — the thing this
+ADR exists to avoid doing while Track A lands. Was F6 in
+`cortex/plan/EXECUTION-STATE.md`.
+
+**G2 — `soma-crypto`'s test vectors assert nothing.** `export_test_vectors`
+generates a fresh random keypair, signs, and writes the result out; the files
+named as regression protection are exported samples that overwrite themselves on
+every run. A behavioural change in `aes-gcm`, `chacha20poly1305`, `sha2`, `hmac`
+or `ed25519-dalek` would be absorbed silently by the artifact meant to catch it.
+This was a Cortex problem while `soma-crypto` was in the default graph; it is
+now only Soma's, which is precisely why it must gate the feature coming back.
+Was F5.
 
 ## Alternatives rejected
 
@@ -158,6 +205,16 @@ is landing on it.
 security check whose default could be flipped by an environment variable nobody
 sets deliberately.
 
-**Fence `soma-core` too, for symmetry.** Would delete `VeraTracker` and with it
-the routing signal, to remove a dependency that signs nothing and decides
-nothing.
+**Fence `soma-core` too, for symmetry.** ~~Would delete `VeraTracker` and with
+it the routing signal, to remove a dependency that signs nothing and decides
+nothing.~~ **Rejected for the wrong reason, and the conclusion was wrong too.**
+The choice was never "fence it or keep it" — the third option, taken since, was
+to move the ~450 lines of arithmetic Cortex actually used into Cortex and drop
+the dependency, which keeps the routing signal *and* removes the crypto crate.
+`soma-core` does not sign anything on the path Cortex exercised, but it links
+something that does.
+
+**Turn on `--features soma` in the deployment so the six frontend endpoints stop
+404ing.** Rejected: it makes work-in-progress Soma live in production, which is
+the entire thing the fence exists to prevent. The frontend is fenced instead
+(`SOMA_API_ENABLED`), and hidden rather than deleted, because Soma returns.

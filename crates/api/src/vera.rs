@@ -1,12 +1,9 @@
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use soma_core::compaction::{self, CompactedVera, SignalProfile};
-use soma_core::delegation::Capability;
-use soma_core::envelope::SessionOutcome;
-use soma_core::trust::{self, Interaction};
-use soma_core::types::HeartId;
-use soma_core::vera;
+use cortex_core::vera::{
+    self, Capability, CompactedVera, HeartId, Interaction, SessionOutcome,
+};
 
 use cortex_core::routing::Intent;
 use crate::lock::LockRecovering;
@@ -87,6 +84,17 @@ impl From<&CompactedVera> for CompactedVeraView {
 
 const COMPACTION_THRESHOLD: usize = 10;
 
+/// How many compacted values the tracker keeps.
+///
+/// `run_compaction` drains `interactions` every ten records, so that side is
+/// self-limiting, but level-2 values were retained forever: one more every
+/// hundred interactions, for the life of the process. Nothing read the old ones
+/// — `snapshot()` serialises the whole history into every response to a public
+/// endpoint, so an unbounded history is an unbounded response body as well as
+/// unbounded memory. The tracker is an in-memory observability surface with no
+/// persistence, so the oldest entries are droppable by construction.
+const MAX_COMPACTION_HISTORY: usize = 256;
+
 impl VeraTracker {
     pub fn new(cortex_heart_id: HeartId) -> Self {
         Self {
@@ -138,7 +146,7 @@ impl VeraTracker {
         }
 
         let now = now_ms();
-        let distilled = compaction::distill(&interactions, now);
+        let distilled = vera::distill(&interactions, now);
 
         tracing::info!(
             "vera compaction: {} interactions → level {} | vera={:.2} C={:.4} consensus={:.2} diversity={:.2} stability={:.2}",
@@ -163,7 +171,7 @@ impl VeraTracker {
                 .cloned()
                 .collect();
 
-            let level2 = compaction::distill_compacted(&level1s);
+            let level2 = vera::distill_compacted(&level1s);
 
             tracing::info!(
                 "vera compaction level 2: {} level-1s → vera={:.2} C={:.4} consensus={:.2}",
@@ -175,6 +183,11 @@ impl VeraTracker {
 
             compacted.retain(|c| c.level != 1);
             compacted.push(level2);
+        }
+
+        if compacted.len() > MAX_COMPACTION_HISTORY {
+            let excess = compacted.len() - MAX_COMPACTION_HISTORY;
+            compacted.drain(..excess);
         }
     }
 
@@ -273,7 +286,7 @@ impl VeraTracker {
         let domains: Vec<DomainSnapshot> = seen_capabilities
             .iter()
             .map(|cap| {
-                let warmth = trust::compute_warmth(&interactions, cap, now);
+                let warmth = vera::compute_warmth(&interactions, cap, now);
                 let count = interactions.iter().filter(|i| i.capability == *cap).count();
                 DomainSnapshot {
                     capability: match cap {
@@ -281,7 +294,7 @@ impl VeraTracker {
                         other => format!("{:?}", other),
                     },
                     warmth,
-                    ignited: trust::is_ignited(&interactions, cap, now),
+                    ignited: vera::is_ignited(&interactions, cap, now),
                     interaction_count: count,
                 }
             })
@@ -304,9 +317,32 @@ impl VeraTracker {
         }
     }
 
+    /// The most interactions one `simulate_ecosystem` call may generate.
+    ///
+    /// The old caps were `agents <= 1000` and `per_agent <= 100`, applied
+    /// independently — a product of 100,000 interactions, each one a SHA-256
+    /// and a `format!`, run synchronously on an async handler. That occupies a
+    /// Tokio worker thread for the whole run; enough concurrent calls starve the
+    /// runtime, and every other request on the process — including the ones
+    /// holding `Mutex<Connection>` — waits behind it.
+    ///
+    /// The bound is on the product, not on each factor, because it is the
+    /// product that costs. 2,000 is more than enough to exercise the bottleneck
+    /// (it distils 200 times and rolls up to level 2 twenty times) and completes
+    /// in milliseconds.
+    pub const MAX_SIMULATED_INTERACTIONS: usize = 2_000;
+
     /// Simulate diverse network traffic for testing the IB under realistic conditions.
     /// Interleaves agents like real traffic — different species observing at overlapping times.
-    pub fn simulate_ecosystem(&self, agent_count: usize, interactions_per_agent: usize) {
+    ///
+    /// Bounded internally: the caller cannot ask for more than
+    /// [`Self::MAX_SIMULATED_INTERACTIONS`]. Returns the number of interactions
+    /// actually generated so a caller can tell that it was clamped.
+    pub fn simulate_ecosystem(&self, agent_count: usize, interactions_per_agent: usize) -> usize {
+        let agent_count = agent_count.clamp(1, Self::MAX_SIMULATED_INTERACTIONS);
+        let interactions_per_agent = interactions_per_agent
+            .clamp(1, Self::MAX_SIMULATED_INTERACTIONS / agent_count.max(1));
+
         let capabilities = [
             Capability::CodeExecution,
             Capability::FileAccess,
@@ -347,14 +383,16 @@ impl VeraTracker {
             }
         }
 
+        let total = agent_count * interactions_per_agent;
         tracing::info!(
             "ecosystem simulation: {} agents × {} interactions = {} total ({} success, {} fail)",
             agent_count,
             interactions_per_agent,
-            agent_count * interactions_per_agent,
+            total,
             success_count,
             fail_count,
         );
+        total
     }
 
     pub fn heart_trust(&self, heart_id: &HeartId, capability: &Capability) -> f64 {
@@ -365,7 +403,7 @@ impl VeraTracker {
             .filter(|i| (i.from == *heart_id || i.to == *heart_id) && i.capability == *capability)
             .cloned()
             .collect();
-        trust::compute_trust(&relevant, capability, now)
+        vera::compute_trust(&relevant, capability, now)
     }
 
     /// Personal vera view — what the user sees about their contribution
@@ -399,7 +437,7 @@ impl VeraTracker {
                 .cloned()
                 .cloned()
                 .collect();
-            let warmth = trust::compute_warmth(&cap_interactions, cap, now);
+            let warmth = vera::compute_warmth(&cap_interactions, cap, now);
             let count = cap_interactions.len();
             my_capabilities.push(PersonalCapability {
                 name: match cap {

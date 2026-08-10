@@ -24,10 +24,14 @@ cortex-worker = { path = "../worker" }
 # execution path can reach it unless a build opts in. See
 # docs/adr/ADR-0003-soma-feature-fence.md.
 soma = { path = "../soma", optional = true }
-# `soma-core` is NOT fenced: it is the pure trust/compaction arithmetic behind
-# `VeraTracker`, carries no identity, delegation, keys, or network, and the
-# routing signal depends on it. Fencing it would delete the routing tracker.
-soma-core = { path = "../soma-core" }
+# There is deliberately no `soma-core` dependency here. It carried the trust
+# arithmetic behind `VeraTracker`, and it depends on `soma-crypto`
+# unconditionally — so depending on it linked `soma-crypto` into every default
+# build and left the fence half open. The arithmetic now lives in
+# `cortex_core::vera` as Cortex-owned code. The compiler stops anyone *using*
+# soma-core without re-adding it here; the `no-default-features` CI job stops
+# anyone re-adding it, by failing if `cargo tree -i` can still resolve either
+# soma crate in the default graph.
 dirs-next = "2"
 serde.workspace = true
 serde_json.workspace = true

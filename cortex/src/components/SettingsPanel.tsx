@@ -10,6 +10,7 @@ import {
   assignCredential,
   listCredentialAssignments,
   removeCredentialAssignment,
+  SOMA_API_ENABLED,
   type BillingStatus,
   type ProviderAuthInfo,
   type CredentialAssignment,
@@ -889,6 +890,9 @@ export default function SettingsPanel({
           >
             Integrations
           </button>
+          {/* Soma is fenced off by default; the tab is hidden rather than
+              removed, because the feature returns. See SOMA_API_ENABLED. */}
+          {SOMA_API_ENABLED && (
           <button
             onClick={() => setTab('spend')}
             className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
@@ -897,6 +901,7 @@ export default function SettingsPanel({
           >
             Soma spend
           </button>
+          )}
           <button
             onClick={() => setTab('billing')}
             className={`border-b-2 px-1 py-2.5 text-sm font-medium transition ${
@@ -946,7 +951,7 @@ export default function SettingsPanel({
           ) : tab === 'integrations' ? (
             <IntegrationSetup />
           ) : tab === 'spend' ? (
-            <SpendDashboard />
+            SOMA_API_ENABLED ? <SpendDashboard /> : null
           ) : tab === 'budget' ? (
             <BudgetSettings
               settings={budgetSettings}
