@@ -3841,8 +3841,25 @@ pub struct Receipt {
 pub struct EgressReceipt {
     /// Registry aliases the plan granted, e.g. `["crates"]`.
     pub granted_registries: Vec<String>,
+    /// The provider the routing decision granted, e.g. `"claude"`, or `None`
+    /// for a step that was given no route to a model API.
+    ///
+    /// Reported beside `granted_registries` rather than mixed into it, because
+    /// the two were decided from different inputs and a reader needs to be able
+    /// to tell which grant opened which host. A repository's manifests can add
+    /// a registry here; nothing in a repository can add a provider.
+    ///
+    /// `None` on a step that ran before provider grants existed is
+    /// indistinguishable from `None` on a step that was genuinely denied one —
+    /// the same limit `endpoints` has, and the reason `endpoints` is `Vec` on
+    /// an `Option<EgressReceipt>` rather than an `Option<Vec>` of its own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub granted_provider: Option<String>,
     /// `host:port` entries the sandbox was actually opened to. Empty means no
     /// network at all.
+    ///
+    /// The union of both grants: this is the honest answer to "what could this
+    /// task reach", so it must not be the ecosystem half alone.
     pub endpoints: Vec<String>,
     /// The mediator image that enforced it, or `None` when nothing was opened
     /// and no mediator was stood up.
@@ -12738,17 +12755,33 @@ impl Database {
                     serde_json::from_str(endpoints_json.as_deref()?).ok()?;
                 let grants: Vec<cortex_core::execution_job::CapabilityGrant> =
                     serde_json::from_str(&grants_json).unwrap_or_default();
+                // The two grants are read out separately, from the same
+                // persisted list, because that list is where they stayed
+                // distinct. Flattening them into one set of names at any point
+                // between derivation and here would have made this
+                // unrecoverable.
                 let granted_registries = grants
                     .iter()
                     .flat_map(|grant| match grant {
                         cortex_core::execution_job::CapabilityGrant::ResolveDependencies {
                             registries,
                         } => registries.clone(),
-                        cortex_core::execution_job::CapabilityGrant::ReadSecret { .. } => Vec::new(),
+                        cortex_core::execution_job::CapabilityGrant::ReachProvider { .. }
+                        | cortex_core::execution_job::CapabilityGrant::ReadSecret { .. } => {
+                            Vec::new()
+                        }
                     })
                     .collect();
+                let granted_provider = grants.iter().find_map(|grant| match grant {
+                    cortex_core::execution_job::CapabilityGrant::ReachProvider { provider } => {
+                        Some(provider.clone())
+                    }
+                    cortex_core::execution_job::CapabilityGrant::ResolveDependencies { .. }
+                    | cortex_core::execution_job::CapabilityGrant::ReadSecret { .. } => None,
+                });
                 Some(EgressReceipt {
                     granted_registries,
+                    granted_provider,
                     endpoints,
                     mediator_image: mediator,
                 })

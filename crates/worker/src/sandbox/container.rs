@@ -23,8 +23,8 @@ use futures_util::StreamExt;
 
 use super::egress::{self, Egress};
 use super::policy::{
-    binds, effective_endpoints, sanctioned_env, ungranted_hosts, unknown_registries,
-    WORKSPACE_MOUNT,
+    binds, effective_endpoints, sanctioned_env, ungranted_hosts, unknown_providers,
+    unknown_registries, WORKSPACE_MOUNT,
 };
 use super::{OutputStream, SandboxDriver, SandboxExit, SandboxLine, SandboxRequest, SandboxRunner};
 use super::SandboxSession;
@@ -129,12 +129,18 @@ impl ContainerSandbox {
             None => (
                 "none".to_string(),
                 Some(true),
-                // Empty, not filtered. See `policy::sanctioned_env`.
-                sanctioned_env(),
+                // An allowlist of at most one name, never a filtered copy of
+                // the worker's environment. See `policy::sanctioned_env`.
+                //
+                // A job with no network has no provider grant either, so this
+                // arm is empty in practice — but it is derived from the job
+                // rather than hardcoded to empty, so the two facts cannot
+                // drift apart.
+                sanctioned_env(job),
                 None,
             ),
             Some(egress) => {
-                let mut env = sanctioned_env();
+                let mut env = sanctioned_env(job);
                 env.extend(egress::proxy_env(&egress.proxy_url()));
                 (
                     egress.network_name().to_string(),
@@ -228,6 +234,21 @@ impl SandboxRunner for ContainerSandbox {
                 format!(
                     "capability grant names registries this build does not know: {unknown:?}; \
                      refusing rather than running with less access than was asked for"
+                ),
+            ));
+        }
+
+        // Same rule for the provider grant, and refused for a sharper reason:
+        // a provider name this build cannot expand means no route to any model
+        // API and no credential, so the agent would run with nothing to talk
+        // to. That is a Cortex refusal, not a customer's step failing.
+        let unknown = unknown_providers(job);
+        if !unknown.is_empty() {
+            return Err(Blocked::new(
+                BlockedReason::NetworkPolicyUnenforceable,
+                format!(
+                    "capability grant names providers this build does not know: {unknown:?}; \
+                     refusing rather than running an agent with no route to a model"
                 ),
             ));
         }
@@ -535,10 +556,72 @@ mod tests {
     }
 
     #[test]
-    fn environment_is_empty() {
-        // Catches a provider credential reaching the sandbox — the case that
-        // can spend Cortex's own money.
+    fn environment_is_empty_without_a_provider_grant() {
+        // Catches a provider credential reaching a sandbox that was never
+        // granted a provider — the case that can spend Cortex's own money
+        // from a step that had no business talking to a model at all.
+        //
+        // This assertion used to be unconditional. It is now conditional on
+        // the grant, and the condition is the point: the credential and the
+        // route are authorised by the same grant, so a sandbox cannot hold one
+        // without the other. See gate G3 in ADR-0003 and ADR-0004 for why the
+        // key is in the sandbox at all, and what replaces this.
+        //
+        // Set so that "empty" here means the grant withheld it, not that the
+        // machine had no key to leak.
+        std::env::set_var("ANTHROPIC_API_KEY", "sk-test-not-a-real-key");
+
         assert_eq!(config_of(&job()).env, Some(Vec::new()));
+
+        // A registry grant is not a provider grant, and must carry no
+        // credential.
+        let mut registry_only = job();
+        registry_only.capability_grants = vec![CapabilityGrant::ResolveDependencies {
+            registries: vec!["crates".to_string()],
+        }];
+        assert_eq!(config_of(&registry_only).env, Some(Vec::new()));
+    }
+
+    #[test]
+    fn a_provider_grant_admits_that_provider_s_key_and_nothing_else() {
+        // The boundary assertion for the credential: what the *runtime* is
+        // handed, not what the policy function returned.
+        //
+        // The variable has to actually exist in this process for the config to
+        // carry it, so this test sets it. That makes the assertion positive —
+        // it fails if the credential stops arriving — rather than passing
+        // vacuously on a machine that has no key, which is the failure mode
+        // that let three earlier "correct-looking" tests assert nothing.
+        //
+        // Nothing else in this test binary reads these variables, and the two
+        // provider-key tests here are the only writers.
+        std::env::set_var("ANTHROPIC_API_KEY", "sk-test-not-a-real-key");
+        std::env::set_var("OPENAI_API_KEY", "sk-test-other-provider");
+
+        let mut job = job();
+        job.capability_grants = vec![CapabilityGrant::ReachProvider {
+            provider: "claude".to_string(),
+        }];
+
+        let env = config_of(&job).env.expect("env is always set");
+
+        assert_eq!(
+            env,
+            vec!["ANTHROPIC_API_KEY=sk-test-not-a-real-key".to_string()],
+            "the routed provider's key must reach the sandbox, and nothing else"
+        );
+        for forbidden in [
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "CLERK_SECRET_KEY",
+            "CORTEX_DB_PATH",
+            "CORTEX_LEDGER_PATH",
+        ] {
+            assert!(
+                !env.iter().any(|e| e.starts_with(forbidden)),
+                "{forbidden} reached the sandbox"
+            );
+        }
     }
 
     #[test]

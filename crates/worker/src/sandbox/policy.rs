@@ -44,15 +44,98 @@ impl SandboxRequest {
     }
 }
 
+/// The environment variable each provider's CLI reads its API key from.
+///
+/// A closed table, not a prefix match: "any variable ending in `_API_KEY`"
+/// would hand a sandbox every key the worker happens to hold the day someone
+/// adds a second one.
+fn provider_key_var(provider: &str) -> Option<&'static str> {
+    match provider {
+        "claude" => Some("ANTHROPIC_API_KEY"),
+        "openai" => Some("OPENAI_API_KEY"),
+        "gemini" => Some("GEMINI_API_KEY"),
+        // Zen has no CLI, so no sandbox is ever built for it.
+        _ => None,
+    }
+}
+
 /// The environment handed to the sandbox.
 ///
-/// It is empty, and it is empty on purpose. A filtered environment is a
-/// denylist somebody has to keep correct forever; the first variable anyone
-/// forgets is the one that leaks. Nothing the agent legitimately needs arrives
-/// this way: the workspace is a mount, the model is an argument, and Git
-/// credentials belong to the runner service rather than to the model process.
-pub fn sanctioned_env() -> Vec<String> {
-    Vec::new()
+/// It is empty except for **one** variable, and the exception is the whole
+/// security story of this function.
+///
+/// The rule it keeps: a filtered environment is a denylist somebody has to keep
+/// correct forever, and the first variable anyone forgets is the one that
+/// leaks. So this is an allowlist of exactly one name, chosen by the provider
+/// the router picked, and everything else the worker holds — Clerk secrets, the
+/// database path, the ledger, every other provider's key — is still absent.
+/// Nothing else the agent legitimately needs arrives this way: the workspace is
+/// a mount, the model is an argument, and Git credentials belong to the runner
+/// service rather than to the model process.
+///
+/// **The exposure, stated rather than buried.** The provider CLI runs inside
+/// the sandbox, so it needs the provider key inside the sandbox, so
+/// model-authored code shares an environment with a live credential. Phase 32.4
+/// says no provider credentials in the sandbox and this violates it. It is
+/// recorded as gate **G3** in `docs/adr/ADR-0003-soma-feature-fence.md`, and
+/// `docs/adr/ADR-0004-provider-credential.md` states the target shape — the
+/// mediator injects the credential and the sandbox holds only a placeholder.
+///
+/// Three things bound it in the meantime, and none of them is "we were
+/// careful":
+///
+/// 1. **The key is gated on the grant, not on configuration.** The provider
+///    comes from `CapabilityGrant::ReachProvider` on the job — the same grant
+///    that opened the host. A job with no provider grant gets no key, so a
+///    sandbox that cannot reach a provider never holds a credential for one.
+/// 2. **One provider's key, never two.** The grant names one provider and this
+///    table maps it to one variable.
+/// 3. **A key that is not set is not invented.** If the worker does not hold
+///    the variable, none is passed and the CLI fails as unauthenticated, which
+///    is a truthful failure rather than a silent one.
+pub fn sanctioned_env(job: &ExecutionJob) -> Vec<String> {
+    sanctioned_env_from(job, |var| std::env::var(var).ok())
+}
+
+/// The rule, with the environment lookup passed in.
+///
+/// Split out so the rule is testable without mutating the process environment.
+/// A test that sets a real variable races every other test in the binary, and
+/// the one that lost the race would report this function as safe.
+fn sanctioned_env_from(
+    job: &ExecutionJob,
+    lookup: impl Fn(&str) -> Option<String>,
+) -> Vec<String> {
+    let Some(provider) = granted_provider(job) else {
+        return Vec::new();
+    };
+    let Some(var) = provider_key_var(&provider) else {
+        return Vec::new();
+    };
+    let Some(value) = lookup(var) else {
+        tracing::warn!(
+            provider = %provider,
+            var = %var,
+            "the routed provider's key is not set on this worker; the CLI will \
+             run unauthenticated"
+        );
+        return Vec::new();
+    };
+
+    vec![format!("{var}={value}")]
+}
+
+/// The provider this job was granted, if any.
+///
+/// Read off the grants rather than off the routing decision, deliberately.
+/// The grant is what the planner recorded and what the receipt will show; a
+/// second source for the same fact is a second thing that can disagree with it,
+/// and this one decides whether a credential enters the sandbox.
+pub fn granted_provider(job: &ExecutionJob) -> Option<String> {
+    job.capability_grants.iter().find_map(|grant| match grant {
+        CapabilityGrant::ReachProvider { provider } => Some(provider.clone()),
+        CapabilityGrant::ResolveDependencies { .. } | CapabilityGrant::ReadSecret { .. } => None,
+    })
 }
 
 /// Hosts the sandbox may reach, derived from the policy *and* the grants.
@@ -68,7 +151,7 @@ pub const DEFAULT_EGRESS_PORT: u16 = 443;
 // need it — the planner names the allowlist, the enforcer refuses anything no
 // grant justifies — and two copies would agree only until one was edited. The
 // enforcement below is unchanged; it now reads the same table the planner did.
-use cortex_core::egress::expand_registry;
+use cortex_core::egress::{expand_provider, expand_registry};
 
 /// A host and the port it is permitted on. Both halves matter: the port is not
 /// a detail of the host, it is half of what was granted.
@@ -117,9 +200,35 @@ pub fn unknown_registries(job: &ExecutionJob) -> Vec<String> {
         .iter()
         .flat_map(|grant| match grant {
             CapabilityGrant::ResolveDependencies { registries } => registries.clone(),
-            CapabilityGrant::ReadSecret { .. } => Vec::new(),
+            CapabilityGrant::ReachProvider { .. } | CapabilityGrant::ReadSecret { .. } => {
+                Vec::new()
+            }
         })
         .filter(|name| expand_registry(name).is_none())
+        .collect()
+}
+
+/// Provider names in the grants that we do not recognise.
+///
+/// The same rule as [`unknown_registries`] and refused at the same place, but
+/// kept as its own function because the two grants are separately derived and a
+/// caller should be able to say which kind of grant it could not honour.
+///
+/// It matters more here than for a registry. An unrecognised provider name
+/// means the sandbox gets no route to any model API and no credential, so the
+/// step would run an agent that cannot reach anything and report whatever a
+/// disconnected CLI reports. Refusing turns that into a typed refusal against
+/// Cortex instead of a mystery failure charged to the customer.
+pub fn unknown_providers(job: &ExecutionJob) -> Vec<String> {
+    job.capability_grants
+        .iter()
+        .filter_map(|grant| match grant {
+            CapabilityGrant::ReachProvider { provider } => Some(provider.clone()),
+            CapabilityGrant::ResolveDependencies { .. } | CapabilityGrant::ReadSecret { .. } => {
+                None
+            }
+        })
+        .filter(|name| expand_provider(name).is_none())
         .collect()
 }
 
@@ -182,6 +291,13 @@ fn granted_hosts(job: &ExecutionJob) -> Vec<String> {
                 .filter_map(|name| expand_registry(name))
                 .flatten()
                 .collect::<Vec<_>>(),
+            // Same rule as a registry: the grant names the provider, and the
+            // table in `cortex_core::egress` decides what that name reaches. A
+            // grant naming a provider the table does not know expands to
+            // nothing, so it cannot be used to smuggle a hostname through.
+            CapabilityGrant::ReachProvider { provider } => expand_provider(provider)
+                .map(|host| vec![host.to_string()])
+                .unwrap_or_default(),
             CapabilityGrant::ReadSecret { .. } => Vec::new(),
         })
         .collect()
@@ -241,10 +357,115 @@ mod tests {
 
     #[test]
     fn environment_is_empty_not_filtered() {
-        // The case this prevents: a provider key, a Clerk secret, or the
-        // production database path reaching a sandbox because a denylist
-        // missed it.
-        assert!(sanctioned_env().is_empty());
+        // The case this prevents: a Clerk secret, the production database
+        // path, or a provider key for a provider this step was never routed
+        // to, reaching a sandbox because a denylist missed it.
+        //
+        // The lookup returns a value for *everything*, so this asserts the
+        // allowlist rather than asserting that the machine happens to be
+        // missing the variables.
+        let everything = |var: &str| Some(format!("{var}-value"));
+
+        assert!(sanctioned_env_from(&job(), everything).is_empty());
+        assert!(sanctioned_env(&job()).is_empty());
+    }
+
+    #[test]
+    fn a_provider_grant_admits_exactly_one_variable() {
+        let mut job = job();
+        job.capability_grants = vec![
+            CapabilityGrant::ResolveDependencies {
+                registries: vec!["crates".to_string()],
+            },
+            CapabilityGrant::ReachProvider {
+                provider: "claude".to_string(),
+            },
+        ];
+
+        let env = sanctioned_env_from(&job, |var| Some(format!("{var}-value")));
+
+        assert_eq!(env, ["ANTHROPIC_API_KEY=ANTHROPIC_API_KEY-value"]);
+        // Not the other providers' keys, and not the registry grant's — a
+        // registry grant justifies a host, never a credential.
+        for absent in [
+            "OPENAI_API_KEY",
+            "GEMINI_API_KEY",
+            "CLERK_SECRET_KEY",
+            "CORTEX_DB_PATH",
+        ] {
+            assert!(
+                !env.iter().any(|entry| entry.starts_with(absent)),
+                "{absent} reached the sandbox"
+            );
+        }
+    }
+
+    #[test]
+    fn each_provider_gets_its_own_variable_and_no_other() {
+        for (provider, expected) in [
+            ("claude", "ANTHROPIC_API_KEY"),
+            ("openai", "OPENAI_API_KEY"),
+            ("gemini", "GEMINI_API_KEY"),
+        ] {
+            let mut job = job();
+            job.capability_grants = vec![CapabilityGrant::ReachProvider {
+                provider: provider.to_string(),
+            }];
+
+            let env = sanctioned_env_from(&job, |var| Some(format!("{var}-value")));
+            assert_eq!(env.len(), 1, "{provider} admitted more than one variable");
+            assert!(env[0].starts_with(&format!("{expected}=")));
+        }
+    }
+
+    #[test]
+    fn an_unset_key_is_not_invented() {
+        // A missing credential must produce a truthful unauthenticated
+        // failure, never an empty-string key that looks set.
+        let mut job = job();
+        job.capability_grants = vec![CapabilityGrant::ReachProvider {
+            provider: "claude".to_string(),
+        }];
+
+        assert!(sanctioned_env_from(&job, |_| None).is_empty());
+    }
+
+    #[test]
+    fn an_unknown_provider_grant_admits_nothing() {
+        // The grant is attacker-shaped input the moment anything but the
+        // planner can write one: a name the table does not know must open no
+        // host and carry no credential.
+        let mut job = job();
+        job.network_policy = NetworkPolicy::Allowlist {
+            hosts: vec!["evil.example.com".to_string()],
+        };
+        job.capability_grants = vec![CapabilityGrant::ReachProvider {
+            provider: "evil.example.com".to_string(),
+        }];
+
+        assert!(sanctioned_env_from(&job, |var| Some(format!("{var}-value"))).is_empty());
+        assert!(effective_hosts(&job).is_empty());
+        assert_eq!(ungranted_hosts(&job), ["evil.example.com"]);
+    }
+
+    #[test]
+    fn a_provider_grant_opens_that_provider_and_nothing_else() {
+        let mut job = job();
+        job.network_policy = NetworkPolicy::Allowlist {
+            hosts: vec![
+                "api.anthropic.com".to_string(),
+                // Present in the allowlist but justified by no grant: the
+                // shape a widened plan would have.
+                "api.openai.com".to_string(),
+            ],
+        };
+        job.capability_grants = vec![CapabilityGrant::ReachProvider {
+            provider: "claude".to_string(),
+        }];
+
+        assert_eq!(effective_hosts(&job), ["api.anthropic.com"]);
+        assert!(needs_network(&job));
+        assert_eq!(ungranted_hosts(&job), ["api.openai.com"]);
     }
 
     #[test]

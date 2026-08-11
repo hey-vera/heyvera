@@ -162,11 +162,12 @@ jobs:
           # were unset they would still "pass", so count them instead.
           passed=$(echo "$output" | grep -cE '^test [a-z_]+ \.\.\. ok' || true)
           echo "adversarial tests passed: $passed"
-          # Raised from 10 when scoped egress added its section. The floor is
-          # the point of this step: a gated test that never runs reads like
-          # coverage, so the count has to move whenever the file grows.
-          if [ "$passed" -lt 20 ]; then
-            echo "::error::expected at least 20 adversarial tests to run, saw $passed"
+          # Raised from 10 when scoped egress added its section, and from 20
+          # when provider egress added its own. The floor is the point of this
+          # step: a gated test that never runs reads like coverage, so the
+          # count has to move whenever the file grows.
+          if [ "$passed" -lt 25 ]; then
+            echo "::error::expected at least 25 adversarial tests to run, saw $passed"
             exit 1
           fi
 

@@ -10,10 +10,20 @@
 //! network rather than like a policy mismatch.
 //!
 //! So the table lives here, once, and both ends read it.
+//!
+//! There are **two** derivations in this module and they are deliberately not
+//! one. [`derive_egress`] answers "what does this repository's ecosystem
+//! justify" and reads manifests. [`derive_provider_egress`] answers "which
+//! model API did the router send this step to" and reads the routing decision.
+//! Merging them would let a file in a customer's repository influence which
+//! provider the sandbox can reach, which is a different question with a much
+//! worse wrong answer. They meet only at [`EgressPlan::union`], and only to
+//! build the one allowlist a sandbox can have.
 
 use serde::{Deserialize, Serialize};
 
 use crate::execution_job::{CapabilityGrant, NetworkPolicy};
+use crate::provider::ProviderId;
 
 /// What a registry name expands to.
 ///
@@ -58,6 +68,89 @@ pub fn expand_registry(name: &str) -> Option<Vec<String>> {
         return Some(vec![name]);
     }
     None
+}
+
+/// The single API host each provider's CLI must reach to do any work at all.
+///
+/// One host per provider, and the entry is the whole grant. This is the same
+/// shape as [`REGISTRIES`] and for the same reason: a grant names the
+/// *provider*, and this table — not the grant, and certainly not the task —
+/// decides what that name reaches. A grant naming a provider this table does
+/// not know expands to nothing, so an unknown name opens nothing rather than
+/// being trusted as a hostname.
+///
+/// Each host is where the corresponding CLI sends its completion requests, and
+/// nothing here is required for anything else. Telemetry, update checks and
+/// crash reporting endpoints are deliberately absent: a CLI that cannot phone
+/// home still does the work.
+pub const PROVIDER_ENDPOINTS: &[(ProviderId, &str)] = &[
+    (ProviderId::Claude, "api.anthropic.com"),
+    (ProviderId::Openai, "api.openai.com"),
+    (ProviderId::Gemini, "generativelanguage.googleapis.com"),
+    // Zen is API-only and has no CLI, so no sandboxed step is ever routed to
+    // it — `build_command` rejects it before a sandbox is built. The entry
+    // exists so this table stays exhaustive over `ProviderId` rather than
+    // silently acquiring a hole the day Zen grows a CLI.
+    (ProviderId::Zen, "opencode.ai"),
+];
+
+/// The wire name for a provider in a [`CapabilityGrant::ReachProvider`].
+///
+/// Deliberately the `serde` spelling of [`ProviderId`], so the grant persisted
+/// on a job round-trips to the same provider that was routed.
+pub fn provider_grant_name(provider: ProviderId) -> &'static str {
+    match provider {
+        ProviderId::Claude => "claude",
+        ProviderId::Openai => "openai",
+        ProviderId::Gemini => "gemini",
+        ProviderId::Zen => "zen",
+    }
+}
+
+/// The host a provider name justifies, or `None` if we do not know the name.
+///
+/// The inverse of [`provider_grant_name`] followed by a table lookup, kept as
+/// one function because the two halves must not be able to disagree.
+pub fn expand_provider(name: &str) -> Option<&'static str> {
+    let name = name.trim().to_ascii_lowercase();
+    PROVIDER_ENDPOINTS
+        .iter()
+        .find(|(provider, _)| provider_grant_name(*provider) == name)
+        .map(|(_, host)| *host)
+}
+
+/// The API host this provider's CLI reaches.
+pub fn provider_host(provider: ProviderId) -> Option<&'static str> {
+    PROVIDER_ENDPOINTS
+        .iter()
+        .find(|(candidate, _)| *candidate == provider)
+        .map(|(_, host)| *host)
+}
+
+/// Decide the provider egress for one step, from the routing decision alone.
+///
+/// The input is a `ProviderId` and nothing else. That is the security property,
+/// not an implementation convenience: this function **cannot** be influenced by
+/// the repository, the task contract, the objective, or the step kind, because
+/// none of them is in scope. A step routed to one provider gets exactly that
+/// provider's host; there is no argument reachable from a customer's repository
+/// that adds a second one.
+///
+/// The planner already made this decision — it chose the model — so this is a
+/// restatement of a choice already taken, not a new one.
+pub fn derive_provider_egress(provider: ProviderId) -> EgressPlan {
+    let Some(host) = provider_host(provider) else {
+        return EgressPlan::deny();
+    };
+
+    EgressPlan {
+        network_policy: NetworkPolicy::Allowlist {
+            hosts: vec![host.to_string()],
+        },
+        capability_grants: vec![CapabilityGrant::ReachProvider {
+            provider: provider_grant_name(provider).to_string(),
+        }],
+    }
 }
 
 /// Which dependency manifests a repository actually contains.
@@ -131,9 +224,69 @@ impl EgressPlan {
             .iter()
             .flat_map(|grant| match grant {
                 CapabilityGrant::ResolveDependencies { registries } => registries.clone(),
-                CapabilityGrant::ReadSecret { .. } => Vec::new(),
+                CapabilityGrant::ReachProvider { .. } | CapabilityGrant::ReadSecret { .. } => {
+                    Vec::new()
+                }
             })
             .collect()
+    }
+
+    /// The provider granted, if any. At most one — see [`union`](Self::union).
+    pub fn granted_provider(&self) -> Option<&str> {
+        self.capability_grants.iter().find_map(|grant| match grant {
+            CapabilityGrant::ReachProvider { provider } => Some(provider.as_str()),
+            CapabilityGrant::ResolveDependencies { .. } | CapabilityGrant::ReadSecret { .. } => {
+                None
+            }
+        })
+    }
+
+    /// Combine two independently derived plans into the one allowlist a sandbox
+    /// can have.
+    ///
+    /// This is the *only* place the ecosystem and provider derivations meet,
+    /// and it meets them as late as possible on purpose. Each was decided from
+    /// its own inputs — manifests for one, the routing decision for the other —
+    /// and neither could see the other's. Union here changes what is reachable;
+    /// it cannot change what either side decided, because both are already
+    /// finished values by the time they arrive.
+    ///
+    /// The grants stay as they were derived rather than being flattened into
+    /// one list of hosts. That is what keeps a receipt able to say *why* each
+    /// host was open: a reader can tell a registry grant from a provider grant
+    /// after the fact, which a merged host list would have destroyed.
+    ///
+    /// Two provider grants would be a bug in the caller — a step has one
+    /// routing decision — so the first wins and the second is dropped rather
+    /// than quietly widening the allowlist to two providers.
+    pub fn union(ecosystem: &EgressPlan, provider: &EgressPlan) -> EgressPlan {
+        let mut hosts: Vec<String> = ecosystem
+            .network_policy
+            .allowed_hosts()
+            .iter()
+            .chain(provider.network_policy.allowed_hosts())
+            .cloned()
+            .collect();
+        hosts.sort();
+        hosts.dedup();
+
+        if hosts.is_empty() {
+            return EgressPlan::deny();
+        }
+
+        let mut capability_grants = ecosystem.capability_grants.clone();
+        if let Some(grant) = provider
+            .capability_grants
+            .iter()
+            .find(|grant| matches!(grant, CapabilityGrant::ReachProvider { .. }))
+        {
+            capability_grants.push(grant.clone());
+        }
+
+        EgressPlan {
+            network_policy: NetworkPolicy::Allowlist { hosts },
+            capability_grants,
+        }
     }
 }
 
@@ -297,5 +450,157 @@ mod tests {
     fn the_default_plan_denies() {
         assert!(EgressPlan::default().is_deny());
         assert!(EgressPlan::default().capability_grants.is_empty());
+    }
+
+    // --- the provider derivation ---
+
+    const EVERY_PROVIDER: &[ProviderId] = &[
+        ProviderId::Claude,
+        ProviderId::Openai,
+        ProviderId::Gemini,
+        ProviderId::Zen,
+    ];
+
+    #[test]
+    fn every_provider_has_exactly_one_endpoint() {
+        for provider in EVERY_PROVIDER {
+            let host = provider_host(*provider)
+                .unwrap_or_else(|| panic!("{provider:?} has no endpoint in PROVIDER_ENDPOINTS"));
+            assert!(!host.is_empty());
+            // Round-trips through the grant name, which is what a persisted
+            // grant is read back through.
+            assert_eq!(expand_provider(provider_grant_name(*provider)), Some(host));
+        }
+        assert_eq!(PROVIDER_ENDPOINTS.len(), EVERY_PROVIDER.len());
+    }
+
+    #[test]
+    fn a_routed_step_reaches_that_provider_and_no_other() {
+        for provider in EVERY_PROVIDER {
+            let plan = derive_provider_egress(*provider);
+            let hosts = plan.network_policy.allowed_hosts();
+
+            assert_eq!(hosts.len(), 1, "{provider:?} opened more than one host");
+            assert_eq!(hosts[0], provider_host(*provider).expect("has an endpoint"));
+            assert_eq!(plan.granted_provider(), Some(provider_grant_name(*provider)));
+
+            // The point of the whole task: no other provider's host is in
+            // there. A step routed to one provider cannot reach another.
+            for other in EVERY_PROVIDER.iter().filter(|p| *p != provider) {
+                let other_host = provider_host(*other).expect("has an endpoint");
+                assert!(
+                    !hosts.iter().any(|h| h == other_host),
+                    "{provider:?} opened {other:?}'s host"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_provider_name_the_table_does_not_know_justifies_nothing() {
+        assert_eq!(expand_provider("evil.example.com"), None);
+        assert_eq!(expand_provider(""), None);
+        assert_eq!(expand_provider("api.anthropic.com"), None);
+        // No suffix matching, same as the registry table.
+        assert_eq!(expand_provider("claude.evil.com"), None);
+    }
+
+    #[test]
+    fn a_provider_grant_names_no_registry_and_a_registry_grant_names_no_provider() {
+        // The separation the union must not destroy. Neither derivation can
+        // produce the other's grant, so a repository manifest cannot reach a
+        // provider and a routing decision cannot open a package registry.
+        let provider = derive_provider_egress(ProviderId::Claude);
+        assert!(provider.granted_registries().is_empty());
+
+        let ecosystem = derive_egress(&all(), true);
+        assert_eq!(ecosystem.granted_provider(), None);
+    }
+
+    #[test]
+    fn the_union_carries_both_grants_and_both_hosts() {
+        let ecosystem = derive_egress(&all(), true);
+        let provider = derive_provider_egress(ProviderId::Claude);
+        let merged = EgressPlan::union(&ecosystem, &provider);
+
+        assert_eq!(merged.granted_provider(), Some("claude"));
+        assert_eq!(merged.granted_registries().len(), 4);
+
+        let hosts = merged.network_policy.allowed_hosts();
+        assert!(hosts.contains(&"api.anthropic.com".to_string()));
+        assert!(hosts.contains(&"registry.npmjs.org".to_string()));
+
+        // Every host still traces to a grant, which is what the worker
+        // enforces. A union that widened past its grants would be caught here
+        // rather than by an integration test.
+        for host in hosts {
+            let justified = merged
+                .granted_registries()
+                .iter()
+                .filter_map(|name| expand_registry(name))
+                .flatten()
+                .any(|granted| granted == *host)
+                || merged
+                    .granted_provider()
+                    .and_then(expand_provider)
+                    .is_some_and(|granted| granted == host);
+            assert!(justified, "{host} is allowed but not granted");
+        }
+    }
+
+    #[test]
+    fn a_denied_half_does_not_deny_the_other() {
+        // A read-only step routed to a provider still reaches the provider:
+        // the CLI has to run to read anything. And an unrouted step in a rich
+        // repository still gets its registries.
+        let read_only = derive_egress(&all(), false);
+        let claude = derive_provider_egress(ProviderId::Claude);
+
+        let merged = EgressPlan::union(&read_only, &claude);
+        assert_eq!(
+            merged.network_policy.allowed_hosts(),
+            &["api.anthropic.com".to_string()]
+        );
+        assert_eq!(merged.granted_provider(), Some("claude"));
+        assert!(merged.granted_registries().is_empty());
+
+        let merged = EgressPlan::union(&derive_egress(&all(), true), &EgressPlan::deny());
+        assert_eq!(merged.granted_provider(), None);
+        assert_eq!(merged.granted_registries().len(), 4);
+    }
+
+    #[test]
+    fn two_denials_are_a_denial() {
+        let merged = EgressPlan::union(&EgressPlan::deny(), &EgressPlan::deny());
+        assert!(merged.is_deny());
+        assert!(merged.capability_grants.is_empty());
+    }
+
+    #[test]
+    fn the_union_takes_one_provider_not_two() {
+        // A caller passing a plan with two provider grants is a bug; the union
+        // must not turn that bug into a wider allowlist.
+        let two = EgressPlan {
+            network_policy: NetworkPolicy::Allowlist {
+                hosts: vec!["api.anthropic.com".to_string(), "api.openai.com".to_string()],
+            },
+            capability_grants: vec![
+                CapabilityGrant::ReachProvider {
+                    provider: "claude".to_string(),
+                },
+                CapabilityGrant::ReachProvider {
+                    provider: "openai".to_string(),
+                },
+            ],
+        };
+        let merged = EgressPlan::union(&EgressPlan::deny(), &two);
+
+        let providers: Vec<_> = merged
+            .capability_grants
+            .iter()
+            .filter(|g| matches!(g, CapabilityGrant::ReachProvider { .. }))
+            .collect();
+        assert_eq!(providers.len(), 1, "the union kept two provider grants");
+        assert_eq!(merged.granted_provider(), Some("claude"));
     }
 }

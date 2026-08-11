@@ -521,6 +521,9 @@ impl AppState {
             .assemble_context(self.db.as_ref(), &run_id, &task.objective, None)
             .await;
 
+        // Captured before `decision` is moved into the frame below.
+        let provider_egress = cortex_core::egress::derive_provider_egress(decision.provider);
+
         worker_tx
             .send(BrainMessage::ExecuteStep {
                 run_id,
@@ -537,6 +540,12 @@ impl AppState {
                 // Direct dispatch, with no plan-time repository probe behind
                 // it. No repository, no manifest, no grant.
                 egress: cortex_core::egress::EgressPlan::deny(),
+                // The provider half does not depend on a repository probe, so
+                // it applies here exactly as it does on the scheduler path.
+                // Omitting it would leave this path with F7 — a sandboxed CLI
+                // with no route to the model — which is the bug, not the
+                // conservative choice.
+                provider_egress,
                 delegation: None,
             })
             .await

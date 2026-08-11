@@ -51,6 +51,22 @@ pub enum BrainMessage {
         /// field whose absence would otherwise mean "unrestricted".
         #[serde(default)]
         egress: EgressPlan,
+        /// The egress the routing decision justifies: exactly the routed
+        /// provider's API host, so the CLI running inside the sandbox can
+        /// reach the model it was routed to.
+        ///
+        /// Carried **separately** from `egress` rather than merged into it,
+        /// all the way to the worker. The two are derived from different
+        /// inputs — a repository's manifests for one, the router's choice for
+        /// the other — and a single field would make it impossible to tell,
+        /// on a receipt or in this frame, which of them opened a given host.
+        /// The worker unions them once, at the sandbox edge, and records both.
+        ///
+        /// `serde(default)` for the same reason as `egress`, and with the same
+        /// consequence: absent means `Deny`, so both directions of a version
+        /// skew fail closed.
+        #[serde(default)]
+        provider_egress: EgressPlan,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         delegation: Option<serde_json::Value>,
     },
