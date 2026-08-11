@@ -815,6 +815,52 @@ pub async fn get_longform(
         limit,
         cursor_created_at.as_deref(),
         cursor_id.as_deref(),
+        None,
+    );
+    let next_cursor = next_cursor_from_longform(&longform, limit);
+    let has_more = longform.len() as i64 == limit;
+
+    ok(serde_json::json!({
+        "longform": longform,
+        "cursor": next_cursor,
+        "has_more": has_more,
+    }))
+}
+
+/// `GET /v1/social/profiles/{handle}/longform`
+///
+/// The endpoint behind `ProfileStats.longformCount`. That count is rendered in
+/// two places in `VeraSocials.tsx` and, until now, there was no route that could
+/// list what it counted — a number the reader could not click through.
+///
+/// Same shape, same page size and the same cursor encoding as the global feed,
+/// because a client that can page one should be able to page the other without
+/// learning a second convention.
+///
+/// **An unknown handle returns an empty list, not a 404.** A profile that exists
+/// with no longform entries and a handle that does not exist are the same
+/// response deliberately: distinguishing them turns this route into an oracle
+/// for which handles are registered, which is a thing a public, unauthenticated
+/// endpoint should not be. The count on the profile page is the caller's answer
+/// for whether there should have been anything here.
+pub async fn get_profile_longform(
+    Path(handle): Path<String>,
+    Query(params): Query<FeedQuery>,
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let limit = params.limit.unwrap_or(20).clamp(1, 100);
+    let (cursor_created_at, cursor_id) = params
+        .cursor
+        .as_deref()
+        .and_then(decode_cursor)
+        .map(|(c, i)| (Some(c), Some(i)))
+        .unwrap_or((None, None));
+
+    let longform = db(&state).social_list_longform_keyset(
+        limit,
+        cursor_created_at.as_deref(),
+        cursor_id.as_deref(),
+        Some(handle.trim()),
     );
     let next_cursor = next_cursor_from_longform(&longform, limit);
     let has_more = longform.len() as i64 == limit;

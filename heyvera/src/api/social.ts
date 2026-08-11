@@ -553,6 +553,32 @@ export async function fetchLongform(limit = 20, cursor: string | null = null): P
   return { longform: raw.longform ?? raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
 }
 
+/**
+ * Longform entries by a single author.
+ *
+ * The endpoint behind `ProfileStats.longformCount`, which VeraSocials renders
+ * in two places. Until this existed the count was a number with nothing behind
+ * it — the reader could see how many essays someone had written and had no way
+ * to reach them.
+ *
+ * Same page size, same cursor encoding and the same tolerant `longform ?? posts`
+ * unwrap as `fetchLongform`, so a caller that can page one can page the other.
+ */
+export async function fetchProfileLongform(
+  handle: string,
+  limit = 20,
+  cursor: string | null = null,
+): Promise<{
+  longform: LongformEntry[];
+  pageInfo: PageInfo;
+}> {
+  const qs = feedQueryParams(limit, cursor);
+  const raw = await apiFetch<{ longform?: LongformEntry[]; posts?: LongformEntry[]; cursor: string | null }>(
+    `/profiles/${encodeURIComponent(handle)}/longform?${qs}`,
+  );
+  return { longform: raw.longform ?? raw.posts ?? [], pageInfo: { limit, nextCursor: raw.cursor ?? null } };
+}
+
 export async function fetchCommunityFeed(
   communityId: string,
   limit = 20,

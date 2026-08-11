@@ -603,3 +603,81 @@ async fn test_join_leave_community_by_slug() {
     let j = body_json(join).await;
     assert_eq!(j["ok"], true);
 }
+
+/// `GET /v1/social/profiles/{handle}/longform` — the endpoint behind the
+/// `longformCount` rendered on every profile.
+///
+/// Before this route existed, `VeraSocials.tsx` displayed "N longform" in two
+/// places with nothing that could list them: `get_longform` took a `FeedQuery`
+/// of limit and cursor only, with no author filter by any spelling. This is the
+/// one gap from PR #105 that did not ship independently during the Rust
+/// rewrite.
+#[tokio::test]
+async fn test_profile_longform_by_handle() {
+    let (app, _tmp) = test_app().await;
+
+    let resp = post_json(
+        app.clone(),
+        "/v1/social/me/profile",
+        serde_json::json!({ "handle": "essayist", "displayName": "The Essayist" }),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let resp = post_json(
+        app.clone(),
+        "/v1/social/longform",
+        serde_json::json!({
+            "title": "On Verification",
+            "summary": "a summary",
+            "body": "the body",
+            "visibility": "public",
+        }),
+    )
+    .await;
+    assert_eq!(resp.status(), StatusCode::OK, "creating the entry failed");
+
+    // The author's own handle lists their public entry.
+    let resp = get(app.clone(), "/v1/social/profiles/essayist/longform").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = body_json(resp).await;
+    let entries = json["longform"].as_array().expect("longform is an array");
+
+    assert_eq!(entries.len(), 1, "expected exactly the public entry: {json}");
+    assert_eq!(entries[0]["title"], "On Verification");
+    assert_eq!(entries[0]["author"]["handle"], "essayist");
+
+    // The visibility filter — the assertion that this route must not become a
+    // way to read a draft the global feed hides — is at the database layer, in
+    // `db::longform_by_handle_lists_only_that_author_s_public_entries`. It has
+    // to be: the create route refuses anything but `public`, so a non-public
+    // row cannot be made through the API to test against here. Asserting it
+    // only where it can be set up is better than asserting it where it would
+    // pass vacuously.
+
+    // Handles are typed by humans, so the match is case-insensitive — the same
+    // rule the profile lookup already uses.
+    let resp = get(app.clone(), "/v1/social/profiles/ESSAYIST/longform").await;
+    let json = body_json(resp).await;
+    assert_eq!(
+        json["longform"].as_array().expect("array").len(),
+        1,
+        "handle matching is case sensitive, so a profile link with different \
+         casing shows nothing"
+    );
+
+    // An unknown handle is an empty list, not a 404: distinguishing "no entries"
+    // from "no such profile" would make this an oracle for which handles exist.
+    let resp = get(app.clone(), "/v1/social/profiles/nobody-here/longform").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = body_json(resp).await;
+    assert_eq!(json["longform"].as_array().expect("array").len(), 0);
+    assert_eq!(json["has_more"], false);
+
+    // And the global feed still works, unfiltered — the shared query serves
+    // both, so a change to one must not quietly narrow the other.
+    let resp = get(app.clone(), "/v1/social/longform").await;
+    assert_eq!(resp.status(), StatusCode::OK);
+    let json = body_json(resp).await;
+    assert_eq!(json["longform"].as_array().expect("array").len(), 1);
+}

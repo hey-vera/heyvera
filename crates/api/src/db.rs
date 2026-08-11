@@ -14840,11 +14840,23 @@ impl Database {
         .ok()
     }
 
+    /// Public longform entries, newest first, optionally filtered to one author.
+    ///
+    /// `author_handle` is a parameter rather than a second function on purpose.
+    /// The alternative was a copy of this SELECT with one extra `AND`, and two
+    /// copies of a query agree exactly until one of them is edited — after
+    /// which the feed and the profile disagree about what "public" means, which
+    /// is a visibility bug wearing a pagination bug's clothes.
+    ///
+    /// The handle is matched case-insensitively because handles are displayed
+    /// and typed by humans, and `NOCASE` is what the profile lookup already
+    /// uses. It is still a parameter, never interpolated.
     pub fn social_list_longform_keyset(
         &self,
         limit: i64,
         cursor_created_at: Option<&str>,
         cursor_id: Option<&str>,
+        author_handle: Option<&str>,
     ) -> Vec<serde_json::Value> {
         let conn = self.conn();
         let map_row = |row: &rusqlite::Row| -> rusqlite::Result<serde_json::Value> {
@@ -14875,43 +14887,49 @@ impl Database {
             }))
         };
 
-        if cursor_created_at.is_some() && cursor_id.is_some() {
-            let mut stmt = conn.prepare(
-                "SELECT lf.id, lf.profile_id, lf.linked_agent_id, lf.title, lf.summary, lf.body,
-                        lf.format_type, lf.visibility, lf.proof_state, lf.author_mode,
-                        lf.created_at, lf.updated_at, p.handle, p.display_name,
-                        la.agent_name, la.agent_slug
-                 FROM social_longform lf
-                 JOIN social_profiles p ON p.id = lf.profile_id
-                 LEFT JOIN social_linked_agents la ON la.id = lf.linked_agent_id
-                 WHERE lf.visibility = 'public'
-                   AND (lf.created_at < ?1 OR (lf.created_at = ?1 AND lf.id < ?2))
-                 ORDER BY lf.created_at DESC, lf.id DESC LIMIT ?3"
-            ).unwrap();
-            stmt.query_map(
-                params![cursor_created_at.unwrap(), cursor_id.unwrap(), limit],
-                map_row,
-            )
-                .unwrap()
-                .filter_map(|r| r.ok())
-                .collect()
-        } else {
-            let mut stmt = conn.prepare(
-                "SELECT lf.id, lf.profile_id, lf.linked_agent_id, lf.title, lf.summary, lf.body,
-                        lf.format_type, lf.visibility, lf.proof_state, lf.author_mode,
-                        lf.created_at, lf.updated_at, p.handle, p.display_name,
-                        la.agent_name, la.agent_slug
-                 FROM social_longform lf
-                 JOIN social_profiles p ON p.id = lf.profile_id
-                 LEFT JOIN social_linked_agents la ON la.id = lf.linked_agent_id
-                 WHERE lf.visibility = 'public'
-                 ORDER BY lf.created_at DESC, lf.id DESC LIMIT ?1"
-            ).unwrap();
-            stmt.query_map([limit], map_row)
-                .unwrap()
-                .filter_map(|r| r.ok())
-                .collect()
+        // One SELECT, assembled from the same pieces on every path. The
+        // `visibility = 'public'` predicate is written once so no branch can
+        // lose it — dropping it on one path is how an unlisted draft ends up on
+        // a profile page.
+        const COLUMNS: &str = "SELECT lf.id, lf.profile_id, lf.linked_agent_id, lf.title, \
+             lf.summary, lf.body, lf.format_type, lf.visibility, lf.proof_state, \
+             lf.author_mode, lf.created_at, lf.updated_at, p.handle, p.display_name, \
+             la.agent_name, la.agent_slug \
+             FROM social_longform lf \
+             JOIN social_profiles p ON p.id = lf.profile_id \
+             LEFT JOIN social_linked_agents la ON la.id = lf.linked_agent_id \
+             WHERE lf.visibility = 'public'";
+
+        let paginated = cursor_created_at.is_some() && cursor_id.is_some();
+
+        let mut sql = String::from(COLUMNS);
+        let mut args: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+
+        if paginated {
+            sql.push_str(" AND (lf.created_at < ? OR (lf.created_at = ? AND lf.id < ?))");
+            let created = cursor_created_at.unwrap().to_string();
+            args.push(Box::new(created.clone()));
+            args.push(Box::new(created));
+            args.push(Box::new(cursor_id.unwrap().to_string()));
         }
+
+        if let Some(handle) = author_handle {
+            sql.push_str(" AND p.handle = ? COLLATE NOCASE");
+            args.push(Box::new(handle.to_string()));
+        }
+
+        sql.push_str(" ORDER BY lf.created_at DESC, lf.id DESC LIMIT ?");
+        args.push(Box::new(limit));
+
+        let Ok(mut stmt) = conn.prepare(&sql) else {
+            return Vec::new();
+        };
+        let params: Vec<&dyn rusqlite::ToSql> = args.iter().map(|a| a.as_ref()).collect();
+        let rows = match stmt.query_map(params.as_slice(), map_row) {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(_) => Vec::new(),
+        };
+        rows
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -27485,6 +27503,75 @@ mod truth {
             .lease_step("step-lease", "w-real", now + 600_000)
             .expect("leasing to a registered worker must succeed");
         assert!(lease_gen > 0);
+    }
+
+    #[test]
+    fn longform_by_handle_lists_only_that_author_s_public_entries() {
+        // The two properties the `/profiles/{handle}/longform` route rests on,
+        // asserted where the fixtures can actually be built: the create route
+        // refuses any visibility but `public`, so a non-public row cannot be
+        // made through the API, and an API-level test of the visibility filter
+        // would pass without ever exercising it.
+        let db = test_db();
+        {
+            let conn = db.conn();
+            for (id, handle) in [("p-alice", "alice"), ("p-bob", "bob")] {
+                conn.execute(
+                    "INSERT INTO social_profiles (id, clerk_user_id, handle, display_name)
+                     VALUES (?1, ?1, ?2, ?2)",
+                    params![id, handle],
+                )
+                .expect("insert profile");
+            }
+
+            for (id, profile, title, visibility) in [
+                ("lf-1", "p-alice", "Alice Public", "public"),
+                ("lf-2", "p-alice", "Alice Draft", "author-only"),
+                ("lf-3", "p-bob", "Bob Public", "public"),
+            ] {
+                conn.execute(
+                    "INSERT INTO social_longform
+                        (id, profile_id, title, summary, body, format_type, visibility, author_mode)
+                     VALUES (?1, ?2, ?3, 'summary', 'body', 'markdown', ?4, 'human')",
+                    params![id, profile, title, visibility],
+                )
+                .expect("insert longform");
+            }
+        }
+
+        let alice = db.social_list_longform_keyset(20, None, None, Some("alice"));
+        let titles: Vec<&str> = alice
+            .iter()
+            .map(|e| e["title"].as_str().unwrap_or_default())
+            .collect();
+
+        assert_eq!(
+            titles,
+            ["Alice Public"],
+            "the handle filter must return exactly that author's public entries"
+        );
+
+        // Case-insensitive, because handles are typed by humans and a profile
+        // link with different casing must not silently show nothing.
+        assert_eq!(
+            db.social_list_longform_keyset(20, None, None, Some("ALICE"))
+                .len(),
+            1
+        );
+
+        // An author with no entries and a handle that does not exist are the
+        // same empty answer — the route must not be an oracle for which handles
+        // are registered.
+        assert!(db
+            .social_list_longform_keyset(20, None, None, Some("nobody"))
+            .is_empty());
+
+        // And the unfiltered feed is unchanged: both authors' public entries,
+        // neither draft. One query serves both callers, so narrowing one must
+        // not narrow the other.
+        let feed = db.social_list_longform_keyset(20, None, None, None);
+        assert_eq!(feed.len(), 2, "the global feed changed shape");
+        assert!(!feed.iter().any(|e| e["title"] == "Alice Draft"));
     }
 
     /// A run with one leased, running step, ready to receive a delivery.
