@@ -179,6 +179,17 @@ impl ContainerSandbox {
                 // The workspace mount stays writable; everything else does not,
                 // so nothing can be cached into the image for the next task.
                 readonly_rootfs: Some(true),
+                // …with one deliberate exception, which is a tmpfs and so dies
+                // with the container. Without it the worktree is the only
+                // writable path in the sandbox, and a provider CLI with no
+                // `HOME` either refuses to start or writes its config and
+                // cache into the tree it was asked to change — where they land
+                // in the diff, in the git evidence, and in what the frozen
+                // checks grade. See `policy::sanctioned_env`.
+                tmpfs: Some(std::collections::HashMap::from([(
+                    crate::sandbox::policy::SCRATCH.to_string(),
+                    crate::sandbox::policy::SCRATCH_TMPFS_OPTIONS.to_string(),
+                )])),
                 privileged: Some(false),
                 userns_mode: Some("host".to_string()),
                 // Removal is explicit in every path including timeout and
@@ -571,7 +582,18 @@ mod tests {
         // machine had no key to leak.
         std::env::set_var("ANTHROPIC_API_KEY", "sk-test-not-a-real-key");
 
-        assert_eq!(config_of(&job()).env, Some(Vec::new()));
+        // The scratch constants and nothing else. They are a compile-time
+        // list with no host lookup behind them, so "no credential" is exactly
+        // "the env is the constant". Asserted as an exact set, not as an
+        // absence: an absence assertion passes when the whole thing is empty
+        // *and* when someone quietly adds a fourth variable.
+        let scratch = || {
+            crate::sandbox::policy::SCRATCH_ENV
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(config_of(&job()).env, Some(scratch()));
 
         // A registry grant is not a provider grant, and must carry no
         // credential.
@@ -579,7 +601,35 @@ mod tests {
         registry_only.capability_grants = vec![CapabilityGrant::ResolveDependencies {
             registries: vec!["crates".to_string()],
         }];
-        assert_eq!(config_of(&registry_only).env, Some(Vec::new()));
+        assert_eq!(config_of(&registry_only).env, Some(scratch()));
+    }
+
+    #[test]
+    fn the_sandbox_has_a_writable_path_that_is_not_the_customer_s_tree() {
+        // Without this the worktree is the only writable path in the sandbox,
+        // and a provider CLI with no `HOME` either refuses to start or writes
+        // its config and cache into the tree it was asked to change — where
+        // they land in the diff, in the git evidence, and in what the frozen
+        // checks grade.
+        let host = config_of(&job()).host_config.expect("host config");
+        let tmpfs = host.tmpfs.expect("the sandbox has a scratch mount");
+        let options = tmpfs
+            .get(crate::sandbox::policy::SCRATCH)
+            .expect("scratch is mounted where the environment points");
+
+        assert!(options.contains("rw"), "scratch is not writable: {options}");
+        assert!(
+            options.contains("size="),
+            "an unbounded tmpfs is host RAM a task can exhaust: {options}"
+        );
+        // The half this must not have cost: scratch is a tmpfs, so nothing
+        // written there survives the container into the next task.
+        for path in tmpfs.keys() {
+            assert!(
+                !path.starts_with(WORKSPACE_MOUNT),
+                "the scratch mount is inside the delivered tree at {path}"
+            );
+        }
     }
 
     #[test]
@@ -605,10 +655,16 @@ mod tests {
 
         let env = config_of(&job).env.expect("env is always set");
 
+        let mut expected = vec!["ANTHROPIC_API_KEY=sk-test-not-a-real-key".to_string()];
+        expected.extend(
+            crate::sandbox::policy::SCRATCH_ENV
+                .iter()
+                .map(|s| (*s).to_string()),
+        );
         assert_eq!(
-            env,
-            vec!["ANTHROPIC_API_KEY=sk-test-not-a-real-key".to_string()],
-            "the routed provider's key must reach the sandbox, and nothing else"
+            env, expected,
+            "the routed provider's key must reach the sandbox, and nothing \
+             beyond it except the scratch constants"
         );
         for forbidden in [
             "OPENAI_API_KEY",

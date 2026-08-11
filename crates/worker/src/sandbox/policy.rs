@@ -93,9 +93,44 @@ fn provider_key_var(provider: &str) -> Option<&'static str> {
 /// 3. **A key that is not set is not invented.** If the worker does not hold
 ///    the variable, none is passed and the CLI fails as unauthenticated, which
 ///    is a truthful failure rather than a silent one.
+///
+/// # The scratch variables are not an exception to any of that
+///
+/// [`SCRATCH_ENV`] is appended, and it is a compile-time constant with no
+/// lookup behind it, so it cannot carry a value off the host. It exists
+/// because the sandbox's *only* writable path was the customer's worktree.
+/// Every real CLI writes somewhere — a config directory, a cache, a temp file —
+/// and with no `HOME` and no `TMPDIR` a provider CLI either fails to start or
+/// writes its droppings into the tree it was asked to change. The second is
+/// worse than the first: those files land in the diff, in the git evidence,
+/// and in what the frozen checks grade.
+///
+/// So the sandbox gets a `/scratch` tmpfs and is pointed at it. The worktree
+/// stays the only *persistent* writable path, which is the property that
+/// mattered; scratch dies with the container.
 pub fn sanctioned_env(job: &ExecutionJob) -> Vec<String> {
-    sanctioned_env_from(job, |var| std::env::var(var).ok())
+    let mut env = sanctioned_env_from(job, |var| std::env::var(var).ok());
+    env.extend(SCRATCH_ENV.iter().map(|s| (*s).to_string()));
+    env
 }
+
+/// The one writable path in the sandbox that is not the customer's tree.
+pub const SCRATCH: &str = "/scratch";
+
+/// Mount options for the sandbox scratch tmpfs.
+///
+/// `exec` because an agent legitimately runs what it builds. Size-capped
+/// because a tmpfs is host RAM.
+pub const SCRATCH_TMPFS_OPTIONS: &str = "rw,exec,nosuid,nodev,size=2147483648,mode=1777";
+
+/// Where a tool that writes should write. A constant, never a lookup — see
+/// [`sanctioned_env`].
+pub const SCRATCH_ENV: &[&str] = &[
+    "HOME=/scratch/home",
+    "TMPDIR=/scratch/tmp",
+    "XDG_CACHE_HOME=/scratch/cache",
+    "XDG_CONFIG_HOME=/scratch/config",
+];
 
 /// The rule, with the environment lookup passed in.
 ///
@@ -356,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn environment_is_empty_not_filtered() {
+    fn nothing_from_the_host_survives_without_a_grant() {
         // The case this prevents: a Clerk secret, the production database
         // path, or a provider key for a provider this step was never routed
         // to, reaching a sandbox because a denylist missed it.
@@ -366,8 +401,51 @@ mod tests {
         // missing the variables.
         let everything = |var: &str| Some(format!("{var}-value"));
 
+        // The rule itself — everything the host could offer, nothing taken.
         assert!(sanctioned_env_from(&job(), everything).is_empty());
-        assert!(sanctioned_env(&job()).is_empty());
+
+        // And what the sandbox is actually handed: the scratch constants and
+        // not one thing more. Asserted as an exact set rather than as "does
+        // not contain a secret", so a variable added here has to be added to
+        // the constant in a diff somebody reads.
+        assert_eq!(
+            sanctioned_env(&job()),
+            SCRATCH_ENV.iter().map(|s| (*s).to_string()).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn the_scratch_variables_cannot_carry_a_host_value() {
+        // The security property the scratch addition must not have cost. These
+        // are a `const` with no lookup behind them, so this cannot fail by
+        // construction — which is why they are a `const`. Pinned because the
+        // failure it guards against is somebody making one of them
+        // configurable, and the first configurable one is the leak.
+        for entry in SCRATCH_ENV {
+            let (name, value) = entry.split_once('=').expect("every entry is NAME=value");
+            assert!(
+                value.starts_with(SCRATCH),
+                "{name} points somewhere other than the scratch mount: {value}"
+            );
+            assert!(
+                !value.contains(std::path::MAIN_SEPARATOR) || value.starts_with('/'),
+                "{name} carries a host path: {value}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_writable_home_is_not_inside_the_workspace() {
+        // The whole point of the scratch mount. A `HOME` under the worktree
+        // means a provider CLI's config and cache land in the customer's diff,
+        // in the git evidence, and in what the frozen checks grade.
+        for entry in SCRATCH_ENV {
+            let (_, value) = entry.split_once('=').expect("every entry is NAME=value");
+            assert!(
+                !value.starts_with(WORKSPACE_MOUNT),
+                "a tool's write path is inside the delivered tree: {value}"
+            );
+        }
     }
 
     #[test]
