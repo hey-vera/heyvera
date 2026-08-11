@@ -12,11 +12,42 @@
 //! - **`--network none`.** A check that can reach the network can fetch a
 //!   passing result.
 //! - **The tree is mounted read-only.** A check cannot edit its way to green.
-//! - **No environment at all.** Not a filtered environment — an empty one. The
-//!   runner gets a tree and a command, never provider keys, Clerk secrets, or
-//!   the production database path.
+//! - **One writable scratch tmpfs, outside the tree.** See below — this is not
+//!   a relaxation of the line above, it is what makes it survivable.
+//! - **No *inherited* environment.** Not a filtered environment and not an
+//!   empty one: exactly [`SCRATCH_ENV`], a compile-time constant. Nothing is
+//!   read from the process environment, so the runner cannot receive provider
+//!   keys, Clerk secrets, or the production database path even by accident.
 //! - **The image digest is recorded on every execution.** "It passed" is only
 //!   reproducible if *where* it passed is pinned.
+//!
+//! # Why there is a scratch tmpfs (F9)
+//!
+//! There was not one, and the consequence was that **no check the derivation
+//! produces could execute**. `ecosystem:cargo-check` and `ecosystem:cargo-test`
+//! write to `target/`; with the tree mounted read-only, the rootfs read-only,
+//! and no writable path anywhere in the container, every cargo check failed
+//! before compiling a line — and `CheckOutcome::Failed` is a verdict *about the
+//! customer's work*. So the verifier's failure mode was to blame the customer
+//! for its own missing mount.
+//!
+//! Nothing caught it because every test of the driver uses a `ScriptedRunner`.
+//! The specs were tested, the verdict arithmetic was tested, and the one place
+//! a spec becomes a running process had no test at all — the same shape as F0,
+//! at a different boundary.
+//!
+//! The fix keeps the invariant that matters. The *tree* is still read-only, so
+//! a check still cannot edit its way to green: the source it grades is the
+//! source that was delivered. What it gains is somewhere to put build output,
+//! at a path outside the tree, on a tmpfs that dies with the container. A check
+//! can write freely to `/scratch` and change nothing about what it is grading.
+//!
+//! **Known gap, not papered over:** `ecosystem:npm-ci` installs into
+//! `node_modules/` *inside* the tree, so a scratch directory does not rescue
+//! it. Redirecting npm's install prefix changes resolution semantics, and a
+//! writable tree copy would give up the property above. The npm floor is
+//! therefore still unexecutable here and is recorded as such rather than
+//! silently producing `Failed`.
 //!
 //! Phase B swaps this for Firecracker-class microVMs behind the same trait,
 //! which is a deployment decision rather than a redesign.
@@ -37,6 +68,41 @@ use sha2::{Digest, Sha256};
 
 /// Where the delivered tree is mounted inside the container.
 const WORKDIR: &str = "/work";
+
+/// The one writable path in the container. A tmpfs, so it never touches the
+/// host and cannot outlive the check.
+const SCRATCH: &str = "/scratch";
+
+/// Size cap on the scratch tmpfs. A tmpfs is host RAM, so an unbounded one is a
+/// way for a check to take the machine down; this is generous for a build tree
+/// and far short of dangerous.
+const SCRATCH_BYTES: usize = 4 * 1024 * 1024 * 1024;
+
+/// The complete environment of a check container.
+///
+/// A `const`, not a function over `std::env`. That is the point: there is no
+/// expression here that *could* read the host's environment, so "the runner
+/// never sees a provider key" is a property of the type rather than of a filter
+/// somebody has to keep correct. Adding a variable means editing this list, in
+/// a diff, next to this comment.
+///
+/// Every entry exists to move a tool's write path off the read-only tree.
+/// `PATH` is deliberately absent — Docker merges the image's own `ENV` with
+/// what is supplied here, so the image's `PATH` survives, and restating it
+/// would let this list silently override the image.
+const SCRATCH_ENV: &[&str] = &[
+    // Build output. Without this cargo writes to /work/target and dies on a
+    // read-only filesystem — F9, and the reason this list exists.
+    "CARGO_TARGET_DIR=/scratch/target",
+    // The registry cache and cargo's own config. Cargo refuses to run at all
+    // if it cannot establish a home directory.
+    "CARGO_HOME=/scratch/cargo",
+    // Set explicitly rather than left to the image: a tool that falls back to
+    // `$HOME` must land on the tmpfs, not on a read-only `/home/sandbox`.
+    "HOME=/scratch/home",
+    "TMPDIR=/scratch/tmp",
+    "npm_config_cache=/scratch/npm",
+];
 /// Bytes of output retained verbatim on the execution record. The full log is
 /// digest-addressed and stored separately; this is what a dispute reads first.
 const OUTPUT_TAIL_BYTES: usize = 16 * 1024;
@@ -66,36 +132,58 @@ impl ContainerCheckRunner {
     }
 
     fn container_config(&self, tree: &TreeSnapshot, check: &CheckSpec) -> Config<String> {
-        Config {
-            image: Some(self.image.clone()),
-            cmd: Some(check.command.clone()),
-            working_dir: Some(WORKDIR.to_string()),
-            // Empty, not filtered. See the module docs.
-            env: Some(Vec::new()),
-            user: Some("sandbox".to_string()),
-            network_disabled: Some(true),
-            host_config: Some(HostConfig {
-                binds: Some(vec![format!("{}:{}:ro", tree.path, WORKDIR)]),
-                network_mode: Some("none".to_string()),
-                memory: Some(MEMORY_BYTES),
-                memory_swap: Some(MEMORY_BYTES),
-                cpu_quota: Some(CPU_QUOTA),
-                cpu_period: Some(CPU_PERIOD),
-                pids_limit: Some(PIDS_LIMIT),
-                cap_drop: Some(vec!["ALL".to_string()]),
-                security_opt: Some(vec!["no-new-privileges:true".to_string()]),
-                // The mount is read-only; make the rest of the filesystem so
-                // too, so a check cannot cache a result for the next one.
-                readonly_rootfs: Some(true),
-                // Removal is explicit below, in every path including timeout,
-                // so a leaked container is a bug rather than a race.
-                auto_remove: Some(false),
-                ..Default::default()
-            }),
-            ..Default::default()
-        }
+        container_config(&self.image, tree, check)
     }
+}
 
+/// The configuration a check container is created with.
+///
+/// A free function taking the image rather than a method on the runner, so it
+/// can be asserted on without a Docker client. That is not a stylistic
+/// preference: the reason F9 lived here is that reaching this code required a
+/// daemon, so no test ever reached it.
+fn container_config(image: &str, tree: &TreeSnapshot, check: &CheckSpec) -> Config<String> {
+    Config {
+        image: Some(image.to_string()),
+        cmd: Some(check.command.clone()),
+        working_dir: Some(WORKDIR.to_string()),
+        // A constant, not a filter. See `SCRATCH_ENV` and the module docs.
+        env: Some(SCRATCH_ENV.iter().map(|s| (*s).to_string()).collect()),
+        user: Some("sandbox".to_string()),
+        network_disabled: Some(true),
+        host_config: Some(HostConfig {
+            binds: Some(vec![format!("{}:{}:ro", tree.path, WORKDIR)]),
+            // The only writable path, and it is not the tree. `exec` is
+            // required rather than lax: cargo runs build scripts and test
+            // binaries out of its target directory, so a `noexec` scratch
+            // would fail every check it was added to rescue.
+            tmpfs: Some(std::collections::HashMap::from([(
+                SCRATCH.to_string(),
+                format!("rw,exec,nosuid,nodev,size={SCRATCH_BYTES},mode=1777"),
+            )])),
+            network_mode: Some("none".to_string()),
+            memory: Some(MEMORY_BYTES),
+            memory_swap: Some(MEMORY_BYTES),
+            cpu_quota: Some(CPU_QUOTA),
+            cpu_period: Some(CPU_PERIOD),
+            pids_limit: Some(PIDS_LIMIT),
+            cap_drop: Some(vec!["ALL".to_string()]),
+            security_opt: Some(vec!["no-new-privileges:true".to_string()]),
+            // The tree mount is read-only and so is the rest of the
+            // filesystem, so a check cannot cache a result for the next one.
+            // The scratch tmpfs above is the single deliberate exception, and
+            // it dies with the container.
+            readonly_rootfs: Some(true),
+            // Removal is explicit below, in every path including timeout,
+            // so a leaked container is a bug rather than a race.
+            auto_remove: Some(false),
+            ..Default::default()
+        }),
+        ..Default::default()
+    }
+}
+
+impl ContainerCheckRunner {
     /// Best-effort teardown. A failure here cannot change a verdict — it is an
     /// operational problem, and the reaper is the backstop.
     async fn remove(&self, container_id: &str) {
@@ -278,6 +366,146 @@ fn tail_of(output: &str, limit: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The configuration a check container would actually be created with.
+    ///
+    /// These assertions did not exist, which is why F9 survived: the driver's
+    /// tests all use a `ScriptedRunner`, so nothing ever looked at the config
+    /// this function returns. It needs no Docker daemon — `container_config` is
+    /// pure — so there is no gate on it and no excuse for it to be absent.
+    fn config_for(command: &[&str]) -> Config<String> {
+        let tree = TreeSnapshot {
+            tree_hash: "deadbeef".to_string(),
+            path: "/tmp/cortex-verify-test".to_string(),
+        };
+        let check = CheckSpec {
+            id: "ecosystem:cargo-check".to_string(),
+            source: cortex_core::verification::CheckSource::Ecosystem,
+            command: command.iter().map(|s| (*s).to_string()).collect(),
+            timeout_secs: 600,
+            required: true,
+        };
+        container_config("cortex/runner:test", &tree, &check)
+    }
+
+    #[test]
+    fn a_cargo_check_has_somewhere_to_write() {
+        // F9, at the boundary. `cargo check` writes to `target/`; the tree is
+        // read-only and so is the rootfs, so without a writable path outside
+        // the tree every cargo check failed before compiling anything — and
+        // reported that failure as a verdict about the customer's work.
+        let config = config_for(&["cargo", "check", "--locked"]);
+        let host = config.host_config.expect("a host config is always set");
+
+        let tmpfs = host.tmpfs.expect("the check has a writable scratch mount");
+        let options = tmpfs
+            .get(SCRATCH)
+            .unwrap_or_else(|| panic!("scratch is mounted at {SCRATCH}: {tmpfs:?}"));
+        assert!(options.contains("rw"), "scratch is not writable: {options}");
+        assert!(
+            options.contains("exec"),
+            "cargo runs build scripts and test binaries out of its target \
+             directory; a noexec scratch fails every check it was added to \
+             rescue: {options}"
+        );
+        assert!(
+            options.contains("size="),
+            "an unbounded tmpfs is host RAM a check can exhaust: {options}"
+        );
+
+        let target = config
+            .env
+            .as_ref()
+            .expect("env is always set")
+            .iter()
+            .find(|e| e.starts_with("CARGO_TARGET_DIR="))
+            .expect("cargo is told where to write");
+        assert!(
+            target.contains(SCRATCH),
+            "cargo's target directory is not on the scratch mount: {target}"
+        );
+    }
+
+    #[test]
+    fn the_tree_itself_stays_read_only() {
+        // The half of the invariant the scratch mount must not have cost. A
+        // check that can edit the tree can edit its way to green, and then the
+        // verdict is about a tree nobody delivered.
+        let config = config_for(&["cargo", "test", "--locked"]);
+        let host = config.host_config.expect("a host config is always set");
+
+        let binds = host.binds.expect("the tree is mounted");
+        assert!(
+            binds.iter().all(|b| b.ends_with(":ro")),
+            "the delivered tree is writable: {binds:?}"
+        );
+        assert_eq!(
+            host.readonly_rootfs,
+            Some(true),
+            "the root filesystem is writable"
+        );
+
+        // And the writable path is not inside the tree.
+        let tmpfs = host.tmpfs.expect("scratch exists");
+        for path in tmpfs.keys() {
+            assert!(
+                !path.starts_with(WORKDIR),
+                "the writable mount is inside the tree at {path}; a check can \
+                 now edit what it is grading"
+            );
+        }
+    }
+
+    #[test]
+    fn no_host_variable_reaches_a_check() {
+        // The environment is a `const`, so this cannot fail by construction —
+        // which is the reason it is a `const`. The test pins it anyway,
+        // because the failure it guards against is somebody replacing the
+        // constant with a filter, and a filter is a thing that gets a hole in
+        // it. A check container that could read `ANTHROPIC_API_KEY` would let
+        // a customer's test file exfiltrate Cortex's provider key.
+        std::env::set_var("ANTHROPIC_API_KEY", "sk-test-not-a-real-key");
+        std::env::set_var("CLERK_SECRET_KEY", "sk-test-not-a-real-clerk-key");
+
+        let env = config_for(&["cargo", "check", "--locked"])
+            .env
+            .expect("env is always set");
+
+        assert_eq!(
+            env,
+            SCRATCH_ENV.iter().map(|s| (*s).to_string()).collect::<Vec<_>>(),
+            "the check environment is no longer exactly the constant"
+        );
+        for forbidden in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CLERK_SECRET_KEY"] {
+            assert!(
+                !env.iter().any(|e| e.starts_with(forbidden)),
+                "a host secret reached a check container: {forbidden}"
+            );
+        }
+
+        // PATH is deliberately not restated: Docker merges the image's ENV
+        // with this list, and an entry here would silently override the image.
+        assert!(
+            !env.iter().any(|e| e.starts_with("PATH=")),
+            "PATH is set here rather than by the image, which overrides it"
+        );
+    }
+
+    #[test]
+    fn a_check_still_cannot_reach_the_network() {
+        // Adjacent to the change and cheap to pin: a check that can fetch can
+        // fetch a passing result. Asserted here because this is the first test
+        // of this config at all.
+        let config = config_for(&["cargo", "test", "--locked"]);
+        assert_eq!(config.network_disabled, Some(true));
+        assert_eq!(
+            config
+                .host_config
+                .expect("a host config is always set")
+                .network_mode,
+            Some("none".to_string())
+        );
+    }
 
     #[test]
     fn digest_is_stable_and_content_addressed() {
