@@ -142,7 +142,8 @@ async fn connect_and_run(
                             }
                             BrainMessage::ExecuteStep {
                                 step_id, attempt_id, lease_gen,
-                                task, decision, delegation, egress, ..
+                                task, decision, delegation, egress,
+                                provider_egress, ..
                             } => {
                                 // Without the `soma` feature this worker does
                                 // not ask for a per-step delegation, because
@@ -228,6 +229,12 @@ async fn connect_and_run(
                                     // made against, and an absent field defaults
                                     // to `Deny`.
                                     egress,
+                                    // Also straight from the frame, and kept
+                                    // apart from `egress` for the same reason
+                                    // it was sent apart: the two were decided
+                                    // from different inputs, and merging them
+                                    // here would lose which one opened what.
+                                    provider_egress,
                                 };
 
                                 // Create cancel channel and register it

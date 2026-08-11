@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-10 (wave 3 — Tasks 1–6 and all of PR R done; **PR I/J/Q needs Josh's pricing decision**)
+**Last updated:** 2026-08-11 (wave 4 — Task 1 answered, Task 2 landing; **Cortex has never executed a step**)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -35,6 +35,9 @@ re-deriving anything.
 | 15 | PR R part 1 — plan-derived write sets | **done** — see "Wave 3 / Task 7" below. Step-scope leases and queueing remain. |
 | 16 | PR R part 2 — step-scoped leases, queue on conflict | **done** — see "Wave 3 / Task 8" below. Hotspots/sequence resources remain. |
 | 17 | PR R part 3 — hotspots, scheduler-allocated sequences | **done** — see "Wave 3 / Task 9" below. **PR R is complete.** |
+| **Wave 4** | | |
+| 18 | Task 1 — prove the F7 claim against the database | **done** — see "Wave 4 / Task 1" below. **Nothing has ever executed.** |
+| 19 | Task 2 — provider egress from the routing decision | **done** — see "Wave 4 / Task 2" below. G3 + ADR-0004. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -962,6 +965,170 @@ back to the work that requested it.
 
 **Verified:** core 143; workspace **898 passed / 0 failed** across all targets.
 
+## Wave 4 / Task 1 — nothing has ever executed
+
+**The answer is none, and it is stronger than "none since PR C".**
+
+Queried the live production database directly
+(`/home/guardian/claw-net/.cortex/cortex.db` on `clawguard`, read-only):
+
+| Fact | Value |
+|---|---|
+| Steps in a terminal state — ever | **0** |
+| Steps by status | 5, all `pending` |
+| `step_attempts` rows | **0** |
+| `outcomes` rows | **0** |
+| `verifier_reports` rows | **0** |
+| Runs | 3, all stuck `running` |
+| Last step activity of any kind | **2026-05-29** |
+| Last worker connection | **2026-05-19** |
+
+No step has succeeded. No step has failed. No step has been attempted.
+
+### But this does not confirm F7's mechanism, and saying it did would be wrong
+
+The query answers the question that was asked, and it is worth being precise
+about what it does *not* establish.
+
+**Production is running commit `3cafad6b`, deployed 2026-06-03.** Its
+`schema_version` is **42**; `main` is at **v65**. So the deployed binary predates
+PR C (v62), PR A (v63), PR C2 (v64) and PR B (v65). There is no
+`execution_jobs` table on that database, no `verification_jobs`, no sandbox, no
+egress mediator.
+
+**Production has therefore never run the code F7 describes.** The reason nothing
+has executed in production is not that the sandbox had no route to the provider —
+it is that production has not been deployed in over two months and no worker has
+connected since May. That is upstream of F7 entirely, and it is its own finding.
+
+So: F7 is **unfalsified, not corroborated**. It was established by reading three
+lines (`executor.rs:103`, `executor.rs:142`, `container.rs:128-135`) and it is
+still correct about the code on `main`. What it lacks is evidence, and this query
+is not that evidence. **Wave 4 / Task 4 is the evidence**, which is precisely why
+the task exists.
+
+This distinction is the standing correction applied to itself: the query is near
+the boundary, not at it. A row count proves what the database recorded; only a
+step that runs proves a step can run.
+
+### A second finding, not in the plan
+
+There is **no `cortex-worker` service on the production host** — only
+`cortex.service`. Even with current code deployed, there would be nothing to
+dispatch to. Whatever else wave 4 establishes locally, production needs a deploy
+and a worker before any of it is true there.
+
+## Wave 4 / Task 2 — provider egress, derived from the routing decision
+
+One commit on `feat/provider-egress-grant`. **No migration** — see below.
+
+### The shape
+
+Two derivations, deliberately not one:
+
+| | `derive_egress` | `derive_provider_egress` |
+|---|---|---|
+| Input | the repository's manifests + step kind | a `ProviderId`, and nothing else |
+| Grant | `ResolveDependencies { registries }` | `ReachProvider { provider }` |
+| Opens | the ecosystem's registries | exactly one host |
+
+`derive_provider_egress` takes a `ProviderId` and no other argument. That is the
+security property rather than a signature convenience: it **cannot** be
+influenced by the repository, the objective, the task contract or the step kind,
+because none of them is in scope. A step routed to one provider cannot reach
+another, and nothing a customer can put in a repository adds a provider host.
+
+The grant names the *provider*; `PROVIDER_ENDPOINTS` in `cortex_core::egress`
+decides what that name reaches — the same rule as `REGISTRIES`, so a grant naming
+an unknown provider expands to nothing rather than being trusted as a hostname.
+
+### They meet once, at the sandbox edge
+
+`EgressPlan::union` is the only place the two plans combine, and it combines them
+as late as possible: in `build_job`, on the worker, from two fields that
+travelled the wire separately. Both arrive as finished values, so the union
+changes what is *reachable* and cannot change what either side *decided*.
+
+The grants stay unflattened. That is what lets a receipt say **why** each host
+was open rather than only that it was — `granted_registries` and
+`granted_provider` are read back out of the same persisted list, separately.
+A merged host list would have destroyed that irreversibly.
+
+### No migration, on purpose
+
+The migration counter is a live hazard and this change did not need to touch it.
+`capability_grants` is already persisted as JSON on `execution_jobs`, and the new
+grant is a new variant inside it; `effective_egress` is already a JSON array and
+now includes the provider host. So the receipt gained `granted_provider` with no
+schema change at all. Max on `main` stays **v65**.
+
+### Every path that builds a sandbox, not just the scheduler
+
+Found while wiring it: `scheduler.rs` is not the only dispatch path.
+`state.rs`'s direct dispatch and `sse.rs`'s spawned execution both build a
+sandbox from a routing decision, and both would have kept F7 if only the
+scheduler were fixed. All three now derive the provider grant. This is the same
+class of miss as the three the standing correction names — a fix that is correct
+at the site it was written and absent everywhere else.
+
+### The credential — accepted exposure, named gate
+
+The CLI runs inside the sandbox, so the key goes inside the sandbox.
+`sandbox::policy::sanctioned_env` was `Vec::new()` and unconditional; it is now
+an allowlist of **exactly one variable**, chosen by the routed provider.
+
+Three things bound it, and the first is the one that matters:
+
+1. **The key is admitted by the same grant that opened the host.** The provider
+   is read off `CapabilityGrant::ReachProvider` on the job, not from a
+   configuration flag or the routing decision — so a sandbox that cannot reach a
+   provider never holds a credential for one. The two facts cannot drift apart
+   because they have one source.
+2. One provider's variable, never two. A registry grant carries no credential.
+3. An unset key is not invented. The CLI fails as unauthenticated, truthfully.
+
+This violates Phase 32.4 and it shipped anyway, because the alternative was an
+orchestrator that cannot execute a step — which is not more secure, only
+untested. Recorded as gate **G3** in `ADR-0003`, with
+`docs/adr/ADR-0004-provider-credential.md` stating the target and being honest
+that it is not free: the mediator is CONNECT-only and never terminates TLS, so
+credential injection means terminating TLS for the provider host — acquiring a
+CA key, the ability to read every prompt and completion, and a second security
+path for one host. That was avoided deliberately and should not be reversed to
+satisfy a checklist item.
+
+**The mitigation that applies now is Josh's:** the shortest-lived,
+narrowest-scoped provider key the API supports. Egress narrowing already stops a
+key being *exfiltrated* from inside the sandbox; only scope and lifetime bound it
+being *used*.
+
+### G3 is filed in ADR-0003 and does not belong to Soma
+
+Recorded as instructed, and the section framing was corrected rather than left
+implying otherwise: ADR-0003's gate list is now "Gates", with G1/G2 gating the
+Soma feature and G3 explicitly gating Phase 32.4's isolation commitment. Filing a
+provider-credential gate under "gates on re-enabling Soma" would have been a
+tidy-looking inaccuracy.
+
+### Verified
+
+Workspace **920 passed / 0 failed** across all targets (`--all-targets`, matching
+CI). Was 887 at the end of wave 3.
+
+The new assertions are at the boundary rather than near it, which is the whole
+point of this wave:
+
+- `effective_egress` on a job built from a routed step contains the provider's
+  endpoint and no other provider's — asserted on the value the runtime is handed.
+- The container `Config.env` carries exactly the routed provider's key. The test
+  **sets** the variable first, so it fails when the credential stops arriving
+  rather than passing vacuously on a machine that has no key. That vacuum is the
+  failure mode of the three incidents the standing correction names.
+- Five new adversarial tests against a real runtime, including
+  `egress_the_routed_provider_is_reachable` and
+  `egress_a_step_routed_to_one_provider_cannot_reach_another`. The CI floor moved
+  20 → 25, because a gated test that never runs reads like coverage.
+
 ## Next — wave 2 is complete
 
 Every task in the wave-2 handoff has landed. The plan's delivery order from
@@ -1073,7 +1240,19 @@ Separately: whether the context *should* be wired through is a real product
 question this does not answer. It has been dead for long enough that nobody
 noticed, which is its own signal about how much the current prompt depends on it.
 
-### F7. The sandboxed provider CLI has no route to the model API *(unresolved, needs Josh)*
+### F7. The sandboxed provider CLI has no route to the model API *(closed by wave 4 / Task 2)*
+
+**Closed.** The provider grant is derived from the routing decision at dispatch
+and enforced at the sandbox edge; the first of the two shapes below was taken.
+The credential half is not closed and is not pretending to be — it is gate **G3**
+in ADR-0003 with a target in ADR-0004.
+
+Worth keeping the original text because of the last paragraph: it asked whether
+any step had in fact executed since PR C merged, and the answer turned out to be
+"none, ever" — see wave 4 / Task 1, including why that answer does *not*
+corroborate the mechanism described here.
+
+
 
 Found while grounding Task 2. Not fixed there, and Task 2 does not fix it —
 registries are not provider endpoints.

@@ -4,7 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use cortex_core::check_derivation::{DerivationInput, derive_checks};
-use cortex_core::egress::{derive_egress, EgressPlan};
+use cortex_core::egress::{derive_egress, derive_provider_egress, EgressPlan};
 use cortex_core::evaluator::{
     AutoMode, BudgetEvidence, CandidateScore, DecisionEvidence, DefaultPolicy, IntentEvidence,
     PressureState, Profile, ProviderFitEvidence, RiskEvidence, WINDOW_SECS, token_budget,
@@ -649,6 +649,35 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
         );
     }
 
+    // What the *routing decision* justifies, derived separately and from a
+    // different input: the provider the router already chose. This is what
+    // lets the CLI inside the sandbox reach the model at all — without it a
+    // sandboxed step runs an agent with no route to any API, which is F7.
+    //
+    // Deliberately not folded into `derive_step_egress`. That function reads
+    // the repository, and nothing a customer can put in a repository may
+    // influence which provider is reachable.
+    let provider_egress = derive_provider_egress(decision.provider);
+    if provider_egress.is_deny() {
+        // Every `ProviderId` has an endpoint, so this is unreachable today. It
+        // is a log line rather than an assert because the honest failure is a
+        // step that cannot reach its model and says so, not a panicking
+        // scheduler.
+        tracing::error!(
+            step_id = %step.step_id,
+            provider = %decision.provider,
+            "no endpoint is known for the routed provider; the sandbox will \
+             have no route to the model API"
+        );
+    } else {
+        tracing::info!(
+            step_id = %step.step_id,
+            provider = ?provider_egress.granted_provider(),
+            hosts = ?provider_egress.network_policy.allowed_hosts(),
+            "granting provider egress for this step"
+        );
+    }
+
     let msg = BrainMessage::ExecuteStep {
         run_id: step.run_id.clone(),
         step_id: step.step_id.clone(),
@@ -662,6 +691,7 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
         decision,
         context,
         egress,
+        provider_egress,
         delegation: step_delegation,
     };
 

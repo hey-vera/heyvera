@@ -166,12 +166,21 @@ is worse than no check. The mismatch fails loudly and in the safe direction.
 - `crates/soma`, `crates/soma-core`, `crates/soma-crypto` are untouched. This
   ADR is about what Cortex depends on, not about what Soma is.
 
-## Gates on ever re-enabling the feature
+## Gates
 
-These are **not** to-do items. They are conditions on turning `soma` back on,
-and they are recorded here because the fence made them unreachable, which is
-exactly how a known defect becomes a forgotten one. Anything that would set
+These are **not** to-do items. They are conditions attached to a future change,
+recorded here because each one is currently unreachable or accepted, which is
+exactly how a known defect becomes a forgotten one. A gate is written down where
+the person who would clear it will be reading.
+
+**G1 and G2 gate turning `soma` back on.** Anything that would set
 `--features soma` in a deployment must clear both first.
+
+**G3 gates something else entirely** — the isolation commitment in Phase 32.4 —
+and is filed here because this document is where the numbered gates live, not
+because it has anything to do with Soma. Filing it under a heading that claimed
+otherwise would be the kind of tidy-looking inaccuracy the rest of this ADR
+exists to avoid.
 
 **G1 — the worker verifies a delegation against itself.** `crates/worker` builds
 its `InvocationContext` with `invoker_did: deleg.issuer_did`, taking the issuer
@@ -193,6 +202,36 @@ or `ed25519-dalek` would be absorbed silently by the artifact meant to catch it.
 This was a Cortex problem while `soma-crypto` was in the default graph; it is
 now only Soma's, which is precisely why it must gate the feature coming back.
 Was F5.
+
+**G3 — the provider credential is inside the sandbox.** The provider CLI runs
+inside the sandbox, so it needs the provider API key inside the sandbox, so
+model-authored code shares a process environment with a live credential. Phase
+32.4 says no provider credentials in the sandbox. **This violates it, knowingly,
+and it shipped anyway** — because the alternative was a Cortex that cannot
+execute a step at all (F7), and an orchestrator that has never run a task is not
+more secure, it is only untested.
+
+What bounds it today, none of which is "we were careful":
+
+- The key is admitted by the **same grant** that opened the provider host
+  (`CapabilityGrant::ReachProvider`), so a sandbox with no route to a provider
+  never holds a credential for one.
+- Exactly one variable, chosen by the routed provider. Not a filtered copy of
+  the worker's environment — `sandbox::policy::sanctioned_env` is an allowlist
+  of one name.
+- The sandbox reaches exactly that provider's host and nothing else, so a leaked
+  key cannot be exfiltrated to an arbitrary endpoint from inside the sandbox.
+  It can still be **used** against the provider, which is the residual exposure.
+- It is unprivileged, non-persistent, and torn down with the attempt.
+
+What clears it: `docs/adr/ADR-0004-provider-credential.md`, which states the
+target — the mediator injects the credential and the sandbox holds a placeholder
+— and is honest that the cost is terminating TLS for the provider host, which
+this project deliberately avoided.
+
+Until then, the practical mitigation is the one Josh controls: use the
+shortest-lived, narrowest-scoped provider credential the API offers, so the
+blast radius of the exposure is bounded by the key rather than by the sandbox.
 
 ## Alternatives rejected
 

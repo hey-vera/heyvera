@@ -198,6 +198,20 @@ pub enum CapabilityGrant {
     /// Resolve dependencies from the named registries. Implies the
     /// corresponding allowlist entries and nothing more.
     ResolveDependencies { registries: Vec<String> },
+    /// Reach the named model provider's API. Implies exactly that provider's
+    /// host and nothing else — not a provider list, not a wildcard.
+    ///
+    /// A separate variant rather than another `ResolveDependencies` registry,
+    /// because the two answer different questions and are derived from
+    /// different inputs: a registry grant comes from the repository's
+    /// manifests, and this one comes from the routing decision. Collapsing
+    /// them into one list of names would let a manifest in a customer's
+    /// repository name a provider.
+    ///
+    /// It is also what authorises the provider credential to enter the
+    /// sandbox at all — see `sandbox::policy::sanctioned_env` and gate G3 in
+    /// `docs/adr/ADR-0003-soma-feature-fence.md`.
+    ReachProvider { provider: String },
     /// Read a named secret. The secret is delivered by the runner, never by
     /// the sandbox environment.
     ReadSecret { secret_id: String },

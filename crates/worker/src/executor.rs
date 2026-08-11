@@ -32,6 +32,15 @@ pub struct StepExecution {
     /// is a boundary that can disagree with the record of what was authorised.
     /// [`Default`] is `Deny`, so a caller that does not set it opens nothing.
     pub egress: EgressPlan,
+    /// What the routing decision justifies: exactly the routed provider's API
+    /// host.
+    ///
+    /// Held separately from [`egress`](Self::egress) right up to the sandbox
+    /// edge, where [`EgressPlan::union`] combines them into the one allowlist
+    /// a container can have. Keeping them apart until then is what lets the
+    /// job record *why* each host was open rather than only *that* it was.
+    /// [`Default`] is `Deny` here too.
+    pub provider_egress: EgressPlan,
 }
 
 /// How the provider was invoked, and what the backend did with the effort
@@ -619,6 +628,8 @@ fn build_job<R: SandboxRunner>(
     runner: &R,
     invocation: &BackendInvocation,
 ) -> ExecutionJob {
+    let union = EgressPlan::union(&step.egress, &step.provider_egress);
+
     let mut job = ExecutionJob {
         job_id: uuid::Uuid::new_v4().to_string(),
         job_version: EXECUTION_JOB_VERSION,
@@ -638,11 +649,18 @@ fn build_job<R: SandboxRunner>(
         // bounds this attempt. The runner logs that rather than treating an
         // unpriced job as a bounded one.
         budgets: Budgets::unquoted(),
-        // Decided at plan time, against a repository this process cannot see.
-        // Both halves come from the same derivation, which is what keeps the
-        // allowlist from naming a host no grant justifies.
-        network_policy: step.egress.network_policy.clone(),
-        capability_grants: step.egress.capability_grants.clone(),
+        // Decided at plan time and carried, never re-derived here: this
+        // process cannot see the repository the ecosystem half was decided
+        // against, and re-deriving a permission at the boundary is how the
+        // boundary comes to disagree with the record of what was authorised.
+        //
+        // The union is taken here and only here, because a sandbox has one
+        // network. Both halves arrive as finished values, so combining them
+        // changes what is reachable and cannot change what either side
+        // decided. The grants stay unflattened, which is what lets the
+        // receipt attribute each open host to the grant that justified it.
+        network_policy: union.network_policy.clone(),
+        capability_grants: union.capability_grants.clone(),
         context_bundle: None,
         quote_id: None,
         plan_receipt_id: None,
@@ -1525,6 +1543,7 @@ mod tests {
             attempt_id: "attempt-1".to_string(),
             lease_gen: 3,
             egress: EgressPlan::deny(),
+            provider_egress: EgressPlan::deny(),
         }
     }
 
@@ -1532,6 +1551,14 @@ mod tests {
     fn spy_step_with_egress(plan: EgressPlan) -> StepExecution {
         StepExecution {
             egress: plan,
+            ..spy_step()
+        }
+    }
+
+    /// A step routed to a provider, as every real dispatch is.
+    fn spy_step_with_provider(provider: ProviderId) -> StepExecution {
+        StepExecution {
+            provider_egress: cortex_core::egress::derive_provider_egress(provider),
             ..spy_step()
         }
     }
@@ -1675,6 +1702,7 @@ mod tests {
 
         let job = build_job(&step, &decision, &runner, &build_command(&decision).unwrap());
 
+        // The step carries no provider grant, so the union is the plan alone.
         assert_eq!(job.network_policy, plan.network_policy);
         assert_eq!(job.capability_grants, plan.capability_grants);
 
@@ -1702,6 +1730,130 @@ mod tests {
 
         assert!(job.effective_egress.expect("recorded").is_empty());
         assert!(job.egress_mediator.is_none());
+    }
+
+    // --- F7: the sandboxed CLI's route to the model ---
+    //
+    // These assert at the boundary rather than near it. The thing that failed
+    // before was a sandbox test that checked what the *configuration
+    // requested*; nothing checked that a real step could reach a real model.
+    // So each of these asserts on the value the runtime is handed —
+    // `effective_egress` and the container `Config` — not on the plan that
+    // produced it.
+
+    #[test]
+    fn a_routed_step_can_reach_its_provider_and_no_other() {
+        // The regression that would recreate F7: a step routed to a provider
+        // whose sandbox opens nothing. If this fails, Cortex cannot execute.
+        for (provider, host, other) in [
+            (ProviderId::Claude, "api.anthropic.com", "api.openai.com"),
+            (ProviderId::Openai, "api.openai.com", "api.anthropic.com"),
+            (
+                ProviderId::Gemini,
+                "generativelanguage.googleapis.com",
+                "api.anthropic.com",
+            ),
+        ] {
+            let step = spy_step_with_provider(provider);
+            let decision = spy_decision(provider, "some-model");
+            let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
+
+            let job = build_job(&step, &decision, &runner, &build_command(&decision).unwrap());
+            let effective = job.effective_egress.expect("effective egress is recorded");
+
+            assert!(
+                effective.iter().any(|e| e == &format!("{host}:443")),
+                "{provider:?} cannot reach its own API: {effective:?}"
+            );
+            assert!(
+                !effective.iter().any(|e| e.starts_with(other)),
+                "{provider:?} can reach {other}: {effective:?}"
+            );
+            assert_eq!(
+                effective.len(),
+                1,
+                "a provider grant alone opened more than one endpoint: {effective:?}"
+            );
+            // Something is open, so a mediator has to enforce it.
+            assert!(job.egress_mediator.is_some());
+        }
+    }
+
+    #[test]
+    fn the_two_grants_stay_distinguishable_on_the_job() {
+        // Both halves reach the sandbox, and a reader can still tell which
+        // grant opened which host. A merged host list would pass an
+        // "everything is reachable" test and lose exactly this.
+        let manifests = cortex_core::egress::EcosystemManifests {
+            cargo: true,
+            ..Default::default()
+        };
+        let step = StepExecution {
+            egress: cortex_core::egress::derive_egress(&manifests, true),
+            provider_egress: cortex_core::egress::derive_provider_egress(ProviderId::Claude),
+            ..spy_step()
+        };
+        let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
+        let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
+
+        let job = build_job(&step, &decision, &runner, &build_command(&decision).unwrap());
+        let effective = job.effective_egress.expect("recorded");
+
+        assert!(effective.iter().any(|e| e == "api.anthropic.com:443"));
+        assert!(effective.iter().any(|e| e == "index.crates.io:443"));
+
+        let registries: Vec<_> = job
+            .capability_grants
+            .iter()
+            .filter(|g| {
+                matches!(
+                    g,
+                    cortex_core::execution_job::CapabilityGrant::ResolveDependencies { .. }
+                )
+            })
+            .collect();
+        let providers: Vec<_> = job
+            .capability_grants
+            .iter()
+            .filter(|g| {
+                matches!(
+                    g,
+                    cortex_core::execution_job::CapabilityGrant::ReachProvider { .. }
+                )
+            })
+            .collect();
+        assert_eq!(registries.len(), 1, "the registry grant was lost or merged");
+        assert_eq!(providers.len(), 1, "the provider grant was lost or merged");
+    }
+
+    #[test]
+    fn a_repository_cannot_add_a_provider_host() {
+        // The reason the two derivations are separate. A manifest probe that
+        // somehow returned every ecosystem still opens no provider, because
+        // the provider host is not in the registry table at all.
+        let every_ecosystem = cortex_core::egress::EcosystemManifests {
+            cargo: true,
+            npm: true,
+            pypi: true,
+            go: true,
+        };
+        let step = StepExecution {
+            egress: cortex_core::egress::derive_egress(&every_ecosystem, true),
+            provider_egress: EgressPlan::deny(),
+            ..spy_step()
+        };
+        let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
+        let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
+
+        let job = build_job(&step, &decision, &runner, &build_command(&decision).unwrap());
+        let effective = job.effective_egress.expect("recorded");
+
+        for (_, host) in cortex_core::egress::PROVIDER_ENDPOINTS {
+            assert!(
+                !effective.iter().any(|e| e.starts_with(host)),
+                "a repository's manifests opened {host}: {effective:?}"
+            );
+        }
     }
 
     #[test]

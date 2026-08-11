@@ -76,6 +76,10 @@ pub async fn execute_task(
             // to derive a grant from. Denying is both the safe answer and
             // exactly what this path did before the field existed.
             egress: cortex_core::egress::EgressPlan::deny(),
+            // The provider half needs no repository, only the routing
+            // decision this path already made. Every path that builds a
+            // sandbox needs it, or that path keeps F7.
+            provider_egress: cortex_core::egress::derive_provider_egress(decision_clone.provider),
         };
 
         let result = Executor::execute_sandboxed(

@@ -31,9 +31,10 @@
 //! task can resolve a dependency and nothing else.
 
 use cortex_core::execution_job::{
-    BackendKind, Budgets, CapabilityGrant, EffortApplication, ExecutionJob, IsolationClass,
-    ModelRef, NetworkPolicy, ResourceProfile, EXECUTION_JOB_VERSION,
+    BackendKind, BlockedReason, Budgets, CapabilityGrant, EffortApplication, ExecutionJob,
+    IsolationClass, ModelRef, NetworkPolicy, ResourceProfile, EXECUTION_JOB_VERSION,
 };
+use cortex_core::provider::ProviderId;
 use cortex_worker::sandbox::{ContainerSandbox, OutputStream, SandboxExit, SandboxRequest, SandboxRunner};
 
 /// Skip unless a runtime is available and the test was asked for.
@@ -713,4 +714,185 @@ async fn egress_records_the_effective_host_set_on_the_job() {
         endpoints.iter().all(|e| e.ends_with(":443")),
         "every entry carries the port it was granted on: {endpoints:?}"
     );
+}
+
+// --- F7: the sandboxed CLI's route to the model ---
+//
+// The gap these close, stated because it is the reason the wave exists: the
+// tests above assert that a *registry* grant is enforced. Nothing asserted that
+// a step routed to a provider could reach that provider's API, so a sandbox
+// that had never been able to run an agent passed every one of them. These
+// assert against a real runtime, on the same network topology, using the same
+// grant machinery.
+
+/// A job granted exactly one provider, as the scheduler now issues.
+fn provider_granted(job: &mut ExecutionJob, provider: ProviderId) {
+    let plan = cortex_core::egress::derive_provider_egress(provider);
+    job.network_policy = plan.network_policy;
+    job.capability_grants = plan.capability_grants;
+}
+
+#[tokio::test]
+async fn egress_the_routed_provider_is_reachable() {
+    let Some(image) = enabled() else { return };
+    let dir = workspace();
+
+    // The claim the whole wave rests on. If this fails, the provider CLI
+    // inside the sandbox has no route to the model and Cortex cannot execute a
+    // step — which is exactly the state F7 found and nothing detected.
+    //
+    // A TLS handshake against the API host is the assertion, not a successful
+    // completion: no credential is present here, and a 401 from Anthropic is
+    // still proof that the packet arrived.
+    let (output, _) = run_with_egress(
+        &image,
+        &dir,
+        "p1",
+        "curl -sS -o /dev/null -w 'code=%{http_code}\n' --max-time 30 \
+         https://api.anthropic.com/v1/messages || echo UNREACHABLE",
+        |job| provider_granted(job, ProviderId::Claude),
+    )
+    .await;
+
+    assert!(
+        !output.contains("UNREACHABLE"),
+        "the routed provider's API was not reachable through the mediator:\n{output}"
+    );
+    assert!(
+        output.contains("code="),
+        "no HTTP status came back from the provider host:\n{output}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_a_step_routed_to_one_provider_cannot_reach_another() {
+    let Some(image) = enabled() else { return };
+    let dir = workspace();
+
+    // The narrowness half of the decision. A provider grant is one host, not a
+    // provider list — so a step routed to Claude must not be able to spend a
+    // key against OpenAI, and must not be able to reach Gemini either.
+    let (output, _) = run_with_egress(
+        &image,
+        &dir,
+        "p2",
+        "curl -sS -o /dev/null -w 'openai=%{http_code}\n' --max-time 20 \
+           https://api.openai.com/v1/models || echo OPENAI_REFUSED; \
+         curl -sS -o /dev/null -w 'gemini=%{http_code}\n' --max-time 20 \
+           https://generativelanguage.googleapis.com/ || echo GEMINI_REFUSED",
+        |job| provider_granted(job, ProviderId::Claude),
+    )
+    .await;
+
+    assert!(
+        output.contains("OPENAI_REFUSED"),
+        "a step routed to Claude reached OpenAI:\n{output}"
+    );
+    assert!(
+        output.contains("GEMINI_REFUSED"),
+        "a step routed to Claude reached Gemini:\n{output}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_a_provider_grant_does_not_open_a_registry() {
+    let Some(image) = enabled() else { return };
+    let dir = workspace();
+
+    // The two grants are separate, and this is that separation observed at the
+    // boundary rather than asserted in a unit test: a provider grant opens the
+    // provider and nothing a repository would have justified.
+    let (output, _) = run_with_egress(
+        &image,
+        &dir,
+        "p3",
+        "curl -sS -o /dev/null -w 'npm=%{http_code}\n' --max-time 20 \
+         https://registry.npmjs.org/ || echo NPM_REFUSED",
+        |job| provider_granted(job, ProviderId::Claude),
+    )
+    .await;
+
+    assert!(
+        output.contains("NPM_REFUSED"),
+        "a provider grant opened a package registry:\n{output}"
+    );
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_an_unknown_provider_grant_is_refused() {
+    let Some(image) = enabled() else { return };
+    let dir = workspace();
+
+    // Same rule as the unknown-registry case, and refused for a sharper
+    // reason: a provider name this build cannot expand means no route and no
+    // credential, so running would produce a mystery failure charged to the
+    // customer instead of a typed refusal against Cortex.
+    let mut job = job(&image, "p4");
+    job.network_policy = NetworkPolicy::Allowlist {
+        hosts: vec!["api.anthropic.com".to_string()],
+    };
+    job.capability_grants = vec![CapabilityGrant::ReachProvider {
+        provider: "not-a-provider".to_string(),
+    }];
+
+    let runner = ContainerSandbox::new(&image)
+        .expect("container runtime must be reachable")
+        .with_egress_image(egress_image());
+    let request = SandboxRequest::new(&dir, "sh", vec!["-c".to_string(), "true".to_string()]);
+
+    let refusal = runner
+        .submit(&job, &request)
+        .await
+        .err()
+        .expect("an unknown provider grant must be refused, not narrowed");
+    assert_eq!(refusal.reason, BlockedReason::NetworkPolicyUnenforceable);
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn egress_records_the_provider_grant_separately_from_the_registry_grant() {
+    // Not a runtime test, and deliberately so: this is what a receipt shows,
+    // and it must be checkable without a container runtime. A reader has to be
+    // able to tell which grant opened which host after the fact.
+    let mut job = job("cortex/runner@sha256:abc", "p5");
+    let ecosystem = cortex_core::egress::derive_egress(
+        &cortex_core::egress::EcosystemManifests {
+            cargo: true,
+            ..Default::default()
+        },
+        true,
+    );
+    let provider = cortex_core::egress::derive_provider_egress(ProviderId::Claude);
+    let union = cortex_core::egress::EgressPlan::union(&ecosystem, &provider);
+    job.network_policy = union.network_policy;
+    job.capability_grants = union.capability_grants;
+
+    let endpoints: Vec<String> = cortex_worker::sandbox::policy::effective_endpoints(&job)
+        .iter()
+        .map(|e| e.to_string())
+        .collect();
+
+    assert!(endpoints.contains(&"api.anthropic.com:443".to_string()));
+    assert!(endpoints.contains(&"index.crates.io:443".to_string()));
+
+    // And the grants are still two things, not one merged host list.
+    let providers = job
+        .capability_grants
+        .iter()
+        .filter(|g| matches!(g, CapabilityGrant::ReachProvider { .. }))
+        .count();
+    let registries = job
+        .capability_grants
+        .iter()
+        .filter(|g| matches!(g, CapabilityGrant::ResolveDependencies { .. }))
+        .count();
+    assert_eq!(providers, 1, "the provider grant was merged away");
+    assert_eq!(registries, 1, "the registry grant was merged away");
 }
