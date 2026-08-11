@@ -37,8 +37,11 @@ Verification scope of this review, stated honestly so nobody over-trusts it:
   and `db.rs` line references in the Track A evidence table.
 - **Not run:** full API test suite, frontend build (`cortex/node_modules`
   absent). Local Rust builds *do* work — use
-  `cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --lib`. Never run
-  `cargo fmt` on this repo.
+  `cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --all-targets`.
+  **Always `--all-targets`, never `--lib`:** this crate keeps tests in `tests/`,
+  so `--lib` compiles and passes while running none of them, and that exact flag
+  is one of the recorded instances of the check-that-asserts-nothing defect.
+  Never run `cargo fmt` on this repo.
 
 ## Decision
 
@@ -299,6 +302,23 @@ means something.
     mechanism, recording every mechanism decision it made. Every mechanism
     declares a disclosure tier, and nothing above the *always* tier may be
     required reading to complete a task.
+
+The last two come from the fifth round (Phase 35), which attacked the human axis:
+not whether Cortex is correct, but whether the person who bought it is left more
+capable or less.
+
+32. **No teaching artifact above its evidence.** Every teaching artifact derives
+    from a decision record and inherits that record's verdict class, battery
+    power, and comprehension state. Where the record is thin — `UNVERIFIED`, a
+    `none` battery, a degraded map, an `inconclusive` verdict, a quarantined
+    check, low race agreement — the artifact states what happened and what was
+    not established, and may not explain why the result is correct. No model
+    narrates another model's work.
+33. **Teaching is pulled, never pushed, and its level is measured, never
+    declared.** No teaching artifact interrupts an in-flight task, and no surface
+    exists that a developer must remember to visit. The guidance level is derived
+    from that developer's recorded outcomes in that subsystem — never from a
+    self-assessment, a tier, or a mode.
 
 ---
 
@@ -5982,7 +6002,12 @@ is exactly the failure this document exists to prevent.
   contradiction, silent comprehension degradation, the missing scoreboard, the
   unpriced guarantee, and the missing off switches. The rate is not obviously
   decreasing, and the correct response remains another round rather than
-  confidence.
+  confidence. *Round five has since run, on the human axis, and Phase 35 is its
+  output — it found that every phase before it optimised a delegation loop that
+  measurably degrades the developer using it. The bullet above about the solo
+  builder is the same gap seen from a different side, and Phase 35 does not close
+  it: watching someone who did not read this document complete a task remains
+  untested and remains the only real evidence.*
 
 **Phase 34 exit gate:** the non-Cortex product is extracted from `crates/api`
 into its own crate with its own database handle; lock acquisition no longer
@@ -6788,6 +6813,15 @@ immediately, in parallel with Wave 1. Surface work follows the APIs it renders.
   money-path test density, and clear the open dependency advisories. **The lock
   poisoning fix and the advisories are days of work against a live outage risk
   and a live credibility problem — neither should wait for anything.**
+- **PR AU · The teaching layer (Phase 35).** The receipt's derived plain-language
+  account, faded sandbox exercises, the per-subsystem competence estimate that
+  sets the fading schedule, and the comprehension-delta measurement. **Needs AO
+  (comprehension) and AP (the scoreboard), and is downstream of a Cortex that has
+  actually completed tasks** — the corpus it teaches from does not exist before
+  then. **One part does not wait and is not really this PR:** the plain-language
+  "what failed and why this check was chosen" account on the receipt is receipt
+  quality, is already implied by the Phase 33.5 disclosure tiers, and should land
+  with the first receipt a customer ever sees.
 
 ### If only three things get done
 
@@ -6858,6 +6892,7 @@ ledger, state-machine, and pricing changes.
 | Operational controls | Each of the four stop scopes is exercised in a drill and leaves in-flight work in a truthful, resumable, operator-attributed state; each automatic breaker fires against an injected condition; a stop is idempotent and its release does not stampede; a newly added dependency that is a near-name of an existing one is blocked; an abandoned run executes the inverses of its external effects in reverse order; an irreversible effect cannot be scheduled before a reversible one; a receipt recall enumerates every receipt produced by an affected artifact version. |
 | Scale mechanics | A write set overlapping an open human pull request is surfaced before approval, with the pushed-only boundary stated; Cortex submits to a merge queue and never merges directly, and a queue rejection registers as a failed integration; a multi-step change delivers as a reviewable stack; the per-repository WIP limit blocks a new dispatch and says why; a five-person team completes setup with no identity provider. |
 | Simplicity | A first-time solo user completes a task without encountering a control they must understand, and every decision Cortex made for them is visible in one line; intake asks no mechanism questions; every mechanism introduced in this plan carries a declared disclosure tier and nothing above *always* is required reading. |
+| Teaching | A teaching artifact built from an `UNVERIFIED` verdict, a `none` battery, a degraded map, an `inconclusive` verdict, or a quarantined check states what was not established and contains no correctness explanation; every teaching artifact traces to the decision-record fields it derived from, and one built from no record cannot be produced at all; no artifact is emitted while a task is in flight; guidance level is computed from executed outcomes per developer per subsystem and cannot be set by a request parameter; a developer with high recorded competence in a subsystem receives no scaffolding; a teaching corpus query is architecturally incapable of crossing an organisation; and the comprehension delta is computed from real usage before any teaching claim is published. |
 
 ## Deliberately deferred
 
@@ -7262,6 +7297,17 @@ should deliberately attack an axis none of the first four used** — a candidate
 list is in Phase 34.4. The right response remains another round rather than
 confidence.
 
+Round five did exactly that and the prediction held. It attacked the **human**
+axis — not whether Cortex is correct, but whether the person who bought it is
+left more capable — and found that the plan had spent thirty-four phases making
+the delegation loop tighter without once asking what delegation does to the
+developer. The measured answer is that it degrades comprehension of code they
+wrote minutes earlier, and that the mode of use, not the use, decides it. That is
+Phase 35, and it is the first finding in five rounds that is about the customer
+rather than about the machine. **A sixth round should attack the axis this one
+opened and did not finish: what Cortex does to a *team's* practice over months,
+rather than to one developer inside one task.**
+
 ## Sources for Track B
 
 - Effort as a first-class provider parameter, level semantics, and the
@@ -7334,3 +7380,68 @@ real and measured; the mechanisms proposed against them are this document's own.
   and the debate-drift results are all catalogued with citations in
   [RESEARCH-2026-08.md](RESEARCH-2026-08.md) — that doc is the source of record
   for them; this plan does not restate the evidence.
+
+## Sources for the fifth round
+
+Grounding for Phase 35. The round's method was to treat "developers do not want
+to be taught" as the null and require the evidence to beat it; several of these
+sources argue *against* building a teaching layer and are cited for that reason.
+
+- The randomised trial behind 35.1 — 52 mostly-junior engineers, an unfamiliar
+  Python library, a 17% lower comprehension score for the assisted arm on code
+  written minutes earlier, the widest gap in debugging, and the finding that the
+  *mode* of use rather than use itself decided the outcome:
+  [How AI assistance impacts the formation of coding skills](https://www.anthropic.com/research/AI-assistance-coding-skills).
+  Secondary coverage of the same result, including the never-skilling framing and
+  the reported AI Index employment figures for developers aged 22–25:
+  [never-skilling and critical thinking](https://thenextweb.com/news/ai-never-skilling-critical-thinking-research),
+  [what developers should take away](https://learn.senwitt.com/blog/anthropic-coding-skill-study-what-developers-should-take-away/),
+  [AI-assisted development and junior developer roles](https://papers.ssrn.com/sol3/Delivery.cfm/6409098.pdf?abstractid=6409098&mirid=1)
+- Program comprehension as roughly 58% of professional developer time, measured
+  across 78 professionals, seven projects, and 3,148 working hours — the reason
+  this is where the working day goes rather than a side concern:
+  [Measuring program comprehension: a large-scale field study with professionals](https://soarsmu.github.io/papers/2018/Xia2018ProgramComprehension.pdf)
+- What developers actually do to learn, and the pull shape of every resource at
+  the top of the list — 69% learned something new in the year, documentation 68%,
+  online resources 59%, Stack Overflow 51%, 44% using AI tools to learn, up from
+  37%: [2025 Stack Overflow Developer Survey](https://survey.stackoverflow.co/2025)
+- The evidence that ranks the surfaces in 35.3. Retrieval practice transfers
+  modestly and conditionally, moderated by response congruency, with
+  course-embedded testing-versus-restudy at g = 0.18 and an interval crossing
+  zero — the basis for cutting flashcards and demoting quizzes to an instrument:
+  [single-paper meta-analyses of spaced retrieval practice in nine STEM courses](https://stemeducationjournal.springeropen.com/articles/10.1186/s40594-024-00468-5),
+  [retrieval practice and transfer learning](https://notes.andymatuschak.org/Retrieval_practice_and_transfer_learning),
+  [meta-analytic review of the benefit of spacing retrieval practice](http://www.lscp.net/persons/ramus/docs/EPR20.pdf)
+- Worked examples and adaptive fading in programming instruction specifically —
+  faded examples beating traditional ones on algorithmic performance and on
+  instructional efficiency — the basis for ranking faded sandbox exercises first:
+  [an experimental evaluation of worked example strategies for efficient programming instruction](https://link.springer.com/article/10.1007/s10758-025-09901-2),
+  [the effect of worked examples on learning solution steps and knowledge transfer](https://www.tandfonline.com/doi/full/10.1080/01443410.2023.2273762)
+- The expertise reversal effect — that guidance which helps a novice actively
+  penalises a more knowledgeable learner through redundancy — which is what makes
+  the range split on expertise rather than headcount, and what forbids a
+  self-declared level:
+  [the expertise reversal effect and its instructional implications](https://link.springer.com/article/10.1007/s11251-009-9102-0)
+- Task resumption after interruption: 10,000 recorded sessions from 86
+  programmers with 414 surveyed, only 10% of sessions beginning coding within a
+  minute and only 7% involving no navigation before the first edit; and mean
+  resumption lags of 20–23 seconds even under the best cue conditions — the basis
+  for never-interrupt as a hard constraint rather than a courtesy:
+  [resumption strategies for interrupted programming tasks](https://chrisparnin.me/pdf/parnin-sqj11.pdf),
+  [evaluating cues for resuming interrupted programming tasks](https://dl.acm.org/doi/pdf/10.1145/1753326.1753342)
+- How a tool that attaches correct expert observations to a developer's code gets
+  ignored — 19 of 20 participants reporting that results failed to convey what the
+  problem is, why it is a problem, and what to do differently, plus alert
+  saturation and workflow misfit — read here as the predicted death of a badly
+  built teaching layer:
+  [Why don't software developers use static analysis tools to find bugs?](https://cs.gmu.edu/~johnsonb/docs/icse2013.pdf)
+- Code review as the learning intervention the profession already performs
+  voluntarily, its bidirectional transfer, and the measured ceiling on how far
+  knowledge actually diffuses through it — the basis for attaching teaching to
+  review rather than building a destination:
+  [knowledge transfer practices in modern code review](https://link.springer.com/chapter/10.1007/978-3-031-91485-0_5),
+  [the upper bound of information diffusion in code review](https://arxiv.org/pdf/2306.08980)
+- Ramp-up as a measurable quantity, and the proxy metrics behind the enterprise
+  claim in 35.4. The three-to-six-months-versus-eight-to-twelve-weeks figure is
+  trade reporting rather than research and is labelled as such in the phase:
+  [developer onboarding and ramp-up time](https://newsletter.getdx.com/p/developer-onboarding-time)
