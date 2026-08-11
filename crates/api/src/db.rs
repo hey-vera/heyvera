@@ -608,6 +608,9 @@ fn apply_migrations(conn: &Connection) {
     if current < 65 {
         migrate_v65(conn);
     }
+    if current < 66 {
+        migrate_v66(conn);
+    }
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -3798,6 +3801,193 @@ fn migrate_v65(conn: &Connection) {
     );
 }
 
+fn migrate_v66(conn: &Connection) {
+    // PR I — the catalog, and the reason `quoted_credits` has been `None`.
+    //
+    // Nothing has ever persisted a per-step price, so `verification_driver`
+    // records a verdict and then declines to touch the ledger with a warning.
+    // That refusal is correct: inventing a price is never right. What was
+    // missing is a price that is not invented.
+    //
+    // Two invariants shape every table below, and neither is decoration.
+    //
+    // **Invariant 11 — one fact, one table.** Model identity, price, capability
+    // class and context window live in exactly one versioned catalog, and no
+    // pricing code carries a hardcoded model name. Today `usage::model_rates`
+    // is a `match` on substrings of model ids ("contains haiku"), which is that
+    // invariant's exact prohibition. These tables are where those facts move to.
+    //
+    // **Invariant 23 — a shared artifact is immutable and versioned.** Price
+    // lists are published, never edited; consumers pin a version; every receipt
+    // names the version that ran. That is enforced here with triggers rather
+    // than asserted in a doc comment, because the whole value of "this receipt
+    // shows the price you were quoted" evaporates the first time somebody
+    // corrects a typo in a published row.
+    //
+    // Numbered v66: the maximum on main was v65 (PR B). `schema_version` is one
+    // counter shared with the HeyVera Socials product — re-check the maximum
+    // before claiming a number, because whichever branch merges second has its
+    // migration silently skipped.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS price_lists (
+            id              TEXT PRIMARY KEY,
+            -- Monotonic and unique. A consumer pins this integer, so it is the
+            -- thing a receipt names.
+            version         INTEGER NOT NULL UNIQUE,
+
+            -- 'provisional' or 'committed'. Phase 31.3's graduation gate: a
+            -- class is committed only once its measured pass rate and cost
+            -- distribution clear a threshold. Until then it is quoted and
+            -- labelled, never charged.
+            status          TEXT NOT NULL,
+
+            -- What one credit is worth, in micros. A published fact rather
+            -- than a constant: it is the resolution of the whole price space,
+            -- and a value too coarse for the spread collapses every class to
+            -- the same number while every row still looks plausible.
+            micros_per_credit INTEGER NOT NULL,
+
+            -- How the numbers were arrived at, in prose, on the row. A price
+            -- whose derivation lives in a commit message is a price nobody can
+            -- audit two years later.
+            basis           TEXT NOT NULL,
+
+            published_at    INTEGER NOT NULL,
+            published_by    TEXT NOT NULL
+        );
+
+        -- Per-model facts. This is invariant 11's 'one table': routing,
+        -- estimation and reporting read model identity, price, context window
+        -- and capability class from here and from nowhere else.
+        CREATE TABLE IF NOT EXISTS price_list_models (
+            price_list_id   TEXT NOT NULL REFERENCES price_lists(id),
+            provider        TEXT NOT NULL,
+            model_id        TEXT NOT NULL,
+
+            -- Micros per 1k tokens: 1_000_000 micros = 1 USD. Integers, not
+            -- floats. Money that round-trips through an f64 is money that
+            -- disagrees with itself at the third decimal, and this number is
+            -- multiplied by token counts in the millions.
+            input_micros_per_1k   INTEGER NOT NULL,
+            output_micros_per_1k  INTEGER NOT NULL,
+            -- Basis points of the input rate charged for a cache read, so a
+            -- 90% discount is 1000. Also an integer, same reason.
+            cache_read_bp         INTEGER NOT NULL,
+
+            context_window        INTEGER NOT NULL,
+            capability_class      TEXT NOT NULL,
+
+            PRIMARY KEY (price_list_id, provider, model_id)
+        );
+
+        -- Per-class prices. The customer-facing half: a credit price for a
+        -- verified outcome of a given class, denominated in whole credits
+        -- because a credit is a verified task and half a task is not a thing.
+        CREATE TABLE IF NOT EXISTS price_list_task_classes (
+            price_list_id   TEXT NOT NULL REFERENCES price_lists(id),
+            -- `cortex_core::task_class::TaskClass::key()`.
+            task_class      TEXT NOT NULL,
+
+            quoted_credits  INTEGER NOT NULL,
+
+            -- Per-class status, not just per-list. A list graduates one class
+            -- at a time as evidence arrives, which is exactly what Phase 31.3
+            -- describes and what a single list-level flag cannot express.
+            status          TEXT NOT NULL,
+
+            -- The evidence behind this number, so a graduation decision can be
+            -- reviewed rather than trusted. Zero samples is the honest state
+            -- for a seeded list and is visible as such.
+            sample_count            INTEGER NOT NULL DEFAULT 0,
+            measured_cost_micros    INTEGER,
+            margin_bp               INTEGER NOT NULL,
+
+            PRIMARY KEY (price_list_id, task_class)
+        );
+
+        -- Invariant 23, enforced rather than asserted.
+        --
+        -- Published, never edited. An UPDATE or DELETE on any published row is
+        -- an error at the storage layer, so 'the price you were quoted' cannot
+        -- be quietly changed after the fact by a migration, a support script,
+        -- or a well-meaning correction. Republishing means a new version.
+        CREATE TRIGGER IF NOT EXISTS price_lists_are_immutable
+            BEFORE UPDATE ON price_lists
+            BEGIN SELECT RAISE(ABORT,
+                'price lists are published, never edited (invariant 23) — publish a new version');
+            END;
+        CREATE TRIGGER IF NOT EXISTS price_lists_are_not_deleted
+            BEFORE DELETE ON price_lists
+            BEGIN SELECT RAISE(ABORT,
+                'a published price list cannot be deleted — receipts name it');
+            END;
+        CREATE TRIGGER IF NOT EXISTS price_list_models_are_immutable
+            BEFORE UPDATE ON price_list_models
+            BEGIN SELECT RAISE(ABORT,
+                'price list models are published, never edited (invariant 23)');
+            END;
+        CREATE TRIGGER IF NOT EXISTS price_list_models_are_not_deleted
+            BEFORE DELETE ON price_list_models
+            BEGIN SELECT RAISE(ABORT,
+                'a published price list model cannot be deleted — receipts name it');
+            END;
+        CREATE TRIGGER IF NOT EXISTS price_list_task_classes_are_immutable
+            BEFORE UPDATE ON price_list_task_classes
+            BEGIN SELECT RAISE(ABORT,
+                'price list classes are published, never edited (invariant 23)');
+            END;
+        CREATE TRIGGER IF NOT EXISTS price_list_task_classes_are_not_deleted
+            BEFORE DELETE ON price_list_task_classes
+            BEGIN SELECT RAISE(ABORT,
+                'a published price list class cannot be deleted — receipts name it');
+            END;
+
+        -- The quote frozen for one step, at dispatch.
+        --
+        -- Frozen for the same reason the check specs are: a price resolved at
+        -- verdict time is a price the work could have influenced, and a
+        -- customer who was quoted before execution must be charged what they
+        -- were quoted. `price_list_version` is stored rather than joined so
+        -- the receipt survives even if the list is somehow unreachable.
+        --
+        -- UNIQUE on (run_id, step_id) rather than per attempt: a retry does not
+        -- get a new price. Cortex absorbing the cost of its own second attempt
+        -- is the whole content of an outcome guarantee.
+        CREATE TABLE IF NOT EXISTS step_quotes (
+            quote_id            TEXT PRIMARY KEY,
+            run_id              TEXT NOT NULL,
+            step_id             TEXT NOT NULL,
+
+            task_class          TEXT NOT NULL,
+            quoted_credits      INTEGER NOT NULL,
+            price_list_id       TEXT NOT NULL REFERENCES price_lists(id),
+            price_list_version  INTEGER NOT NULL,
+
+            -- Whether this quote may move the ledger.
+            --
+            -- Derived from the class's status at freeze time and stored, not
+            -- recomputed. A class that graduates between dispatch and verdict
+            -- must not retroactively make a quoted-but-not-billable step
+            -- billable — the customer was told it was free.
+            billable            INTEGER NOT NULL,
+
+            frozen_at           INTEGER NOT NULL,
+
+            UNIQUE(run_id, step_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_step_quotes_lookup
+            ON step_quotes(run_id, step_id);
+
+        UPDATE schema_version SET version = 66;",
+    )
+    .expect("migration v66 failed creating the price list catalog");
+
+    tracing::info!(
+        "applied migration v66: versioned price list catalog + frozen step quotes"
+    );
+}
+
 /// The cost of every attempt at one step, successful or not.
 ///
 /// `Default` is zero attempts and zero time, which is what a step with no
@@ -5183,8 +5373,44 @@ impl Database {
 
         apply_migrations(&conn);
 
-        Self {
+        let db = Self {
             conn: Mutex::new(conn),
+        };
+        db.seed_price_list_if_absent();
+        db
+    }
+
+    /// Publish version 1 if nothing is published yet.
+    ///
+    /// Seeding here rather than in the migration is deliberate. A migration is
+    /// SQL and the seed is a computation over `TaskClass::all()` and a modelled
+    /// spend function — expressing it as literal `INSERT`s would put 88 prices
+    /// into a migration where they cannot be unit tested and cannot be
+    /// regenerated when the class space changes.
+    ///
+    /// Idempotent, and it never touches an existing list. Invariant 23 means a
+    /// published list cannot be edited anyway — the triggers would refuse — so
+    /// the only two outcomes are "published version 1" and "left alone".
+    fn seed_price_list_if_absent(&self) {
+        if self.active_price_list().is_some() {
+            return;
+        }
+        let list = crate::pricing::seed_provisional(
+            1,
+            "cortex:seed",
+            Utc::now().timestamp(),
+            crate::pricing::seed_models(),
+        );
+        match self.publish_price_list(&list) {
+            Ok(()) => tracing::info!(
+                version = list.version,
+                classes = list.classes.len(),
+                "published the provisional price list — every class quotes and none charges"
+            ),
+            Err(e) => tracing::error!(
+                error = %e,
+                "could not publish the seed price list; steps will dispatch without a quote"
+            ),
         }
     }
 
@@ -12592,6 +12818,241 @@ impl Database {
         )
         .map_err(|e| format!("failed to freeze check specs: {e}"))?;
         Ok(())
+    }
+
+
+    // --- Price lists and step quotes (PR I) ---
+
+    /// Publish a price list. There is no update path, by design.
+    ///
+    /// Invariant 23: a shared artifact is immutable and versioned. The triggers
+    /// in migration v66 make an `UPDATE` or `DELETE` on any of these tables an
+    /// error at the storage layer, so this is the only way a price ever changes
+    /// — by a new version existing beside the old one, which every prior receipt
+    /// still names.
+    ///
+    /// Fails rather than overwrites when the version already exists. A
+    /// republish that silently replaced a version would be the edit the
+    /// invariant forbids, wearing an insert's clothes.
+    pub fn publish_price_list(&self, list: &crate::pricing::PriceList) -> Result<(), String> {
+        let mut conn = self.conn();
+        let tx = conn
+            .transaction()
+            .map_err(|e| format!("failed to open a transaction: {e}"))?;
+
+        tx.execute(
+            "INSERT INTO price_lists
+                (id, version, status, micros_per_credit, basis, published_at, published_by)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                list.id,
+                list.version,
+                list.status.as_str(),
+                list.micros_per_credit,
+                list.basis,
+                list.published_at,
+                list.published_by,
+            ],
+        )
+        .map_err(|e| format!("failed to publish price list v{}: {e}", list.version))?;
+
+        for model in &list.models {
+            tx.execute(
+                "INSERT INTO price_list_models
+                    (price_list_id, provider, model_id, input_micros_per_1k,
+                     output_micros_per_1k, cache_read_bp, context_window, capability_class)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+                params![
+                    list.id,
+                    model.provider,
+                    model.model_id,
+                    model.input_micros_per_1k,
+                    model.output_micros_per_1k,
+                    model.cache_read_bp,
+                    model.context_window,
+                    model.capability_class,
+                ],
+            )
+            .map_err(|e| format!("failed to publish model {}: {e}", model.model_id))?;
+        }
+
+        for class in &list.classes {
+            tx.execute(
+                "INSERT INTO price_list_task_classes
+                    (price_list_id, task_class, quoted_credits, status,
+                     sample_count, measured_cost_micros, margin_bp)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    list.id,
+                    class.task_class,
+                    class.quoted_credits,
+                    class.status.as_str(),
+                    class.sample_count,
+                    class.measured_cost_micros,
+                    class.margin_bp,
+                ],
+            )
+            .map_err(|e| format!("failed to publish class {}: {e}", class.task_class))?;
+        }
+
+        tx.commit()
+            .map_err(|e| format!("failed to commit price list: {e}"))?;
+        Ok(())
+    }
+
+    /// The highest published version, whole.
+    ///
+    /// "Highest version" rather than "the one marked current": a current-flag
+    /// column would be mutable state about immutable rows, which is the shape
+    /// invariant 23 exists to remove.
+    pub fn active_price_list(&self) -> Option<crate::pricing::PriceList> {
+        let conn = self.conn();
+        let (id, version, status, micros_per_credit, basis, published_at, published_by): (
+            String,
+            i64,
+            String,
+            i64,
+            String,
+            i64,
+            String,
+        ) = conn
+            .query_row(
+                "SELECT id, version, status, micros_per_credit, basis, published_at, published_by
+                 FROM price_lists ORDER BY version DESC LIMIT 1",
+                [],
+                |r| {
+                    Ok((
+                        r.get(0)?,
+                        r.get(1)?,
+                        r.get(2)?,
+                        r.get(3)?,
+                        r.get(4)?,
+                        r.get(5)?,
+                        r.get(6)?,
+                    ))
+                },
+            )
+            .ok()?;
+
+        let mut models = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT provider, model_id, input_micros_per_1k, output_micros_per_1k,
+                    cache_read_bp, context_window, capability_class
+             FROM price_list_models WHERE price_list_id = ?1 ORDER BY provider, model_id",
+        ) {
+            if let Ok(rows) = stmt.query_map(params![id], |r| {
+                Ok(crate::pricing::ModelPrice {
+                    provider: r.get(0)?,
+                    model_id: r.get(1)?,
+                    input_micros_per_1k: r.get(2)?,
+                    output_micros_per_1k: r.get(3)?,
+                    cache_read_bp: r.get(4)?,
+                    context_window: r.get(5)?,
+                    capability_class: r.get(6)?,
+                })
+            }) {
+                models.extend(rows.flatten());
+            }
+        }
+
+        let mut classes = Vec::new();
+        if let Ok(mut stmt) = conn.prepare(
+            "SELECT task_class, quoted_credits, status, sample_count,
+                    measured_cost_micros, margin_bp
+             FROM price_list_task_classes WHERE price_list_id = ?1 ORDER BY task_class",
+        ) {
+            if let Ok(rows) = stmt.query_map(params![id], |r| {
+                let status: String = r.get(2)?;
+                Ok(crate::pricing::ClassPrice {
+                    task_class: r.get(0)?,
+                    quoted_credits: r.get(1)?,
+                    // An unrecognised status reads as `Provisional`, which is
+                    // the direction that cannot charge. A parse failure here
+                    // must never resolve toward billing.
+                    status: crate::pricing::PriceStatus::from_str(&status)
+                        .unwrap_or(crate::pricing::PriceStatus::Provisional),
+                    sample_count: r.get(3)?,
+                    measured_cost_micros: r.get(4)?,
+                    margin_bp: r.get(5)?,
+                })
+            }) {
+                classes.extend(rows.flatten());
+            }
+        }
+
+        Some(crate::pricing::PriceList {
+            id,
+            version,
+            // Same rule as above, for the same reason.
+            status: crate::pricing::PriceStatus::from_str(&status)
+                .unwrap_or(crate::pricing::PriceStatus::Provisional),
+            micros_per_credit,
+            basis,
+            published_at,
+            published_by,
+            models,
+            classes,
+        })
+    }
+
+    /// Freeze a quote for one step, at dispatch.
+    ///
+    /// `ON CONFLICT DO NOTHING` on `(run_id, step_id)`: a retry keeps the
+    /// original price. Cortex absorbing the cost of its own second attempt is
+    /// the entire content of an outcome guarantee, and re-quoting on retry
+    /// would quietly bill the customer for Cortex having been wrong the first
+    /// time.
+    pub fn freeze_step_quote(&self, quote: &crate::pricing::StepQuote) -> Result<(), String> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO step_quotes
+                (quote_id, run_id, step_id, task_class, quoted_credits,
+                 price_list_id, price_list_version, billable, frozen_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+             ON CONFLICT(run_id, step_id) DO NOTHING",
+            params![
+                quote.quote_id,
+                quote.run_id,
+                quote.step_id,
+                quote.task_class,
+                quote.quoted_credits,
+                quote.price_list_id,
+                quote.price_list_version,
+                if quote.billable { 1 } else { 0 },
+                quote.frozen_at,
+            ],
+        )
+        .map_err(|e| format!("failed to freeze a step quote: {e}"))?;
+        Ok(())
+    }
+
+    /// The quote frozen for a step, if one was.
+    ///
+    /// `None` is a real state and the honest one: a step dispatched before any
+    /// price list existed has no price, and the verdict is still recorded while
+    /// the ledger is left alone.
+    pub fn get_step_quote(&self, run_id: &str, step_id: &str) -> Option<crate::pricing::StepQuote> {
+        let conn = self.conn();
+        conn.query_row(
+            "SELECT quote_id, run_id, step_id, task_class, quoted_credits,
+                    price_list_id, price_list_version, billable, frozen_at
+             FROM step_quotes WHERE run_id = ?1 AND step_id = ?2",
+            params![run_id, step_id],
+            |r| {
+                Ok(crate::pricing::StepQuote {
+                    quote_id: r.get(0)?,
+                    run_id: r.get(1)?,
+                    step_id: r.get(2)?,
+                    task_class: r.get(3)?,
+                    quoted_credits: r.get(4)?,
+                    price_list_id: r.get(5)?,
+                    price_list_version: r.get(6)?,
+                    billable: r.get::<_, i64>(7)? != 0,
+                    frozen_at: r.get(8)?,
+                })
+            },
+        )
+        .ok()
     }
 
     /// The frozen checks for a step, or an empty vec if none were derived.
@@ -27987,7 +28448,11 @@ mod truth {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
             .unwrap();
-        assert!(version >= 64, "fresh database must reach v64, got {version}");
+        // Raised to 66 with the price list catalog. The floor is the point of
+        // this assertion: the shared `schema_version` counter means a
+        // collision silently skips whichever migration merged second, and a
+        // floor that never moves cannot notice.
+        assert!(version >= 66, "fresh database must reach v66, got {version}");
 
         for table in ["step_verification_state", "manual_overrides"] {
             let found: i64 = conn

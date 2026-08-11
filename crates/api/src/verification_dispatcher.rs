@@ -199,10 +199,21 @@ async fn run_claimed_job(
         // Frozen at enqueue. Never re-resolved — a job that looked this up
         // again could grade a tree the worker never delivered.
         head_commit: job.delivered_commit.clone(),
-        // No per-step price is persisted anywhere yet, so the verdict is
-        // recorded and the ledger is left alone. Inventing a price is never
-        // right.
-        quoted_credits: None,
+        // The quote frozen at dispatch, if there was one.
+        //
+        // `billable_credits()` rather than `quoted_credits`, deliberately. A
+        // provisional class publishes a number so the number can be argued
+        // with, and does not move money — Phase 31.3's graduation gate. Reading
+        // the raw field here would charge against a price seeded from a model
+        // with zero measured outcomes behind it, which is the one thing the
+        // gate exists to prevent.
+        //
+        // `None` is still a real state and still the honest one: a step
+        // dispatched before any price list was published has no price, and the
+        // driver records the verdict and leaves the ledger alone.
+        quoted_credits: db
+            .get_step_quote(&job.run_id, &job.step_id)
+            .and_then(|quote| quote.billable_credits()),
     };
 
     // Keep the claim alive while the checks run, so a slow container does not

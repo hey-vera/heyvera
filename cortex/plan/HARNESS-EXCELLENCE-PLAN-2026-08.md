@@ -5992,6 +5992,241 @@ and reported separately for the money path; the repository carries no open high
 or critical dependency advisories; and the delivery order is reviewed explicitly
 for whether each stopping point is a coherent, safe product.
 
+## Phase 35 - The teaching layer, derived rather than narrated
+
+**Goal:** close the gap Phase 33.1 names and does not close — *the solo builder's
+problem is not that there are too many controls, it is that they cannot evaluate
+a plan* — by making Cortex able to explain its own work to someone who could not
+have checked it, without ever inventing the explanation.
+
+33.1's resolution was "Cortex pre-decides more, and says what it decided in one
+line each." That is necessary and it is not sufficient. A line saying *"routed to
+Claude Sonnet, medium effort"* tells a user what happened. It does not tell them
+whether it was reasonable, what would have been different, or what to look at if
+they disagree. Somebody who can read that line critically did not need it.
+Somebody who cannot is exactly who it was written for.
+
+The gap is not information. Cortex records more about its own reasoning than any
+comparable system. **The gap is that none of it is addressed to a person who is
+learning.**
+
+### 35.1 The thesis, which is the whole phase
+
+> The explanation is **derived from the decision record, never inferred by a model
+> watching another model.** Cortex already holds the `TaskFrame`, the routing
+> decision and its reasons, the plan DAG, the assumptions and the mechanical
+> checks that settled them, why each check was derived, the verdict, the battery
+> power, and the race agreement. A second model narrating a first model's stream
+> is a confabulation engine aimed at someone who cannot tell when it is wrong.
+> Cortex does not have to guess, so it must not.
+
+Every word of that is load-bearing, and the last sentence is the argument.
+
+The usual way to build this is to point a model at the execution trace and ask it
+to explain what happened. It demos well. It is also the single worst thing to
+build here, and the reason is not that models confabulate — it is **who this
+feature is for**. A narration layer's errors are invisible precisely to the
+audience it exists to serve. A user who can catch the narrator's mistake did not
+need the narrator. A user who cannot catch it is being taught something false
+with the full authority of the system that just did the work, and they will carry
+it into the next task and into their own judgment of Cortex's later output.
+
+That is a *worse* failure than saying nothing. Silence leaves someone uninformed.
+A confident wrong explanation leaves them miscalibrated, and miscalibration is
+the failure this whole document is organised against — it is invariant 12's
+concern (a claim must be traceable to something executed) applied to prose
+instead of to verdicts.
+
+The reason Cortex does not need the narrator is that **the record already exists
+and is already structured.** Phases 10, 11, 24, 25, 26, 27 and 30 exist to make
+Cortex's own decisions inspectable. A teaching artifact is a *rendering* of that
+record, in the same sense that the Plan Receipt is. It is a view, not a witness.
+
+### 35.2 What a teaching artifact may assert
+
+One rule, stated as a constraint on the code rather than as guidance:
+
+> **Every sentence in a teaching artifact is generated from a record field, and
+> carries the field it came from.** A sentence with no source does not render.
+
+This is not a style guide. It is the same shape as `render_bundle` in
+`cortex_core::provenance`: the framing is a property of the string rather than a
+convention someone maintains. The rendering path takes typed records and emits
+typed sentences; there is no free-text branch to leak into.
+
+| May assert | Because the record holds | Tier |
+|---|---|---|
+| What was decided and what the alternatives were | `RoutingDecision` + its reason set | always |
+| What was assumed, and how the assumption was settled | Assumption record + the mechanical check that resolved it | always |
+| Why each check was in the exam | `CheckSpec.source` — ecosystem, contract, or risk | on request |
+| What the verdict means and does not mean | `Verdict` + `VerdictReport` counts | always |
+| How much the exam could have caught | Battery power (27.3) | on request |
+| What the step was allowed to reach, and why | `CapabilityGrant` + the grant's derivation | on request |
+| What it cost and against what estimate | Quote + measured spend (Phase 31) | always |
+| What Cortex looked at and found irrelevant | `dead_ends[]` (29.3) | on request |
+
+| May **never** assert | Why |
+|---|---|
+| Why the *model* did something | Not recorded, not knowable, and the most tempting sentence in the product |
+| That the work is correct | Only that stated checks passed — invariant 12 |
+| A general lesson about the user's codebase | One run is not evidence of a convention; 29.3's `convention_findings` are, and they carry their own evidence |
+| What would have happened under a different decision | Counterfactual, unrun, and indistinguishable in tone from the rest |
+| Anything phrased as the model's intent or reasoning | The record holds *decisions*, not motives |
+
+The second table matters more than the first. Almost every failure of a teaching
+feature is a sentence from the right-hand column delivered in the voice of the
+left.
+
+### 35.3 How it degrades when the record is thin
+
+A teaching artifact over a run that recorded little must get **shorter**, never
+vaguer. This is the failure mode with the strongest pull toward the wrong answer:
+a thin record makes the derived explanation feel unsatisfying, and the fix that
+suggests itself is to have a model fill the gaps. That is the rejected design
+arriving through the back door, and it arrives exactly when the user is least
+able to detect it.
+
+So degradation is explicit and visible:
+
+| Record state | Artifact |
+|---|---|
+| Full | Every section, each sourced |
+| Missing a section | That section is absent and **named as absent**, with what would have populated it |
+| No frozen checks (`Unverified` by construction) | The artifact leads with *"nothing here was mechanically checked"* — the `always` tier sentence from 33.5 |
+| Pre-Phase-26 run with no assumption record | The artifact says the run predates assumption recording rather than presenting a run with no assumptions |
+
+The last row generalises: **"this was not recorded" and "this did not happen" are
+different sentences and must never be rendered as the same one.** That is the
+same distinction `EgressReceipt` already draws between `None` and an empty
+`endpoints`, and it is drawn here for the same reason.
+
+### 35.4 Its disclosure tier, and why it is not one tier
+
+Under invariant 31 every mechanism declares a tier. A teaching artifact is not a
+single mechanism, so a single tier would be a false declaration. It declares a
+tier **per section**, and the artifact itself is:
+
+- **Always** — the summary. What Cortex decided, what it checked, what the
+  verdict means, what it cost. Plain language, no vocabulary from this document.
+  This is what a solo builder reads and it must be complete on its own.
+- **On request** — the derivation. Why this check, why this provider, what the
+  battery could have caught, what was ruled out. Opened by someone who wants it.
+- **Operator** — nothing. If a teaching artifact needs an operator-tier fact to
+  make sense, the *summary* is wrong, not the tier.
+
+The third bullet is the constraint that keeps this honest. The whole risk of a
+teaching layer is that it becomes the place vocabulary goes to hide: a mechanism
+that cannot be explained at the `always` tier gets a paragraph in the teaching
+artifact instead of a simpler design. **A teaching artifact must never be the
+reason a mechanism is allowed to stay complicated.** If a decision cannot be
+stated in one plain sentence with its source, that is a finding about the
+decision.
+
+### 35.5 Why it is not a chat surface
+
+The obvious product shape is a conversation: the user asks "why did you do that?"
+and Cortex answers. It is rejected, and not on cost grounds.
+
+**A chat surface promises to answer questions the record cannot.** The moment the
+box exists, the user asks "why did the model write it this way?" — and that is
+the first row of the "may never assert" table. Cortex must then either refuse in
+a way that reads as evasion, or answer from somewhere other than the record. The
+interface has created a demand the architecture is deliberately unable to meet,
+and the pressure to meet it anyway will be constant and will come from real users
+with reasonable expectations.
+
+A rendered artifact has no such gap: it shows what is derivable, its boundary is
+visible as the edge of the page, and *"that is not recorded"* is a legible
+property of a document in a way it is not of a conversational partner.
+
+Second reason, in the same direction as 33.1's "ask about intent, never about
+mechanism": a chat surface converts a passive explanation into an interrogation
+the user must know how to conduct. It hands the burden of knowing which question
+to ask back to the person who could not evaluate the plan. That is the original
+problem, restated as a feature.
+
+Third: an artifact is addressable, diffable, and attachable to a receipt. A
+conversation is none of those, and a claim about Cortex's own reasoning that
+cannot be cited later is not much of a claim.
+
+**What is not rejected:** a fixed set of *derived* follow-ups — "show me the
+checks", "show me what this cost", "show me what it was allowed to reach" — each
+of which is a section of the same artifact. That is navigation, not dialogue, and
+every destination is a rendering that already existed.
+
+### 35.6 Explicitly rejected, with reasons
+
+**A local vector index for retrieving explanatory context.** Settled in Phase 29.2
+on measured grounds and settled again here: agentic explorers form a tier above
+classical retrieval, and the axes that still separate the state of the art —
+line-level coverage and ranking efficiency — are not ones embedding similarity
+improves. The teaching case is *weaker* than the exploration case that was already
+rejected, because a teaching artifact retrieves from **its own run's record**,
+which is small, structured, and addressable by key. Similarity search over a
+structure you hold the schema of is a worse index than the schema. Rejected.
+
+**A model-inferred rationale stream.** A second model watching the first and
+narrating what it appears to be doing. Rejected as 35.1 argues: its errors are
+invisible to precisely the audience it exists for, it would be the only part of
+Cortex whose output is not traceable to something executed (invariant 12), and it
+would make the plan's most-repeated failure — a mechanism that looks like
+coverage and is not — user-facing for the first time. The narration would be the
+most polished text in the product and the only text in it with no source.
+
+Note what this does *not* reject: **inspecting judges** (Phase 27's detector
+result) and Cortex-evaluates-Cortex (Phase 30) both use a model to *examine* a
+recorded artifact and produce a *recorded, gradeable* finding. That is a model
+producing evidence which then enters the record. A rationale stream is a model
+producing prose that bypasses the record and goes straight to a user. The
+difference is not the model; it is whether the output is subject to the same
+scrutiny as everything else it sits beside.
+
+### 35.7 What has to exist first
+
+This phase is cheap in code and expensive in prerequisites, which is the honest
+reason it is Phase 35 and not Phase 12.
+
+| Needs | From | State |
+|---|---|---|
+| Decisions recorded with their reasons | Phases 10, 24 | partial — routing reasons exist, alternatives do not |
+| Assumptions and their settlement recorded | Phase 26 | not built |
+| Check derivation source on every spec | `CheckSpec.source` | **exists** |
+| Battery power | Phase 27.3 | not built |
+| Quote versus measured spend | Phase 31 | quotes not persisted (`quoted_credits` is `None`) |
+| Egress grants on the receipt | PR C2 | **exists** |
+| `dead_ends[]` | Phase 29.3 | not built |
+
+Building the renderer before the record is populated would produce an artifact
+that is mostly "not recorded" — which is at least honest, and is also how a
+feature gets judged as useless and then quietly filled in with a model. **Build
+it when the record can support it**, which is what the exit gate below tests.
+
+### 35.8 The thing this phase is really defending
+
+Every other phase in this document defends against a wrong outcome. This one
+defends against a **correct outcome that teaches the user something false about
+why it was correct** — and therefore degrades the only judgment that can catch
+Cortex when it is wrong.
+
+A user who understands why Cortex made a decision can disagree with it. A user
+who has been told a plausible story about a decision that was actually made for a
+different reason cannot, and will not know they cannot. Over enough tasks that is
+a user whose trust is uncorrelated with whether Cortex deserves it, which is the
+same defect as a battery that cannot fail — relocated from the verifier into the
+person.
+
+**Phase 35 exit gate:** a teaching artifact renders for a completed run with
+every sentence carrying the record field it derives from, and a test asserts that
+a sentence with no source does not render; a run with a thin record produces a
+*shorter* artifact naming what is absent, never a vaguer one, with "not recorded"
+and "did not happen" rendered as distinct sentences; the `always` section is
+complete on its own, contains no vocabulary defined in this document, and needs
+no operator-tier fact to make sense; the artifact is attachable to a receipt and
+addressable afterwards; no model is invoked anywhere in the rendering path, and a
+test asserts that; and a first-time solo builder, given only the `always` section
+of a run they did not watch, can correctly state what was checked, what was not,
+and what the verdict does not claim.
+
 ## Handover protocol — how to actually execute this document
 
 **Read this before dispatching any implementation work.**
@@ -6425,6 +6660,13 @@ immediately, in parallel with Wave 1. Surface work follows the APIs it renders.
   money-path test density, and clear the open dependency advisories. **The lock
   poisoning fix and the advisories are days of work against a live outage risk
   and a live credibility problem — neither should wait for anything.**
+- **PR AU · Teaching layer (Phase 35).** Render a teaching artifact from the
+  decision record, per-section disclosure tiers, degradation that shortens
+  rather than blurs, and the test asserting no model is invoked in the rendering
+  path. **Needs the record before the renderer** — 35.7 lists which parts of it
+  exist. Scheduled last deliberately: built early it would render mostly "not
+  recorded", and a feature judged useless is a feature somebody later fills in
+  with a model, which is the one design this phase exists to refuse.
 
 ### If only three things get done
 

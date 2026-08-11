@@ -73,7 +73,10 @@ pub struct WorkRecipeSeed {
     pub constraints: Vec<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+// `Ord` and `Hash` are here so `TaskClass` can be a map key and sort into a
+// stable order — a price list rendered in a different order every time is a
+// price list nobody can diff.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkKind {
     Explore,

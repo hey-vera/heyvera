@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-11 (wave 4 — Tasks 1–4 done; **a step dispatched for the first time; F0 found**)
+**Last updated:** 2026-08-11 (wave 5 - the model call is built and unrun; the deploy is rehearsed and blocked on one config line; F9 and F10 found)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -42,6 +42,11 @@ re-deriving anything.
 | 20a | Task 4 — one step dispatched end to end, and **F0** found | **done** — see "Wave 4 / Task 4" below. **The scheduler could never lease a step.** |
 | 21 | Decision 3 — production environment reviewer | **blocked on the billing plan** — see "Wave 4 / governance" below. **Needs Josh.** |
 | 22 | Decision 4 — close #105, write longform by handle | #105 **closed**; the route is its own PR. |
+| **Wave 5** | | |
+| 23 | Task 1 - one real model invocation, end to end | **built, not run** - PRs [#530](https://github.com/hey-vera/heyvera/pull/530), [#531](https://github.com/hey-vera/heyvera/pull/531) merged. **Needs the provider key.** F9 + F10 found. |
+| 24 | Task 2 - deploy production v42 to v65, with a worker | **rehearsed, blocked** - migration is a clean no-op on real data; `CORTEX_SINGLE_NODE` is absent from the host env file and must be set first. **Needs Josh.** |
+| 25 | Task 3 - catalog and estimator, price list as versioned data | **done** - migration v66, `provisional` prices that quote and never charge. PR J and PR Q deliberately not built. |
+| 26 | Task 4 - Phase 35 (teaching layer) written | **done** - written only, per the brief. PR AU added to the delivery list. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -1309,6 +1314,300 @@ complete a task" remains unproven**, and this checkpoint should keep saying so.
 What *is* now proven, and was not before this wave: a step can be dispatched at
 all.
 
+## Wave 5 / Task 1 — the model invocation, built and not yet run
+
+**PRs [#530](https://github.com/hey-vera/heyvera/pull/530) and
+[#531](https://github.com/hey-vera/heyvera/pull/531), both merged.**
+
+`cortex_completes_one_real_task_end_to_end` takes one task through the whole
+chain against a live provider: dispatched, leased, sandboxed, egress granted,
+context framed, model invoked, diff produced, frozen checks executed, verdict
+written, receipt read back over HTTP.
+
+**It has not run.** The provider key does not exist yet — there are no
+repository secrets at all. So the sentence stays unwritten, and this checkpoint
+keeps saying so:
+
+> **"Cortex can complete a task" is still unproven.** No model has been invoked.
+
+What changed is that it is now one button away rather than one project away, and
+the button refuses to lie: `live-model.yml` is `workflow_dispatch`, it fails
+before doing anything if `ANTHROPIC_API_KEY` is absent, and after the run it
+greps the log for the skip banner and fails if it finds it.
+
+### The subject is chosen so a pass cannot be vacuous
+
+A zero-dependency crate whose only test fails, because `add` subtracts.
+
+- The test asserts the required check **fails before the model runs**. Without
+  that, `Verified` at the end is a statement about cargo rather than about a
+  model.
+- Zero dependencies means the frozen checks need no registry, so this proves the
+  model path instead of measuring a `cargo fetch`. Cheapest real task that still
+  has an executable ground truth.
+
+### The gate, in both directions
+
+| Condition | Behaviour | Verified |
+|---|---|---|
+| `CORTEX_LIVE_MODEL_IT` unset | skip + stderr banner saying the claim is UNPROVEN | yes, locally |
+| gate set, key or image missing | **panic** | yes, locally |
+| workflow run, test skipped | job **fails** on the grep | in CI when run |
+
+### F9 and F10 — the same shape, at two more boundaries
+
+Neither was in the plan. Both were found by asking what would actually happen
+when the last two links ran, and both would have made the proof impossible.
+
+**F9 — no verification check could ever execute.** `ecosystem:cargo-check` and
+`ecosystem:cargo-test` write to `target/`. The check container mounts the tree
+read-only, sets `readonly_rootfs`, passes an empty env, and had no other mount.
+There was no writable path in the container, so every cargo check failed before
+compiling a line.
+
+The failure did not look like infrastructure. A non-zero exit is
+`CheckOutcome::Failed`, which is a verdict **about the customer's work** — and
+`Verdict::Failed` is the branch that triggers a refund. The verifier's behaviour
+was to blame the customer for its own missing mount.
+
+**F10 — the sandbox had nowhere to write either.** Worse consequence. The
+worktree was the sandbox's *only* writable path, with no `HOME` and no `TMPDIR`.
+A provider CLI in that container either refuses to start or writes its config and
+cache **into the tree it was asked to change**, where they land in the diff, in
+the git evidence, and in what the frozen checks grade.
+
+Both fixed with a `/scratch` tmpfs and a compile-time environment constant. The
+constant matters: the credential allowlist is untouched, and the tests assert the
+environment is *exactly* the constant rather than *does not contain a secret* —
+an absence assertion passes when somebody quietly adds a fourth variable.
+
+**Why nothing caught either.** Every driver test uses a `ScriptedRunner`, and
+reaching the real container config required a Docker daemon, so nothing ever did.
+`container_config` is now a free function taking the image, which is why the four
+new tests exist and why none of them is gated.
+
+That is the standing correction in its sixth and seventh instances: **the tests
+were near the boundary, not at it.**
+
+### Known gap, not papered over
+
+`ecosystem:npm-ci` installs into `node_modules/` *inside* the tree, so scratch
+does not rescue it. Redirecting npm's prefix changes resolution semantics and a
+writable tree copy would give up the read-only property. The npm floor stays
+unexecutable and says so in the module docs.
+
+### What Josh needs to do
+
+Add `ANTHROPIC_API_KEY` as a repository secret, scoped per **ADR-0004's
+mitigation**: shortest-lived, narrowest scope, spend cap on the key itself. Then
+run the `live model` workflow.
+
+## Wave 5 / Task 2 — the deploy, rehearsed and then blocked
+
+**The rehearsal is clean. The deploy has not happened, and it must not happen
+until one config line is set.**
+
+### The rehearsal
+
+`cargo run -p cortex-api --bin rehearse-migration -- <copy>` — a tool rather than
+a one-off script, because this is not the last deploy that will be behind.
+
+Run against a copy of the live production database, pulled with its `-wal`. The
+WAL mattered: it was 127KB and modified the same day, so a copy of the `.db`
+alone would have rehearsed against a tree production does not have.
+
+```
+schema before:  42
+schema after:   65
+
+GROUPED COUNTS
+  runs.status/running                        3         3
+  steps.status/pending                       5         5
+  steps.verification_status/unverified       5         5
+TABLE COUNTS      (steps, runs, step_attempts, outcomes, verifier_reports,
+                   credit_*, decisions, workers, user_credentials, social_*)
+                                        all unchanged
+
+v63 — historical `succeeded` steps rewritten to `delivered`
+  succeeded before: 0
+  delivered after:  0
+  → no rows to rewrite; this migration is a no-op on this database
+
+RESULT: migrated 42 → 65
+```
+
+**Twenty-three migrations moved zero rows.** v63 was the wave's stated riskiest
+item — a forward-only, customer-visible rewrite of history. Measured, that
+history is empty: production has never had a `succeeded` step, because it has
+never executed one. The risk was correct to assume and is now measured to be nil.
+
+### The backup, verified rather than asserted
+
+`/home/guardian/backups/pre-wave5/cortex_20260811T042450Z.db`, taken with
+`sqlite3 .backup` rather than `cp`. `PRAGMA integrity_check` → `ok`; row counts
+match the live database across six tables; and a copy of it was opened and
+queried at a scratch path, so "it can be restored" is a thing that was done
+rather than a property of the file's existence.
+
+### Two things found on the host, and one of them stops the deploy
+
+**`CORTEX_SINGLE_NODE` is absent from `/etc/cortex/cortex.env`.** The server
+exits without it (PR #513). Deploying current code onto this host as it stands
+takes production down at startup.
+
+The repository's claim that it is "set in `deploy/cortex-api.service`" is true of
+a file **this host does not use**: the live unit is
+`/etc/systemd/system/cortex.service`, which predates that file and carries an
+`EnvironmentFile=/etc/cortex/cortex.env` that has no such line. A setting present
+in the repo and absent from the machine is the same as absent.
+
+**There is a `cortex-worker` binary and no `cortex-worker` service.** The binary
+has been at `/usr/local/bin/cortex-worker` since 2026-06-03 and nothing runs it;
+`/etc/systemd/system/` holds `cortex.service` alone. `scripts/cortex-install-worker.sh`
+exists and defaults `CORTEX_USER=deploy`, while this host runs Cortex as
+`guardian` out of `/home/guardian/claw-net` — so it needs `CORTEX_USER=guardian`
+or it installs a service pointing at a directory that does not exist.
+
+Also corrected: the host **does** have full passwordless sudo
+(`(ALL : ALL) ALL`), so the earlier note that `/etc/cortex/cortex.env` was
+unreadable no longer holds.
+
+### Where it stopped
+
+The write to `/etc/cortex/cortex.env` was refused by this session's permission
+classifier. That is a reasonable thing to gate and it was not worked around. The
+deploy is blocked on exactly one line, and the order matters — this before the
+deploy, not after:
+
+```
+CORTEX_SINGLE_NODE=1
+```
+
+Remaining, in order, once that lands: deploy `main`, then
+`sudo CORTEX_USER=guardian bash scripts/cortex-install-worker.sh`, then report
+schema version, worker connected, and whether a step can dispatch.
+
+## Wave 5 / Task 3 — the price list, as versioned data
+
+The reason `quoted_credits` has been `None` everywhere was never the charging
+code. It was that there was no price that was not invented, and inventing one is
+never right.
+
+### Three properties, each checkable
+
+1. **It is data, not code.** `usage::model_rates` matches on substrings of model
+   ids (`m.contains("haiku")`) — invariant 11's exact prohibition, pricing code
+   carrying hardcoded model names. Those rates are now rows in
+   `price_list_models`.
+2. **It is versioned and immutable.** Invariant 23, enforced by triggers in
+   migration v66 rather than asserted in a comment. An `UPDATE` or `DELETE` on a
+   published price is an error at the storage layer; republishing a version
+   number fails rather than overwriting. A test fires each trigger.
+3. **It is labelled with how much it is worth trusting.** Every seeded class is
+   `provisional` with `sample_count = 0`, and a provisional class **quotes but
+   does not charge**.
+
+### The graduation gate is the design, not a footnote
+
+| Status | Quoted | Charged |
+|---|---|---|
+| `provisional` | yes | **no** |
+| `committed` | yes | yes |
+
+So `quoted_credits` is unblocked *and* billing is not silently switched on.
+Moving a class to `committed` is a deliberate, recorded, commercial act — Phase
+31.3's gate, expressed as the only difference between two statuses.
+`StepQuote::billable_credits()` is the single accessor the driver uses, so
+reading the raw number and charging for a provisional class is not something a
+call site can do by accident.
+
+### `TaskClass` — and why tier is not one of its axes
+
+`work_kind : risk : verifiable`, in `cortex_core::task_class`. 88 classes.
+
+Tier is deliberately excluded even though it is available. Tier is a *routing
+decision*, and folding it into the price key would make the customer's price
+depend on Cortex's own choice of model — a router that can raise the price by
+routing badly. That is invariant 11's failure one level up and it would make
+invariant 12 unenforceable.
+
+`verifiable` is an axis because invariant 22 says work with no executable ground
+truth is never priced as though it had been proven. Keeping it in the key is what
+makes that a price rather than a footnote — and it is taken from the frozen check
+set at dispatch, not from an intention.
+
+### The quote is frozen at dispatch, and a retry does not re-price
+
+Frozen beside the check specs, for the same reason: a price resolved at verdict
+time is a price the work could have influenced. `UNIQUE(run_id, step_id)` rather
+than per attempt — Cortex absorbing the cost of its own second attempt is the
+entire content of an outcome guarantee, and re-quoting on retry would bill the
+customer for Cortex having been wrong the first time.
+
+`billable` is stored, never recomputed: a class that graduates between dispatch
+and verdict must not retroactively make a step billable that the customer was
+told was free.
+
+### One finding, from the tests rather than from review
+
+The first seeded list valued a credit at one dollar, and **every modelled class
+collapsed to exactly one credit** — a trivial gate and a critical refactor priced
+identically. Every row still held a plausible number, so the list looked fine and
+had simply stopped being a price list.
+
+`micros_per_credit` is now a published field of the list rather than a constant,
+for the invariant-11 reason (it is a fact, so it lives in the one table) and for
+this one (it is the resolution of the whole price space).
+`the_price_list_actually_distinguishes_classes` asserts over the whole class
+space rather than over two rows, because two rows is what the previous test
+checked and it did not notice.
+
+**The commercial value of a credit is not set here.** The seed is chosen so the
+modelled spread survives rounding, the list is `provisional` so it cannot charge,
+and what a credit is worth is Josh's.
+
+### What this deliberately is not
+
+PR I only. **PR J (cost-aware routing) and PR Q (run forecast) are not built** —
+both need this table and neither is here. The seeded per-class spend is *modelled*
+from a per-`WorkKind` token profile, a risk multiplier and an unverifiable
+discount; it is not measured, `sample_count` is 0 on all 88 rows, and that is
+exactly what keeps every class provisional.
+
+## Wave 5 / Task 4 — Phase 35 written, not implemented
+
+`HARNESS-EXCELLENCE-PLAN-2026-08.md` gains **Phase 35 — the teaching layer,
+derived rather than narrated**, plus PR AU in the delivery list. Written only;
+no code.
+
+The thesis: the explanation is derived from the decision record, never inferred
+by a model watching another model. The argument is not that models confabulate —
+it is *who the feature is for*. A narration layer's errors are invisible to
+precisely the audience that cannot check them, so a user who could catch the
+mistake did not need the narrator, and a user who could not is miscalibrated with
+the full authority of the system that just did the work.
+
+Covered: what a teaching artifact may assert (a two-column table, and the
+"may never" column matters more), how it degrades when the record is thin
+(shorter, never vaguer — "not recorded" and "did not happen" are different
+sentences), its disclosure tier under invariant 31 (per-section, and *nothing*
+at operator tier — a teaching artifact must never be why a mechanism is allowed
+to stay complicated), and why it is not a chat surface (a chat box promises
+answers the record cannot give, and hands the burden of knowing what to ask back
+to the person who could not evaluate the plan).
+
+Explicitly rejected with reasons: a local vector index (Phase 29.2 settled it on
+measured grounds, and the teaching case is *weaker* than the exploration case
+already rejected — similarity search over a structure you hold the schema of is a
+worse index than the schema), and a model-inferred rationale stream. The
+distinction drawn against Phases 27 and 30: an inspecting judge produces
+*recorded, gradeable* evidence; a rationale stream produces prose that bypasses
+the record and goes straight to a user.
+
+Scheduled last deliberately. 35.7 lists what has to exist first; built early it
+would render mostly "not recorded", and a feature judged useless is a feature
+somebody later fills in with a model.
+
 ## Wave 4 / governance — decision 3 is blocked, and not by us
 
 **Required reviewer on the `production` environment could not be enabled.**
@@ -1363,8 +1662,11 @@ Briefs live in `cortex/plan/briefs/`. An implementer reads only the brief.
 hazard is real and it bit three times this wave: PR C took **v62**, PR A took
 **v63** against a brief that said v62, PR C2 took **v64**, and PR B took
 **v65**. **Re-check the maximum before claiming a number** — a collision means
-whichever branch merges second has its migration silently skipped. Max on `main`
-is **v65**.
+whichever branch merges second has its migration silently skipped.
+
+Wave 5's Task 3 takes **v66** (the price list catalog), re-checked against `main`
+at rebase time rather than at design time, which is the whole discipline. Max on
+`main` is therefore **v66** once that merges.
 
 ## What was verified directly (not inherited)
 
@@ -1576,8 +1878,15 @@ Reconciled, not deferred. No plan change needed.
 
 - Never push to `main`; never bypass a required check.
 - Commit and push after each coherent unit.
-- Rust: `cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --lib`.
+- Rust: `cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --all-targets`.
+  **`--all-targets`, never `--lib`** - the integration tests are where every
+  cross-crate finding in waves 4 and 5 lived, and `--lib` cannot see them.
   **Never run `cargo fmt` on this repo.**
+- `jq` is not installed on this machine and MSYS mangles slashes. Use `gh`'s
+  built-in `--jq`. A monitor that reports `unknown` is a loop failing silently,
+  not an unknowable answer.
+- Trim build caches between PRs. The disk hit 100% full during wave 5 and
+  stopped a build; a stale worktree's `target/` was holding 12GB.
 - The handoff lists `validate::tests::normalizes_dot_segments` as a known local
   failure. It **passed** on this machine during PR A (316/316 on the api lib).
   Treat any failure of it as suspect rather than expected.
