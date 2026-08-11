@@ -171,7 +171,15 @@ const DIRECTIVE_PATTERNS: &[&str] = &[
     "ignore previous instruction",
     "ignore all previous",
     "ignore the above",
+    // Found by wiring the context through and writing the injection case with
+    // the phrasing an attacker would actually use: "ignore *your* previous
+    // instructions" matched none of the three above, because each assumed the
+    // possessive was absent. A miss here costs an alert rather than the
+    // defence — the framing in `render` is what holds — but the canonical
+    // wording should not be the one that gets through.
+    "ignore your previous",
     "disregard previous",
+    "disregard your previous",
     "disregard the above",
     "disregard all prior",
     "new instructions:",
@@ -327,6 +335,72 @@ pub struct ContextComposition {
     /// Directives found in observed content while composing. Non-empty means a
     /// repository or a prior step tried to give this step orders.
     pub directive_findings: Vec<DirectiveFinding>,
+}
+
+/// Type the assembled step context.
+///
+/// This is the function that closes F8, and the reason it lives here rather
+/// than in the worker: the mapping from "a field on `StepContext`" to "how much
+/// authority that field carries" **is** the security decision. Putting it next
+/// to the renderer means the two are read together and changed together, and
+/// means the worker cannot invent a provenance without editing this module.
+///
+/// The contract is passed in separately and typed [`Provenance::Contract`],
+/// because it is the only thing here that may instruct. Everything the API
+/// assembled — the user's goal, the repository map, a previous step's account
+/// of itself — is observed content, whatever it happens to say.
+///
+/// Note what is *not* here: there is no arm that produces
+/// [`Provenance::VerifiedEvidence`]. `StepContext` carries no verification id,
+/// and inventing one to make a summary look authoritative would forge exactly
+/// the claim that variant exists to protect.
+pub fn items_from_step_context(
+    contract: impl Into<String>,
+    user_goal: &str,
+    conversation_excerpt: Option<&str>,
+    repo_map: Option<&str>,
+    predecessors: &[(String, String, String)],
+) -> Vec<ContextItem> {
+    let mut items = vec![ContextItem::new(Provenance::Contract, contract)];
+
+    if !user_goal.trim().is_empty() {
+        items.push(ContextItem::new(Provenance::UserMessage, user_goal));
+    }
+
+    if let Some(excerpt) = conversation_excerpt.filter(|e| !e.trim().is_empty()) {
+        items.push(ContextItem::new(Provenance::UserMessage, excerpt));
+    }
+
+    // The repository map is repository content, not a summary of it. It is a
+    // ranked skeleton of paths that came out of a tree nobody here has read,
+    // so a path named in it is attacker-controlled text in exactly the way a
+    // file's body is.
+    if let Some(map) = repo_map.filter(|m| !m.trim().is_empty()) {
+        items.push(ContextItem::new(
+            Provenance::RepositoryContent {
+                path: "<repository map>".to_string(),
+            },
+            map,
+        ));
+    }
+
+    // A predecessor summary is an earlier model's account of its own work. It
+    // is the least authoritative thing in the bundle and is typed as such —
+    // `files_changed` included, because a step reporting which files it touched
+    // is still a self-report.
+    for (step_id, kind, summary) in predecessors {
+        if summary.trim().is_empty() {
+            continue;
+        }
+        items.push(ContextItem::new(
+            Provenance::AgentOutput {
+                producer_step_id: step_id.clone(),
+            },
+            format!("[{kind}] {summary}"),
+        ));
+    }
+
+    items
 }
 
 /// Describe a bundle: what went in, and what tried to give orders.
