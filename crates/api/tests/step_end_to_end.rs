@@ -449,3 +449,390 @@ async fn the_frame_carries_a_context_the_worker_can_render() {
          contract above\" is false of this prompt"
     );
 }
+
+// ---------------------------------------------------------------------------
+// The live proof: one task, one real model, one graded verdict.
+// ---------------------------------------------------------------------------
+//
+// Everything above this line stops at the point where money starts. It proves
+// a step is dispatched, leased, routed, framed and handed to the real worker
+// path â€” and then asserts on what *would* be handed to a model rather than on
+// what a model did. That was honest and it was not enough: "Cortex can complete
+// a task" had never been true of anything.
+//
+// This section closes it. One task runs the whole chain against a live
+// provider: dispatched, leased, sandboxed, egress granted, context framed,
+// **model invoked**, diff produced, frozen checks executed, verdict written,
+// receipt readable.
+//
+// # The task is chosen so the verdict cannot be vacuous
+//
+// A zero-dependency crate whose only test fails, because `add` subtracts. The
+// frozen checks are `cargo check --locked` and `cargo test --locked`, derived
+// from the manifest by the same code as every other run. So:
+//
+// - before the model runs, the required check **fails** â€” asserted explicitly
+//   below, because a check that would pass anyway grades nothing;
+// - after it runs, the verdict is `Verified` only if the model actually
+//   changed the code.
+//
+// Zero dependencies is not a shortcut. It means the checks need no registry, so
+// this proves the model path rather than measuring a `cargo fetch`, and it is
+// the cheapest real task that still has an executable ground truth. This is a
+// proof, not a benchmark.
+//
+// # The gate is loud in both directions
+//
+// Unset: a banner on stderr and a skip. Set with anything missing â€” no key, no
+// runtime, no image: **panic**. Three times now a check has reported green
+// while covering nothing, and a live test that quietly degrades to a pass would
+// be the fourth and the worst, because the sentence it licenses is the one the
+// whole product rests on.
+
+/// Why this run is not happening, or `None` if it is.
+///
+/// Returns a reason rather than a bool so the skip can say what was missing.
+/// Only the gate variable produces a skip; everything else is a hard failure,
+/// because the operator asked for this and is entitled to know it did not
+/// happen.
+fn live_model_gate() -> Option<String> {
+    if std::env::var("CORTEX_LIVE_MODEL_IT").as_deref() != Ok("1") {
+        return Some("CORTEX_LIVE_MODEL_IT is not 1".to_string());
+    }
+
+    // From here down, absence is a panic rather than a skip.
+    for required in [
+        "ANTHROPIC_API_KEY",
+        "CORTEX_SANDBOX_IMAGE",
+        "CORTEX_EGRESS_IMAGE",
+        "CORTEX_RUNNER_IMAGE",
+    ] {
+        assert!(
+            std::env::var(required).is_ok_and(|v| !v.trim().is_empty()),
+            "CORTEX_LIVE_MODEL_IT=1 but {required} is unset. This test was asked \
+             for and cannot run; skipping here would report a pass for a chain \
+             nothing executed."
+        );
+    }
+    None
+}
+
+/// A crate whose only test fails, and fails for one obvious reason.
+///
+/// The lock file is written rather than generated: the crate has no
+/// dependencies, so its lock is a two-stanza constant, and `--locked` on the
+/// frozen checks means the tree must carry one. Generating it would put a
+/// `cargo` invocation on the critical path of a test about a model.
+fn a_repository_with_one_failing_test() -> tempfile::TempDir {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let root = tmp.path();
+
+    std::fs::create_dir_all(root.join(".cortex")).unwrap();
+    std::fs::create_dir_all(root.join("src")).unwrap();
+    std::fs::write(
+        root.join("Cargo.toml"),
+        "[package]\nname = \"subject\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("Cargo.lock"),
+        "version = 3\n\n[[package]]\nname = \"subject\"\nversion = \"0.1.0\"\n",
+    )
+    .unwrap();
+    std::fs::write(
+        root.join("src/lib.rs"),
+        r#"/// Add two numbers.
+pub fn add(a: i32, b: i32) -> i32 {
+    a - b
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn add_sums_its_arguments() {
+        assert_eq!(add(2, 2), 4);
+        assert_eq!(add(10, 5), 15);
+    }
+}
+"#,
+    )
+    .unwrap();
+
+    for args in [
+        vec!["init", "--quiet"],
+        vec!["config", "user.email", "test@example.com"],
+        vec!["config", "user.name", "Cortex Test"],
+        vec!["add", "-A"],
+        vec!["commit", "--quiet", "-m", "initial"],
+    ] {
+        let out = std::process::Command::new("git")
+            .args(&args)
+            .current_dir(root)
+            .output()
+            .expect("git runs");
+        assert!(
+            out.status.success(),
+            "git {args:?} failed: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+    }
+
+    tmp
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn cortex_completes_one_real_task_end_to_end() {
+    if let Some(reason) = live_model_gate() {
+        // Loud, on stderr, and shaped so CI can count it. A silent skip is how
+        // a suite reports green over nothing.
+        eprintln!(
+            "\n\
+             ==========================================================================\n\
+             SKIPPED: cortex_completes_one_real_task_end_to_end\n\
+             REASON:  {reason}\n\
+             \n\
+             This is the only test that proves a model was invoked and a verdict\n\
+             was earned. While it is skipped, \"Cortex can complete a task\" is\n\
+             UNPROVEN â€” no other test in this repository covers it.\n\
+             ==========================================================================\n"
+        );
+        return;
+    }
+
+    // The dispatcher refuses to start without this, and it is genuinely true
+    // here: one process, one SQLite connection.
+    std::env::set_var("CORTEX_SINGLE_NODE", "1");
+
+    let repo = a_repository_with_one_failing_test();
+
+    // --- Ground truth, before anything runs -------------------------------
+    //
+    // A required check that would pass on the delivered tree regardless of
+    // what the model did grades nothing. Establish that it fails first, or the
+    // `Verified` at the end is a statement about cargo rather than about a
+    // model.
+    let baseline = std::process::Command::new("cargo")
+        .args(["test", "--locked"])
+        .current_dir(repo.path())
+        .output()
+        .expect("cargo is on PATH for the live test");
+    assert!(
+        !baseline.status.success(),
+        "the subject repository's test passes before the model touches it, so a \
+         Verified verdict at the end would prove nothing"
+    );
+
+    let (app, state) = test_app(repo.path()).await;
+    cortex_api::verification_dispatcher::assert_single_node()
+        .expect("CORTEX_SINGLE_NODE was set above");
+    cortex_api::verification_dispatcher::spawn(state.clone());
+
+    let base_url = serve_app(app.clone()).await;
+    let (mut sink, mut stream) = connect_worker(&base_url).await;
+    let run_id = create_run(&app, "fix the bug in src/lib.rs so that cargo test passes").await;
+
+    let frame = first_execute_step(&mut stream).await;
+    let BrainMessage::ExecuteStep {
+        step_id,
+        attempt_id,
+        lease_gen,
+        task,
+        decision,
+        context,
+        egress,
+        provider_egress,
+        ..
+    } = frame
+    else {
+        unreachable!("first_execute_step only returns ExecuteStep")
+    };
+
+    // The exam is frozen before the model sees the task. Assert it is the exam
+    // we think it is, so a later `Verified` names checks that can fail.
+    let required: Vec<&str> = task
+        .required_checks
+        .iter()
+        .filter(|c| c.required)
+        .map(|c| c.name.as_str())
+        .collect();
+    assert!(
+        required.contains(&"ecosystem:cargo-test"),
+        "the frozen exam has no executable ground truth: {required:?}"
+    );
+
+    // --- Invoke the model -------------------------------------------------
+    //
+    // The real executor, the real container sandbox, the real provider CLI,
+    // the real key. `execute_sandboxed` is the entry point the worker binary
+    // uses; there is no test double anywhere below this line.
+    let step = cortex_worker::executor::StepExecution {
+        step_id: step_id.clone(),
+        attempt_id: attempt_id.clone(),
+        lease_gen,
+        egress,
+        provider_egress,
+        context,
+    };
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<cortex_worker::stream::WorkerEvent>(64);
+    let workspace = repo.path().to_path_buf();
+    let task_for_exec = task.clone();
+    let decision_for_exec = decision.clone();
+    let exec = tokio::spawn(async move {
+        cortex_worker::executor::Executor::execute_sandboxed(
+            &task_for_exec,
+            &decision_for_exec,
+            &step,
+            tx,
+            workspace.as_path(),
+        )
+        .await
+    });
+
+    // Report exactly as the worker binary reports: same conversion function,
+    // same socket. A hand-built frame here would test the hand-built frame,
+    // which is the shape of F8.
+    let mut saw_completion = false;
+    let mut blocked_detail: Option<String> = None;
+    while let Some(event) = rx.recv().await {
+        if let cortex_worker::stream::WorkerEvent::Blocked { blocked, .. } = &event {
+            blocked_detail = Some(format!("{}: {}", blocked.reason.as_str(), blocked.detail));
+        }
+        if matches!(event, cortex_worker::stream::WorkerEvent::Completed { .. }) {
+            saw_completion = true;
+        }
+        let message = cortex_worker::report::worker_event_to_message(event);
+        sink.send(WsMessage::Text(
+            serde_json::to_string(&message).unwrap().into(),
+        ))
+        .await
+        .expect("worker frame sent");
+    }
+
+    let exit = exec.await.expect("executor task joins");
+
+    // A refusal is Cortex's failure, not the customer's, and it must not be
+    // mistaken for "the model did not manage it".
+    assert!(
+        blocked_detail.is_none(),
+        "the step was blocked before the provider was invoked: {}",
+        blocked_detail.unwrap_or_default()
+    );
+    assert!(
+        exit.is_ok() && saw_completion,
+        "the provider CLI did not complete: {exit:?}"
+    );
+
+    // --- The model produced a diff ----------------------------------------
+    let log = std::process::Command::new("git")
+        .args(["log", "--all", "--format=%H", "-n", "20"])
+        .current_dir(repo.path())
+        .output()
+        .expect("git log runs");
+    let commits = String::from_utf8_lossy(&log.stdout);
+    assert!(
+        commits.lines().count() >= 2,
+        "no commit beyond the base: the model produced no diff"
+    );
+
+    // --- The verdict, from checks Cortex ran itself -----------------------
+    //
+    // Polled rather than awaited: verification is deliberately durable, so
+    // delivery enqueues and a separate dispatcher grades. The window is
+    // generous because a cold cargo build in a container is not fast, and a
+    // timeout here is a failure rather than a skip.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(600);
+    let receipt = loop {
+        if let Some(db) = state.db.as_ref() {
+            if let Some(receipt) = db.get_receipt(&run_id, &step_id) {
+                break receipt;
+            }
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "no receipt for step {step_id} within 10 minutes; the delivery was \
+             never graded"
+        );
+        tokio::time::sleep(Duration::from_secs(2)).await;
+    };
+
+    assert_eq!(
+        receipt.gate.verdict,
+        cortex_core::verification::Verdict::Verified,
+        "the delivered tree did not pass the frozen checks: {:?}",
+        receipt
+            .executions
+            .iter()
+            .map(|e| (&e.spec_id, e.outcome, e.exit_code, &e.output_tail))
+            .collect::<Vec<_>>()
+    );
+
+    // The verdict names checks that actually executed. `Verified` over an
+    // empty execution set would be the same vacuous green this file exists to
+    // prevent.
+    assert!(
+        receipt.executions.iter().any(|e| e.spec_id == "ecosystem:cargo-test"
+            && e.outcome == cortex_core::verification::CheckOutcome::Passed),
+        "cargo test did not run against the delivered tree: {:?}",
+        receipt.executions
+    );
+    assert!(
+        receipt.executions.iter().all(|e| !e.runner_image.is_empty()),
+        "an execution does not record where it ran, so it is not reproducible"
+    );
+
+    // --- Egress was actually granted, not merely planned ------------------
+    let egress_receipt = receipt
+        .egress
+        .as_ref()
+        .expect("the receipt records what the sandbox could reach");
+    let expected_host = cortex_core::egress::provider_host(decision.provider)
+        .expect("every routed provider has an endpoint");
+    assert_eq!(
+        egress_receipt.granted_provider.as_deref(),
+        Some(cortex_core::egress::provider_grant_name(decision.provider)),
+        "the receipt does not name the provider that was reached"
+    );
+    assert!(
+        egress_receipt
+            .endpoints
+            .iter()
+            .any(|e| e == &format!("{expected_host}:443")),
+        "the sandbox was not opened to the provider it invoked: {:?}",
+        egress_receipt.endpoints
+    );
+
+    // --- And the receipt is readable over HTTP ----------------------------
+    //
+    // A row in the database is not the product. A customer reads this through
+    // the API, so the last assertion goes through the router.
+    let resp = app
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/api/runs/{run_id}/steps/{step_id}/receipt"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status(),
+        StatusCode::OK,
+        "the receipt is not readable over the API"
+    );
+    let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+    let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    assert_eq!(json["gate"]["verdict"], "verified");
+
+    // Printed rather than only asserted: this is the evidence the checkpoint
+    // quotes, and it should come out of the run rather than out of a summary
+    // somebody wrote afterwards.
+    println!(
+        "\nRECEIPT â€” the first task Cortex has completed\n{}\n",
+        serde_json::to_string_pretty(&json).unwrap()
+    );
+}

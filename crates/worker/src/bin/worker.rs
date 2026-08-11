@@ -15,6 +15,9 @@ use cortex_core::protocol::{
     BrainMessage, ProviderClaim, RepoInfo, WorkerMessage, PROTOCOL_VERSION,
 };
 use cortex_worker::executor::{detect_available_providers, Executor, StepExecution};
+// In the library, not here, so the end-to-end test sends the frame this binary
+// would have sent rather than one it built itself. See `report`'s module docs.
+use cortex_worker::report::worker_event_to_message;
 use cortex_worker::stream::WorkerEvent;
 
 /// Map of step_id -> cancel signal sender. Shared between the connection loop
@@ -388,89 +391,6 @@ async fn execute_and_report(
     // Stop lease renewal
     let _ = lease_stop_tx.send(());
     let _ = lease_handle.await;
-}
-
-fn worker_event_to_message(event: WorkerEvent) -> WorkerMessage {
-    match event {
-        WorkerEvent::Started {
-            step_id,
-            attempt_id,
-            lease_gen,
-            provider,
-            model,
-            execution_job,
-        } => WorkerMessage::StepStarted {
-            message_id: Uuid::new_v4().to_string(),
-            step_id,
-            attempt_id,
-            lease_gen,
-            provider,
-            model,
-            execution_job: Some(*execution_job),
-        },
-        WorkerEvent::Output {
-            step_id,
-            attempt_id,
-            lease_gen,
-            line,
-        } => WorkerMessage::StepOutput {
-            step_id,
-            attempt_id,
-            lease_gen,
-            line,
-        },
-        WorkerEvent::Completed {
-            step_id,
-            attempt_id,
-            lease_gen,
-            exit_code,
-            base_commit,
-            head_commit,
-            branch,
-            output,
-        } => WorkerMessage::StepCompleted {
-            message_id: Uuid::new_v4().to_string(),
-            step_id,
-            attempt_id,
-            lease_gen,
-            exit_code,
-            base_commit,
-            head_commit,
-            branch,
-            output,
-        },
-        WorkerEvent::Failed {
-            step_id,
-            attempt_id,
-            lease_gen,
-            failure,
-        } => WorkerMessage::StepFailed {
-            message_id: Uuid::new_v4().to_string(),
-            step_id,
-            attempt_id,
-            lease_gen,
-            failure,
-        },
-        // A refusal travels on its own channel. It used to be a `StepFailed`
-        // whose reason was prefixed `BLOCKED:`, because there was no blocked
-        // state to transition to and inventing one in PR C would have created
-        // a second source of truth for step status. The state exists now, so
-        // the prefix is gone: an operator's infrastructure problem is recorded
-        // as `execution_failed` against Cortex, not as the customer's step
-        // failing.
-        WorkerEvent::Blocked {
-            step_id,
-            attempt_id,
-            lease_gen,
-            blocked,
-        } => WorkerMessage::StepBlocked {
-            message_id: Uuid::new_v4().to_string(),
-            step_id,
-            attempt_id,
-            lease_gen,
-            blocked,
-        },
-    }
 }
 
 fn detect_repos(workspace_dir: &str) -> Vec<RepoInfo> {
