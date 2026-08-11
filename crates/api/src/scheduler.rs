@@ -512,10 +512,31 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
     let now_ms = chrono::Utc::now().timestamp_millis();
     let deadline = now_ms + lease_duration;
 
-    let lease_gen = match db.lease_step(&step.step_id, "scheduler", deadline) {
+    // The worker this step is being dispatched to, not the literal string
+    // `"scheduler"`.
+    //
+    // `steps.assigned_worker` is a foreign key onto `workers(id)` and no worker
+    // is ever called "scheduler", so with `PRAGMA foreign_keys = ON` this
+    // statement raised `FOREIGN KEY constraint failed` on **every** dispatch —
+    // and `lease_step` swallowed the error and returned `None`, which is
+    // indistinguishable from losing the CAS. So the scheduler logged "CAS lease
+    // failed — skipping", waited for the next reconcile tick, and did it again,
+    // forever. **No step could ever be leased, so none could ever be
+    // dispatched.**
+    //
+    // This sits upstream of F7: the step never reached a worker, let alone a
+    // sandbox. It was found by wave 4 / Task 4, which is the first thing that
+    // ever asked a step to actually run.
+    let lease_gen = match db.lease_step(&step.step_id, &worker_id, deadline) {
         Some(g) => g,
         None => {
-            tracing::warn!("CAS lease failed for step {} — skipping", step.step_id);
+            tracing::warn!(
+                step_id = %step.step_id,
+                worker_id = %worker_id,
+                "CAS lease failed for step — skipping. If this repeats every tick \
+                 for the same step, check the error log: `lease_step` reports a \
+                 database failure separately, because it is not the same thing."
+            );
             return DispatchOutcome::RetryLater;
         }
     };

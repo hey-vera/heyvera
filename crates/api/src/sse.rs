@@ -80,6 +80,10 @@ pub async fn execute_task(
             // decision this path already made. Every path that builds a
             // sandbox needs it, or that path keeps F7.
             provider_egress: cortex_core::egress::derive_provider_egress(decision_clone.provider),
+            // This path has no run to assemble predecessors from and no
+            // repository map. Empty is the honest value, not a placeholder:
+            // the step really was told nothing beyond its contract.
+            context: cortex_core::protocol::StepContext::default(),
         };
 
         let result = Executor::execute_sandboxed(
