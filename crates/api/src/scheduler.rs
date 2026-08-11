@@ -617,6 +617,26 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
         }
     }
 
+    // Freeze the price here too, and for the same reason the exam is frozen
+    // here: a price resolved after execution is a price the work could have
+    // influenced, and a customer quoted before dispatch has to be charged what
+    // they were quoted.
+    //
+    // The class carries `verifiable`, taken from the exam that was just frozen
+    // rather than from an intention — invariant 22 says work with no executable
+    // ground truth is never priced as though it had been proven, and the only
+    // honest source for "was there executable ground truth" is the check set
+    // itself.
+    freeze_step_quote(
+        db,
+        &step.run_id,
+        &step.step_id,
+        step.work_kind
+            .unwrap_or_else(|| work_kind_for_step(step.kind, &step.objective)),
+        risk,
+        !cortex_core::check_derivation::is_unverified_by_construction(&check_specs),
+    );
+
     task.required_checks = check_specs.iter().map(as_required_check).collect();
     let recipe = build_work_recipe(
         step.work_kind
@@ -829,6 +849,72 @@ fn derive_step_check_specs(
     };
 
     derive_checks(&input)
+}
+
+/// Freeze what this step costs, before it runs.
+///
+/// Every failure here is a warning and no quote, never a guessed price. That is
+/// the same rule `verification_driver` already follows at the other end — a
+/// billable verdict with no reachable quote records the verdict and leaves the
+/// ledger alone — and the two halves have to agree, because a price invented on
+/// either side is a customer charged for a number nobody published.
+fn freeze_step_quote(
+    db: &crate::db::Database,
+    run_id: &str,
+    step_id: &str,
+    work_kind: WorkKind,
+    risk: RiskLevel,
+    verifiable: bool,
+) {
+    let Some(list) = db.active_price_list() else {
+        tracing::warn!(
+            run_id, step_id,
+            "no price list is published; this step is dispatched without a quote and \
+             cannot be charged for"
+        );
+        return;
+    };
+
+    let class = cortex_core::task_class::TaskClass::new(work_kind, risk, verifiable);
+    let Some((credits, billable)) = crate::pricing::quote(&list, &class) else {
+        tracing::warn!(
+            run_id, step_id, class = %class.key(), price_list_version = list.version,
+            "the published price list does not price this class; dispatched without a quote"
+        );
+        return;
+    };
+
+    let quote = crate::pricing::StepQuote {
+        quote_id: uuid::Uuid::new_v4().to_string(),
+        run_id: run_id.to_string(),
+        step_id: step_id.to_string(),
+        task_class: class.key(),
+        quoted_credits: credits,
+        price_list_id: list.id.clone(),
+        price_list_version: list.version,
+        // Decided now and stored, never recomputed at verdict time. A class
+        // that graduates between dispatch and verdict must not retroactively
+        // make a step billable that the customer was told was free.
+        billable,
+        frozen_at: chrono::Utc::now().timestamp(),
+    };
+
+    if let Err(e) = db.freeze_step_quote(&quote) {
+        tracing::warn!(
+            run_id, step_id, error = %e,
+            "could not freeze the quote; this step cannot be charged for"
+        );
+        return;
+    }
+
+    tracing::info!(
+        run_id, step_id,
+        class = %class.key(),
+        credits,
+        billable,
+        price_list_version = list.version,
+        "quote frozen at dispatch"
+    );
 }
 
 /// Downgrade a spec to the wire shape the worker contract speaks.

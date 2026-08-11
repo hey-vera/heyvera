@@ -1,5 +1,6 @@
 pub mod provider;
 pub mod task;
+pub mod task_class;
 pub mod routing;
 pub mod ledger;
 pub mod error;
