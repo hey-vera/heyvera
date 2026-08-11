@@ -8351,7 +8351,15 @@ impl Database {
         conn.execute(
             "INSERT OR REPLACE INTO workers (id, user_id, status, created_at, last_seen) VALUES (?1, ?2, 'connected', ?3, ?3)",
             params![worker_id, user_id, now],
-        ).ok();
+        )
+        .map_err(|e| {
+            // Same reasoning as `lease_step`: a worker that fails to persist
+            // still registers in memory, so dispatch finds it and then cannot
+            // lease to it. Silence here produces a failure two layers away.
+            tracing::error!(worker_id, user_id, error = %e, "register_worker failed");
+            e
+        })
+        .ok();
     }
 
     pub fn update_worker_seen(&self, worker_id: &str) {
@@ -9052,6 +9060,27 @@ impl Database {
              WHERE id = ?4 AND status IN ('pending', 'ready', 'orphaned')",
                 params![worker_id, deadline_ms, now, step_id],
             )
+            // A failed statement is **not** a lost race, and conflating them is
+            // how this stayed hidden. `assigned_worker` is a foreign key onto
+            // `workers(id)`, so leasing with a worker id that does not exist
+            // raises `FOREIGN KEY constraint failed` — and with the error
+            // swallowed, the caller saw exactly what it sees when another
+            // dispatcher won the CAS: zero rows. The scheduler then logged
+            // "CAS lease failed — skipping" and waited for the next tick,
+            // forever, and nothing in the system said the word "constraint".
+            //
+            // Logged at error, because a step that cannot be leased is a step
+            // that never runs.
+            .map_err(|e| {
+                tracing::error!(
+                    step_id,
+                    worker_id,
+                    error = %e,
+                    "lease_step failed at the database, not at the CAS — the step \
+                     cannot be dispatched"
+                );
+                e
+            })
             .unwrap_or(0);
         if rows == 0 {
             return None;
@@ -27403,6 +27432,60 @@ mod tests {
 mod truth {
     use super::tests::test_db;
     use super::*;
+
+    #[test]
+    fn leasing_to_an_unregistered_worker_is_reported_not_silently_lost() {
+        // The bug this pins: the scheduler leased with the literal string
+        // "scheduler" as the worker id. `steps.assigned_worker` is a foreign
+        // key onto `workers(id)`, so with `PRAGMA foreign_keys = ON` every
+        // dispatch raised `FOREIGN KEY constraint failed` — and the error was
+        // swallowed into the same `None` that means "another dispatcher won the
+        // CAS". No step could ever be leased, so no step could ever run, and
+        // the only symptom was one warning per reconcile tick that named the
+        // wrong cause.
+        //
+        // The assertion is deliberately about the *distinction*: leasing to a
+        // registered worker must succeed, and leasing to one that does not
+        // exist must not. A test that only checked the happy path would have
+        // passed against the broken code, because the broken code never got a
+        // registered worker id to pass.
+        let db = test_db();
+        let now = Utc::now().timestamp_millis();
+        let run_id = db.create_run_with_steps(
+            "user-1",
+            "ship it",
+            "auto",
+            &[],
+            None,
+            None,
+            None,
+            &[(
+                "step-lease".to_string(),
+                "execute".to_string(),
+                "ship".to_string(),
+                None,
+                "execute".to_string(),
+                "medium".to_string(),
+                "Do the work".to_string(),
+                now,
+            )],
+            &[],
+        );
+        assert!(!run_id.is_empty());
+
+        assert_eq!(
+            db.lease_step("step-lease", "w-does-not-exist", now + 600_000),
+            None,
+            "leasing to a worker with no row must fail rather than corrupting the \
+             foreign key"
+        );
+
+        db.register_worker("w-real", "user-1");
+        let lease_gen = db
+            .lease_step("step-lease", "w-real", now + 600_000)
+            .expect("leasing to a registered worker must succeed");
+        assert!(lease_gen > 0);
+    }
 
     /// A run with one leased, running step, ready to receive a delivery.
     fn leased_step(db: &Database, step_id: &str) -> (String, i64) {

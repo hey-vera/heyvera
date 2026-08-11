@@ -725,6 +725,56 @@ fn build_job<R: SandboxRunner>(
     job
 }
 
+/// Build the job for a step, for an integration test that spans crates.
+///
+/// A thin public wrapper rather than making `build_job` public: the runner and
+/// invocation are derived here exactly as the real path derives them, so a test
+/// cannot accidentally assert against a job assembled differently from the one
+/// production builds. That difference is the whole reason F7 and F8 survived —
+/// each side was tested against its own idea of the other.
+///
+/// Not `#[cfg(test)]`, because the caller is in another crate and a `cfg(test)`
+/// item is invisible across a crate boundary. That is the same class of mistake
+/// as the `#[cfg]` fence that said nothing about the link graph.
+pub fn build_job_for_test(
+    step: &StepExecution,
+    task: &TaskContract,
+    decision: &RoutingDecision,
+) -> ExecutionJob {
+    // `build_job` reads exactly one thing off the runner — the isolation class
+    // it would provide — so a runner that refuses to submit is sufficient and
+    // its refusal is unreachable. Declared here rather than exported, so no
+    // production caller can pick up a runner that runs nothing.
+    struct JobOnly;
+    impl SandboxRunner for JobOnly {
+        async fn submit(
+            &self,
+            _job: &ExecutionJob,
+            _request: &SandboxRequest,
+        ) -> Result<crate::sandbox::SandboxSession, Blocked> {
+            Err(Blocked::new(
+                BlockedReason::SandboxUnavailable,
+                "build_job_for_test never submits",
+            ))
+        }
+
+        fn isolation_class(&self) -> cortex_core::execution_job::IsolationClass {
+            cortex_core::execution_job::IsolationClass::Container
+        }
+    }
+
+    let invocation = build_command(decision).expect("a CLI-backed provider");
+    build_job(step, task, decision, &JobOnly, &invocation)
+}
+
+/// Render the prompt for a step, for an integration test that spans crates.
+///
+/// Same reasoning as [`build_job_for_test`]: the assertion has to be against
+/// the string production builds, not a reconstruction of it.
+pub fn build_prompt_for_test(task: &TaskContract, context: &StepContext) -> String {
+    build_prompt(task, context)
+}
+
 /// The image the agent sandbox runs.
 ///
 /// Distinct from the verification check runner's image: this one carries the
