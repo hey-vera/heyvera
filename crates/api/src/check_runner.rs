@@ -97,10 +97,14 @@ const SCRATCH_ENV: &[&str] = &[
     // The registry cache and cargo's own config. Cargo refuses to run at all
     // if it cannot establish a home directory.
     "CARGO_HOME=/scratch/cargo",
-    // Set explicitly rather than left to the image: a tool that falls back to
-    // `$HOME` must land on the tmpfs, not on a read-only `/home/sandbox`.
-    "HOME=/scratch/home",
-    "TMPDIR=/scratch/tmp",
+    // The mount point itself, not a subdirectory of it. The tmpfs is mounted
+    // over `/scratch` at start and hides anything the image created there, so
+    // `/scratch/home` would not exist when a tool looked for it. Cargo does
+    // `mkdir -p` on its target and home and copes either way; a tool that does
+    // a plain `mkdir` does not, and pointing at the mount point needs nothing
+    // to have gone right beforehand.
+    "HOME=/scratch",
+    "TMPDIR=/scratch",
     "npm_config_cache=/scratch/npm",
 ];
 /// Bytes of output retained verbatim on the execution record. The full log is

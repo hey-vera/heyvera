@@ -44,7 +44,7 @@ re-deriving anything.
 | 22 | Decision 4 — close #105, write longform by handle | #105 **closed**; the route is its own PR. |
 | **Wave 5** | | |
 | 23 | Task 1 - one real model invocation, end to end | **built, not run** - PRs [#530](https://github.com/hey-vera/heyvera/pull/530), [#531](https://github.com/hey-vera/heyvera/pull/531) merged. **Needs the provider key.** F9 + F10 found. |
-| 24 | Task 2 - deploy production v42 to v65, with a worker | **rehearsed, blocked** - migration is a clean no-op on real data; `CORTEX_SINGLE_NODE` is absent from the host env file and must be set first. **Needs Josh.** |
+| 24 | Task 2 - deploy production, with a worker | **deployed; execution still blocked** - production is at v66, healthy, zero rows moved. A worker service exists and cannot authenticate (**F11**), no sandbox image existed on the host, and no provider key is set. See "Task 2 outcome" below. |
 | 25 | Task 3 - catalog and estimator, price list as versioned data | **done** - migration v66, `provisional` prices that quote and never charge. PR J and PR Q deliberately not built. |
 | 26 | Task 4 - Phase 35 (teaching layer) written | **done** - written only, per the brief. PR AU added to the delivery list. |
 
@@ -1486,6 +1486,115 @@ CORTEX_SINGLE_NODE=1
 Remaining, in order, once that lands: deploy `main`, then
 `sudo CORTEX_USER=guardian bash scripts/cortex-install-worker.sh`, then report
 schema version, worker connected, and whether a step can dispatch.
+
+## Wave 5 / Task 2 outcome — production is current, and cannot execute
+
+**Deployed.** `cbeb9c05` is live on `clawguard`, schema **42 -> 66**, verified
+after the fact rather than assumed:
+
+| Check | Result |
+|---|---|
+| Service | `active (running)`, 0 restarts |
+| Schema version | **66** |
+| `CORTEX_SINGLE_NODE` | present in the **running process**, not only in the file |
+| Verification dispatcher | started (it exits the process without the flag) |
+| Health | `status: ok`, database ok, not degraded |
+| Data | 5 pending steps, 3 running runs, 2 social posts - unchanged |
+| v63 history rewrite | 0 rows, exactly as rehearsed |
+| Price list | v1 in production, 88 classes, all `provisional` |
+
+Rollback on the host: `cortex-server.3cafad6b.bak` and
+`cortex_predeploy_20260813T182044Z.db`.
+
+Deployed **without** `scripts/deploy-cortex.sh`, deliberately. The live database
+is a *tracked file* in `/home/guardian/claw-net`, and that script snapshots it
+and then runs `git reset --hard` + `git clean -fd`, which restores the committed
+dev snapshot over production and never restores the live one. The safe path is
+`git fetch` (refs only, never touches the working tree), a separate
+`git worktree` at `origin/main`, build there, `sudo cp` the binary.
+
+### F11. There is no worker credential a service can hold
+
+**The finding that explains why production has never had a worker**, and it is
+not a configuration mistake.
+
+`cortex-worker.service` is installed and running. It connects, registers, and is
+disconnected within a millisecond, every five seconds, minting a new worker id
+each time:
+
+```
+WARN cortex_api::ws: worker auth failed: empty auth token
+WARN cortex_api::ws: worker w-9325911b-67c: registration failed, closing connection
+```
+
+The worker reads its token from `CORTEX_TOKEN`.
+`scripts/cortex-install-worker.sh` writes a `worker.env` containing
+`CORTEX_BRAIN_URL`, `SOMA_ENFORCE_DELEGATION` and `RUST_LOG` - and **no token at
+all**. So the worker sends `token: ""`.
+
+Setting the variable does not fix it, which is the actual finding.
+`authenticate_worker` (`ws.rs:1387`) accepts exactly three things:
+
+1. an **empty** token - accepted only when `clerk_secret_key.is_none()`, i.e.
+   when authentication is switched off entirely. Production has Clerk
+   configured, so this is refused;
+2. a token starting with `{` - a **Soma delegation**, and the `soma` feature is
+   fenced off by ADR-0003 and must not be enabled;
+3. anything else - a **Clerk JWT**, a short-lived end-user session token.
+
+A systemd service cannot hold any of them. It cannot hold a JWT that expires in
+about a minute, and the worker has no refresh path - there is no `refresh` or
+`expire` handling anywhere in `crates/worker/src/bin/worker.rs`. Nothing
+consults `user_api_keys` either.
+
+**So Cortex has no service-identity credential, and the worker path has never
+been exercised against an authenticated API.** Every local test registers with
+an empty token against an `AppState` built with `None` for the Clerk secret -
+the one configuration in which the empty token is accepted. The tests were near
+the boundary, not at it, for the eighth time.
+
+Closing it needs a design decision, not a config change: a worker service token
+with its own issuance, scope and revocation. It grants the right to execute
+steps, so it is a security decision and it is deliberately not improvised here.
+
+**Do not "fix" this by unsetting `CLERK_SECRET_KEY`.** That would make the empty
+token authenticate as user `local` and would disable authentication for the
+entire production API.
+
+### F12. The provider CLI will not start without a writable HOME
+
+Found by building the sandbox image on the host, and it confirms F10 against the
+real CLI rather than by reasoning:
+
+```
+EACCES: mkdir '/home/sandbox/.claude/debug'
+```
+
+`claude --version` fails - not a task, the version flag - because the sandbox
+user is created `--no-create-home`. It also exposed a flaw in F10's own fix:
+`SCRATCH_ENV` pointed `HOME` at `/scratch/home`, and the tmpfs is mounted *over*
+`/scratch` at start, hiding anything the image created there. Every value now
+points at the mount point itself, which always exists, is mode 1777, and needs
+nothing to have gone right beforehand.
+
+The build-time smoke test in `Dockerfile.sandbox-provider` now runs with the
+exact environment the runner supplies, because a smoke test run under different
+variables tests a configuration that never happens.
+
+### What is true about production now
+
+- The API is current, healthy, and at v66.
+- A worker service exists and **cannot authenticate** (F11).
+- The sandbox images did not exist on the host at all; they are being built
+  under the names the code defaults to (`cortex/sandbox:dev`,
+  `cortex/egress:phase-a`, `cortex/runner:phase-a`), so no env change is needed.
+- `claude` 2.1.143 and `codex` 0.131.0 are installed on the host.
+- **No provider API key is set anywhere.** Even with F11 closed, a dispatched
+  step would sandbox, reach the provider host, and fail unauthenticated.
+
+So: **a step still cannot execute in production**, and the reason is now three
+named, specific things rather than "no worker service". That is the honest
+answer to Task 2's item 5.
 
 ## Wave 5 / Task 3 — the price list, as versioned data
 

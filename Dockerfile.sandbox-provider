@@ -56,12 +56,23 @@ RUN npm install -g --no-fund --no-audit \
 # the diff, in the git evidence, and in what the frozen checks grade.
 RUN mkdir -p /scratch && chown sandbox:sandbox /scratch
 
-# Verify the CLI is on PATH for the unprivileged user at build time rather than
-# discovering it at dispatch. A sandbox image whose agent is not executable
-# fails as `CliNotFound` inside a container, two layers from anyone who can fix
-# it.
+# Verify the CLI actually starts, as the unprivileged user, **with the exact
+# environment the runner supplies at dispatch**. A smoke test run under
+# different variables than production tests a configuration that never happens.
+#
+# This check earned its place immediately: the first build failed here with
+# `EACCES: mkdir /home/sandbox/.claude/debug`, because the CLI insists on a
+# writable HOME even to print its own version and the user is created with
+# `--no-create-home`. That is F10 confirmed against the real CLI rather than
+# reasoned about — and it is two layers from anyone who could diagnose it if it
+# surfaces at dispatch instead, as `CliNotFound` inside a torn-down container.
+#
+# The values match `SCRATCH_ENV` in `crates/worker/src/sandbox/policy.rs`, and
+# they are the mount point itself rather than subdirectories of it: at runtime
+# the tmpfs is mounted over /scratch and hides anything created here, so
+# `/scratch/home` would not exist when the CLI looked for it.
 USER sandbox
-RUN claude --version
+RUN HOME=/scratch TMPDIR=/scratch XDG_CACHE_HOME=/scratch XDG_CONFIG_HOME=/scratch     claude --version
 
 WORKDIR /work
 
