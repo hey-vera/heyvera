@@ -125,11 +125,22 @@ pub const SCRATCH_TMPFS_OPTIONS: &str = "rw,exec,nosuid,nodev,size=2147483648,mo
 
 /// Where a tool that writes should write. A constant, never a lookup — see
 /// [`sanctioned_env`].
+///
+/// Every value is the mount point **itself**, not a subdirectory of it. That
+/// looks untidy and it is the only version that works: the tmpfs is mounted
+/// over `/scratch` at start, which hides anything the image created there, so
+/// `/scratch/home` would not exist when the process looked for it. A tool that
+/// does `mkdir -p` would cope and one that does a plain `mkdir` would not, and
+/// the provider CLI is the second kind — it fails with `EACCES` on
+/// `$HOME/.claude/debug` before printing its own version number.
+///
+/// The mount point always exists, is mode 1777, and dies with the container, so
+/// pointing everything at it needs nothing to have gone right beforehand.
 pub const SCRATCH_ENV: &[&str] = &[
-    "HOME=/scratch/home",
-    "TMPDIR=/scratch/tmp",
-    "XDG_CACHE_HOME=/scratch/cache",
-    "XDG_CONFIG_HOME=/scratch/config",
+    "HOME=/scratch",
+    "TMPDIR=/scratch",
+    "XDG_CACHE_HOME=/scratch",
+    "XDG_CONFIG_HOME=/scratch",
 ];
 
 /// The rule, with the environment lookup passed in.
