@@ -1581,13 +1581,54 @@ The build-time smoke test in `Dockerfile.sandbox-provider` now runs with the
 exact environment the runner supplies, because a smoke test run under different
 variables tests a configuration that never happens.
 
+### F9, F10 and F12 proven against a real runtime, not against a config struct
+
+The unit tests assert what `container_config` *returns*. That is the right test
+and it is not proof, because the whole class of bug being fixed is "the runtime
+does something the configuration did not imply". So all three were run on the
+production host, in the exact configuration the code builds at dispatch:
+`--user sandbox --read-only --network none --cap-drop ALL
+--security-opt no-new-privileges:true`, a `/scratch` tmpfs with the real mount
+options, and the real `SCRATCH_ENV` values.
+
+**The sandbox image starts its agent** — F10 and F12:
+
+```
+$ docker run ... cortex/sandbox:dev claude --version
+2.0.14 (Claude Code)
+exit=0
+```
+
+Before the fix this same command failed with
+`EACCES: mkdir '/home/sandbox/.claude/debug'`.
+
+**The check runner executes a real check against a read-only tree** — F9, the
+direct proof:
+
+```
+$ docker run ... -v $TREE:/work:ro cortex/runner:phase-a cargo check --locked
+    Checking subject v0.1.0 (/work)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.21s
+```
+
+And the property the read-only mount exists to protect survived it — the tree
+afterwards contains `Cargo.lock`, `Cargo.toml`, `src` and **no `target/`**. The
+build output went to the tmpfs and died with the container, so a check still
+cannot edit its way to green.
+
+That is the first time in this project's history that a frozen check has been
+executed by the real runner against a real tree.
+
+All three images are now on the host under the names the code defaults to, so
+no environment variable is needed: `cortex/sandbox:dev` (723MB),
+`cortex/egress:phase-a` (1.35MB), `cortex/runner:phase-a` (1.36GB).
+
 ### What is true about production now
 
 - The API is current, healthy, and at v66.
 - A worker service exists and **cannot authenticate** (F11).
-- The sandbox images did not exist on the host at all; they are being built
-  under the names the code defaults to (`cortex/sandbox:dev`,
-  `cortex/egress:phase-a`, `cortex/runner:phase-a`), so no env change is needed.
+- The sandbox images did not exist on the host at all. All three are now built
+  and **verified running**, under the names the code defaults to.
 - `claude` 2.1.143 and `codex` 0.131.0 are installed on the host.
 - **No provider API key is set anywhere.** Even with F11 closed, a dispatched
   step would sandbox, reach the provider host, and fail unauthenticated.
