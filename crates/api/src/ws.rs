@@ -1385,10 +1385,39 @@ fn record_step_usage(
 }
 
 async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, String> {
+    // A `cwk_` worker service credential, checked FIRST.
+    //
+    // First because it is the only credential a headless worker can actually
+    // hold: it has no browser, so it can never present a Clerk user JWT, and
+    // before this branch existed the only worker token the server accepted in
+    // practice was the empty string. Ordering it ahead of the empty-token
+    // branch also means the anonymous path below can never shadow a real
+    // credential, whatever that path is later configured to do.
+    if crate::worker_key::is_worker_key(token) {
+        let db = state
+            .db
+            .as_ref()
+            .ok_or_else(|| "database not available".to_string())?;
+        let now = chrono::Utc::now().timestamp_millis();
+        // Unknown, revoked and expired are one answer on purpose: an
+        // authentication boundary does not tell a caller which of those it was.
+        // The revoked/expired filtering is in the SQL, not here.
+        return db
+            .authenticate_worker_key(&crate::worker_key::hash_worker_key(token), now)
+            .ok_or_else(|| "invalid worker key".to_string());
+    }
+
     if token.is_empty() {
-        // No Clerk configured — local dev mode
-        if state.clerk_secret_key.is_none() {
-            return Ok("local".to_string());
+        // The anonymous path, and it is now closed unless somebody opened it.
+        //
+        // This used to read `if state.clerk_secret_key.is_none()`, which made
+        // "Clerk is not configured" mean "anyone may connect as `local`". Those
+        // are not the same statement: a deployment can lose its
+        // `CLERK_SECRET_KEY` by accident, and production ran for months in
+        // exactly that configuration. Nobody sets
+        // `CORTEX_ALLOW_ANONYMOUS_WORKER=1` by accident.
+        if state.allow_anonymous_worker {
+            return Ok(crate::worker_key::ANONYMOUS_WORKER_USER.to_string());
         }
         return Err("empty auth token".into());
     }
@@ -1396,9 +1425,16 @@ async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, St
     // A token that starts with '{' is a JSON Soma delegation. Without the
     // `soma` feature this build has no way to verify one, so it is an unknown
     // credential format and is rejected here. It must not fall through to the
-    // Clerk verifier: a JSON blob is not a JWT, the failure would be reported
-    // as a bad JWT, and — worse — an empty `clerk_secret_key` makes that path
-    // return `Ok("local")`, which would authenticate an unverifiable token.
+    // Clerk verifier: a JSON blob is not a JWT, and the failure would be
+    // reported as a bad JWT.
+    //
+    // This fence used to carry a second, sharper reason: an unset
+    // `clerk_secret_key` made the fallback below answer `Ok("local")` for
+    // anything, so a Soma-shaped token that reached it would have been
+    // *authenticated*. That hole is closed — the fallback now refuses unless
+    // `CORTEX_ALLOW_ANONYMOUS_WORKER` is set — but the fence stays, because
+    // naming the credential format in the error is still the right answer and
+    // because it does not depend on how the anonymous path is configured.
     #[cfg(not(feature = "soma"))]
     if token.starts_with('{') {
         return Err("unsupported worker credential format".into());
@@ -1460,11 +1496,17 @@ async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, St
         return Ok(delegation.subject_did);
     }
 
-    // Fall back to Clerk JWT
+    // Fall back to Clerk JWT.
     let clerk_secret = match &state.clerk_secret_key {
         Some(key) => key,
         None => {
-            return Ok("local".to_string());
+            // Same change as above, and this was the more dangerous of the two:
+            // with no Clerk secret this arm answered `Ok("local")` for *any*
+            // non-empty token it was handed, having verified nothing at all.
+            if state.allow_anonymous_worker {
+                return Ok(crate::worker_key::ANONYMOUS_WORKER_USER.to_string());
+            }
+            return Err("worker authentication is not configured".into());
         }
     };
 
@@ -1488,11 +1530,13 @@ mod soma_fence_tests {
         let temporary = tempfile::tempdir().expect("temporary workspace");
         let workspace = temporary.path().to_path_buf();
         std::fs::create_dir_all(workspace.join(".cortex")).expect("workspace metadata");
-        // `None` for the Clerk secret is the local-dev configuration, and it is
-        // the dangerous one: it is the configuration in which the fallback path
-        // at the bottom of `authenticate_worker` returns `Ok("local")` for
-        // anything it is handed. Leaving it unset here is the point of the test
-        // — the rejection has to come from the format check, not from Clerk.
+        // `None` for the Clerk secret is the local-dev configuration, and it
+        // used to be the dangerous one: it was the configuration in which the
+        // fallback path at the bottom of `authenticate_worker` returned
+        // `Ok("local")` for anything it was handed. That hole is closed now
+        // (see `worker_credential`), but leaving the secret unset here is still
+        // the point of this test — the rejection has to come from the format
+        // check, not from Clerk being configured.
         let state =
             AppState::new(workspace.join(".cortex/ledger.jsonl"), workspace, None).await;
         std::mem::forget(temporary);
@@ -1529,13 +1573,266 @@ mod soma_fence_tests {
         );
     }
 
-    /// The empty-token local-dev path is untouched by the fence. Asserted so a
-    /// later tightening of the rejection above cannot silently break local
-    /// development and be mistaken for the fence working.
+    /// The empty-token local-dev path is untouched by the fence — when the
+    /// operator has explicitly opened it. Asserted so a later tightening of the
+    /// rejection above cannot silently break local development and be mistaken
+    /// for the fence working.
+    ///
+    /// Note what changed: the escape hatch now has to be opened on the state.
+    /// An unset `CLERK_SECRET_KEY` no longer implies it. The corresponding
+    /// closed-by-default assertion lives in `worker_credential`.
     #[tokio::test]
-    async fn empty_token_still_means_local_dev() {
-        let state = test_state().await;
+    async fn empty_token_means_local_dev_when_anonymous_workers_are_allowed() {
+        let mut state = test_state().await;
+        std::sync::Arc::get_mut(&mut state)
+            .expect("sole owner of the state")
+            .allow_anonymous_worker = true;
         assert_eq!(authenticate_worker(&state, "").await.ok().as_deref(), Some("local"));
+    }
+}
+
+/// The worker service credential, and the anonymous path it closes.
+///
+/// # Why these tests are written the way they are
+///
+/// Every worker test that existed before this module built `AppState` with
+/// `clerk_secret_key: None`. That is the one configuration in which the empty
+/// token was *accepted* — so the whole suite ran on the safe side of the
+/// boundary, and the case that mattered was never exercised. The tests below
+/// configure Clerk, which is what production does, and assert at the boundary
+/// rather than near it.
+#[cfg(test)]
+mod worker_credential {
+    use super::*;
+
+    /// A state with Clerk **configured** — the production shape. The secret is
+    /// never used by any assertion here: no test in this module presents a JWT,
+    /// so the JWKS fetch is never reached. It is set precisely so that the
+    /// `clerk_secret_key.is_none()` shortcuts cannot be what makes a test pass.
+    async fn state_with_clerk() -> std::sync::Arc<AppState> {
+        state_with(Some("sk_test_worker_credential".to_string())).await
+    }
+
+    /// A state with Clerk unconfigured — the local-dev shape, and the one the
+    /// old code treated as "let anybody in".
+    async fn state_without_clerk() -> std::sync::Arc<AppState> {
+        state_with(None).await
+    }
+
+    async fn state_with(clerk_secret_key: Option<String>) -> std::sync::Arc<AppState> {
+        let temporary = tempfile::tempdir().expect("temporary workspace");
+        let workspace = temporary.path().to_path_buf();
+        std::fs::create_dir_all(workspace.join(".cortex")).expect("workspace metadata");
+        let state = AppState::new(
+            workspace.join(".cortex/ledger.jsonl"),
+            workspace,
+            clerk_secret_key,
+        )
+        .await;
+        // The tempdir must outlive the state's open database handle.
+        std::mem::forget(temporary);
+        state
+    }
+
+    /// Mint a key and record it, returning the plaintext the worker would hold.
+    ///
+    /// `expires_at` is epoch milliseconds; `None` means "until revoked".
+    fn issue(state: &AppState, owner: &str, expires_at: Option<i64>) -> String {
+        let key = crate::worker_key::generate_worker_key();
+        state
+            .db
+            .as_ref()
+            .expect("database")
+            .create_worker_key(
+                &format!("wk-{}", &key.hash[..8]),
+                &key.hash,
+                &key.display_prefix,
+                owner,
+                crate::worker_key::DEFAULT_WORKER_SCOPE,
+                expires_at,
+            )
+            .expect("issue worker key");
+        key.secret
+    }
+
+    fn now_ms() -> i64 {
+        chrono::Utc::now().timestamp_millis()
+    }
+
+    /// The credential works, and it works in the configuration that matters:
+    /// Clerk configured, so nothing in the JWT fallback can be what accepted it.
+    #[tokio::test]
+    async fn a_valid_worker_key_authenticates_with_clerk_configured() {
+        let state = state_with_clerk().await;
+        let secret = issue(&state, "user_alice", None);
+
+        assert_eq!(
+            authenticate_worker(&state, &secret).await.ok().as_deref(),
+            Some("user_alice"),
+            "a valid cwk_ key must resolve to its owner"
+        );
+    }
+
+    /// The empty token is refused when Clerk is configured. This is the
+    /// assertion the old suite could not make, because it never built this
+    /// state.
+    #[tokio::test]
+    async fn an_empty_token_is_refused_with_clerk_configured() {
+        let state = state_with_clerk().await;
+        assert!(
+            authenticate_worker(&state, "").await.is_err(),
+            "an empty token must never authenticate a worker"
+        );
+    }
+
+    /// **The security change.** With Clerk unconfigured and the escape hatch
+    /// unset, an empty token is refused. This is the exact case production ran
+    /// in: no `CLERK_SECRET_KEY`, and therefore — until this PR — any client
+    /// at all could connect as `local` and be handed steps to execute.
+    #[tokio::test]
+    async fn an_empty_token_is_refused_when_clerk_is_unconfigured_and_the_flag_is_unset() {
+        let state = state_without_clerk().await;
+        assert!(
+            !state.allow_anonymous_worker,
+            "the anonymous worker path must be closed unless explicitly opened"
+        );
+        let outcome = authenticate_worker(&state, "").await;
+        assert!(
+            outcome.is_err(),
+            "an unset CLERK_SECRET_KEY must not be sufficient to authenticate a \
+             worker, got {outcome:?}"
+        );
+        assert_ne!(outcome.ok().as_deref(), Some("local"));
+    }
+
+    /// The same hole, reached through the other door: a non-empty token that is
+    /// not a worker key used to be answered `Ok("local")` by the Clerk fallback
+    /// when no secret was configured, without being verified at all.
+    #[tokio::test]
+    async fn an_unverifiable_token_is_refused_when_clerk_is_unconfigured() {
+        let state = state_without_clerk().await;
+        let outcome = authenticate_worker(&state, "eyJhbGciOiJSUzI1NiJ9.e30.sig").await;
+        assert!(outcome.is_err(), "got {outcome:?}");
+        assert_ne!(outcome.ok().as_deref(), Some("local"));
+    }
+
+    #[tokio::test]
+    async fn a_revoked_key_is_refused() {
+        let state = state_with_clerk().await;
+        let secret = issue(&state, "user_bob", None);
+        let db = state.db.as_ref().expect("database");
+
+        // It authenticates before revocation — otherwise this test could pass
+        // for the wrong reason.
+        assert!(authenticate_worker(&state, &secret).await.is_ok());
+
+        let hash = crate::worker_key::hash_worker_key(&secret);
+        let prefix = crate::key_material::display_prefix(&secret);
+        assert_eq!(db.revoke_worker_key(&prefix), 1);
+
+        assert!(
+            authenticate_worker(&state, &secret).await.is_err(),
+            "a revoked key must not authenticate"
+        );
+        assert!(db.authenticate_worker_key(&hash, now_ms()).is_none());
+        // Revocation is idempotent and does not move the recorded moment.
+        assert_eq!(db.revoke_worker_key(&prefix), 0);
+    }
+
+    #[tokio::test]
+    async fn an_expired_key_is_refused() {
+        let state = state_with_clerk().await;
+        let expired = issue(&state, "user_carol", Some(now_ms() - 60_000));
+
+        assert!(
+            authenticate_worker(&state, &expired).await.is_err(),
+            "a key past its expiry must not authenticate"
+        );
+
+        // A key whose expiry is still in the future does authenticate, so the
+        // assertion above is about expiry and not about `expires_at` being set.
+        let live = issue(&state, "user_carol", Some(now_ms() + 3_600_000));
+        assert_eq!(
+            authenticate_worker(&state, &live).await.ok().as_deref(),
+            Some("user_carol")
+        );
+    }
+
+    /// A well-formed `cwk_` token that was never issued is refused, and is
+    /// refused by the worker-key branch rather than falling through to Clerk.
+    #[tokio::test]
+    async fn an_unissued_worker_key_is_refused() {
+        let state = state_with_clerk().await;
+        let forged = crate::worker_key::generate_worker_key().secret;
+        let outcome = authenticate_worker(&state, &forged).await;
+        assert_eq!(outcome.err().as_deref(), Some("invalid worker key"));
+    }
+
+    /// The worker-key branch is checked before the empty-token branch and
+    /// before the JWT fallback, so opening the anonymous hatch cannot shadow a
+    /// real credential and cannot turn a bad key into a `local` session.
+    #[tokio::test]
+    async fn the_worker_key_branch_wins_even_with_the_anonymous_hatch_open() {
+        let mut state = state_without_clerk().await;
+        std::sync::Arc::get_mut(&mut state)
+            .expect("sole owner of the state")
+            .allow_anonymous_worker = true;
+
+        let secret = issue(&state, "user_dave", None);
+        assert_eq!(
+            authenticate_worker(&state, &secret).await.ok().as_deref(),
+            Some("user_dave"),
+            "a real key must resolve to its owner, not to the anonymous user"
+        );
+
+        let forged = crate::worker_key::generate_worker_key().secret;
+        let outcome = authenticate_worker(&state, &forged).await;
+        assert!(outcome.is_err(), "got {outcome:?}");
+        assert_ne!(
+            outcome.ok().as_deref(),
+            Some("local"),
+            "an invalid worker key must not degrade into an anonymous session"
+        );
+    }
+
+    /// Authentication stamps `last_used_at`, so an operator can tell a live
+    /// credential from an abandoned one before revoking it.
+    #[tokio::test]
+    async fn a_successful_authentication_stamps_last_used_at() {
+        let state = state_with_clerk().await;
+        let secret = issue(&state, "user_erin", None);
+        let db = state.db.as_ref().expect("database");
+
+        let before = db.list_worker_keys(Some("user_erin"));
+        assert_eq!(before.len(), 1);
+        assert!(before[0]["lastUsedAt"].is_null());
+
+        assert!(authenticate_worker(&state, &secret).await.is_ok());
+
+        let after = db.list_worker_keys(Some("user_erin"));
+        assert!(after[0]["lastUsedAt"].as_i64().is_some());
+    }
+
+    /// Nothing in the operator view carries key material beyond the
+    /// non-secret display prefix.
+    #[tokio::test]
+    async fn the_operator_listing_never_carries_key_material() {
+        let state = state_with_clerk().await;
+        let secret = issue(&state, "user_frank", None);
+        let hash = crate::worker_key::hash_worker_key(&secret);
+
+        let listed = state
+            .db
+            .as_ref()
+            .expect("database")
+            .list_worker_keys(None)
+            .iter()
+            .map(|row| row.to_string())
+            .collect::<String>();
+
+        assert!(!listed.contains(&secret), "plaintext must never be listed");
+        assert!(!listed.contains(&hash), "the hash must never be listed");
+        assert!(listed.contains("user_frank"));
     }
 }
 

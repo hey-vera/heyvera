@@ -28,6 +28,7 @@ pub mod docker;
 pub mod github;
 pub mod github_repos;
 mod integrations;
+pub mod key_material;
 mod lock;
 pub mod llm_client;
 pub mod media;
@@ -61,6 +62,7 @@ mod usage_api;
 mod user;
 mod validate;
 pub mod vera;
+pub mod worker_key;
 mod ws;
 pub mod x402;
 
