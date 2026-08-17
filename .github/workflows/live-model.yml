@@ -137,6 +137,15 @@ jobs:
       # The evidence. Kept as an artifact because the checkpoint quotes it, and
       # a quote should come from a run rather than from a summary somebody
       # wrote afterwards.
+      #
+      # 90 days is deliberate and is NOT the repository default — the default was
+      # lowered to 14 days, and this step overrides it upwards on purpose. This
+      # workflow is workflow_dispatch-only because it spends money on a provider
+      # call, so it runs rarely and its output is a single small log. Losing the
+      # receipt of the one run that proved Cortex can complete a task, because a
+      # retention sweep aimed at 60 MB of screenshots caught it, would be the
+      # expensive mistake here. The artifact is kilobytes; the run it documents
+      # is not repeatable for free.
       - name: Upload the receipt
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
