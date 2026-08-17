@@ -32,6 +32,35 @@ USER root
 COPY testing/stub-provider/claude /usr/local/bin/claude
 RUN chmod 0755 /usr/local/bin/claude
 
+# ---------------------------------------------------------------------------
+# A Rust toolchain, present ONLY because of finding F13.
+#
+# This is the one place this image deliberately differs from
+# `Dockerfile.sandbox-provider` by more than the stub, and it is not a
+# convenience -- without it the chain downstream of the provider cannot be
+# exercised at all.
+#
+# `runner_image()` in crates/worker/src/executor.rs reads CORTEX_SANDBOX_IMAGE,
+# so the worker's own required checks run **inside this sandbox image**, not in
+# the check-runner image. Neither published sandbox image carries a toolchain
+# (the provider image adds node, not rust), so `cargo` exits 127, and
+# `required_checks_allow_commit` -- which demands exit_code == Some(0) from
+# every required check -- then suppresses the auto-commit. The diff is written
+# but never committed, head_commit == base_commit, and nothing is ever
+# delivered to verification.
+#
+# So a stub image without cargo can only ever reproduce F13. It could never
+# reach a verdict or a receipt, which is what this exercise is for. Cargo is
+# installed here to get PAST F13 and exercise the rest of the chain. F13 itself
+# is reported, not worked around in production code.
+#
+# Debian's cargo rather than rustup: the subject crate has no dependencies and
+# a two-stanza lock file, so the toolchain only needs to be new enough for
+# edition 2021, and a rustup install would put a network fetch inside an image
+# built for a test that asserts nothing is fetched.
+USER root
+RUN apt-get update && apt-get install -y --no-install-recommends cargo     && rm -rf /var/lib/apt/lists/*
+
 # Same scratch mount point as the provider image, for the same reason: the
 # rootfs is read-only at runtime and HOME/TMPDIR/XDG_* all point at /scratch
 # (see SCRATCH_ENV in crates/worker/src/sandbox/policy.rs). Without it the
