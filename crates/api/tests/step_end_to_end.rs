@@ -1144,7 +1144,10 @@ async fn drive_one_stubbed_task(scenario: &str) -> StubbedRun {
         (Some(receipt), Some(json))
     };
 
-    let step_status = state.db.as_ref().and_then(|db| db.get_step_status(&step_id));
+    let step_status = state
+        .db
+        .as_ref()
+        .and_then(|db| db.get_step_status(&step_id));
 
     StubbedRun {
         step_id,
