@@ -23,7 +23,6 @@ crates/            Rust backend (shared, serves both products)
 deploy/            deployment scripts and service files
 scripts/           build, setup, deploy scripts
 docs/              architecture specs and proposals
-archive/           old code and docs (reference only, do not build from)
 ```
 
 ## Quick Start

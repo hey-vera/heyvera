@@ -2242,3 +2242,60 @@ Reconciled, not deferred. No plan change needed.
   failure. It **passed** on this machine during PR A (316/316 on the api lib).
   Treat any failure of it as suspect rather than expected.
 - If a brief and the plan disagree, the plan wins and the brief is fixed.
+
+## Wave 6 / Task 9 — monorepo prune: recovery pointers
+
+Two reference trees were deleted from the working tree on branch
+`chore/monorepo-prune`. **Nothing was lost** — git history retains every byte.
+These are the pointers that make that true in practice rather than in principle,
+recorded the same way `archive/round5-teaching` was.
+
+| Tree | Tracked files | Deleting commit | Recover with |
+|---|---|---|---|
+| `archive/` | 423 | **`2e25d335`** | `git checkout 2e25d335^ -- archive/` |
+| `heyvera/reference/synthr-pulse/` | 443 | **`c9958616`** | `git checkout c9958616^ -- heyvera/reference/synthr-pulse/` |
+
+Read a single file without restoring the tree:
+`git show 2e25d335^:archive/docs/runbook.md`
+
+Tracked files: **1,621 → 755** (866 removed, 53% of the repository).
+
+### Why each was safe
+
+- **`archive/`** — 224 md, 71 json, 61 ts, 17 swift, 12 jsonl. No `.rs`, and
+  nothing in the workspace imports or reads it at runtime. README marked the
+  whole tree "reference only, do not build from".
+- **`synthr-pulse/`** — a vendored third project. Verified out of the build
+  graph before removal: its `backend/Cargo.toml` is **not** a `[workspace]`
+  member, and `synthr-pulse` appears nowhere in `Cargo.lock`. Its nested
+  `.github/CODEOWNERS` was never in effect — GitHub reads CODEOWNERS only from
+  the repo root, `/.github/`, or `/docs/`.
+
+### Inbound references found, and what was done about each
+
+The grep was run **before** deleting. Every hit was repaired rather than left
+dangling:
+
+| Reference | Resolution |
+|---|---|
+| `README.md` repo-layout line for `archive/` | line removed |
+| `.gitignore` rule `archive/root-node-modules/` | removed; it had nothing left to ignore |
+| `heyvera/reference/README.md` (described the tree) | rewritten as a recovery pointer to `c9958616` |
+| `heyvera/CURRENT.md` ("lives at `heyvera/reference/synthr-pulse/`") | rewritten to say removed, with the SHA |
+| `heyvera/docs/PULSE-STRATEGY.md` (`archive/pulse/`) | now points at `2e25d335^` |
+| `heyvera/docs/PULSE-REFERENCE-INVENTORY.md` (~30 paths into the tree) | header note added; the paths are now historical pointers and the **document is the artifact** |
+| `crates/context/src/extract.rs` `SKIP_DIRS` | **code, and deliberately unchanged.** "archive" applies to whatever repository Cortex indexes, not to this one. Only the stale doc comment ("holds 6,000+ files") was corrected. |
+
+Historical narrative mentions in `EXECUTION-STATE.md`, `HANDOFF-OPUS5.md`,
+`PLAN-2026-08.md`, and the 2026-07-28 Socials audit were **left alone** — they
+describe what was true when written, which is what a checkpoint is for.
+
+### The one real loss, already covered
+
+`archive/` held the only deploy runbooks in the repository
+(`archive/docs/runbook.md`, `archive/docs/rollback-runbook.md`,
+`archive/CORTEX_DEPLOYMENT.md`, `archive/PRODUCTION_DEPLOYMENT_GUIDE.md`).
+`docs/operations/deploy-runbook.md`, added on
+`docs/vps-capacity-and-deploy-disk-gate`, replaces them against the topology the
+host actually runs. **Land that branch before or with this one.**
+

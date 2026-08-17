@@ -58,7 +58,7 @@ If you need a unique shell later, redesign from the **live** router/shell, or de
 ## Pulse
 
 - **In this monorepo today:** Rust draft pipeline under `/v1/pulse/drafts*` (`crates/api/src/pulse.rs`) + FE `src/api/pulse.ts` + `/ai` page.
-- **Direction:** **Rebuild Pulse into heyvera.org** as a first-class control plane (not a vendored second SPA). Standalone reference cloned from `hey-vera/Synthr-Files` lives at `heyvera/reference/synthr-pulse/` (read-only inspiration). Inventory: `docs/PULSE-REFERENCE-INVENTORY.md`. Strategy: `docs/PULSE-STRATEGY.md`.
+- **Direction:** **Rebuild Pulse into heyvera.org** as a first-class control plane (not a vendored second SPA). The standalone reference cloned from `hey-vera/Synthr-Files` was vendored at `heyvera/reference/synthr-pulse/` and **removed in `c9958616`** once the inventory captured it (`git show c9958616^:<path>` to read it). Inventory: `docs/PULSE-REFERENCE-INVENTORY.md`. Strategy: `docs/PULSE-STRATEGY.md`.
 - **Honesty rule:** Do not ship keyword-bot chat as “AI agent.” Real Pulse chat/tools are a later phase; until then UI must not fake intelligence.
 - **Do not** import the standalone SPA as a second product; port tools/policies/UX intent into Rust HeyVera + `/ai`.
 

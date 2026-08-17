@@ -19,8 +19,10 @@ use tree_sitter::{Language, Parser, Query, QueryCursor};
 use crate::repo_map::{Reference, Symbol, SymbolKind};
 
 /// Directories never worth indexing: build output, dependencies, and history.
-/// `archive/` is repo-specific and deliberate — it holds 6,000+ files marked
-/// "reference only, do not build from".
+/// `archive/` is repo-specific and deliberate: repositories that keep an
+/// `archive/` tree mark it "reference only, do not build from". This one no
+/// longer has such a tree, but the entry applies to every repository Cortex
+/// indexes, not just this one, so it stays.
 const SKIP_DIRS: [&str; 8] = [
     ".git",
     "node_modules",

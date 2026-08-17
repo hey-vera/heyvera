@@ -1,4 +1,11 @@
 # Pulse Reference Inventory
+> **The source tree this inventory describes no longer exists in the working**
+> **tree.** `heyvera/reference/synthr-pulse/` was deleted in `c9958616`; every
+> path below is a historical pointer, resolvable with
+> `git show c9958616^:<path>`. Paths are written repo-relative under the
+> `/home/runner/workspace/` prefix of the machine the inventory was taken on.
+> This document is now the artifact, not the tree it indexes.
+
 
 **Source tree:** `/home/runner/workspace/heyvera/reference/synthr-pulse/`  
 **Compared against live HeyVera Pulse:**

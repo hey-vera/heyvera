@@ -51,5 +51,5 @@ User (chat / schedule / “post for me”)
 |------|--------|
 | Live Pulse FE | `heyvera/src/pages/AIPage.tsx`, `heyvera/src/api/pulse.ts` |
 | Live Pulse BE | `crates/api/src/pulse.rs` |
-| Archived marketing-era SPA | `archive/pulse/` (not product SoT) |
+| Archived marketing-era SPA | **removed** from the tree; last present in `2e25d335^`. Recover: `git show 2e25d335^:archive/pulse/README.md` |
 | External standalone (Josh) | e.g. `Synthr-Files/apps/pulse` — copy into workspace when ready |
