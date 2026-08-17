@@ -297,10 +297,16 @@ jobs:
       # A green check on a bump to a crate the build never compiles is not
       # evidence about that crate. Every optional feature in this manifest is
       # now checked, so the next such bump fails where it should.
+      #
+      # `--all-targets`, not `--bins`: `--bins` compiles only the binaries, so
+      # a break in a test, example, or bench behind one of these features stays
+      # invisible to this job. That is the same blind spot the job exists to
+      # close, one level down -- the feature was checked, but only in the
+      # configuration least likely to be where the break is.
       - name: Check optional features
         run: |
-          cargo check -p cortex-api --features otel --bins --locked
-          cargo check -p cortex-api --features sentry-tracking --bins --locked
+          cargo check -p cortex-api --features otel --all-targets --locked
+          cargo check -p cortex-api --features sentry-tracking --all-targets --locked
 
       # The `soma` feature is off by default, so `--workspace` above compiles
       # the fenced-out configuration and never the fenced-in one. Check the
