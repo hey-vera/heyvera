@@ -37,7 +37,11 @@ Verification scope of this review, stated honestly so nobody over-trusts it:
   and `db.rs` line references in the Track A evidence table.
 - **Not run:** full API test suite, frontend build (`cortex/node_modules`
   absent). Local Rust builds *do* work — use
-  `cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --lib`. Never run
+  `cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --all-targets`.
+  **Always `--all-targets`, never `--lib`:** `--lib` does run every unit test in
+  `crates/api/src/` — hundreds of them — but it never *compiles*
+  `crates/api/tests/`, so the integration suite where every cross-crate finding
+  in waves 4 and 5 lived is silently absent from a green result. Never run
   `cargo fmt` on this repo.
 
 ## Decision
@@ -299,6 +303,23 @@ means something.
     mechanism, recording every mechanism decision it made. Every mechanism
     declares a disclosure tier, and nothing above the *always* tier may be
     required reading to complete a task.
+
+The last two come from the fifth round (Phase 35), which attacked the human
+axis: not whether Cortex is correct, but whether the person who bought it is left
+more capable or less.
+
+32. **No teaching artifact above its evidence.** Every teaching artifact derives
+    from a decision record and inherits that record's verdict class, battery
+    power, and comprehension state. Where the record is thin — `UNVERIFIED`, a
+    `none` battery, a degraded map, an `inconclusive` verdict, a quarantined
+    check, low race agreement — the artifact states what happened and what was
+    not established, and may not explain why the result is correct. No model
+    narrates another model's work.
+33. **Teaching is pulled, never pushed, and its level is measured, never
+    declared.** No teaching artifact interrupts an in-flight task, and no surface
+    exists that a developer must remember to visit. The guidance level is derived
+    from that developer's recorded outcomes in that subsystem — never from a
+    self-assessment, a tier, or a mode.
 
 ---
 
@@ -5982,7 +6003,12 @@ is exactly the failure this document exists to prevent.
   contradiction, silent comprehension degradation, the missing scoreboard, the
   unpriced guarantee, and the missing off switches. The rate is not obviously
   decreasing, and the correct response remains another round rather than
-  confidence.
+  confidence. *Round five has since run, on the human axis, and Phase 35 is its
+  output — it found that every phase before it optimised a delegation loop that
+  measurably degrades the developer using it. The bullet above about the solo
+  builder is the same gap seen from a different side, and Phase 35 does not close
+  it: watching someone who did not read this document complete a task remains
+  untested and remains the only real evidence.*
 
 **Phase 34 exit gate:** the non-Cortex product is extracted from `crates/api`
 into its own crate with its own database handle; lock acquisition no longer
@@ -5992,57 +6018,230 @@ and reported separately for the money path; the repository carries no open high
 or critical dependency advisories; and the delivery order is reviewed explicitly
 for whether each stopping point is a coherent, safe product.
 
-## Phase 35 - The teaching layer, derived rather than narrated
+## Phase 35 - The developer is left more capable, or Cortex is a net loss
 
-**Goal:** close the gap Phase 33.1 names and does not close — *the solo builder's
-problem is not that there are too many controls, it is that they cannot evaluate
-a plan* — by making Cortex able to explain its own work to someone who could not
-have checked it, without ever inventing the explanation.
+**Goal:** decide whether Cortex teaches, and if so, on what terms. Thirty-four
+phases govern whether the *machine* produces a correct outcome. None of them ask
+what happens to the *person* who bought it, and the fifth review round is the
+first to attack that axis. The answer turns out not to be a growth question.
 
-33.1's resolution was "Cortex pre-decides more, and says what it decided in one
-line each." That is necessary and it is not sufficient. A line saying *"routed to
-Claude Sonnet, medium effort"* tells a user what happened. It does not tell them
-whether it was reasonable, what would have been different, or what to look at if
-they disagree. Somebody who can read that line critically did not need it.
-Somebody who cannot is exactly who it was written for.
+The thesis that governs everything below is in 35.3: a teaching artifact is
+**derived** from Cortex's own decision record, never narrated by a model watching
+another model. Read that section before arguing with any surface in this phase —
+most objections to the surfaces are objections to that constraint.
 
-The gap is not information. Cortex records more about its own reasoning than any
-comparable system. **The gap is that none of it is addressed to a person who is
-learning.**
+### 35.1 The finding that makes this not optional
 
-### 35.1 The thesis, which is the whole phase
+Start with the case against. A learning product aimed at people who came to ship
+is a well-documented way to build something nobody opens twice, and that
+scepticism is the correct default. It is also not what the evidence says the
+problem is.
+
+**Lead with the perception gap.** It is the finding with four independent designs
+behind it, and it is the one that decides the product. Practitioners cannot
+detect their own degradation:
+
+| Study | Perceived | Measured |
+|---|---|---|
+| Anthropic, 2026 (RCT, n = 52) | the AI arm rated the task *easier* | lower comprehension of code written minutes earlier |
+| METR, 2025 | expected to be ~20% **faster** | measured ~19% **slower** |
+| Perry et al., CCS '23 ([arXiv:2211.03622](https://arxiv.org/abs/2211.03622)) | believed their code was *more* secure | less secure on four of five tasks |
+| Lee et al., CHI 2025 | confidence in the AI rose | self-reported critical thinking fell |
+
+Four populations, four task shapes, four instruments, one direction. **The signal
+a developer uses to judge whether they are learning is the signal that fails
+first.** That is what makes this architectural rather than a matter of taste: a
+person cannot opt into remediation for a deficit they experience as fluency, so
+the remediation has to be a property of an artifact they were going to read
+anyway. It is also why the teaching layer may never be a separate destination —
+35.2 reaches the same conclusion from the demand side.
+
+*One caveat carried honestly:* METR published a February 2026 update qualifying
+the −19% figure on scope, task selection, and generalisation from its sample. It
+is cited here as one of four converging designs and **must not be cited anywhere
+in Cortex material as a standing fact.**
+
+The preregistered measurement behind the first row is the number to quote when a
+number is needed:
+
+> A randomised controlled trial of **52 professional engineers** — all weekly
+> Python users of more than a year, none familiar with the library the tasks
+> were built on — had one arm complete the work with an AI assistant and one by
+> hand, then quizzed both on concepts they had used minutes earlier. The
+> assisted arm scored **50% against 67%**, **d = 0.738**, **p = 0.01**. The gap
+> was measured across four skill types — debugging, code reading, code writing,
+> conceptual understanding — and **debugging was the widest**. The assisted arm
+> finished roughly **two minutes** faster, which was **not** statistically
+> significant.
+
+Two corrections to how that result is usually repeated. Both change what Cortex
+builds.
+
+**The population is not junior.** Anthropic's write-up describes the participants
+as mostly junior; Table 1 of the paper does not support it — the majority
+reported **seven or more years** of professional experience. What every
+participant *did* share is that the library was new to them. **The effect is
+about domain novelty, not seniority.** That is a much larger market and a far
+more familiar situation: it is the position of every senior engineer opening an
+unfamiliar framework, a legacy subsystem, or a codebase they joined last week.
+35.5 reaches the same correction from instructional theory rather than from this
+data, and the two agreeing independently is the reason to trust it.
+
+**The mode claim is a hypothesis, not a finding.** The six-pattern taxonomy of
+*how* participants used the assistant — wholesale delegation, progressive
+offloading, the debugging crutch, against conceptual questioning, requesting an
+explanation alongside the generated code, and using the assistant to check one's
+own understanding — comes from
+[arXiv:2601.20245](https://arxiv.org/abs/2601.20245) and is **exploratory**. It
+was not preregistered, the patterns carry **n = 2–7** each, and participants
+self-selected into them, so pattern membership is confounded with prior skill:
+the people who asked conceptual questions may simply be the people who already
+knew more. **Cortex is designed around the mode hypothesis and may never state it
+as a finding** — not externally, where invariant 29 already forbids it, and not
+internally, where it would harden into an assumption nobody remembers testing.
+
+One exploratory detail is worth keeping precisely because it cuts against the
+convenient story: **Conceptual Inquiry was the second-fastest pattern overall.**
+If that survives replication, the learning-versus-speed tradeoff this phase is
+usually asked to justify does not exist, and the engaged mode is simply better on
+both axes. Flagged as n = 7 and exploratory. It is a reason to run the
+measurement, not a reason to claim the win.
+
+What survives all of that is enough. **Cortex, as specified across the preceding
+thirty-four phases, is the delegation shape.** That is not an accident or an
+oversight — it is the product thesis. A developer states an outcome, Cortex
+scopes it, routes it, proves it, and hands back a reviewable change. Every phase
+in this document makes that loop tighter, cheaper, and more autonomous, which is
+to say every phase makes the measured exposure larger. The teaching layer is
+therefore **not an upsell attached to Cortex; it is remediation of a harm Cortex
+plausibly causes.** A product that reliably ships correct code and reliably
+degrades the person paying for it is a product with a cancellation clock on it,
+and the buyer who notices first is the engineering manager watching a developer
+stop being able to debug.
+
+Two supporting facts frame the size of it. Professional developers spend roughly
+**58% of their time on program comprehension** — measured across 78 professionals
+on seven projects over 3,148 working hours — so this is where the working day
+actually goes, not a side concern. And the pipeline pressure is already visible:
+the 2026 AI Index is reported as finding employment for developers aged 22–25 down
+nearly 20% since late 2022 while employment for older developers at the same firms
+grew 6–12%. Whatever one thinks of the causal story, the population that most
+needs to build skill is the population being hired least, and *never*-skilling —
+a novice who never becomes good — is a harder problem than an expert who decays,
+because there is no prior competence to fall back on.
+
+So the null hypothesis is rejected, but not for the reason a teaching-product
+enthusiast would give. Cortex should teach because it is otherwise selling
+comprehension debt with a receipt attached.
+
+### 35.2 Developers want to learn. They refuse to be taught.
+
+The half of the scepticism that survives is the important half, and it constrains
+every surface below.
+
+Developers demonstrably learn: **69%** report having spent time in the last year
+learning a new language or coding technique, and **44%** already use AI tools to
+do it, up from 37% the year before. But the resources at the top of that list are
+uniformly *pull*-shaped and consumed in the moment of need — technical
+documentation (68%), online resources (59%), Stack Overflow (51%). Nothing
+curriculum-shaped appears anywhere near the top, and it is not for lack of
+supply; the market for structured developer education is old, large, and well
+funded.
+
+That yields the governing distinction for this phase, and it is not
+learning-versus-not:
+
+> **Cortex builds the pull and never the push.** A teaching artifact exists
+> because a developer went looking for it, or because it was already lying
+> alongside work they were doing anyway. It is never scheduled, never assigned,
+> never a notification, and never a thing that appears because a model decided
+> the developer needed it.
+
+Three of the candidate surfaces die on that sentence alone. **A study plan is a
+curriculum** — it presumes a syllabus, an order, and a completion state, all of
+which are push. **A scheduled lesson is push by definition.** And **a separate
+tutor page or tutor-mode switch is push wearing a toggle**: it is a place you
+have to remember to go, which in practice means the place nobody goes, and it is
+also a mode switch, which invariant 31 already forbids on independent grounds.
+One object graph, one intake — an organisation expresses itself as defaults and
+limits, and so does a person. A tutor mode would be the second product this
+document has spent a round warning against building.
+
+What replaces it is unglamorous and correct: **the teaching artifact lives on the
+receipt and in review, because that is where the developer already is.** Code
+review is the one learning intervention the profession already performs
+voluntarily and at scale — 78% of developers report modern code review as a
+useful knowledge-transfer mechanism, and the transfer is measurably bidirectional,
+author and reviewer both. Cortex produces a change that a human is going to review
+anyway. That review is the pull surface, already paid for, already in the
+workflow, and it needs no new page.
+
+### 35.3 The thesis: derived from the record, never narrated
 
 > The explanation is **derived from the decision record, never inferred by a model
 > watching another model.** Cortex already holds the `TaskFrame`, the routing
 > decision and its reasons, the plan DAG, the assumptions and the mechanical
-> checks that settled them, why each check was derived, the verdict, the battery
-> power, and the race agreement. A second model narrating a first model's stream
-> is a confabulation engine aimed at someone who cannot tell when it is wrong.
-> Cortex does not have to guess, so it must not.
+> checks that settled them, why each check was derived, the verdict and its
+> class, the battery power, and the race agreement. A second model narrating a
+> first model's stream is a confabulation engine aimed at someone who cannot tell
+> when it is wrong. Cortex does not have to guess, so it must not.
 
-Every word of that is load-bearing, and the last sentence is the argument.
+Every word of that is load-bearing, and it now stands on three independent legs
+rather than one.
 
-The usual way to build this is to point a model at the execution trace and ask it
-to explain what happened. It demos well. It is also the single worst thing to
-build here, and the reason is not that models confabulate — it is **who this
-feature is for**. A narration layer's errors are invisible precisely to the
-audience it exists to serve. A user who can catch the narrator's mistake did not
-need the narrator. A user who cannot catch it is being taught something false
-with the full authority of the system that just did the work, and they will carry
-it into the next task and into their own judgment of Cortex's later output.
+**Leg one — the audience.** The usual way to build this is to point a model at
+the execution trace and ask it to explain what happened. It demos well. It is
+also the single worst thing to build here, and the reason is not that models
+confabulate — it is **who this feature is for**. A narration layer's errors are
+invisible precisely to the audience it exists to serve. A user who can catch the
+narrator's mistake did not need the narrator. A user who cannot catch it is being
+taught something false with the full authority of the system that just did the
+work, and they will carry it into the next task and into their own judgment of
+Cortex's later output.
 
 That is a *worse* failure than saying nothing. Silence leaves someone uninformed.
 A confident wrong explanation leaves them miscalibrated, and miscalibration is
 the failure this whole document is organised against — it is invariant 12's
 concern (a claim must be traceable to something executed) applied to prose
-instead of to verdicts.
+instead of to verdicts. **35.1's perception gap is the measurement of exactly
+this audience:** four designs agree that the people affected cannot self-detect
+the deficit, and a population that cannot self-detect a deficit cannot
+self-detect a wrong explanation of it either.
 
-The reason Cortex does not need the narrator is that **the record already exists
-and is already structured.** Phases 10, 11, 24, 25, 26, 27 and 30 exist to make
+**Leg two — a post-hoc explanation cannot be faithful by construction.** Rudin,
+*Nature Machine Intelligence* 2019
+([arXiv:1811.10154](https://arxiv.org/abs/1811.10154)): an explanation of a black
+box cannot have perfect fidelity to it, because if it did it would **be** the
+model and there would be no black box left to explain. Any gap between the
+narration and the computation is not a defect in the narrator; it is the
+definition of one. Rudin's prescription is the one this phase adopts — build the
+interpretable object rather than an explainer bolted onto an opaque one.
+**Cortex's decision record is that interpretable object**, which is why this
+phase is a rendering problem and not a modelling problem.
+
+**Leg three — narration is measurably unfaithful in the most dangerous
+direction.** Turpin et al., NeurIPS 2023
+([arXiv:2305.04388](https://arxiv.org/abs/2305.04388)): chain-of-thought
+explanations *systematically misrepresent* the true reason for a model's answer.
+Under injected biasing features the models produced explanations that never
+mentioned the bias that in fact changed the answer, accuracy dropped by up to
+**36%**, and the explanations **increased** users' trust while doing it. So a
+rationale stream is not merely unreliable. It is unreliable in the one direction
+that is hardest to detect and most persuasive, which is the same shape as every
+other failure this document is built against: a mechanism that looks like
+coverage and is not.
+
+Put together: a narrator cannot be faithful in principle (Rudin), is measurably
+unfaithful in practice in exactly the confident direction (Turpin), and its
+errors land on the audience least able to catch them (leg one, and 35.1). The
+design needs only one of those legs. It has three.
+
+**The reason Cortex does not need a narrator** is that the record already exists
+and is already structured. Phases 10, 11, 24, 25, 26, 27 and 30 exist to make
 Cortex's own decisions inspectable. A teaching artifact is a *rendering* of that
 record, in the same sense that the Plan Receipt is. It is a view, not a witness.
 
-### 35.2 What a teaching artifact may assert
+### 35.4 What a teaching artifact may assert
 
 One rule, stated as a constraint on the code rather than as guidance:
 
@@ -6067,7 +6266,7 @@ typed sentences; there is no free-text branch to leak into.
 
 | May **never** assert | Why |
 |---|---|
-| Why the *model* did something | Not recorded, not knowable, and the most tempting sentence in the product |
+| Why the *model* did something | Not recorded, not knowable, and the most tempting sentence in the product. Turpin (35.3) is the measurement of what happens to a system that tries anyway |
 | That the work is correct | Only that stated checks passed — invariant 12 |
 | A general lesson about the user's codebase | One run is not evidence of a convention; 29.3's `convention_findings` are, and they carry their own evidence |
 | What would have happened under a different decision | Counterfactual, unrun, and indistinguishable in tone from the rest |
@@ -6077,7 +6276,294 @@ The second table matters more than the first. Almost every failure of a teaching
 feature is a sentence from the right-hand column delivered in the voice of the
 left.
 
-### 35.3 How it degrades when the record is thin
+### 35.5 The range splits on expertise, not headcount
+
+The brief framed this as solo builder versus 200-developer org, and expected one
+mechanism to serve both with a different surface. The literature says the framing
+is off by one axis, and the correction is load-bearing.
+
+The **expertise reversal effect** is the relevant result: low-knowledge learners
+gain from high levels of instructional guidance, while more knowledgeable
+learners gain from *reduced* guidance and are actively penalised by the redundant
+material. This is a reversal, not a diminishing return. Showing a senior engineer
+the scaffolded explanation does not merely bore them — it measurably degrades
+their performance, because processing redundant guidance consumes the working
+memory the task needed.
+
+That kills the naive design in a specific way. A "beginner mode" and an "expert
+mode" would be a mode switch (forbidden by invariant 31), and worse, a
+self-declared one — and self-assessment of expertise is exactly what an
+expertise-reversal design must not depend on, because the developers most likely
+to decline scaffolding are the ones a fresh codebase has made novices again.
+Expertise here is **not a property of the person; it is a property of the person
+in this subsystem.** A principal engineer is a novice in the payments module they
+have never opened. **35.1's population correction is the same statement arrived
+at from data:** the trial's participants were mostly seven-plus-year engineers,
+and the deficit appeared anyway, because the library was new to them.
+
+Cortex is unusually well placed to get this right, and this is where the
+one-design question actually resolves. The rule is promoted to a numbered
+invariant because every other surface in this phase depends on it:
+
+> **Invariant 33.** Teaching is pulled, never pushed, and **its level is measured,
+> never declared.** No teaching artifact interrupts an in-flight task, and no
+> surface exists that a developer must remember to visit. The guidance level is
+> derived from that developer's recorded outcomes in that subsystem — which
+> subsystems they have touched, which of their tasks were verified on the first
+> attempt, which checks failed and how often, what review findings their work
+> drew — never from a self-assessment, a tier, a mode, or a request parameter.
+> Those are objective signals under invariant 20, and they are the fading
+> schedule the adaptive-fading result requires.
+
+**Invariant 33 is this document's entire answer on prior knowledge, and no second
+one will be written.** Every question of the form *"how much does this developer
+already know, and how much should Cortex say?"* — for the receipt, for a faded
+exercise, for a cross-language mapping, for a retrieval question — resolves to the
+measured per-subsystem estimate. A surface that appears to need a different answer
+is a surface that has not been designed yet.
+
+So one design does serve both ends, but not because the surface is the same for
+everyone. It serves both because the *axis* is the same for everyone and Cortex
+can measure position on it. The solo builder and the 200-person org differ in who
+sets the defaults and limits over that estimate — precisely the Phase 33.1
+structure, applied to guidance instead of to spend.
+
+The two buyers do diverge on what they purchase, and this is worth stating
+plainly because it decides which surface ships first:
+
+| | Solo builder | 5–30 person team | 200-developer org |
+|---|---|---|---|
+| **The problem** | Cannot evaluate the plan Cortex proposes (Phase 33.1) | New hire ramps against undocumented convention | Ramp-up time and tribal knowledge concentration |
+| **What teaching supplies** | Enough of the *why* to accept or reject a plan | The repo's actual conventions, evidence-linked | A measurable ramp curve and a bus-factor answer |
+| **The purchase** | Retention. They do not churn because they are getting better. | A faster second hire | A number: ramp-up time, measured |
+| **First surface** | Receipt-as-worked-example | Receipt + `RepoUnderstanding` rendered | Faded exercises against real closed tasks |
+
+The org side is the one with a measurable claim attached, and the measurement
+already exists in the literature: ramp-up is proxied reasonably by normalised
+active coding time per line and normalised submitted lines over tenure. Trade
+reporting puts unstructured ramp at three to six months against eight to twelve
+weeks structured — weaker evidence than the rest of this section and flagged as
+such, but the right order of magnitude for what a platform team is buying. Cortex
+can report that curve from data it holds anyway, which is a stronger enterprise
+artifact than any lesson it could author.
+
+### 35.6 Never interrupt, and the reason is not politeness
+
+A developer mid-task is the worst possible audience for instruction, and the cost
+is measurable rather than merely annoying.
+
+An exploratory analysis of **10,000 recorded programming sessions from 86
+programmers**, with 414 surveyed, found that only **10% of sessions have coding
+activity begin within a minute**, and only **7%** involve no navigation to other
+locations before the first edit. Even in a controlled study built specifically to
+provide good resumption cues, the best conditions still produced mean resumption
+lags of roughly 20–23 seconds — and that is the floor with help, not the typical
+cost without it.
+
+The important reading is that **the cost of an interruption is not the
+interruption; it is the reconstruction of a mental model that was never written
+down.** A teaching artifact that arrives mid-task does not cost the seconds it
+takes to read. It costs the state.
+
+This makes "never interrupts" a hard design constraint rather than a courtesy,
+and it composes with 35.2: teaching is offered at the boundaries where the mental
+model has already been torn down and is being rebuilt anyway — at review, on the
+receipt, when a task completes, when a developer opens a subsystem they have no
+recorded history in and *asks*. Never during. There is no notification, no badge,
+no "did you know", and no inline nudge. A teaching layer with an unread-count is
+a failed teaching layer.
+
+### 35.7 The surfaces, ranked by evidence
+
+Before the ranking, the observation that reframes the whole phase.
+
+**The verifier is the teacher.** Every developer-education artifact that
+professionals actually respect works the same way: the feedback comes from an
+executable authority, not from a person or a model explaining.
+
+| Exemplar | What teaches | What does not |
+|---|---|---|
+| **Rustlings** | the compiler's own error message | no lesson text, no instructor |
+| **Gossip Glomers** | Maelstrom injecting real partitions and checking linearisability | no model answer offered up front |
+| **Exercism** | the test runner; human mentoring is optional and marginal — 19,603 mentors have touched roughly **0.65%** of 61M submissions | the mentoring is not the product, and the numbers say so |
+| **protohackers** | a protocol checker connecting to your server | no curriculum at all |
+
+This is not a stylistic preference shared by four projects. It is the same
+property that makes them credible to people who dislike being taught: the
+authority is mechanical, falsifiable, and indifferent, so accepting its verdict
+costs nothing socially and disputing it is a matter of evidence rather than
+opinion. It is also, exactly, the property 35.3 requires — an executable
+authority is a record, and a record can be rendered without narration.
+
+**Cortex already owns a frozen check battery and a sandbox.** The pedagogically
+correct artifact class is therefore *the one it has already built*. Phase 35 is
+not an addition to Cortex; **it is a rendering of Cortex's core asset for a second
+audience.** That is the single most important sentence in this phase for
+estimating its cost, and it is why the ranking below is dominated by things that
+are nearly free.
+
+Josh named five candidates. They do not survive equally, and the ranking is not
+the intuitive one.
+
+| Surface | Evidence | Verdict |
+|---|---|---|
+| **The receipt as a worked example** — the diff, the checks that were derived, why each was derived, what failed, what the fix was | The worked-example effect is one of the better-replicated results in instructional psychology, and it applies specifically to domains where a procedure can be applied — mathematics, physics, **programming**. Cortex's decision record *is* a worked example of solving a problem in this repository, already produced, already paid for. | **Build first.** Near-zero marginal cost; it is receipt quality before it is teaching. |
+| **Faded sandbox exercises** — the developer completes a step Cortex has already solved, with scaffolding withdrawn as competence is demonstrated | In programming instruction specifically, **faded** worked examples outperformed traditional worked examples on algorithmic performance and on instructional efficiency (performance weighted against cognitive effort). Adaptive fading beat fixed fading on immediate and delayed post-tests. | **Build second.** The highest-value surface and the only one with real marginal cost. |
+| **Papers / written explanations of a subsystem** | Weak direct evidence as a *learning* intervention; strong as a reference artifact. Documentation is the single most-used developer learning resource (68%), which is an argument for producing it, not for treating it as instruction. | **Build as an artifact, not as a lesson.** This is Phase 29.3's `RepoUnderstanding` rendered for a human. |
+| **Quizzes** | Retrieval practice transfers, but modestly and conditionally: an overall transfer effect of about **d = 0.4** against non-practice controls, **moderated by response congruency** — transfer happens when the test resembles the practice. Course-embedded testing-versus-restudy comes in at **g = 0.18 with a confidence interval crossing zero**. | **Demote, do not cut.** A quiz is a *measurement instrument*, not a teaching surface — which is exactly how the trial in 35.1 used one. It answers "did this land", and it is how Cortex measures whether its own teaching works. It is never the intervention. |
+| **Generic flashcards over repository facts** | Response congruency again: a flashcard transfers to things shaped like a flashcard, and it is an effect on *retention of items*. | **Cut, and this cut still holds.** Codebase understanding is not item-shaped. The facts worth knowing about a repository — why this boundary exists, what breaks if you cross it — are relational and situated, and they change under you. A spaced-repetition scheduler over a corpus that invalidates per file content hash (29.3) is a machine for memorising things that are about to stop being true. **This is not the same object as 35.7b**, which reverses a different part of the round-5 decision on stronger evidence. |
+
+Two surfaces are added by this round. Both are constrained hard enough that they
+cannot become the generic-card product the row above cuts.
+
+#### 35.7a Cross-language concept mapping — contrastive form only
+
+A developer who knows one language reaching into another is the exact population
+of 35.1: senior, competent, and a novice *here*. Analogy is what they will reach
+for whether or not Cortex supplies one, so the design question is not whether to
+offer analogies but whether to offer good ones.
+
+The failure mode is measured. Tshukudu & Cutts (ICER 2020) found that semantic
+transfer between languages is driven by **syntactic** similarity — learners map
+constructs that *look* alike and carry the wrong semantics across with them. An
+unconstrained mapping table is a machine for producing exactly that error, at
+scale, with Cortex's authority attached.
+
+The prescription is also measured, and it is not "fewer analogies". Spiro et al.
+found that **a single analogy becomes an impediment at precisely this stage of
+expertise** — the learner over-extends it — and that the remedy is *multiple*
+analogies whose limits are made explicit against each other. And Crichton &
+Krishnamurthi (OOPSLA 2024,
+[arXiv:2401.01257](https://arxiv.org/abs/2401.01257)) shows the payoff when the
+intervention targets a specific misconception rather than presenting material:
+12 misconception-targeted interventions, **10 of 12 significant**, around **+20%**.
+
+So the surface exists only in **contrastive** form, and all five conditions are
+required. Any one failing means the artifact does not render:
+
+1. **Semantic, never syntactic.** The mapping is between what the two constructs
+   *do*, and it is derived from behaviour, not from surface shape.
+2. **The break point is named in the same sentence as the analogy.** Not in a
+   footnote, not in a following paragraph — the same sentence, so it cannot be
+   read past. "`Vec<T>` is Python's list *until you take a second reference to
+   it*."
+3. **At least two analogies**, per Spiro, so no single mapping can be
+   over-extended.
+4. **Falsifiable against a runnable program.** The break point corresponds to a
+   program in the sandbox that behaves differently in the two languages, and it
+   is executable. This is the verifier-is-the-teacher property applied to prose:
+   the claim is checkable by execution, not by trusting the author.
+5. **Anchored to the diff in front of the user.** Never a generic table.
+
+Condition 5 is the one that makes the surface legal under 35.3. **A generic
+mapping card is unfalsifiable against anything Cortex executed** — it derives
+from no record field, it would render identically for every user of that language
+pair, and it is therefore narration with a table's formatting. It must not
+render. A mapping anchored to *this diff*, whose break point is executable in
+*this sandbox*, is a rendering of a record, and it inherits that record's verdict
+class like everything else in 35.8.
+
+#### 35.7b Spaced retrieval over the user's own receipts
+
+**This reverses round five's decision to cut flashcards, and the reversal is
+stated rather than quietly performed.** Round five cut spaced repetition on
+`g ≈ 0.28` for spaced-over-massed and the response-congruency argument, treating
+the whole mechanism as item-shaped and therefore wrong for a codebase. That
+reasoning was correct **about generic repository facts** and it still holds — the
+cut row in the table above is unchanged. It was wrong about the mechanism, because
+it was decided on the weakest evidence base available for it.
+
+The strongest evidence for spaced retrieval in adult professional populations is
+much stronger than the numbers round five used:
+
+- A randomised trial of **26,258 practising physicians**: learning **58.0% vs
+  43.2%** and transfer **58.3% vs 52.4%**, both **p < .001**, with a
+  double-spacing schedule outperforming the alternatives. That is a
+  working-professional population under real workload, not undergraduates in a
+  course.
+- A 2026 meta-analysis: **SMD 0.78**, **n = 21,415**.
+
+That is the best adult-professional evidence in this entire phase, and it is the
+one mechanism **no exemplar in the verifier-is-the-teacher table has** —
+Rustlings, Gossip Glomers, Exercism and protohackers all teach on first contact
+and none of them come back later. Retention over months is the gap in the class of
+artifact Cortex is otherwise copying.
+
+Three boundaries, and they are what separate this from the flashcard product that
+stays cut:
+
+1. **Questions derive from the user's own decision record, never from a generic
+   pool.** The item is "this check failed on your change to the payments module
+   three weeks ago" — a record field, under 35.4's rule — not "what does
+   `Vec::retain` do".
+2. **Delivered in the receipt surface, never as a study destination.** Invariant
+   33 forbids a place you must remember to visit, and 35.6 forbids interrupting.
+   A retrieval item rides an artifact the developer already opened.
+3. **Every question asks *why* a check failed, never *whether* it passed.** This
+   is the strongest of the three and it comes from item-response theory: Brown's
+   IRT analysis shows that recognition-shaped items — did this pass, is this
+   correct — have near-zero discrimination, meaning they separate nobody from
+   nobody, while items requiring the causal account discriminate strongly. It is
+   also the specific reason **Rustlings' make-it-compile format is the
+   low-discrimination kind**: "make the error go away" is satisfiable without the
+   causal account, and a learner can pass every exercise while acquiring the
+   wrong model. Cortex has the causal account in the record — the check, its
+   derivation source, the failing output, and the change that resolved it — so it
+   can ask the discriminating question and grade it against what actually
+   happened.
+
+On cost, since it decides what is free and what is metered: deriving an
+explanation, a mapping, or a retrieval item from a record Cortex already holds is
+a rendering problem, not an inference problem, and its marginal cost rounds to
+zero. A faded sandbox exercise runs a real sandbox and real model turns and costs
+like a small task. Whether that is metered is settled in 35.13, and the answer is
+narrower than it looks.
+
+The ranking has a shape worth naming: **the surfaces with the best evidence are
+the ones Cortex gets almost for free from work it is already doing, and the
+surface with the worst evidence is the one that would need the most new
+machinery.** That is unusual and it should be trusted rather than argued with.
+
+### 35.8 No artifact above its evidence
+
+The rule from 35.3 is easy to state where the record is rich. **The record is
+thin in exactly the cases a teaching layer would most want to talk about, and
+those cases are common rather than exceptional:**
+
+| State | Already specified in | What the teaching layer must not do |
+|---|---|---|
+| `UNVERIFIED` verdict | Invariant 22 | Explain *why the code is correct*. Nothing established that it is. |
+| `none` or low battery power | Invariant 25, Phase 27.3 | Present the passing checks as evidence of correctness. They discriminate nothing. |
+| Degraded or absent comprehension | Invariant 28, Phase 29.1 | Explain the subsystem's structure. Cortex did not have the map either. |
+| `inconclusive` on an exam-touching diff | Invariant 25 | Teach the change as a worked example at all. The worked example is contaminated. |
+| Quarantined check | Invariant 21 | Cite the check as a lesson about this repository. |
+| Low race agreement | Phase 27.4 | Present the winning approach as *the* approach. Independent attempts disagreed. |
+
+The resolution is to make the teaching artifact inherit rather than assert. It
+carries the verdict class, the comprehension state, and the battery power of the
+record it derives from, and where those are weak the artifact says what
+*happened* and what was *not established* — which is itself the most valuable
+lesson available, because "here is a change nobody could prove correct, and here
+is why this repository cannot prove it" is a real and actionable finding about a
+codebase. Low race agreement is the same shape: regions where independent
+attempts systematically disagree are underspecified regions (Phase 29.4), and
+telling a developer that is worth more than a confident narration would have been.
+
+A teaching layer that confidently explains work Cortex could not verify is this
+plan's own central failure mode wearing a friendly face, and it would be worse
+than the failure mode it imitates, because a receipt is read sceptically and a
+lesson is not.
+
+> **Invariant 32.** No teaching artifact above its evidence. Every teaching
+> artifact derives from a decision record and inherits that record's verdict
+> class, battery power, and comprehension state. Where the record is thin, the
+> artifact states what happened and what was not established, and may not explain
+> why the result is correct. No model narrates another model's work.
+
+### 35.9 How it degrades when the record is thin
+
+Invariant 32 says what a thin record forbids. This says what it *produces*,
+because the two are different specifications and only one of them is testable.
 
 A teaching artifact over a run that recorded little must get **shorter**, never
 vaguer. This is the failure mode with the strongest pull toward the wrong answer:
@@ -6100,7 +6586,7 @@ different sentences and must never be rendered as the same one.** That is the
 same distinction `EgressReceipt` already draws between `None` and an empty
 `endpoints`, and it is drawn here for the same reason.
 
-### 35.4 Its disclosure tier, and why it is not one tier
+### 35.10 Its disclosure tier, and why it is not one tier
 
 Under invariant 31 every mechanism declares a tier. A teaching artifact is not a
 single mechanism, so a single tier would be a false declaration. It declares a
@@ -6110,7 +6596,7 @@ tier **per section**, and the artifact itself is:
   verdict means, what it cost. Plain language, no vocabulary from this document.
   This is what a solo builder reads and it must be complete on its own.
 - **On request** — the derivation. Why this check, why this provider, what the
-  battery could have caught, what was ruled out. Opened by someone who wants it.
+  battery could have caught, what was ruled out.
 - **Operator** — nothing. If a teaching artifact needs an operator-tier fact to
   make sense, the *summary* is wrong, not the tier.
 
@@ -6122,7 +6608,7 @@ reason a mechanism is allowed to stay complicated.** If a decision cannot be
 stated in one plain sentence with its source, that is a finding about the
 decision.
 
-### 35.5 Why it is not a chat surface
+### 35.11 Why it is not a chat surface
 
 The obvious product shape is a conversation: the user asks "why did you do that?"
 and Cortex answers. It is rejected, and not on cost grounds.
@@ -6143,7 +6629,9 @@ Second reason, in the same direction as 33.1's "ask about intent, never about
 mechanism": a chat surface converts a passive explanation into an interrogation
 the user must know how to conduct. It hands the burden of knowing which question
 to ask back to the person who could not evaluate the plan. That is the original
-problem, restated as a feature.
+problem, restated as a feature. It is also 35.2's push/pull distinction failing in
+a subtle direction — a chat box is nominally pull, but it pulls competence out of
+the user rather than supplying it.
 
 Third: an artifact is addressable, diffable, and attachable to a receipt. A
 conversation is none of those, and a claim about Cortex's own reasoning that
@@ -6154,7 +6642,7 @@ checks", "show me what this cost", "show me what it was allowed to reach" — ea
 of which is a section of the same artifact. That is navigation, not dialogue, and
 every destination is a rendering that already existed.
 
-### 35.6 Explicitly rejected, with reasons
+### 35.12 Explicitly rejected, with reasons
 
 **A local vector index for retrieving explanatory context.** Settled in Phase 29.2
 on measured grounds and settled again here: agentic explorers form a tier above
@@ -6163,15 +6651,20 @@ line-level coverage and ranking efficiency — are not ones embedding similarity
 improves. The teaching case is *weaker* than the exploration case that was already
 rejected, because a teaching artifact retrieves from **its own run's record**,
 which is small, structured, and addressable by key. Similarity search over a
-structure you hold the schema of is a worse index than the schema. Rejected.
+structure you hold the schema of is a worse index than the schema. A teaching
+corpus built on an embedding index would additionally be expensive to maintain and
+stale by construction. Rejected.
 
 **A model-inferred rationale stream.** A second model watching the first and
-narrating what it appears to be doing. Rejected as 35.1 argues: its errors are
-invisible to precisely the audience it exists for, it would be the only part of
-Cortex whose output is not traceable to something executed (invariant 12), and it
-would make the plan's most-repeated failure — a mechanism that looks like
-coverage and is not — user-facing for the first time. The narration would be the
-most polished text in the product and the only text in it with no source.
+narrating what it appears to be doing. Rejected as 35.3 argues, on three
+independent grounds: it cannot be faithful by construction (Rudin), it is
+measurably unfaithful in the confident direction while increasing trust (Turpin),
+and its errors are invisible to precisely the audience it exists for. It would
+also be the only part of Cortex whose output is not traceable to something
+executed (invariant 12), it is prohibited by invariant 32, and it is prohibited
+independently by invariant 27 — a model may not manufacture a conclusion the
+execution record does not support. The narration would be the most polished text
+in the product and the only text in it with no source.
 
 Note what this does *not* reject: **inspecting judges** (Phase 27's detector
 result) and Cortex-evaluates-Cortex (Phase 30) both use a model to *examine* a
@@ -6181,7 +6674,102 @@ producing prose that bypasses the record and goes straight to a user. The
 difference is not the model; it is whether the output is subject to the same
 scrutiny as everything else it sits beside.
 
-### 35.7 What has to exist first
+**Generic flashcards and a scheduler over repository facts.** Cut in 35.7 on
+response congruency and on the fact that a per-file-hash-invalidating corpus is
+the wrong thing to memorise. Not to be confused with 35.7b, which is spaced
+retrieval over the *user's own decision record* and is built.
+
+**Study plans, scheduled lessons, and a tutor mode or tutor page.** Cut in 35.2:
+all four are push, and the mode switch is separately forbidden by invariant 31.
+
+**A self-declared skill level.** Cut in 35.5 on the expertise-reversal result and
+prohibited by invariant 33. The level is measured or it does not exist.
+
+**Any teaching surface with an unread count, a badge, a streak, or a
+notification.** Cut in 35.6. These are the mechanisms of push with the word
+removed.
+
+**Practice rooms — a separate space for deliberate practice, katas, or drills.**
+This is the most attractive rejected item, because it is what "we should help
+developers improve" produces when it is designed rather than derived, and it is
+rejected on three separate bodies of evidence:
+
+- **The mechanism does not do what it is assumed to do.** Macnamara, Hambrick &
+  Oswald (2014, *Psychological Science*) meta-analysed deliberate practice across
+  domains and found it explains **less than 1% of the variance in professions** —
+  against 26% in games and 21% in music. Software engineering is a profession in
+  the sense that meta-analysis uses: ill-structured, with feedback that is
+  delayed, noisy, and rarely repeatable. The deliberate-practice literature is an
+  argument *for* the verifier-as-teacher (immediate, mechanical, task-anchored
+  feedback) and *against* the drill room.
+- **Transfer is predicted by the environment, not by the drill.** Blume et al.
+  (2010), a meta-analysis of **89 studies** of training transfer, finds
+  work-environment support among the strongest predictors of whether training
+  reaches the job. A separate practice destination fights that predictor by
+  construction: it removes the practice from the environment whose support
+  determines whether it transfers.
+- **Nobody finishes optional developer curricula.** Completion for optional
+  developer material is single-digit: Advent of Code runs roughly **5%** from day
+  one to day twenty-five, and **2%** of 62,526 readers of the Brown Rust Book
+  reached chapter 19. These are the most motivated self-selected populations
+  available. A practice room's realistic outcome is that it is built, launched,
+  and used by nobody, while consuming the engineering that should have gone into
+  the receipt.
+
+Three pieces of folklore must never appear in Cortex material, in a plan, in
+marketing, or in a design argument, because all three are commonly cited in
+exactly this decision and none has an empirical base: **"only 10% of training
+transfers"**, **"learning in the flow of work"** as a cited finding, and the
+**70-20-10 model**. They are attributed confidently and trace to nothing. Citing
+them would be the same defect as a green tick over an empty battery, committed in
+prose.
+
+**What is not rejected**, and this matters because it is easy to sweep away with
+the practice room: **faded exercises anchored to the user's own diff**, which
+round five ranked second on the worked-example and adaptive-fading evidence and
+which this round leaves standing. The distinction is exactly the anchoring
+condition from 35.7a. A faded exercise over the change the developer just
+shipped, in the sandbox that verified it, is *in* the work environment Blume
+identifies as the predictor. A kata in a practice room is not.
+
+### 35.13 The teaching layer is never a priced line item
+
+The commercial question was left open in round five and is closed here, because
+the alternative is discovering it in a pricing meeting after the surface exists.
+
+No developer tool has successfully monetised learning as a line item inside a core
+product. The counter-examples are unambiguous:
+
+| | What happened |
+|---|---|
+| **Pluralsight** | Acquired by Vista at roughly **$3.5–3.9B**; the equity was written to **zero** by 2024. Competitors making equivalent learning **free** is a stated contributing cause. |
+| **Katacoda** | Acquired, then **shut down in 2022**. Interactive browser-based technical learning, executed well, absorbed into a larger company and switched off. |
+| **Replit Teams for Education** | **Killed at 18 months** as economically nonviable; the company pivoted to AI development tooling for professionals. |
+
+The pattern is not that learning has no value. It is that **learning is not a
+separable good in a developer tool** — its value shows up as retention and
+differentiation on the priced object, and the moment it is broken out as its own
+SKU it is competing against free, against internal budgets that do not exist, and
+against a buyer who did not come for it.
+
+The decision, stated so nobody has to re-derive it:
+
+> **The priced object stays the verified outcome.** The teaching layer is never a
+> separate SKU, never a per-seat education add-on, and never a line on an invoice.
+> It is retention and differentiation on the thing already being sold. Derived
+> artifacts — the receipt-as-worked-example, cross-language mappings, retrieval
+> items — cost effectively nothing to produce and are free, always. A faded
+> sandbox exercise consumes real sandbox and provider spend and therefore draws on
+> the same credits as work, **as compute, not as tuition** — the developer is
+> paying for execution, exactly as they do everywhere else in the product, and the
+> receipt says so in those terms.
+
+That last distinction is not cosmetic. A metered exercise billed as *education*
+is a priced line item with a different label, and it inherits every failure in
+the table above. A metered exercise billed as *sandbox execution* is the existing
+pricing model applied consistently to a surface that happens to teach.
+
+### 35.14 What has to exist first
 
 This phase is cheap in code and expensive in prerequisites, which is the honest
 reason it is Phase 35 and not Phase 12.
@@ -6195,13 +6783,89 @@ reason it is Phase 35 and not Phase 12.
 | Quote versus measured spend | Phase 31 | quotes not persisted (`quoted_credits` is `None`) |
 | Egress grants on the receipt | PR C2 | **exists** |
 | `dead_ends[]` | Phase 29.3 | not built |
+| Per-developer per-subsystem outcome history | Phase 29.4 corpus | not built — and see 35.15 |
 
 Building the renderer before the record is populated would produce an artifact
 that is mostly "not recorded" — which is at least honest, and is also how a
 feature gets judged as useless and then quietly filled in with a model. **Build
 it when the record can support it**, which is what the exit gate below tests.
 
-### 35.8 The thing this phase is really defending
+### 35.15 What is actually Cortex's, and where the cold start really is
+
+The claim that Cortex uniquely holds receipts of what a developer did, what
+failed, and why a check was chosen is true, and it is a genuine asset: generic
+curriculum is a commodity with a dozen well-funded vendors, and teaching from a
+developer's own verified outcome history has no competitor because nobody else
+holds the history.
+
+Pushing on it as instructed, it is narrower than it sounds in one specific way,
+and the narrowing changes the delivery order. **The asset accrues only after the
+developer has an outcome history — and the single highest-value case, a new hire
+on day one at a 200-developer org, is the case where that history is empty.** The
+person has no record. What has a record is the **repository**: its conventions,
+its recurring failure modes, its dead ends, its battery shape, the regions where
+independent attempts disagree. That is Phase 29.3's `RepoUnderstanding` and Phase
+29.4's per-repository corpus, and it is the thing that teaches a newcomer.
+
+So the individual-history story is the *retention* mechanism and the
+repository-history story is the *onboarding* mechanism, they are different
+corpora, and only one of them exists today. **Phase 35 is downstream of Phase 29
+as well as downstream of a Cortex that runs.** Building the teaching layer before
+the comprehension artifact would mean teaching from the only record available —
+a single task's transcript — which is the thin-record case in 35.8 promoted to
+the default, and the fastest available route to the confabulation this phase
+exists to prevent.
+
+The same cold start binds 35.7b hardest: spaced retrieval over the user's own
+receipts requires the user to have receipts, and on day one they have none. The
+correct behaviour is that the surface is *absent*, not that it falls back to
+generic items — which is the same distinction 35.9 draws between "not recorded"
+and "did not happen", applied to a whole surface.
+
+The tenancy boundary needs no new rule and gets no exception: invariant 20 and
+Phase 29.4 already draw it. A teaching corpus is per repository, never crosses an
+organisation, and what may generalise is structural and objective — this
+ecosystem's conventional test command, this framework's entry points — never
+anything derived from a customer's code, findings, or people. A teaching artifact
+that leaks across tenants is a source-code disclosure with a lesson plan attached.
+
+### 35.16 How this dies, and the literature that predicts it
+
+There is a well-documented precedent for a tool that attaches correct, expert
+observations to a developer's code and is then ignored, and it should be read as
+a warning rather than a curiosity.
+
+The static-analysis adoption literature found that **19 of 20 participants** said
+the tools did not present results in a way that conveyed *what the problem is, why
+it is a problem, and what to do differently.* The barriers were false positives
+that outweighed true positives in volume, alert saturation, warnings that were
+not actionable, and poor fit with the workflow — and the observed behaviour was
+that developers read the first few items, found them irrelevant, and stopped
+checking permanently.
+
+Every one of those failure modes is available to a teaching layer, in a more
+dangerous form: a lesson that is wrong is worse than a warning that is wrong,
+because the developer cannot check it against anything. The four defences are
+already specified elsewhere in this document and this phase adopts them rather
+than inventing new ones — invariant 32 means the artifact cannot assert past its
+evidence, invariant 33 means it cannot saturate a workflow it never enters
+uninvited, Phase 33.5's disclosure tiers mean it is never required reading, and
+35.7's anchoring conditions mean nothing renders that is not about the code in
+front of the reader, which is the direct answer to "found them irrelevant".
+
+The one genuinely new defence is measurement, and 35.7 already supplied the
+instrument: **quizzes are how Cortex finds out whether its teaching works.** The
+trial in 35.1 is a design Cortex can run on itself continuously and at zero
+labelling cost, because it holds both arms — tasks a developer delegated fully
+and tasks where they engaged — and Phase 29.5 already establishes the pattern of
+scoring comprehension retroactively from completed runs. A teaching layer that
+cannot show a comprehension delta is decoration, and under invariant 29 it may
+not be claimed externally either. The mode hypothesis from 35.1 is the specific
+thing that measurement tests: Cortex is the only party that can turn an
+exploratory n = 2–7 taxonomy into a preregistered result on real work, and doing
+so is worth more than any lesson it could author.
+
+### 35.17 The thing this phase is really defending
 
 Every other phase in this document defends against a wrong outcome. This one
 defends against a **correct outcome that teaches the user something false about
@@ -6210,22 +6874,44 @@ Cortex when it is wrong.
 
 A user who understands why Cortex made a decision can disagree with it. A user
 who has been told a plausible story about a decision that was actually made for a
-different reason cannot, and will not know they cannot. Over enough tasks that is
-a user whose trust is uncorrelated with whether Cortex deserves it, which is the
-same defect as a battery that cannot fail — relocated from the verifier into the
-person.
+different reason cannot, and will not know they cannot. 35.1's perception gap is
+the measurement of how invisible that state is from the inside. Over enough tasks
+that is a user whose trust is uncorrelated with whether Cortex deserves it, which
+is the same defect as a battery that cannot fail — relocated from the verifier
+into the person.
 
-**Phase 35 exit gate:** a teaching artifact renders for a completed run with
-every sentence carrying the record field it derives from, and a test asserts that
-a sentence with no source does not render; a run with a thin record produces a
-*shorter* artifact naming what is absent, never a vaguer one, with "not recorded"
-and "did not happen" rendered as distinct sentences; the `always` section is
-complete on its own, contains no vocabulary defined in this document, and needs
-no operator-tier fact to make sense; the artifact is attachable to a receipt and
-addressable afterwards; no model is invoked anywhere in the rendering path, and a
-test asserts that; and a first-time solo builder, given only the `always` section
-of a run they did not watch, can correctly state what was checked, what was not,
-and what the verdict does not claim.
+**Phase 35 exit gate:** every completed task produces a plain-language account,
+derived entirely from its decision record, of what was attempted, why each check
+was derived, what failed, and what was not established — with every sentence
+carrying the record field it derives from, and a test asserting that a sentence
+with no source does not render; no model is invoked anywhere in the rendering
+path, and a test asserts that; the artifact carries the verdict class, battery
+power, and comprehension state of the record it came from and refuses to explain
+correctness where the record does not support it; a run with a thin record
+produces a *shorter* artifact naming what is absent, never a vaguer one, with
+"not recorded" and "did not happen" rendered as distinct sentences; the `always`
+section is complete on its own, contains no vocabulary defined in this document,
+and needs no operator-tier fact to make sense; the artifact is attachable to a
+receipt and addressable afterwards; no teaching artifact is emitted during an
+in-flight task and no teaching surface exists that a developer must navigate to;
+guidance level is computed per developer per subsystem from executed outcomes and
+cannot be set by a declared setting, a mode, or a request parameter; a faded
+exercise withdraws scaffolding as recorded competence rises and an expert-level
+developer receives no scaffolding at all; every cross-language mapping is
+contrastive, semantic, carries at least two analogies with the break point named
+in the same sentence, is falsifiable against a runnable program, and is anchored
+to the diff in front of the user, with a generic mapping card mechanically unable
+to render; every spaced-retrieval item derives from the user's own decision
+record, is delivered in the receipt surface, and asks why a check failed rather
+than whether it passed, with the surface absent rather than generic when the user
+has no history; the repository-derived corpus is the source for onboarding
+artifacts and is architecturally incapable of crossing an organisation; a
+comprehension delta is measured on real usage before any teaching claim is made
+internally or externally; no teaching surface is a priced line item and a metered
+exercise is billed as sandbox execution rather than as tuition; and no flashcard
+over generic repository facts, study plan, scheduled lesson, tutor mode, practice
+room, notification, or model-narrated rationale stream exists anywhere in the
+product.
 
 ## Handover protocol — how to actually execute this document
 
@@ -6340,10 +7026,12 @@ longer exists.
 **Environment facts that will otherwise cost a round trip.**
 
 - **Rust builds work locally** with the gnullvm toolchain:
-  `cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --lib`. The default
-  `stable-x86_64-pc-windows-gnu` toolchain fails on everything including
-  `cargo check`. Full lib suite runs in about two minutes — use it rather than
-  burning CI round trips on type errors.
+  `cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --all-targets`. The
+  default `stable-x86_64-pc-windows-gnu` toolchain fails on everything including
+  `cargo check`. Full suite runs in a few minutes — use it rather than burning CI
+  round trips on type errors. **`--all-targets`, never `--lib`:** `--lib` runs the
+  unit tests in `src/` and never compiles `crates/api/tests/`, so it reports green
+  on a tree whose integration suite does not build.
 - **Never run `cargo fmt` on this repo.** There is no `rust-toolchain.toml` and CI
   does not check formatting, so the tree has drifted from every rustfmt version.
   One run reformatted 54 files and 5,470 lines, burying a real change. Format
@@ -6660,6 +7348,17 @@ immediately, in parallel with Wave 1. Surface work follows the APIs it renders.
   money-path test density, and clear the open dependency advisories. **The lock
   poisoning fix and the advisories are days of work against a live outage risk
   and a live credibility problem — neither should wait for anything.**
+- **PR AU · The teaching layer (Phase 35).** The receipt's derived plain-language
+  account, faded sandbox exercises anchored to the user's own diff, contrastive
+  cross-language mappings, spaced retrieval over the user's own decision record,
+  the per-subsystem competence estimate that sets the fading schedule, and the
+  comprehension-delta measurement. **Needs AO (comprehension) and AP (the
+  scoreboard), and is downstream of a Cortex that has actually completed tasks** —
+  the corpus it teaches from does not exist before then. **One part does not wait
+  and is not really this PR:** the plain-language "what failed and why this check
+  was chosen" account on the receipt is receipt quality, is already implied by the
+  Phase 33.5 disclosure tiers, and should land with the first receipt a customer
+  ever sees.
 - **PR AU · Teaching layer (Phase 35).** Render a teaching artifact from the
   decision record, per-section disclosure tiers, degradation that shortens
   rather than blurs, and the test asserting no model is invoked in the rendering
@@ -6737,6 +7436,7 @@ ledger, state-machine, and pricing changes.
 | Operational controls | Each of the four stop scopes is exercised in a drill and leaves in-flight work in a truthful, resumable, operator-attributed state; each automatic breaker fires against an injected condition; a stop is idempotent and its release does not stampede; a newly added dependency that is a near-name of an existing one is blocked; an abandoned run executes the inverses of its external effects in reverse order; an irreversible effect cannot be scheduled before a reversible one; a receipt recall enumerates every receipt produced by an affected artifact version. |
 | Scale mechanics | A write set overlapping an open human pull request is surfaced before approval, with the pushed-only boundary stated; Cortex submits to a merge queue and never merges directly, and a queue rejection registers as a failed integration; a multi-step change delivers as a reviewable stack; the per-repository WIP limit blocks a new dispatch and says why; a five-person team completes setup with no identity provider. |
 | Simplicity | A first-time solo user completes a task without encountering a control they must understand, and every decision Cortex made for them is visible in one line; intake asks no mechanism questions; every mechanism introduced in this plan carries a declared disclosure tier and nothing above *always* is required reading. |
+| Teaching | A teaching artifact built from an `UNVERIFIED` verdict, a `none` battery, a degraded map, an `inconclusive` verdict, or a quarantined check states what was not established and contains no correctness explanation; every teaching artifact traces to the decision-record fields it derived from, and one built from no record cannot be produced at all; no model is invoked in the rendering path; no artifact is emitted while a task is in flight; guidance level is computed from executed outcomes per developer per subsystem and cannot be set by a request parameter; a developer with high recorded competence in a subsystem receives no scaffolding; a cross-language mapping that is not anchored to a diff, or that carries fewer than two analogies, or whose break point is not executable, does not render; a retrieval item that asks whether a check passed rather than why it failed does not render, and no retrieval surface appears for a developer with no history; a teaching corpus query is architecturally incapable of crossing an organisation; and the comprehension delta is computed from real usage before any teaching claim is published. |
 
 ## Deliberately deferred
 
@@ -7141,6 +7841,26 @@ should deliberately attack an axis none of the first four used** — a candidate
 list is in Phase 34.4. The right response remains another round rather than
 confidence.
 
+Round five did exactly that and the prediction held. It attacked the **human**
+axis — not whether Cortex is correct, but whether the person who bought it is
+left more capable — and found that the plan had spent thirty-four phases making
+the delegation loop tighter without once asking what delegation does to the
+developer. That is Phase 35, and it is the first finding in five rounds that is
+about the customer rather than about the machine.
+
+Round six then attacked Phase 35 and Phases 27–31 on **evidence quality rather
+than on a new axis**, and that is itself a finding worth recording: several
+numbers the plan had been leaning on were softer than their phrasing implied.
+Cross-provider error correlation is high and *rises* with capability, so the
+`1 − (1 − a)^N` bound is an upper bound Cortex will not reach. The post-cutoff
+restriction closes training contamination and leaves retrieval contamination
+wide open. Automated grading overstates merge-worthiness. And the teaching
+round's headline mode taxonomy is exploratory rather than preregistered. **A
+seventh round should attack the axis round five opened and did not finish: what
+Cortex does to a *team's* practice over months, rather than to one developer
+inside one task** — and it should keep round six's habit of grading the evidence
+as hard as the argument.
+
 ## Sources for Track B
 
 - Effort as a first-class provider parameter, level semantics, and the
@@ -7213,3 +7933,176 @@ real and measured; the mechanisms proposed against them are this document's own.
   and the debate-drift results are all catalogued with citations in
   [RESEARCH-2026-08.md](RESEARCH-2026-08.md) — that doc is the source of record
   for them; this plan does not restate the evidence.
+
+## Sources for the fifth round
+
+Grounding for Phase 35. The round's method was to treat "developers do not want
+to be taught" as the null and require the evidence to beat it; several of these
+sources argue *against* building a teaching layer and are cited for that reason.
+Round six then re-graded several of them — see the following section, which
+supersedes this one where the two disagree.
+
+- The randomised trial behind 35.1 — 52 professional engineers, an unfamiliar
+  Python library, 50% against 67% on comprehension of code written minutes
+  earlier (d = 0.738, p = 0.01), the widest gap in debugging, and a ~2-minute
+  time difference that was not significant:
+  [How AI assistance impacts the formation of coding skills](https://www.anthropic.com/research/AI-assistance-coding-skills).
+  **Read the paper's Table 1 rather than the write-up on the population
+  question** — the majority reported seven or more years of experience, and the
+  "mostly junior" framing does not survive it. Secondary coverage, including the
+  never-skilling framing and the reported AI Index employment figures for
+  developers aged 22–25:
+  [never-skilling and critical thinking](https://thenextweb.com/news/ai-never-skilling-critical-thinking-research),
+  [what developers should take away](https://learn.senwitt.com/blog/anthropic-coding-skill-study-what-developers-should-take-away/),
+  [AI-assisted development and junior developer roles](https://papers.ssrn.com/sol3/Delivery.cfm/6409098.pdf?abstractid=6409098&mirid=1)
+- The six-pattern taxonomy of *how* the assistant was used, which 35.1 treats as
+  a design hypothesis and never as a finding — exploratory, not preregistered,
+  n = 2–7 per pattern, self-selected and therefore confounded with prior skill:
+  [arXiv:2601.20245](https://arxiv.org/abs/2601.20245)
+- Program comprehension as roughly 58% of professional developer time, measured
+  across 78 professionals, seven projects, and 3,148 working hours — the reason
+  this is where the working day goes rather than a side concern:
+  [Measuring program comprehension: a large-scale field study with professionals](https://soarsmu.github.io/papers/2018/Xia2018ProgramComprehension.pdf)
+- What developers actually do to learn, and the pull shape of every resource at
+  the top of the list — 69% learned something new in the year, documentation 68%,
+  online resources 59%, Stack Overflow 51%, 44% using AI tools to learn, up from
+  37%: [2025 Stack Overflow Developer Survey](https://survey.stackoverflow.co/2025)
+- The evidence that ranks the surfaces in 35.7. Retrieval practice transfers
+  modestly and conditionally, moderated by response congruency, with
+  course-embedded testing-versus-restudy at g = 0.18 and an interval crossing
+  zero — the basis for demoting quizzes to an instrument and for cutting
+  *generic* flashcards. **Superseded for the professional-population case by the
+  physician RCT and the 2026 meta-analysis in the sixth-round sources**, which is
+  what 35.7b reverses on:
+  [single-paper meta-analyses of spaced retrieval practice in nine STEM courses](https://stemeducationjournal.springeropen.com/articles/10.1186/s40594-024-00468-5),
+  [retrieval practice and transfer learning](https://notes.andymatuschak.org/Retrieval_practice_and_transfer_learning),
+  [meta-analytic review of the benefit of spacing retrieval practice](http://www.lscp.net/persons/ramus/docs/EPR20.pdf)
+- Worked examples and adaptive fading in programming instruction specifically —
+  faded examples beating traditional ones on algorithmic performance and on
+  instructional efficiency — the basis for ranking faded sandbox exercises first:
+  [an experimental evaluation of worked example strategies for efficient programming instruction](https://link.springer.com/article/10.1007/s10758-025-09901-2),
+  [the effect of worked examples on learning solution steps and knowledge transfer](https://www.tandfonline.com/doi/full/10.1080/01443410.2023.2273762)
+- The expertise reversal effect — that guidance which helps a novice actively
+  penalises a more knowledgeable learner through redundancy — which is what makes
+  the range split on expertise rather than headcount, and what forbids a
+  self-declared level:
+  [the expertise reversal effect and its instructional implications](https://link.springer.com/article/10.1007/s11251-009-9102-0)
+- Task resumption after interruption: 10,000 recorded sessions from 86
+  programmers with 414 surveyed, only 10% of sessions beginning coding within a
+  minute and only 7% involving no navigation before the first edit; and mean
+  resumption lags of 20–23 seconds even under the best cue conditions — the basis
+  for never-interrupt as a hard constraint rather than a courtesy:
+  [resumption strategies for interrupted programming tasks](https://chrisparnin.me/pdf/parnin-sqj11.pdf),
+  [evaluating cues for resuming interrupted programming tasks](https://dl.acm.org/doi/pdf/10.1145/1753326.1753342)
+- How a tool that attaches correct expert observations to a developer's code gets
+  ignored — 19 of 20 participants reporting that results failed to convey what the
+  problem is, why it is a problem, and what to do differently, plus alert
+  saturation and workflow misfit — read here as the predicted death of a badly
+  built teaching layer:
+  [Why don't software developers use static analysis tools to find bugs?](https://cs.gmu.edu/~johnsonb/docs/icse2013.pdf)
+
+## Sources for the sixth round
+
+Grounding for the amendments to Phases 27–31 and 35. This round graded evidence
+rather than opening an axis, so several entries here **weaken** a claim the plan
+previously made. Where a source below contradicts one above, this section wins.
+
+**Capability, and the limits of sampling (Phase 28).**
+
+- Error correlation across providers and architectures is **high**, and it
+  **rises with capability** — roughly 60% agreement on the wrong answer when both
+  models err, across n > 350 models. This is why 28.2c no longer says
+  cross-vendor samples "correlate far less", and why `1 − (1 − a)^N` is stated as
+  an unreachable upper bound rather than as an achievable one:
+  [Correlated Errors in Large Language Models, ICML 2025 — arXiv:2506.07962](https://arxiv.org/abs/2506.07962)
+- Mixed-model Mixture-of-Agents underperforming **self**-MoA by 6.6%, and the
+  quality–diversity tradeoff behind it — a published negative result against
+  model diversity that does **not** bind on Cortex, because it aggregates by
+  synthesis where a weak candidate contaminates the output, while Cortex
+  aggregates by execution where a weak candidate fails its checks and is
+  discarded: [Rethinking Mixture-of-Agents — arXiv:2502.00674](https://arxiv.org/abs/2502.00674)
+- The existence proof for the whole capability thesis: candidate edits pooled
+  across five agent systems, ensemble selection **66.2%** against a best
+  individual member of **62.8%**, with pooled coverage at **80.8%**. Combining
+  models beat the best model, and the ~14-point gap between coverage and
+  selection is the product thesis stated as a number — the pool is cheap and the
+  selector is the moat:
+  [CodeMonkeys: scaling test-time compute for software engineering — arXiv:2501.14723](https://arxiv.org/abs/2501.14723)
+
+**Evaluation integrity (Phase 30).**
+
+- Retrieval contamination measured directly on a sealed evaluation environment:
+  87.1% → 73.0% and 74.7% → 54.0% once egress and git history were closed, with
+  57% of runs performing an upstream lookup, 9% mining git history, and 63% of
+  resolutions retrieved rather than derived. This is the measurement behind the
+  seal invariant, and behind the correction that a post-cutoff restriction closes
+  *training* contamination only: Cursor's June 2026 sealed-evaluation report.
+- The spread between a vendor's published score and the same model family in a
+  standardised harness — roughly 17 points — which is why 28.5's falsification
+  test compares single models dropped into *Cortex's own* scaffold rather than
+  against published numbers.
+
+**Grading and false accepts (Phases 27, 31).**
+
+- Execution-grounded selection beating output-pattern voting by **19–52 points**,
+  with the aggregation rule barely mattering (variants within ±0.79pp, p > 0.05)
+  and **input generation quality** dominating instead (sketch-based inputs beating
+  random fuzzing by 11.3pp) — the basis for putting PR AM's effort into
+  discriminating inputs rather than into voting math.
+- False accepts on a frozen battery, measured three ways, which is what seeds
+  Phase 31's loss-ratio prior:
+  **15.7%** of patches passing SWE-bench Verified were erroneous under augmented
+  tests ([UTBoost — arXiv:2506.09289](https://arxiv.org/abs/2506.09289));
+  **77%** of instances retain a surviving mutant
+  ([arXiv:2603.00520](https://arxiv.org/abs/2603.00520));
+  and roughly **50%** of test-passing pull requests were rejected by maintainers,
+  with automated grading overstating merge-worthiness by **24.2 points** (METR,
+  March 2026) — the reason 28.5 gains a human-acceptance arm.
+
+**Teaching (Phase 35).**
+
+- The perception gap, from four independent designs — the trial's AI arm rating
+  the task easier, METR's +20% perceived against −19% measured (with a February
+  2026 update qualifying that figure, which is why it may not be cited as a
+  standing fact), developers believing AI-assisted code more secure while it was
+  less secure on four of five tasks, and rising confidence alongside falling
+  critical thinking:
+  [Do users write more insecure code with AI assistants? Perry et al., CCS '23 — arXiv:2211.03622](https://arxiv.org/abs/2211.03622),
+  METR (2025, updated February 2026), Lee et al. (CHI 2025).
+- Why a post-hoc explanation cannot be trusted as a matter of structure rather
+  than of quality — the second leg under 35.3:
+  [Stop explaining black box models for high stakes decisions, Rudin, Nature MI 2019 — arXiv:1811.10154](https://arxiv.org/abs/1811.10154)
+  (a perfectly faithful explanation would *be* the model), and
+  [Language models don't always say what they think, Turpin et al., NeurIPS 2023 — arXiv:2305.04388](https://arxiv.org/abs/2305.04388)
+  (explanations systematically misrepresent the true reason, omit the bias that
+  changed the answer, accuracy drops up to 36%, and the explanations *increase*
+  trust).
+- Cross-language transfer: that semantic transfer is driven by **syntactic**
+  similarity, which is the failure mode 35.7a's contrastive form exists to block
+  (Tshukudu & Cutts, ICER 2020); that a *single* analogy becomes an impediment at
+  exactly this stage of expertise and the prescription is multiple analogies
+  (Spiro et al.); and that misconception-targeted intervention pays — 12
+  interventions, 10 of 12 significant, ~+20%:
+  [Crichton & Krishnamurthi, OOPSLA 2024 — arXiv:2401.01257](https://arxiv.org/abs/2401.01257)
+- The adult-professional evidence for spaced retrieval, which is what reverses
+  round five's flashcard cut for the user's-own-receipts case: a randomised trial
+  of **26,258 practising physicians** (learning 58.0% vs 43.2%, transfer 58.3% vs
+  52.4%, both p < .001, double-spacing best), and a 2026 meta-analysis at
+  **SMD 0.78, n = 21,415**. Item discrimination — why every question must ask
+  *why* a check failed rather than *whether* it passed, and why Rustlings'
+  make-it-compile format is the low-discrimination kind: Brown's IRT analysis of
+  programming-exercise items.
+- Why a separate practice destination is rejected: deliberate practice explaining
+  **less than 1%** of variance in professions (Macnamara, Hambrick & Oswald,
+  2014, *Psychological Science*); work-environment support as a leading predictor
+  of training transfer across **89 studies** (Blume et al., 2010); and
+  single-digit completion for optional developer curricula (Advent of Code ~5%
+  day 1 → day 25; 2% of 62,526 Brown Rust Book readers reaching chapter 19).
+  **"Only 10% of training transfers", "learning in the flow of work" as a cited
+  finding, and 70-20-10 are folklore with no empirical base** and are recorded
+  here so nobody re-imports them.
+- Why the teaching layer is never a priced line item: Pluralsight (acquired by
+  Vista at ~$3.5–3.9B, equity written to zero by 2024, with competitors making
+  learning free a stated contributing cause), Katacoda (acquired, shut down
+  2022), and Replit Teams for Education (killed at 18 months as economically
+  nonviable, pivoting to AI development tooling for professionals).
