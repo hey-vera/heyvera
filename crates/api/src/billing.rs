@@ -40,12 +40,19 @@ where
 
         // Dev/local mode: no Clerk configured, allow through
         if app_state.clerk_secret_key.is_none() {
-            return Ok(PremiumUser { user_id: clerk_user.user_id });
+            return Ok(PremiumUser {
+                user_id: clerk_user.user_id,
+            });
         }
 
         // Admin bypass
-        if crate::admin::authorize_admin(&app_state, &clerk_user).await.is_ok() {
-            return Ok(PremiumUser { user_id: clerk_user.user_id });
+        if crate::admin::authorize_admin(&app_state, &clerk_user)
+            .await
+            .is_ok()
+        {
+            return Ok(PremiumUser {
+                user_id: clerk_user.user_id,
+            });
         }
 
         // Check premium status using same logic as is_premium()
@@ -57,11 +64,15 @@ where
             .unwrap_or(false);
 
         if is_premium {
-            Ok(PremiumUser { user_id: clerk_user.user_id })
+            Ok(PremiumUser {
+                user_id: clerk_user.user_id,
+            })
         } else {
             Err((
                 StatusCode::FORBIDDEN,
-                Json(ErrorResponse { error: "active Cortex subscription required".into() }),
+                Json(ErrorResponse {
+                    error: "active Cortex subscription required".into(),
+                }),
             ))
         }
     }
@@ -71,18 +82,9 @@ where
 #[derive(Debug, Clone, Serialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum BillingError {
-    DailyCostLimitExceeded {
-        current: f64,
-        limit: f64,
-    },
-    DailyStepLimitExceeded {
-        current: i64,
-        limit: i64,
-    },
-    MonthlyCostLimitExceeded {
-        current: f64,
-        limit: f64,
-    },
+    DailyCostLimitExceeded { current: f64, limit: f64 },
+    DailyStepLimitExceeded { current: i64, limit: i64 },
+    MonthlyCostLimitExceeded { current: f64, limit: f64 },
 }
 
 impl std::fmt::Display for BillingError {
@@ -95,7 +97,10 @@ impl std::fmt::Display for BillingError {
                 write!(f, "daily step limit exceeded: {current} / {limit}")
             }
             Self::MonthlyCostLimitExceeded { current, limit } => {
-                write!(f, "monthly cost limit exceeded: ${current:.2} / ${limit:.2}")
+                write!(
+                    f,
+                    "monthly cost limit exceeded: ${current:.2} / ${limit:.2}"
+                )
             }
         }
     }
@@ -140,7 +145,11 @@ pub fn check_usage_gate(
         tracing::warn!(
             "billing gate: user {user_id} — {}{}",
             violation,
-            if enforce { " [BLOCKED]" } else { " [warn-only]" }
+            if enforce {
+                " [BLOCKED]"
+            } else {
+                " [warn-only]"
+            }
         );
         return GateResult {
             allowed: !enforce,
@@ -161,7 +170,11 @@ pub fn check_usage_gate(
         tracing::warn!(
             "billing gate: user {user_id} — {}{}",
             violation,
-            if enforce { " [BLOCKED]" } else { " [warn-only]" }
+            if enforce {
+                " [BLOCKED]"
+            } else {
+                " [warn-only]"
+            }
         );
         return GateResult {
             allowed: !enforce,
@@ -182,7 +195,11 @@ pub fn check_usage_gate(
         tracing::warn!(
             "billing gate: user {user_id} — {}{}",
             violation,
-            if enforce { " [BLOCKED]" } else { " [warn-only]" }
+            if enforce {
+                " [BLOCKED]"
+            } else {
+                " [warn-only]"
+            }
         );
         return GateResult {
             allowed: !enforce,
@@ -252,10 +269,7 @@ pub struct SubscriptionStatus {
 
 /// Pure: paid or trial access matches usage rules.
 pub fn is_premium_access(access_state: &AccessState) -> bool {
-    matches!(
-        access_state,
-        AccessState::Active | AccessState::TrialActive
-    )
+    matches!(access_state, AccessState::Active | AccessState::TrialActive)
 }
 
 /// Exact state machine. Frontend switches on this — no guessing.
@@ -460,7 +474,11 @@ pub async fn get_billing_status(
 
     let (access_state, plan, trial) = match &sub {
         Some(s) => {
-            let plan_type = if s.plan_type == "annual" { PlanType::Annual } else { PlanType::Monthly };
+            let plan_type = if s.plan_type == "annual" {
+                PlanType::Annual
+            } else {
+                PlanType::Monthly
+            };
             let sub_status = match s.status.as_str() {
                 "trialing" => SubStatus::Trialing,
                 "active" => SubStatus::Active,
@@ -481,7 +499,9 @@ pub async fn get_billing_status(
             let trial_info = if s.status == "trialing" {
                 s.trial_end.as_ref().map(|end| {
                     let days = chrono::NaiveDateTime::parse_from_str(end, "%Y-%m-%d %H:%M:%S")
-                        .or_else(|_| chrono::DateTime::parse_from_rfc3339(end).map(|d| d.naive_utc()))
+                        .or_else(|_| {
+                            chrono::DateTime::parse_from_rfc3339(end).map(|d| d.naive_utc())
+                        })
                         .map(|t| {
                             let now = chrono::Utc::now().naive_utc();
                             (t - now).num_days().max(0)
@@ -490,7 +510,11 @@ pub async fn get_billing_status(
                     TrialInfo {
                         trial_end: end.clone(),
                         days_remaining: days,
-                        auto_charge_amount_cents: if plan_type == PlanType::Annual { 6900 } else { 699 },
+                        auto_charge_amount_cents: if plan_type == PlanType::Annual {
+                            6900
+                        } else {
+                            699
+                        },
                         auto_charge_plan: plan_type.clone(),
                     }
                 })
@@ -502,7 +526,11 @@ pub async fn get_billing_status(
                 plan_type: plan_type.clone(),
                 status: sub_status,
                 billing_period_end: s.current_period_end.clone().unwrap_or_default(),
-                next_charge_amount_cents: Some(if plan_type == PlanType::Annual { 6900 } else { 699 }),
+                next_charge_amount_cents: Some(if plan_type == PlanType::Annual {
+                    6900
+                } else {
+                    699
+                }),
                 next_charge_date: s.current_period_end.clone(),
                 started_at: s.current_period_start.clone().unwrap_or_default(),
             };
@@ -545,7 +573,9 @@ pub async fn create_checkout(
 
     let db = state.db.as_ref().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorResponse { error: "database unavailable".into() }),
+        Json(ErrorResponse {
+            error: "database unavailable".into(),
+        }),
     ))?;
 
     let mut extra_trial_days: i64 = 0;
@@ -554,16 +584,29 @@ pub async fn create_checkout(
     if let (Some(code), Some(choice_idx_str)) = (&req.referral_code, &req.referral_choice) {
         let promo = db.get_promo_code(code).ok_or((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { error: "invalid promo code".into() }),
+            Json(ErrorResponse {
+                error: "invalid promo code".into(),
+            }),
         ))?;
         if !promo.active {
-            return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "promo code is no longer active".into() })));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "promo code is no longer active".into(),
+                }),
+            ));
         }
         if promo.current_uses >= promo.max_uses {
-            return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "promo code has been fully redeemed".into() })));
+            return Err((
+                StatusCode::BAD_REQUEST,
+                Json(ErrorResponse {
+                    error: "promo code has been fully redeemed".into(),
+                }),
+            ));
         }
 
-        let parsed_options: Vec<serde_json::Value> = promo.discount_options
+        let parsed_options: Vec<serde_json::Value> = promo
+            .discount_options
             .as_deref()
             .and_then(|s| serde_json::from_str(s).ok())
             .unwrap_or_default();
@@ -573,11 +616,18 @@ pub async fn create_checkout(
         let (dtype, dvalue) = if !parsed_options.is_empty() {
             let opt = parsed_options.get(choice_idx).ok_or((
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse { error: "invalid discount option".into() }),
+                Json(ErrorResponse {
+                    error: "invalid discount option".into(),
+                }),
             ))?;
             (
-                opt.get("discount_type").and_then(|v| v.as_str()).unwrap_or("").to_string(),
-                opt.get("discount_value").and_then(|v| v.as_f64()).unwrap_or(0.0),
+                opt.get("discount_type")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+                opt.get("discount_value")
+                    .and_then(|v| v.as_f64())
+                    .unwrap_or(0.0),
             )
         } else {
             (promo.discount_type.clone(), promo.discount_value)
@@ -586,9 +636,12 @@ pub async fn create_checkout(
         match dtype.as_str() {
             "percent_off" => {
                 if req.plan != PlanType::Annual {
-                    return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse {
-                        error: "percent-off discount requires the annual plan".into(),
-                    })));
+                    return Err((
+                        StatusCode::BAD_REQUEST,
+                        Json(ErrorResponse {
+                            error: "percent-off discount requires the annual plan".into(),
+                        }),
+                    ));
                 }
                 coupon_percent_off = Some(dvalue);
             }
@@ -603,10 +656,17 @@ pub async fn create_checkout(
         Some(sub) => sub.stripe_customer_id,
         None => {
             let email = req.email.as_deref().unwrap_or(&user.user_id);
-            let customer = stripe.create_customer(email, &user.user_id).await.map_err(|e| (
-                StatusCode::BAD_GATEWAY,
-                Json(ErrorResponse { error: format!("failed to create Stripe customer: {e}") }),
-            ))?;
+            let customer = stripe
+                .create_customer(email, &user.user_id)
+                .await
+                .map_err(|e| {
+                    (
+                        StatusCode::BAD_GATEWAY,
+                        Json(ErrorResponse {
+                            error: format!("failed to create Stripe customer: {e}"),
+                        }),
+                    )
+                })?;
             customer.id
         }
     };
@@ -619,7 +679,11 @@ pub async fn create_checkout(
     let has_had_trial = db.get_subscription(&user.user_id).is_some();
     let base_trial = if has_had_trial { 0 } else { 7 };
     let total_trial = base_trial + extra_trial_days;
-    let trial_days = if total_trial > 0 { Some(total_trial as u32) } else { None };
+    let trial_days = if total_trial > 0 {
+        Some(total_trial as u32)
+    } else {
+        None
+    };
     let _ = coupon_percent_off;
 
     let session = stripe
@@ -631,10 +695,14 @@ pub async fn create_checkout(
             Some(&user.user_id),
         )
         .await
-        .map_err(|e| (
-            StatusCode::BAD_GATEWAY,
-            Json(ErrorResponse { error: format!("failed to create checkout: {e}") }),
-        ))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(ErrorResponse {
+                    error: format!("failed to create checkout: {e}"),
+                }),
+            )
+        })?;
 
     Ok(Json(CheckoutResponse {
         checkout_url: session.url.unwrap_or_default(),
@@ -664,23 +732,33 @@ pub async fn create_portal(
     let stripe = require_stripe(&state)?;
     let db = state.db.as_ref().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorResponse { error: "database unavailable".into() }),
+        Json(ErrorResponse {
+            error: "database unavailable".into(),
+        }),
     ))?;
 
     let sub = db.get_subscription(&user.user_id).ok_or((
         StatusCode::NOT_FOUND,
-        Json(ErrorResponse { error: "no subscription found".into() }),
+        Json(ErrorResponse {
+            error: "no subscription found".into(),
+        }),
     ))?;
 
     let portal = stripe
         .create_portal_session(&sub.stripe_customer_id, &stripe.success_url)
         .await
-        .map_err(|e| (
-            StatusCode::BAD_GATEWAY,
-            Json(ErrorResponse { error: format!("failed to create portal: {e}") }),
-        ))?;
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(ErrorResponse {
+                    error: format!("failed to create portal: {e}"),
+                }),
+            )
+        })?;
 
-    Ok(Json(PortalResponse { portal_url: portal.url }))
+    Ok(Json(PortalResponse {
+        portal_url: portal.url,
+    }))
 }
 
 #[derive(Serialize)]
@@ -696,20 +774,23 @@ pub async fn validate_referral(
 ) -> Json<ReferralValidateResponse> {
     let db = match &state.db {
         Some(db) => db,
-        None => return Json(ReferralValidateResponse {
-            valid: false,
-            discount_type: None,
-            discount_value: None,
-            description: None,
-            options: vec![],
-            uses_remaining: None,
-            error: Some("database unavailable".into()),
-        }),
+        None => {
+            return Json(ReferralValidateResponse {
+                valid: false,
+                discount_type: None,
+                discount_value: None,
+                description: None,
+                options: vec![],
+                uses_remaining: None,
+                error: Some("database unavailable".into()),
+            })
+        }
     };
 
     match db.validate_promo_code(&req.code, &user.user_id) {
         Ok(promo) => {
-            let parsed_options: Vec<serde_json::Value> = promo.discount_options
+            let parsed_options: Vec<serde_json::Value> = promo
+                .discount_options
                 .as_deref()
                 .and_then(|s| serde_json::from_str(s).ok())
                 .unwrap_or_default();
@@ -856,11 +937,7 @@ pub async fn get_billing_history(
 
     let (take, has_more) = history_page_meta(raw.len(), limit);
     let items: Vec<BillingHistoryEntry> = raw.into_iter().take(take).collect();
-    let next_offset = if has_more {
-        Some(offset + limit)
-    } else {
-        None
-    };
+    let next_offset = if has_more { Some(offset + limit) } else { None };
 
     Json(BillingHistoryPage {
         items,
@@ -912,9 +989,7 @@ pub struct BillingUsageResponse {
 
 /// Pure helper: map optional ledger row → API `creditsBalance`.
 /// `None` row → `None` (never invent). `Some` → sub + pack remaining.
-pub fn credit_balance_for_api(
-    row: Option<&crate::db::CreditBalanceRecord>,
-) -> Option<i64> {
+pub fn credit_balance_for_api(row: Option<&crate::db::CreditBalanceRecord>) -> Option<i64> {
     row.map(|r| r.subscription_remaining + r.pack_remaining)
 }
 
@@ -1130,10 +1205,7 @@ mod history_pagination_tests {
         assert_eq!(clamp_history_limit(Some(-5)), 1);
         assert_eq!(clamp_history_limit(Some(20)), 20);
         assert_eq!(clamp_history_limit(Some(50)), 50);
-        assert_eq!(
-            clamp_history_limit(Some(100)),
-            BILLING_HISTORY_MAX_LIMIT
-        );
+        assert_eq!(clamp_history_limit(Some(100)), BILLING_HISTORY_MAX_LIMIT);
     }
 
     #[test]
@@ -1174,7 +1246,9 @@ pub async fn stripe_webhook(
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     let webhook_secret = state.stripe_webhook_secret.as_deref().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(ErrorResponse { error: "webhook not configured".into() }),
+        Json(ErrorResponse {
+            error: "webhook not configured".into(),
+        }),
     ))?;
 
     let sig = headers
@@ -1182,18 +1256,28 @@ pub async fn stripe_webhook(
         .and_then(|v| v.to_str().ok())
         .ok_or((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { error: "missing Stripe-Signature header".into() }),
+            Json(ErrorResponse {
+                error: "missing Stripe-Signature header".into(),
+            }),
         ))?;
 
-    StripeClient::verify_webhook_signature(&body, sig, webhook_secret).map_err(|e| (
-        StatusCode::BAD_REQUEST,
-        Json(ErrorResponse { error: format!("signature verification failed: {e}") }),
-    ))?;
+    StripeClient::verify_webhook_signature(&body, sig, webhook_secret).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("signature verification failed: {e}"),
+            }),
+        )
+    })?;
 
-    let event: serde_json::Value = serde_json::from_slice(&body).map_err(|e| (
-        StatusCode::BAD_REQUEST,
-        Json(ErrorResponse { error: format!("invalid JSON: {e}") }),
-    ))?;
+    let event: serde_json::Value = serde_json::from_slice(&body).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("invalid JSON: {e}"),
+            }),
+        )
+    })?;
 
     let event_type = event["type"].as_str().unwrap_or("");
     let event_id = event["id"].as_str().unwrap_or("");
@@ -1201,12 +1285,15 @@ pub async fn stripe_webhook(
 
     let db = state.db.as_ref().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorResponse { error: "database unavailable".into() }),
+        Json(ErrorResponse {
+            error: "database unavailable".into(),
+        }),
     ))?;
 
     match event_type {
         "checkout.session.completed" => {
-            let clerk_user_id = obj["metadata"]["clerk_user_id"].as_str()
+            let clerk_user_id = obj["metadata"]["clerk_user_id"]
+                .as_str()
                 .or_else(|| obj["client_reference_id"].as_str());
             let customer_id = obj["customer"].as_str();
             let subscription_id = obj["subscription"].as_str();
@@ -1231,7 +1318,13 @@ pub async fn stripe_webhook(
                         // here must not stop the subscription being recorded.
                         tracing::error!(user_id, "failed to init credit balance: {e}");
                     }
-                    db.record_billing_event(user_id, event_id, 0, "Subscription created", "completed");
+                    db.record_billing_event(
+                        user_id,
+                        event_id,
+                        0,
+                        "Subscription created",
+                        "completed",
+                    );
                     tracing::info!("subscription created + credits init for user {user_id}");
                 }
             }
@@ -1251,21 +1344,21 @@ pub async fn stripe_webhook(
                     sub.current_period_end = Some(
                         chrono::DateTime::from_timestamp(end, 0)
                             .map(|d| d.to_rfc3339())
-                            .unwrap_or_default()
+                            .unwrap_or_default(),
                     );
                 }
                 if let Some(start) = obj["current_period_start"].as_i64() {
                     sub.current_period_start = Some(
                         chrono::DateTime::from_timestamp(start, 0)
                             .map(|d| d.to_rfc3339())
-                            .unwrap_or_default()
+                            .unwrap_or_default(),
                     );
                 }
                 if let Some(trial_end) = obj["trial_end"].as_i64() {
                     sub.trial_end = Some(
                         chrono::DateTime::from_timestamp(trial_end, 0)
                             .map(|d| d.to_rfc3339())
-                            .unwrap_or_default()
+                            .unwrap_or_default(),
                     );
                 }
                 db.upsert_subscription(&sub);
@@ -1277,7 +1370,13 @@ pub async fn stripe_webhook(
             if let Some(mut sub) = find_sub_by_customer(db, customer_id) {
                 sub.status = "cancelled".to_string();
                 db.upsert_subscription(&sub);
-                db.record_billing_event(&sub.clerk_user_id, event_id, 0, "Subscription cancelled", "completed");
+                db.record_billing_event(
+                    &sub.clerk_user_id,
+                    event_id,
+                    0,
+                    "Subscription cancelled",
+                    "completed",
+                );
                 tracing::info!("subscription cancelled for customer {customer_id}");
             }
         }
@@ -1285,7 +1384,13 @@ pub async fn stripe_webhook(
             let customer_id = obj["customer"].as_str().unwrap_or("");
             let amount = obj["amount_paid"].as_i64().unwrap_or(0);
             if let Some(sub) = find_sub_by_customer(db, customer_id) {
-                if db.record_billing_event(&sub.clerk_user_id, event_id, amount, "Invoice paid", "paid") {
+                if db.record_billing_event(
+                    &sub.clerk_user_id,
+                    event_id,
+                    amount,
+                    "Invoice paid",
+                    "paid",
+                ) {
                     tracing::info!("invoice paid for customer {customer_id}");
                 } else {
                     tracing::debug!("duplicate webhook ignored: {event_id}");
@@ -1297,7 +1402,13 @@ pub async fn stripe_webhook(
             if let Some(mut sub) = find_sub_by_customer(db, customer_id) {
                 sub.status = "past_due".to_string();
                 db.upsert_subscription(&sub);
-                db.record_billing_event(&sub.clerk_user_id, event_id, 0, "Payment failed", "failed");
+                db.record_billing_event(
+                    &sub.clerk_user_id,
+                    event_id,
+                    0,
+                    "Payment failed",
+                    "failed",
+                );
                 tracing::warn!("payment failed for customer {customer_id}");
             }
         }
@@ -1309,10 +1420,14 @@ pub async fn stripe_webhook(
     Ok(StatusCode::OK)
 }
 
-fn require_stripe(state: &AppState) -> Result<&crate::stripe_client::StripeClient, (StatusCode, Json<ErrorResponse>)> {
+fn require_stripe(
+    state: &AppState,
+) -> Result<&crate::stripe_client::StripeClient, (StatusCode, Json<ErrorResponse>)> {
     state.stripe_client.as_ref().ok_or((
         StatusCode::SERVICE_UNAVAILABLE,
-        Json(ErrorResponse { error: "Stripe integration not yet configured".into() }),
+        Json(ErrorResponse {
+            error: "Stripe integration not yet configured".into(),
+        }),
     ))
 }
 

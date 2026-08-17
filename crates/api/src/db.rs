@@ -611,6 +611,75 @@ fn apply_migrations(conn: &Connection) {
     if current < 66 {
         migrate_v66(conn);
     }
+    if current < 67 {
+        migrate_v67(conn);
+    }
+}
+
+fn migrate_v67(conn: &Connection) {
+    // The worker service credential (F11).
+    //
+    // Until this table there was no way for a worker to prove who it was. The
+    // only credentials `authenticate_worker` understood were a Clerk *user*
+    // JWT — which a long-lived headless daemon has no way to obtain or renew —
+    // and the empty string, which was accepted whenever `CLERK_SECRET_KEY` was
+    // unset. So the deployed configuration was: no worker could authenticate
+    // legitimately, and any client at all could authenticate anonymously.
+    //
+    // A worker key is a service credential, not a user session. It belongs to a
+    // user (`owner_user_id`, so the work it dispatches is still billed and
+    // attributed to somebody), carries a coarse `scope`, and can be expired or
+    // revoked without touching the owner's account.
+    //
+    // `key_hash` is the SHA-256 hex of the full `cwk_`-prefixed secret and is
+    // UNIQUE: two rows can never resolve the same presented token, and an
+    // issuance that would collide fails loudly at INSERT instead of silently
+    // creating an ambiguous credential.
+    //
+    // **On the plain digest.** The secret is `cwk_` plus 32 bytes from the OS
+    // CSPRNG — a high-entropy token, not a password. Nobody chooses it, nobody
+    // reuses it, and there is no dictionary to run against the hash column, so
+    // a password KDF (bcrypt/argon2) would add per-frame latency and buy
+    // exactly nothing; inverting SHA-256 over 256 uniform bits is the attack.
+    // A plain digest is the correct primitive *here* and would not be if this
+    // column ever held something a human picked. See `key_material`.
+    //
+    // The plaintext is never stored. `key_prefix` is a truncated display form
+    // so an operator can tell two keys apart in a listing; it is not a secret
+    // and is not sufficient to authenticate.
+    //
+    // Revocation and expiry are two separate columns on purpose. `revoked_at`
+    // is an operator act with a time, and keeping it (rather than deleting the
+    // row) means a revoked key stays visible in an audit and can never be
+    // re-issued as itself, since `key_hash` remains taken.
+    //
+    // Numbered v67: the maximum on main at rebase time was v66 (PR I).
+    // `schema_version` is one counter shared with the HeyVera Socials product —
+    // re-check the maximum before claiming a number, because whichever branch
+    // merges second has its migration silently skipped.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS worker_keys (
+            id             TEXT PRIMARY KEY,
+            key_hash       TEXT NOT NULL UNIQUE,
+            key_prefix     TEXT NOT NULL,
+            owner_user_id  TEXT NOT NULL,
+            scope          TEXT NOT NULL,
+            created_at     INTEGER NOT NULL,
+            expires_at     INTEGER,
+            revoked_at     INTEGER,
+            last_used_at   INTEGER
+        );
+
+        -- Authentication looks up by hash on every worker connect.
+        CREATE INDEX IF NOT EXISTS idx_worker_keys_hash ON worker_keys(key_hash);
+        -- Listing and revocation are per-owner.
+        CREATE INDEX IF NOT EXISTS idx_worker_keys_owner ON worker_keys(owner_user_id);
+
+        UPDATE schema_version SET version = 67;",
+    )
+    .expect("migration v67 failed creating worker_keys");
+
+    tracing::info!("applied migration v67: worker_keys (worker service credential)");
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -3983,9 +4052,7 @@ fn migrate_v66(conn: &Connection) {
     )
     .expect("migration v66 failed creating the price list catalog");
 
-    tracing::info!(
-        "applied migration v66: versioned price list catalog + frozen step quotes"
-    );
+    tracing::info!("applied migration v66: versioned price list catalog + frozen step quotes");
 }
 
 /// The cost of every attempt at one step, successful or not.
@@ -5275,7 +5342,9 @@ fn upsert_verification_state(
     for source in from {
         args.push(source);
     }
-    let rows = conn.execute(&sql, args.as_slice()).map_err(|e| e.to_string())?;
+    let rows = conn
+        .execute(&sql, args.as_slice())
+        .map_err(|e| e.to_string())?;
     if rows == 0 {
         return Err(format!(
             "lifecycle row for step {step_id} attempt {attempt_id} gen {lease_gen} \
@@ -5600,9 +5669,9 @@ impl Database {
 
         let total: i64 = conn
             .query_row(
-            "SELECT COUNT(*) FROM conversations WHERE user_id = ?1",
-            params![user_id],
-            |row| row.get(0),
+                "SELECT COUNT(*) FROM conversations WHERE user_id = ?1",
+                params![user_id],
+                |row| row.get(0),
             )
             .unwrap_or(0);
 
@@ -5618,24 +5687,24 @@ impl Database {
 
         let conversations = stmt
             .query_map(params![user_id, limit, offset], |row| {
-            let preview: Option<String> = row.get(4)?;
-            Ok(ConversationSummary {
-                id: row.get(0)?,
-                title: row.get(1)?,
-                updated_at: row.get(2)?,
-                message_count: row.get(3)?,
-                last_message_preview: preview.map(|s| {
-                    if s.len() > 100 {
-                        format!("{}...", &s[..97])
-                    } else {
-                        s
-                    }
-                }),
+                let preview: Option<String> = row.get(4)?;
+                Ok(ConversationSummary {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    updated_at: row.get(2)?,
+                    message_count: row.get(3)?,
+                    last_message_preview: preview.map(|s| {
+                        if s.len() > 100 {
+                            format!("{}...", &s[..97])
+                        } else {
+                            s
+                        }
+                    }),
+                })
             })
-        })
-        .unwrap()
-        .filter_map(|r| r.ok())
-        .collect();
+            .unwrap()
+            .filter_map(|r| r.ok())
+            .collect();
 
         (conversations, total)
     }
@@ -9760,8 +9829,7 @@ impl Database {
             "UPDATE steps SET status = ?1, updated_at = ?2, version = version + 1
              WHERE id = ?3 AND lease_gen = ?4 AND status IN ({placeholders})"
         );
-        let mut args: Vec<&dyn rusqlite::ToSql> =
-            vec![&to_state, &now, &step_id, &lease_gen];
+        let mut args: Vec<&dyn rusqlite::ToSql> = vec![&to_state, &now, &step_id, &lease_gen];
         for state in from {
             args.push(state);
         }
@@ -10762,7 +10830,11 @@ impl Database {
             .iter()
             .filter_map(|v| v.as_str().map(str::to_string))
             .collect();
-        if paths.is_empty() { None } else { Some(paths) }
+        if paths.is_empty() {
+            None
+        } else {
+            Some(paths)
+        }
     }
 
     /// The repo this run is scoped to, for keying leases.
@@ -10830,7 +10902,11 @@ impl Database {
                 }
             }
         }
-        tracing::error!(repo_key, sequence, "sequence allocation gave up after 16 attempts");
+        tracing::error!(
+            repo_key,
+            sequence,
+            "sequence allocation gave up after 16 attempts"
+        );
         None
     }
 
@@ -12820,7 +12896,6 @@ impl Database {
         Ok(())
     }
 
-
     // --- Price lists and step quotes (PR I) ---
 
     /// Publish a price list. There is no update path, by design.
@@ -13810,7 +13885,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-            "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
+                "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
                     location, website_url, proof_state, continuity_state, created_at, updated_at
              FROM social_profiles WHERE clerk_user_id = ?1",
             )
@@ -13868,7 +13943,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-            "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
+                "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
                     location, website_url, proof_state, continuity_state, created_at, updated_at
              FROM social_profiles WHERE handle = ?1",
             )
@@ -13897,7 +13972,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-            "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
+                "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
                     p.banner_url, p.location, p.website_url, p.proof_state, p.continuity_state,
                     p.created_at, p.updated_at,
                     la.agent_name, la.agent_slug, la.link_state
@@ -13940,7 +14015,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-            "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
+                "SELECT p.id, p.clerk_user_id, p.handle, p.display_name, p.bio, p.avatar_url,
                     p.banner_url, p.location, p.website_url, p.proof_state, p.continuity_state,
                     p.created_at, p.updated_at,
                     la.agent_name, la.agent_slug, la.link_state
@@ -13998,7 +14073,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-            "SELECT id, profile_id, agent_name, agent_slug, agent_key, agent_type,
+                "SELECT id, profile_id, agent_name, agent_slug, agent_key, agent_type,
                     link_state, visibility, proof_state, is_primary,
                     COALESCE(auto_reply_enabled, 0), COALESCE(auto_follow_enabled, 0),
                     created_at, updated_at
@@ -14967,7 +15042,7 @@ impl Database {
         ).expect("insert post");
         let mut stmt = conn
             .prepare(
-            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
                     sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
                     sp.created_at, sp.updated_at, sp.community_id,
                     p.handle, p.display_name,
@@ -14980,31 +15055,31 @@ impl Database {
             .unwrap();
         let post = stmt
             .query_row([&id], |row| {
-            let agent_name: Option<String> = row.get(14)?;
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "body": row.get::<_, String>(3)?,
-                "visibility": row.get::<_, String>(4)?,
-                "proofState": row.get::<_, String>(5)?,
-                "authorMode": row.get::<_, String>(6)?,
-                "replyToPostId": row.get::<_, Option<String>>(7)?,
-                "quotePostId": row.get::<_, Option<String>>(8)?,
-                "createdAt": row.get::<_, String>(9)?,
-                "updatedAt": row.get::<_, String>(10)?,
-                "communityId": row.get::<_, Option<String>>(11)?,
-                "author": {
-                    "profileId": row.get::<_, String>(1)?,
-                    "handle": row.get::<_, String>(12)?,
-                    "displayName": row.get::<_, String>(13)?,
-                },
-                "linkedAgent": if agent_name.is_some() {
-                    serde_json::json!({
-                        "id": row.get::<_, Option<String>>(2)?,
-                        "agentName": agent_name,
-                        "agentSlug": row.get::<_, Option<String>>(15)?,
-                    })
-                } else { serde_json::Value::Null },
-            }))
+                let agent_name: Option<String> = row.get(14)?;
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "body": row.get::<_, String>(3)?,
+                    "visibility": row.get::<_, String>(4)?,
+                    "proofState": row.get::<_, String>(5)?,
+                    "authorMode": row.get::<_, String>(6)?,
+                    "replyToPostId": row.get::<_, Option<String>>(7)?,
+                    "quotePostId": row.get::<_, Option<String>>(8)?,
+                    "createdAt": row.get::<_, String>(9)?,
+                    "updatedAt": row.get::<_, String>(10)?,
+                    "communityId": row.get::<_, Option<String>>(11)?,
+                    "author": {
+                        "profileId": row.get::<_, String>(1)?,
+                        "handle": row.get::<_, String>(12)?,
+                        "displayName": row.get::<_, String>(13)?,
+                    },
+                    "linkedAgent": if agent_name.is_some() {
+                        serde_json::json!({
+                            "id": row.get::<_, Option<String>>(2)?,
+                            "agentName": agent_name,
+                            "agentSlug": row.get::<_, Option<String>>(15)?,
+                        })
+                    } else { serde_json::Value::Null },
+                }))
             })
             .unwrap();
         tracing::info!(
@@ -15031,7 +15106,7 @@ impl Database {
         // Exclude profiles that opted out of search (show_in_search = 0). Missing prefs row → included (default true).
         let mut stmt = conn
             .prepare(
-            "SELECT p.id, p.handle, p.display_name, p.avatar_url, p.bio
+                "SELECT p.id, p.handle, p.display_name, p.avatar_url, p.bio
              FROM social_profiles p
              LEFT JOIN social_profile_prefs pref ON pref.profile_id = p.id
              WHERE (p.handle LIKE ?1 OR p.display_name LIKE ?1)
@@ -15416,7 +15491,7 @@ impl Database {
 
         let mut stmt = conn
             .prepare(
-            "SELECT lf.id, lf.profile_id, lf.linked_agent_id, lf.title, lf.summary, lf.body,
+                "SELECT lf.id, lf.profile_id, lf.linked_agent_id, lf.title, lf.summary, lf.body,
                     lf.format_type, lf.visibility, lf.proof_state, lf.author_mode,
                     lf.created_at, lf.updated_at, p.handle, p.display_name,
                     la.agent_name, la.agent_slug
@@ -15698,39 +15773,39 @@ impl Database {
                     }
                     let viewer_follows = conn
                         .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM social_follows
+                            "SELECT EXISTS(SELECT 1 FROM social_follows
                           WHERE follower_profile_id = ?1 AND following_profile_id = ?2)",
-                        params![viewer, audience_owner_id],
-                        |row| row.get::<_, bool>(0),
+                            params![viewer, audience_owner_id],
+                            |row| row.get::<_, bool>(0),
                         )
                         .unwrap_or(false);
                     let followed_by = conn
                         .query_row(
-                        "SELECT EXISTS(SELECT 1 FROM social_follows
+                            "SELECT EXISTS(SELECT 1 FROM social_follows
                           WHERE follower_profile_id = ?1 AND following_profile_id = ?2)",
-                        params![audience_owner_id, viewer],
-                        |row| row.get::<_, bool>(0),
+                            params![audience_owner_id, viewer],
+                            |row| row.get::<_, bool>(0),
                         )
                         .unwrap_or(false);
                     let blocked = conn
                         .query_row(
-                        "SELECT EXISTS(
+                            "SELECT EXISTS(
                             SELECT 1 FROM social_blocks
                              WHERE (blocker_profile_id = ?1 AND blocked_profile_id IN (?2, ?3))
                                 OR (blocked_profile_id = ?1 AND blocker_profile_id IN (?2, ?3))
                         )",
-                        params![viewer, author_id, audience_owner_id],
-                        |row| row.get::<_, bool>(0),
+                            params![viewer, author_id, audience_owner_id],
+                            |row| row.get::<_, bool>(0),
                         )
                         .unwrap_or(false);
                     let member = community_id
                         .as_deref()
                         .map(|community| {
-                        conn.query_row(
-                            "SELECT EXISTS(SELECT 1 FROM social_community_memberships
+                            conn.query_row(
+                                "SELECT EXISTS(SELECT 1 FROM social_community_memberships
                               WHERE community_id = ?1 AND profile_id = ?2)",
-                            params![community, viewer],
-                            |row| row.get::<_, bool>(0),
+                                params![community, viewer],
+                                |row| row.get::<_, bool>(0),
                             )
                             .unwrap_or(false)
                         })
@@ -15743,20 +15818,20 @@ impl Database {
         authorize_post(
             action,
             &PostPolicyFacts {
-            audience,
-            owner_accounts_active,
-            deleted,
-            viewer_is_author,
-            viewer_follows_author,
-            author_follows_viewer,
-            blocked_either_direction,
-            author_has_protected_posts: protected,
-            requires_guild_membership: community_id.is_some(),
-            guild_member,
-            requires_circle_membership: audience == Some(PostAudience::Circle),
-            // Circle membership storage and management are introduced in the
-            // dedicated circle slice. Until then circle rows fail closed.
-            circle_member: false,
+                audience,
+                owner_accounts_active,
+                deleted,
+                viewer_is_author,
+                viewer_follows_author,
+                author_follows_viewer,
+                blocked_either_direction,
+                author_has_protected_posts: protected,
+                requires_guild_membership: community_id.is_some(),
+                guild_member,
+                requires_circle_membership: audience == Some(PostAudience::Circle),
+                // Circle membership storage and management are introduced in the
+                // dedicated circle slice. Until then circle rows fail closed.
+                circle_member: false,
             },
         )
     }
@@ -15980,7 +16055,7 @@ impl Database {
         let conn = self.conn();
         let mut statement = conn
             .prepare(
-            "SELECT request.id, request.status, request.created_at,
+                "SELECT request.id, request.status, request.created_at,
                     profile.id, profile.handle, profile.display_name, profile.avatar_url
                FROM social_follow_requests request
                JOIN social_profiles profile ON profile.id = request.requester_profile_id
@@ -16194,23 +16269,23 @@ impl Database {
         blocker_id: &str,
         blocked_id: &str,
     ) -> rusqlite::Result<()> {
-            conn.execute(
+        conn.execute(
             "INSERT OR IGNORE INTO social_blocks (blocker_profile_id, blocked_profile_id)
              VALUES (?1, ?2)",
-                params![blocker_id, blocked_id],
-            )?;
-            conn.execute(
-                "DELETE FROM social_follows
+            params![blocker_id, blocked_id],
+        )?;
+        conn.execute(
+            "DELETE FROM social_follows
                   WHERE (follower_profile_id = ?1 AND following_profile_id = ?2)
                      OR (follower_profile_id = ?2 AND following_profile_id = ?1)",
-                params![blocker_id, blocked_id],
-            )?;
-            conn.execute(
-                "DELETE FROM social_follow_requests
+            params![blocker_id, blocked_id],
+        )?;
+        conn.execute(
+            "DELETE FROM social_follow_requests
                   WHERE (requester_profile_id = ?1 AND target_profile_id = ?2)
                      OR (requester_profile_id = ?2 AND target_profile_id = ?1)",
-                params![blocker_id, blocked_id],
-            )?;
+            params![blocker_id, blocked_id],
+        )?;
         conn.execute(
             "UPDATE social_message_requests
                 SET state = 'blocked',
@@ -16221,7 +16296,7 @@ impl Database {
                   OR (sender_profile_id = ?2 AND recipient_profile_id = ?1))",
             params![blocker_id, blocked_id],
         )?;
-            Ok(())
+        Ok(())
     }
 
     pub fn social_block_user(&self, blocker_id: &str, blocked_id: &str) -> rusqlite::Result<()> {
@@ -16475,19 +16550,19 @@ impl Database {
             Some(viewer) if !viewer.is_empty() && viewer != profile_id => {
                 let follows = conn
                     .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM social_follows
+                        "SELECT EXISTS(SELECT 1 FROM social_follows
                       WHERE follower_profile_id = ?1 AND following_profile_id = ?2)",
-                    params![viewer, profile_id],
-                    |row| row.get::<_, bool>(0),
+                        params![viewer, profile_id],
+                        |row| row.get::<_, bool>(0),
                     )
                     .unwrap_or(false);
                 let blocked = conn
                     .query_row(
-                    "SELECT EXISTS(SELECT 1 FROM social_blocks
+                        "SELECT EXISTS(SELECT 1 FROM social_blocks
                       WHERE (blocker_profile_id = ?1 AND blocked_profile_id = ?2)
                          OR (blocker_profile_id = ?2 AND blocked_profile_id = ?1))",
-                    params![viewer, profile_id],
-                    |row| row.get::<_, bool>(0),
+                        params![viewer, profile_id],
+                        |row| row.get::<_, bool>(0),
                     )
                     .unwrap_or(false);
                 (follows, blocked)
@@ -16497,13 +16572,13 @@ impl Database {
         authorize_profile(
             action,
             &ProfilePolicyFacts {
-            visibility: ProfileVisibility::from_storage(&visibility),
-            owner_account_active,
-            viewer_present,
-            viewer_is_profile,
-            viewer_follows_profile,
-            blocked_either_direction,
-            show_in_search,
+                visibility: ProfileVisibility::from_storage(&visibility),
+                owner_account_active,
+                viewer_present,
+                viewer_is_profile,
+                viewer_follows_profile,
+                blocked_either_direction,
+                show_in_search,
             },
         )
     }
@@ -16519,8 +16594,8 @@ impl Database {
                 .get("id")
                 .and_then(|value| value.as_str())
                 .map(|profile_id| {
-                self.social_authorize_profile(profile_id, viewer_profile_id, action)
-                    == PolicyDecision::Allow
+                    self.social_authorize_profile(profile_id, viewer_profile_id, action)
+                        == PolicyDecision::Allow
                 })
                 .unwrap_or(false)
         });
@@ -16546,8 +16621,8 @@ impl Database {
         let visible_count = post_ids
             .into_iter()
             .filter(|post_id| {
-            self.social_authorize_post(post_id, viewer_profile_id, PostAction::View)
-                == PolicyDecision::Allow
+                self.social_authorize_post(post_id, viewer_profile_id, PostAction::View)
+                    == PolicyDecision::Allow
             })
             .count() as i64;
         if let Some(object) = stats.as_object_mut() {
@@ -16655,7 +16730,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-            "SELECT id, reporter_profile_id, target_type, target_id, reason, status, created_at
+                "SELECT id, reporter_profile_id, target_type, target_id, reason, status, created_at
              FROM social_reports ORDER BY created_at DESC",
             )
             .unwrap();
@@ -16749,7 +16824,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-            "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
+                "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
                     location, website_url, proof_state, continuity_state, created_at, updated_at
              FROM social_profiles WHERE id = ?1",
             )
@@ -16782,28 +16857,28 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-            "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
+                "SELECT id, clerk_user_id, handle, display_name, bio, avatar_url, banner_url,
                     location, website_url, proof_state, continuity_state, created_at, updated_at
              FROM social_profiles WHERE handle = ?1",
             )
             .ok()?;
         let profile = stmt
             .query_row([handle], |row| {
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "accountId": row.get::<_, String>(1)?,
-                "handle": row.get::<_, String>(2)?,
-                "displayName": row.get::<_, String>(3)?,
-                "bio": row.get::<_, String>(4)?,
-                "avatarUrl": row.get::<_, Option<String>>(5)?,
-                "bannerUrl": row.get::<_, Option<String>>(6)?,
-                "location": row.get::<_, Option<String>>(7)?,
-                "websiteUrl": row.get::<_, Option<String>>(8)?,
-                "proofState": row.get::<_, String>(9)?,
-                "continuityState": row.get::<_, String>(10)?,
-                "createdAt": row.get::<_, String>(11)?,
-                "updatedAt": row.get::<_, String>(12)?,
-            }))
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "accountId": row.get::<_, String>(1)?,
+                    "handle": row.get::<_, String>(2)?,
+                    "displayName": row.get::<_, String>(3)?,
+                    "bio": row.get::<_, String>(4)?,
+                    "avatarUrl": row.get::<_, Option<String>>(5)?,
+                    "bannerUrl": row.get::<_, Option<String>>(6)?,
+                    "location": row.get::<_, Option<String>>(7)?,
+                    "websiteUrl": row.get::<_, Option<String>>(8)?,
+                    "proofState": row.get::<_, String>(9)?,
+                    "continuityState": row.get::<_, String>(10)?,
+                    "createdAt": row.get::<_, String>(11)?,
+                    "updatedAt": row.get::<_, String>(12)?,
+                }))
             })
             .ok()?;
 
@@ -16875,7 +16950,7 @@ impl Database {
         if cursor_created_at.is_some() && cursor_id.is_some() {
             let mut stmt = conn
                 .prepare(
-                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                    "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
                         sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
                         sp.created_at, sp.updated_at,
                         p.handle, p.display_name,
@@ -16903,7 +16978,7 @@ impl Database {
         } else {
             let mut stmt = conn
                 .prepare(
-                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                    "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
                         sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
                         sp.created_at, sp.updated_at,
                         p.handle, p.display_name,
@@ -16951,7 +17026,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-            "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
+                "SELECT sp.id, sp.profile_id, sp.linked_agent_id, sp.body, sp.visibility,
                     sp.proof_state, sp.author_mode, sp.reply_to_post_id, sp.quote_post_id,
                     sp.created_at, sp.updated_at, COALESCE(sp.view_count, 0),
                     p.handle, p.display_name,
@@ -16964,31 +17039,31 @@ impl Database {
             .ok()?;
         let mut post = stmt
             .query_row([post_id], |row| {
-            let agent_name: Option<String> = row.get(14)?;
-            Ok(serde_json::json!({
-                "id": row.get::<_, String>(0)?,
-                "body": row.get::<_, String>(3)?,
-                "visibility": row.get::<_, String>(4)?,
-                "proofState": row.get::<_, String>(5)?,
-                "authorMode": row.get::<_, String>(6)?,
-                "replyToPostId": row.get::<_, Option<String>>(7)?,
-                "quotePostId": row.get::<_, Option<String>>(8)?,
-                "createdAt": row.get::<_, String>(9)?,
-                "updatedAt": row.get::<_, String>(10)?,
-                "viewCount": row.get::<_, i64>(11)?,
-                "author": {
-                    "profileId": row.get::<_, String>(1)?,
-                    "handle": row.get::<_, String>(12)?,
-                    "displayName": row.get::<_, String>(13)?,
-                },
-                "linkedAgent": if agent_name.is_some() {
-                    serde_json::json!({
-                        "id": row.get::<_, Option<String>>(2)?,
-                        "agentName": agent_name,
-                        "agentSlug": row.get::<_, Option<String>>(15)?,
-                    })
-                } else { serde_json::Value::Null },
-            }))
+                let agent_name: Option<String> = row.get(14)?;
+                Ok(serde_json::json!({
+                    "id": row.get::<_, String>(0)?,
+                    "body": row.get::<_, String>(3)?,
+                    "visibility": row.get::<_, String>(4)?,
+                    "proofState": row.get::<_, String>(5)?,
+                    "authorMode": row.get::<_, String>(6)?,
+                    "replyToPostId": row.get::<_, Option<String>>(7)?,
+                    "quotePostId": row.get::<_, Option<String>>(8)?,
+                    "createdAt": row.get::<_, String>(9)?,
+                    "updatedAt": row.get::<_, String>(10)?,
+                    "viewCount": row.get::<_, i64>(11)?,
+                    "author": {
+                        "profileId": row.get::<_, String>(1)?,
+                        "handle": row.get::<_, String>(12)?,
+                        "displayName": row.get::<_, String>(13)?,
+                    },
+                    "linkedAgent": if agent_name.is_some() {
+                        serde_json::json!({
+                            "id": row.get::<_, Option<String>>(2)?,
+                            "agentName": agent_name,
+                            "agentSlug": row.get::<_, Option<String>>(15)?,
+                        })
+                    } else { serde_json::Value::Null },
+                }))
             })
             .ok()?;
 
@@ -17021,21 +17096,21 @@ impl Database {
             Some(vid) if !vid.is_empty() => {
                 let l = conn
                     .query_row(
-                    "SELECT 1 FROM social_likes WHERE profile_id = ?1 AND post_id = ?2",
+                        "SELECT 1 FROM social_likes WHERE profile_id = ?1 AND post_id = ?2",
                         params![vid, post_id],
                         |_| Ok(()),
                     )
                     .is_ok();
                 let b = conn
                     .query_row(
-                    "SELECT 1 FROM social_bookmarks WHERE profile_id = ?1 AND post_id = ?2",
+                        "SELECT 1 FROM social_bookmarks WHERE profile_id = ?1 AND post_id = ?2",
                         params![vid, post_id],
                         |_| Ok(()),
                     )
                     .is_ok();
                 let r = conn
                     .query_row(
-                    "SELECT 1 FROM social_reposts WHERE profile_id = ?1 AND post_id = ?2",
+                        "SELECT 1 FROM social_reposts WHERE profile_id = ?1 AND post_id = ?2",
                         params![vid, post_id],
                         |_| Ok(()),
                     )
@@ -17552,8 +17627,8 @@ impl Database {
             post.get("id")
                 .and_then(|value| value.as_str())
                 .map(|id| {
-                self.social_authorize_post(id, viewer_profile_id, PostAction::ViewThread)
-                    == PolicyDecision::Allow
+                    self.social_authorize_post(id, viewer_profile_id, PostAction::ViewThread)
+                        == PolicyDecision::Allow
                 })
                 .unwrap_or(false)
         });
@@ -17579,8 +17654,8 @@ impl Database {
             post.get("id")
                 .and_then(|value| value.as_str())
                 .map(|id| {
-                self.social_authorize_post(id, viewer_profile_id, PostAction::View)
-                    == PolicyDecision::Allow
+                    self.social_authorize_post(id, viewer_profile_id, PostAction::View)
+                        == PolicyDecision::Allow
                 })
                 .unwrap_or(false)
         });
@@ -17676,21 +17751,21 @@ impl Database {
                 if let Some(viewer_id) = viewer_profile_id {
                     let liked = conn
                         .query_row(
-                        "SELECT 1 FROM social_likes WHERE profile_id = ?1 AND post_id = ?2",
+                            "SELECT 1 FROM social_likes WHERE profile_id = ?1 AND post_id = ?2",
                             [viewer_id, &post_id],
                             |_| Ok(()),
                         )
                         .is_ok();
                     let bookmarked = conn
                         .query_row(
-                        "SELECT 1 FROM social_bookmarks WHERE profile_id = ?1 AND post_id = ?2",
+                            "SELECT 1 FROM social_bookmarks WHERE profile_id = ?1 AND post_id = ?2",
                             [viewer_id, &post_id],
                             |_| Ok(()),
                         )
                         .is_ok();
                     let reposted = conn
                         .query_row(
-                        "SELECT 1 FROM social_reposts WHERE profile_id = ?1 AND post_id = ?2",
+                            "SELECT 1 FROM social_reposts WHERE profile_id = ?1 AND post_id = ?2",
                             [viewer_id, &post_id],
                             |_| Ok(()),
                         )
@@ -18088,15 +18163,15 @@ impl Database {
             let actor_visible = notification["actorProfileId"]
                 .as_str()
                 .map(|actor_id| {
-                self.social_authorize_profile(actor_id, Some(profile_id), ProfileAction::View)
-                    == PolicyDecision::Allow
+                    self.social_authorize_profile(actor_id, Some(profile_id), ProfileAction::View)
+                        == PolicyDecision::Allow
                 })
                 .unwrap_or(false);
             let post_visible = notification["postId"]
                 .as_str()
                 .map(|post_id| {
-                self.social_authorize_post(post_id, Some(profile_id), PostAction::View)
-                    == PolicyDecision::Allow
+                    self.social_authorize_post(post_id, Some(profile_id), PostAction::View)
+                        == PolicyDecision::Allow
                 })
                 .unwrap_or(true);
             actor_visible && post_visible
@@ -18834,7 +18909,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-            "SELECT id, owner_profile_id, storage_key, created_at
+                "SELECT id, owner_profile_id, storage_key, created_at
              FROM social_media_objects
              WHERE status = 'pending'
                AND created_at < datetime('now', '-1 hour')
@@ -18889,9 +18964,9 @@ impl Database {
         let conn = self.conn();
         let deleted = conn
             .execute(
-            "DELETE FROM social_community_memberships
+                "DELETE FROM social_community_memberships
              WHERE community_id = ?1 AND profile_id = ?2",
-            params![community_id, profile_id],
+                params![community_id, profile_id],
             )
             .unwrap_or(0);
         deleted > 0
@@ -18906,7 +18981,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-            "SELECT p.id, p.handle, p.display_name, p.avatar_url, m.joined_at,
+                "SELECT p.id, p.handle, p.display_name, p.avatar_url, m.joined_at,
                     COALESCE(m.role, 'member')
              FROM social_community_memberships m
              JOIN social_profiles p ON p.id = m.profile_id
@@ -19237,9 +19312,9 @@ impl Database {
         let conn = self.conn();
         let updated = conn
             .execute(
-            "UPDATE accounts SET status = 'suspended', updated_at = datetime('now')
+                "UPDATE accounts SET status = 'suspended', updated_at = datetime('now')
              WHERE clerk_user_id = ?1",
-            params![clerk_user_id],
+                params![clerk_user_id],
             )
             .unwrap_or(0);
         updated > 0
@@ -19250,9 +19325,9 @@ impl Database {
         let conn = self.conn();
         let updated = conn
             .execute(
-            "UPDATE accounts SET status = 'active', updated_at = datetime('now')
+                "UPDATE accounts SET status = 'active', updated_at = datetime('now')
              WHERE clerk_user_id = ?1 AND status = 'suspended'",
-            params![clerk_user_id],
+                params![clerk_user_id],
             )
             .unwrap_or(0);
         updated > 0
@@ -19556,23 +19631,23 @@ impl Database {
         )?;
         let participants = participant_stmt
             .query_map(params![conversation_id], |row| {
-                            Ok(serde_json::json!({
-                                "id": row.get::<_, String>(0)?,
-                                "handle": row.get::<_, String>(1)?,
-                    "display_name": row.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                                "avatar_url": row.get::<_, Option<String>>(3)?,
-                    "verified": row.get::<_, String>(4)? == "verified",
-                            }))
+                Ok(serde_json::json!({
+                            "id": row.get::<_, String>(0)?,
+                            "handle": row.get::<_, String>(1)?,
+                "display_name": row.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                            "avatar_url": row.get::<_, Option<String>>(3)?,
+                "verified": row.get::<_, String>(4)? == "verified",
+                        }))
             })?
             .collect::<rusqlite::Result<Vec<_>>>()?;
         let last_message_id: Option<String> = conn
-                        .query_row(
+            .query_row(
                 "SELECT id FROM social_messages WHERE conversation_id = ?1
                   ORDER BY sequence DESC LIMIT 1",
                 params![conversation_id],
                 |row| row.get(0),
-                        )
-                        .ok();
+            )
+            .ok();
         let last_message = last_message_id
             .as_deref()
             .map(|id| Self::social_message_json_inner(conn, id))
@@ -19591,12 +19666,12 @@ impl Database {
             |row| row.get::<_, i64>(0),
         )?;
         Ok(serde_json::json!({
-            "id": conversation_id,
-                        "participants": participants,
-                        "last_message": last_message,
-                        "unread_count": unread_count,
-                        "pinned": false,
-                }))
+        "id": conversation_id,
+                    "participants": participants,
+                    "last_message": last_message,
+                    "unread_count": unread_count,
+                    "pinned": false,
+            }))
     }
 
     pub fn social_create_conversation(
@@ -19802,7 +19877,7 @@ impl Database {
         request_id: &str,
         viewer_profile_id: &str,
     ) -> Result<serde_json::Value, SocialMessagingError> {
-                    conn.query_row(
+        conn.query_row(
             "SELECT request.sender_profile_id, request.recipient_profile_id,
                     request.state, request.bucket, request.content, request.created_at,
                     request.resolved_at, request.conversation_id, request.accepted_message_id,
@@ -19849,7 +19924,7 @@ impl Database {
                     },
                 }))
             },
-                    )
+        )
         .map_err(|error| match error {
             rusqlite::Error::QueryReturnedNoRows => SocialMessagingError::NotFound,
             other => other.into(),
@@ -19889,7 +19964,7 @@ impl Database {
                      last_read_message_sequence)
                  VALUES (?1, ?2, 0, 0)",
                 params![conversation_id, participant_id],
-        )?;
+            )?;
         }
         Ok(conversation_id)
     }
@@ -19901,52 +19976,52 @@ impl Database {
         content: &str,
         client_message_id: &str,
     ) -> Result<(serde_json::Value, bool), SocialMessagingError> {
-            if let Ok((existing_id, existing_conversation, existing_content)) = conn.query_row(
-                "SELECT id, conversation_id, content FROM social_messages
+        if let Ok((existing_id, existing_conversation, existing_content)) = conn.query_row(
+            "SELECT id, conversation_id, content FROM social_messages
                   WHERE sender_profile_id = ?1 AND client_message_id = ?2",
-                params![sender_profile_id, client_message_id],
-                |row| {
-                    Ok((
-                        row.get::<_, String>(0)?,
-                        row.get::<_, String>(1)?,
-                        row.get::<_, String>(2)?,
-                    ))
-                },
-            ) {
-                if existing_conversation != conversation_id || existing_content != content {
-                    return Err(SocialMessagingError::Conflict);
-                }
-            return Ok((Self::social_message_json_inner(conn, &existing_id)?, true));
+            params![sender_profile_id, client_message_id],
+            |row| {
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, String>(1)?,
+                    row.get::<_, String>(2)?,
+                ))
+            },
+        ) {
+            if existing_conversation != conversation_id || existing_content != content {
+                return Err(SocialMessagingError::Conflict);
             }
-            let sequence = conn.query_row(
-                "SELECT COALESCE(MAX(sequence), 0) + 1 FROM social_messages
+            return Ok((Self::social_message_json_inner(conn, &existing_id)?, true));
+        }
+        let sequence = conn.query_row(
+            "SELECT COALESCE(MAX(sequence), 0) + 1 FROM social_messages
                   WHERE conversation_id = ?1",
-                params![conversation_id],
-                |row| row.get::<_, i64>(0),
-            )?;
-            let message_id = Uuid::new_v4().to_string();
-            conn.execute(
-                "INSERT INTO social_messages
+            params![conversation_id],
+            |row| row.get::<_, i64>(0),
+        )?;
+        let message_id = Uuid::new_v4().to_string();
+        conn.execute(
+            "INSERT INTO social_messages
                 (id, conversation_id, sender_profile_id, content, sequence, client_message_id)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-                params![
-                    message_id,
-                    conversation_id,
-                    sender_profile_id,
-                    content,
-                    sequence,
-                    client_message_id
-                ],
-            )?;
+            params![
+                message_id,
+                conversation_id,
+                sender_profile_id,
+                content,
+                sequence,
+                client_message_id
+            ],
+        )?;
         let activity_sequence = Self::next_social_conversation_activity_sequence_inner(conn)?;
-            conn.execute(
-                "UPDATE social_conversations
+        conn.execute(
+            "UPDATE social_conversations
                 SET updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), activity_sequence = ?2
                   WHERE id = ?1",
-                params![conversation_id, activity_sequence],
-            )?;
+            params![conversation_id, activity_sequence],
+        )?;
         Ok((Self::social_message_json_inner(conn, &message_id)?, false))
-            }
+    }
 
     fn social_expire_message_requests_inner(conn: &Connection) -> rusqlite::Result<()> {
         conn.execute(
@@ -19999,8 +20074,8 @@ impl Database {
         client_request_id: &str,
     ) -> Result<SocialDirectStartOutcome, SocialMessagingError> {
         if sender_profile_id == recipient_profile_id {
-                return Err(SocialMessagingError::NotFound);
-            }
+            return Err(SocialMessagingError::NotFound);
+        }
         let fingerprint = hex::encode(Sha256::digest(content.as_bytes()));
         let conn = self.conn();
         conn.execute_batch("BEGIN IMMEDIATE;")?;
@@ -20030,13 +20105,13 @@ impl Database {
                     &conn,
                     sender_profile_id,
                     recipient_profile_id,
-            )?;
+                )?;
                 if outcome_type == "request" {
                     let mut request = Self::social_message_request_json_inner(
                         &conn,
                         &outcome_id,
                         sender_profile_id,
-            )?;
+                    )?;
                     let request_state = request["state"]
                         .as_str()
                         .ok_or(SocialMessagingError::Conflict)?
@@ -20057,15 +20132,15 @@ impl Database {
                             message: Self::social_message_json_inner(&conn, message_id)?,
                             replayed: true,
                         });
-            }
+                    }
                     match request_state.as_str() {
                         "pending" => {}
                         "declined" | "cancelled" | "expired" => {
                             request["state"] = serde_json::json!("closed");
-            }
+                        }
                         "spam" | "blocked" => return Err(SocialMessagingError::NotFound),
                         _ => return Err(SocialMessagingError::Conflict),
-        }
+                    }
                     return Ok(SocialDirectStartOutcome::Request {
                         request,
                         replayed: true,
@@ -20092,7 +20167,7 @@ impl Database {
                     message,
                     replayed: true,
                 });
-    }
+            }
 
             let starts_last_day = conn.query_row(
                 "SELECT COUNT(*) FROM social_direct_message_starts
@@ -20103,7 +20178,7 @@ impl Database {
             )?;
             if starts_last_day >= 20 {
                 return Err(SocialMessagingError::RateLimited(86_400));
-    }
+            }
 
             Self::social_profiles_can_interact_inner(
                 &conn,
@@ -21058,9 +21133,9 @@ impl Database {
             Ok(_) => {
                 let updated: i64 = conn
                     .query_row(
-                    "SELECT COUNT(*) FROM social_posts WHERE deleted_at IS NULL",
-                    [],
-                    |r| r.get(0),
+                        "SELECT COUNT(*) FROM social_posts WHERE deleted_at IS NULL",
+                        [],
+                        |r| r.get(0),
                     )
                     .unwrap_or(0);
                 tracing::info!("reconciled counters for {} posts", updated);
@@ -21601,8 +21676,8 @@ impl Database {
         let conn = self.conn();
         let count = conn
             .execute(
-            "DELETE FROM user_api_keys WHERE user_id = ?1 AND provider = ?2",
-            params![user_id, provider],
+                "DELETE FROM user_api_keys WHERE user_id = ?1 AND provider = ?2",
+                params![user_id, provider],
             )
             .unwrap_or(0);
         count > 0
@@ -21773,9 +21848,9 @@ impl Database {
         let conn = self.conn();
         let provider: Option<String> = conn
             .query_row(
-            "SELECT provider FROM user_credentials WHERE id = ?1 AND user_id = ?2",
-            params![credential_id, user_id],
-            |row| row.get(0),
+                "SELECT provider FROM user_credentials WHERE id = ?1 AND user_id = ?2",
+                params![credential_id, user_id],
+                |row| row.get(0),
             )
             .ok();
         if let Some(provider) = provider {
@@ -21808,18 +21883,18 @@ impl Database {
             let encrypted_data: String = row.get(5)?;
             Ok((
                 UserCredential {
-                id: row.get(0)?,
-                user_id: row.get(1)?,
-                provider: row.get(2)?,
-                credential_type: row.get(3)?,
-                label: row.get(4)?,
-                email: row.get(6)?,
-                is_default: row.get::<_, i32>(7)? != 0,
-                status: row.get(8)?,
-                last_used_at: row.get(9)?,
-                token_expires_at: row.get(10)?,
-                created_at: row.get(11)?,
-                updated_at: row.get(12)?,
+                    id: row.get(0)?,
+                    user_id: row.get(1)?,
+                    provider: row.get(2)?,
+                    credential_type: row.get(3)?,
+                    label: row.get(4)?,
+                    email: row.get(6)?,
+                    is_default: row.get::<_, i32>(7)? != 0,
+                    status: row.get(8)?,
+                    last_used_at: row.get(9)?,
+                    token_expires_at: row.get(10)?,
+                    created_at: row.get(11)?,
+                    updated_at: row.get(12)?,
                 },
                 encrypted_data,
             ))
@@ -22095,7 +22170,7 @@ impl Database {
         let conn = self.conn();
         let mut stmt = conn
             .prepare(
-            "SELECT id, credential_id, user_id, target_type, target_id, permissions, created_at
+                "SELECT id, credential_id, user_id, target_type, target_id, permissions, created_at
              FROM credential_assignments WHERE user_id = ?1 ORDER BY created_at DESC",
             )
             .expect("get_credential_assignments prepare failed");
@@ -22142,8 +22217,8 @@ impl Database {
         let conn = self.conn();
         let rows = conn
             .execute(
-            "DELETE FROM credential_assignments WHERE id = ?1 AND user_id = ?2",
-            rusqlite::params![assignment_id, user_id],
+                "DELETE FROM credential_assignments WHERE id = ?1 AND user_id = ?2",
+                rusqlite::params![assignment_id, user_id],
             )
             .unwrap_or(0);
         rows > 0
@@ -22223,19 +22298,19 @@ impl Database {
         let now = Utc::now().timestamp();
         let count = conn
             .execute(
-            "UPDATE user_budgets
+                "UPDATE user_budgets
              SET daily_budget = ?2, weekly_budget = ?3, monthly_budget = ?4,
                  notifications_enabled = ?5, warning_threshold = ?6, updated_at = ?7
              WHERE user_id = ?1",
-            params![
-                budget.user_id,
-                budget.daily_budget,
-                budget.weekly_budget,
-                budget.monthly_budget,
-                if budget.notifications_enabled { 1 } else { 0 },
-                budget.warning_threshold,
-                now
-            ],
+                params![
+                    budget.user_id,
+                    budget.daily_budget,
+                    budget.weekly_budget,
+                    budget.monthly_budget,
+                    if budget.notifications_enabled { 1 } else { 0 },
+                    budget.warning_threshold,
+                    now
+                ],
             )
             .unwrap_or(0);
         count > 0
@@ -22280,10 +22355,10 @@ impl Database {
         let conn = self.conn();
         let count = conn
             .execute(
-            "UPDATE cost_sessions
+                "UPDATE cost_sessions
              SET session_end = ?2, actual_cost = ?3, tokens_out = ?4
              WHERE id = ?1",
-            params![session_id, session_end, actual_cost, tokens_out],
+                params![session_id, session_end, actual_cost, tokens_out],
             )
             .unwrap_or(0);
         count > 0
@@ -22412,8 +22487,8 @@ impl Database {
         let now = Utc::now().timestamp();
         let count = conn
             .execute(
-            "UPDATE cost_warnings SET acknowledged_at = ?2 WHERE id = ?1",
-            params![warning_id, now],
+                "UPDATE cost_warnings SET acknowledged_at = ?2 WHERE id = ?1",
+                params![warning_id, now],
             )
             .unwrap_or(0);
         count > 0
@@ -22446,7 +22521,10 @@ mod tests {
         assert!(panicked.is_err(), "the worker thread must have panicked");
 
         // Poisoned under the old code; every call below would have panicked.
-        assert!(db.schema_version() > 0, "database still works after the panic");
+        assert!(
+            db.schema_version() > 0,
+            "database still works after the panic"
+        );
         db.social_create_ws_ticket("post-panic", "clerk_user_1", Utc::now().timestamp() + 30)
             .expect("writes still work after the panic");
     }
@@ -22776,7 +22854,7 @@ mod tests {
                 .get::<_, i64>(0))
                 .unwrap(),
             57,
-             );
+        );
         let ranked = {
             let mut statement = conn
                 .prepare(
@@ -22799,7 +22877,7 @@ mod tests {
                 ("conversation-a".to_string(), 2),
                 ("conversation-b".to_string(), 3),
             ],
-             );
+        );
         assert_eq!(
             Database::next_social_conversation_activity_sequence_inner(&conn).unwrap(),
             4,
@@ -22870,7 +22948,7 @@ mod tests {
                 )
                 .unwrap();
         migrate_v58(&conn);
-        }
+    }
     #[test]
     fn migration_v59_builds_strict_message_request_state() {
         let db = test_db();
@@ -22888,7 +22966,7 @@ mod tests {
                            'social_direct_message_starts')",
                 [],
                 |row| row.get::<_, i64>(0),
-                )
+            )
             .unwrap(),
             3
         );
@@ -22973,11 +23051,11 @@ mod tests {
             } => request["id"].as_str().unwrap().to_string(),
             other => panic!("expected request, got {other:?}"),
         };
-            assert_eq!(
+        assert_eq!(
             db.social_start_direct_message(&sender_id, &closed_id, "hidden", "request-start-0002",)
                 .unwrap_err(),
             SocialMessagingError::NotFound
-            );
+        );
         assert!(db
             .social_list_conversations(&gated_id, 20, None)
             .unwrap()
@@ -23032,11 +23110,11 @@ mod tests {
         {
             SocialDirectStartOutcome::Request { request, .. } => {
                 request["id"].as_str().unwrap().to_string()
-        }
+            }
             other => panic!("expected request, got {other:?}"),
         };
         db.social_resolve_message_request(&declined_id, &target_id, "decline")
-                    .unwrap();
+            .unwrap();
         match db
             .social_start_direct_message(
                 &sender_id,
@@ -23051,7 +23129,7 @@ mod tests {
                 replayed: true,
             } => {
                 assert_eq!(request["state"], "closed");
-        }
+            }
             other => panic!("expected closed replay, got {other:?}"),
         }
 
@@ -23118,7 +23196,7 @@ mod tests {
             None,
             None,
             None,
-             );
+        );
         let incoming_target =
             db.social_create_profile("clerk_cap_incoming", "cap_incoming", "Incoming", "");
         let incoming_target_id = incoming_target["id"].as_str().unwrap().to_string();
@@ -23130,7 +23208,7 @@ mod tests {
                     &format!("cap_out_{index:02}"),
                     "Outgoing target",
                     "",
-             );
+                );
                 profile["id"].as_str().unwrap().to_string()
             })
             .collect::<Vec<_>>();
@@ -23141,7 +23219,7 @@ mod tests {
                     &format!("cap_in_{index:02}"),
                     "Incoming sender",
                     "",
-             );
+                );
                 profile["id"].as_str().unwrap().to_string()
             })
             .collect::<Vec<_>>();
@@ -23163,8 +23241,8 @@ mod tests {
                         fingerprint,
                         index as i64 + 1,
                     ],
-        )
-        .unwrap();
+                )
+                .unwrap();
             }
             for (index, sender_id) in incoming_senders.iter().enumerate() {
                 conn.execute(
@@ -23180,7 +23258,7 @@ mod tests {
                         fingerprint,
                         index as i64 + 51,
                     ],
-            )
+                )
                 .unwrap();
             }
             conn.execute(
@@ -23288,7 +23366,7 @@ mod tests {
         db.social_update_profile_prefs(&b_id, Some("verified"), None, None, None, None, None, None);
         let forward = match db
             .social_start_direct_message(&a_id, &b_id, "forward", "accept-start-0001")
-                .unwrap()
+            .unwrap()
         {
             SocialDirectStartOutcome::Request { request, .. } => {
                 request["id"].as_str().unwrap().to_string()
@@ -23297,7 +23375,7 @@ mod tests {
         };
         let reverse = match db
             .social_start_direct_message(&b_id, &a_id, "reverse", "accept-start-0002")
-                .unwrap()
+            .unwrap()
         {
             SocialDirectStartOutcome::Request { request, .. } => {
                 request["id"].as_str().unwrap().to_string()
@@ -23305,10 +23383,10 @@ mod tests {
             other => panic!("expected request, got {other:?}"),
         };
         db.social_resolve_message_request(&forward, &b_id, "accept")
-        .unwrap();
+            .unwrap();
         {
             let conn = db.conn();
-        assert_eq!(
+            assert_eq!(
                 conn.query_row(
                     "SELECT state FROM social_message_requests WHERE id = ?1",
                     params![reverse],
@@ -23316,8 +23394,8 @@ mod tests {
                 )
                 .unwrap(),
                 "cancelled"
-        );
-    }
+            );
+        }
 
         let promoter =
             db.social_create_profile("clerk_req_promoter", "req_promoter", "Promoter", "");
@@ -23333,7 +23411,7 @@ mod tests {
             None,
             None,
             None,
-             );
+        );
         let pending = match db
             .social_start_direct_message(&promoter_id, &target_id, "pending", "promote-start-0001")
             .unwrap()
@@ -23348,8 +23426,8 @@ mod tests {
             conn.execute(
                 "UPDATE social_profiles SET proof_state = 'verified' WHERE id = ?1",
                 params![promoter_id],
-        )
-        .unwrap();
+            )
+            .unwrap();
         }
         assert!(matches!(
             db.social_start_direct_message(
@@ -24000,13 +24078,13 @@ mod tests {
         assert_eq!(events.len(), 2);
         assert!(events.iter().all(|event| event.entity_type == "deployment"));
         assert!(events
-                .iter()
+            .iter()
             .all(|event| event.scope_id.as_deref() == Some("cortex")));
         assert!(events
-                .iter()
+            .iter()
             .any(|event| event.entity_id == "first" && event.payload["commit"] == "abc1234"));
         assert!(events
-                .iter()
+            .iter()
             .any(|event| event.entity_id == "second" && event.payload["commit"] == "def5678"));
     }
 
@@ -24059,14 +24137,14 @@ mod tests {
 
         assert_eq!(projection["task"]["id"], "task-1");
         assert!(projection["events"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|event| {
-                    event["event_type"] == "task.created"
-                        && event["entity_type"] == "task"
-                        && event["entity_id"] == "task-1"
-                        && event["task_id"] == "task-1"
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| {
+                event["event_type"] == "task.created"
+                    && event["entity_type"] == "task"
+                    && event["entity_id"] == "task-1"
+                    && event["task_id"] == "task-1"
             }));
     }
 
@@ -24101,9 +24179,9 @@ mod tests {
 
         let summary = db.get_group_operations_summary("user-1", "group-1", 25);
         assert!(!summary["recent_events"]
-                .as_array()
-                .unwrap()
-                .iter()
+            .as_array()
+            .unwrap()
+            .iter()
             .any(|event| event["event_type"] == "task.created" && event["entity_id"] == "task-2"));
     }
 
@@ -24632,19 +24710,19 @@ mod tests {
         assert_eq!(projection["runs"][0]["id"], run_id);
         assert_eq!(projection["chats"][0]["id"], conversation.id);
         assert!(projection["events"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|event| event["event_type"] == "run.created"
-                    && event["run_id"] == run_id
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["event_type"] == "run.created"
+                && event["run_id"] == run_id
                 && event["task_id"] == "task-1"));
         assert!(projection["events"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|event| event["event_type"] == "chat.attached"
-                    && event["run_id"] == run_id
-                    && event["entity_id"] == conversation.id
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["event_type"] == "chat.attached"
+                && event["run_id"] == run_id
+                && event["entity_id"] == conversation.id
                 && event["task_id"] == "task-1"));
     }
 
@@ -24663,12 +24741,12 @@ mod tests {
         assert_eq!(projection["task"]["conversation_id"], conversation.id);
         assert_eq!(projection["chats"][0]["id"], conversation.id);
         assert!(projection["events"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|event| event["event_type"] == "chat.attached"
-                    && event["entity_type"] == "chat"
-                    && event["entity_id"] == conversation.id
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|event| event["event_type"] == "chat.attached"
+                && event["entity_type"] == "chat"
+                && event["entity_id"] == conversation.id
                 && event["task_id"] == "task-1"));
     }
 
@@ -24786,11 +24864,11 @@ mod tests {
         let summary = db.get_group_operations_summary("user-1", "group-1", 25);
         assert_eq!(summary["approvals"]["pending"], 1);
         assert!(summary["attention"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|item| item["kind"] == "approval_pending"
-                    && item["approval_id"] == approval.id
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["kind"] == "approval_pending"
+                && item["approval_id"] == approval.id
                 && item["task_id"] == "task-1"));
     }
 
@@ -24958,14 +25036,14 @@ mod tests {
             .iter()
             .any(|item| item["kind"] == "urgent_not_active" && item["task_id"] == "task-urgent"));
         assert!(summary["attention"]
-                .as_array()
-                .unwrap()
-                .iter()
+            .as_array()
+            .unwrap()
+            .iter()
             .any(|item| item["kind"] == "failed_run" && item["run_id"] == run_id));
         assert!(summary["recent_events"]
-                .as_array()
-                .unwrap()
-                .iter()
+            .as_array()
+            .unwrap()
+            .iter()
             .all(|event| event["actor_user_id"] == "user-1"));
         assert!(summary["recent_events"]
             .as_array()
@@ -25015,12 +25093,12 @@ mod tests {
         assert_eq!(summary["resource_leases"]["by_mode"]["write"], 1);
         assert_eq!(summary["resource_leases"]["by_mode"]["exclusive"], 1);
         assert!(summary["resource_leases"]["leases"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|lease| lease["run_id"] == run_id
-                    && lease["resource_type"] == "path"
-                    && lease["repo_key"] == "github:hey-vera/heyvera"
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|lease| lease["run_id"] == run_id
+                && lease["resource_type"] == "path"
+                && lease["repo_key"] == "github:hey-vera/heyvera"
                 && lease["resource_key"] == "src/main.rs"));
     }
 
@@ -25102,10 +25180,10 @@ mod tests {
             |node| node["id"] == format!("chat:{}", conversation.id) && node["type"] == "chat"
         ));
         assert!(nodes
-                .iter()
+            .iter()
             .any(|node| node["id"] == format!("run:{run_id}") && node["type"] == "run"));
         assert!(nodes
-                .iter()
+            .iter()
             .any(|node| node["id"] == "step:step-a" && node["type"] == "step"));
         assert!(nodes.iter().any(|node| {
             node["id"] == format!("evidence:{report_id}")
@@ -25148,9 +25226,9 @@ mod tests {
                 && edge["type"] == "step_approval"
         }));
         assert!(graph["recent_events"]
-                .as_array()
-                .unwrap()
-                .iter()
+            .as_array()
+            .unwrap()
+            .iter()
             .all(|event| event["actor_user_id"] == "user-1"));
     }
 
@@ -25237,23 +25315,23 @@ mod tests {
         assert_eq!(summary["resource_leases"]["active"], 1);
         assert_eq!(summary["resource_leases"]["by_type"]["path"], 1);
         assert!(summary["groups"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|group| group["group_id"] == "group-derived"
-                    && group["source"] == "derived"
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|group| group["group_id"] == "group-derived"
+                && group["source"] == "derived"
                 && group["tasks"]["total"] == 1));
         assert!(summary["groups"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|group| group["group_id"] == "group-registered"
-                    && group["name"] == "Registered group"
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|group| group["group_id"] == "group-registered"
+                && group["name"] == "Registered group"
                 && group["resource_leases"]["active"] == 1));
         assert!(summary["attention"]
-                .as_array()
-                .unwrap()
-                .iter()
+            .as_array()
+            .unwrap()
+            .iter()
             .all(|item| item["group_id"].as_str().is_some()));
     }
 
@@ -25295,7 +25373,7 @@ mod tests {
         let scopes = db.list_authority_scopes_for_user("user-1");
         assert_eq!(scopes.len(), 2);
         assert!(scopes
-                .iter()
+            .iter()
             .any(|scope| scope.id == "personal:user-1" && scope.kind == "personal"));
         let org = scopes
             .iter()
@@ -25919,11 +25997,11 @@ mod tests {
         assert_eq!(summary["tasks"]["completion"]["gated_done"], 1);
         assert_eq!(summary["tasks"]["completion"]["done_without_evidence"], 1);
         assert!(summary["attention"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .any(|item| item["kind"] == "done_without_evidence"
-                    && item["task_id"] == "task-raw"
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["kind"] == "done_without_evidence"
+                && item["task_id"] == "task-raw"
                 && item["reason"] == "no_run"));
     }
 
@@ -26338,7 +26416,7 @@ mod tests {
         set_policy(&carol_id, "nobody");
         assert_eq!(
             db.social_create_conversation(&alice_id, &[alice_id.clone(), carol_id], None,)
-            .unwrap_err(),
+                .unwrap_err(),
             SocialMessagingError::NotFound,
         );
 
@@ -27191,7 +27269,10 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
             .unwrap();
-        assert!(version >= 62, "fresh database must reach v62, got {version}");
+        assert!(
+            version >= 62,
+            "fresh database must reach v62, got {version}"
+        );
 
         let found: i64 = conn
             .query_row(
@@ -27282,7 +27363,10 @@ mod tests {
         assert_eq!(isolation, "container");
         assert_eq!(profile_version, "rp-1");
         assert_eq!(model, "claude-opus-5");
-        assert!(wall_clock > 0, "an unbounded attempt must not be recordable");
+        assert!(
+            wall_clock > 0,
+            "an unbounded attempt must not be recordable"
+        );
     }
 
     #[test]
@@ -27333,7 +27417,10 @@ mod tests {
         let version: i64 = conn
             .query_row("SELECT MAX(version) FROM schema_version", [], |r| r.get(0))
             .unwrap();
-        assert!(version >= 62, "fresh database must reach v62, got {version}");
+        assert!(
+            version >= 62,
+            "fresh database must reach v62, got {version}"
+        );
 
         for table in [
             "verification_runs",
@@ -27500,7 +27587,13 @@ mod tests {
     #[test]
     fn an_allocation_records_who_asked() {
         let db = test_db();
-        db.allocate_sequence_value("repo-1", MIGRATION_SEQUENCE, 1, Some("run-1"), Some("step-1"));
+        db.allocate_sequence_value(
+            "repo-1",
+            MIGRATION_SEQUENCE,
+            1,
+            Some("run-1"),
+            Some("step-1"),
+        );
         let conn = db.conn();
         let (run, step): (Option<String>, Option<String>) = conn
             .query_row(
@@ -27563,12 +27656,23 @@ mod tests {
         seed_run_and_step(&db, "run-1", "step-1", &["src/a.rs"]);
         seed_run_and_step(&db, "run-2", "step-2", &["src/a.rs"]);
 
-        assert!(
-            db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &["src/a.rs".to_string()])
-                .is_ok()
-        );
+        assert!(db
+            .acquire_step_path_leases(
+                "user-1",
+                "run-1",
+                "step-1",
+                "repo-1",
+                &["src/a.rs".to_string()]
+            )
+            .is_ok());
         let conflict = db
-            .acquire_step_path_leases("user-1", "run-2", "step-2", "repo-1", &["src/a.rs".to_string()])
+            .acquire_step_path_leases(
+                "user-1",
+                "run-2",
+                "step-2",
+                "repo-1",
+                &["src/a.rs".to_string()],
+            )
             .expect_err("the path is already held");
         assert_eq!(conflict.resource_key, "src/a.rs");
         assert_eq!(conflict.step_id.as_deref(), Some("step-1"));
@@ -27580,14 +27684,24 @@ mod tests {
         let db = test_db();
         seed_run_and_step(&db, "run-1", "step-1", &["src/a.rs"]);
         seed_run_and_step(&db, "run-2", "step-2", &["src/b.rs"]);
-        assert!(
-            db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &["src/a.rs".to_string()])
-                .is_ok()
-        );
-        assert!(
-            db.acquire_step_path_leases("user-1", "run-2", "step-2", "repo-1", &["src/b.rs".to_string()])
-                .is_ok()
-        );
+        assert!(db
+            .acquire_step_path_leases(
+                "user-1",
+                "run-1",
+                "step-1",
+                "repo-1",
+                &["src/a.rs".to_string()]
+            )
+            .is_ok());
+        assert!(db
+            .acquire_step_path_leases(
+                "user-1",
+                "run-2",
+                "step-2",
+                "repo-1",
+                &["src/b.rs".to_string()]
+            )
+            .is_ok());
     }
 
     /// A redispatch after a retry must not deadlock the step against itself.
@@ -27596,9 +27710,12 @@ mod tests {
         let db = test_db();
         seed_run_and_step(&db, "run-1", "step-1", &["src/a.rs"]);
         let keys = vec!["src/a.rs".to_string()];
-        assert!(db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &keys).is_ok());
+        assert!(db
+            .acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &keys)
+            .is_ok());
         assert!(
-            db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &keys).is_ok(),
+            db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &keys)
+                .is_ok(),
             "the same step must be able to re-acquire what it already holds"
         );
     }
@@ -27614,11 +27731,14 @@ mod tests {
 
         db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &keys)
             .expect("first acquires");
-        assert!(db.acquire_step_path_leases("user-1", "run-2", "step-2", "repo-1", &keys).is_err());
+        assert!(db
+            .acquire_step_path_leases("user-1", "run-2", "step-2", "repo-1", &keys)
+            .is_err());
 
         assert_eq!(db.release_step_resource_leases("step-1"), 1);
         assert!(
-            db.acquire_step_path_leases("user-1", "run-2", "step-2", "repo-1", &keys).is_ok(),
+            db.acquire_step_path_leases("user-1", "run-2", "step-2", "repo-1", &keys)
+                .is_ok(),
             "the waiting step must get the path once it is freed"
         );
         // Idempotent: releasing twice frees nothing more.
@@ -27634,10 +27754,15 @@ mod tests {
         seed_run_and_step(&db, "run-2", "step-2", &["src/a.rs"]);
         db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &["src".to_string()])
             .expect("directory acquires");
-        assert!(
-            db.acquire_step_path_leases("user-1", "run-2", "step-2", "repo-1", &["src/a.rs".to_string()])
-                .is_err()
-        );
+        assert!(db
+            .acquire_step_path_leases(
+                "user-1",
+                "run-2",
+                "step-2",
+                "repo-1",
+                &["src/a.rs".to_string()]
+            )
+            .is_err());
     }
 
     /// Leases are keyed per repo, so the same path in two repos does not
@@ -27651,7 +27776,8 @@ mod tests {
         db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &keys)
             .expect("repo-1 acquires");
         assert!(
-            db.acquire_step_path_leases("user-1", "run-2", "step-2", "repo-2", &keys).is_ok(),
+            db.acquire_step_path_leases("user-1", "run-2", "step-2", "repo-2", &keys)
+                .is_ok(),
             "a different repo is a different resource"
         );
     }
@@ -27660,7 +27786,9 @@ mod tests {
     fn a_step_with_no_write_set_takes_no_lease() {
         let db = test_db();
         seed_run_and_step(&db, "run-1", "step-1", &[]);
-        assert!(db.acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &[]).is_ok());
+        assert!(db
+            .acquire_step_path_leases("user-1", "run-1", "step-1", "repo-1", &[])
+            .is_ok());
         assert_eq!(db.release_step_resource_leases("step-1"), 0);
     }
 
@@ -27739,7 +27867,10 @@ mod tests {
         drop(conn);
 
         let chain = db.attempt_chain_spend("step-c");
-        assert_eq!(chain.attempts, 3, "the unfinished attempt still cost a dispatch");
+        assert_eq!(
+            chain.attempts, 3,
+            "the unfinished attempt still cost a dispatch"
+        );
         // 2000 + 5000; the in-flight attempt contributes no duration rather
         // than being counted as zero-length.
         assert_eq!(chain.total_duration_ms, 7_000);
@@ -27749,7 +27880,8 @@ mod tests {
     fn receipt_serves_the_shape_the_frontend_types_against() {
         let db = test_db();
         let specs = vec![spec("check-pass", true), spec("check-fail", true)];
-        db.save_check_specs("run-1", "step-1", &specs).expect("freeze");
+        db.save_check_specs("run-1", "step-1", &specs)
+            .expect("freeze");
 
         let vid = db
             .claim_verification("run-1", "step-1", 1, "tree-abc", "img@sha256:1")
@@ -27769,7 +27901,10 @@ mod tests {
 
         // The gate is derived, so a required check with no execution row is
         // never silently a pass.
-        assert!(receipt.gate.not_executed.contains(&"check-fail".to_string()));
+        assert!(receipt
+            .gate
+            .not_executed
+            .contains(&"check-fail".to_string()));
 
         // Field names are the contract with Receipt.tsx.
         let json = serde_json::to_value(&receipt).expect("serializes");
@@ -27807,16 +27942,19 @@ mod tests {
     fn the_receipt_reports_what_the_sandbox_could_reach() {
         let db = test_db();
         let specs = vec![spec("check-pass", true)];
-        db.save_check_specs("run-2", "step-2", &specs).expect("freeze");
+        db.save_check_specs("run-2", "step-2", &specs)
+            .expect("freeze");
 
         // A job whose planner granted crates.io, recorded the way the worker
         // records it.
         let mut job = sample_execution_job();
         job.run_id = "run-2".to_string();
         job.step_id = "step-2".to_string();
-        job.capability_grants = vec![cortex_core::execution_job::CapabilityGrant::ResolveDependencies {
-            registries: vec!["crates".to_string()],
-        }];
+        job.capability_grants = vec![
+            cortex_core::execution_job::CapabilityGrant::ResolveDependencies {
+                registries: vec!["crates".to_string()],
+            },
+        ];
         job.effective_egress = Some(vec![
             "index.crates.io:443".to_string(),
             "static.crates.io:443".to_string(),
@@ -27833,7 +27971,8 @@ mod tests {
             &execution("check-pass", CheckOutcome::Passed, Some(0)),
         )
         .expect("record execution");
-        db.finish_verification(&vid, Verdict::Verified).expect("seal");
+        db.finish_verification(&vid, Verdict::Verified)
+            .expect("seal");
 
         let receipt = db.get_receipt("run-2", "step-2").expect("receipt exists");
         let egress = receipt.egress.clone().expect("the job recorded an egress");
@@ -27841,7 +27980,9 @@ mod tests {
         // What was granted and what was opened, both — so a reader can see them
         // disagree rather than having to trust that they cannot.
         assert_eq!(egress.granted_registries, vec!["crates".to_string()]);
-        assert!(egress.endpoints.contains(&"index.crates.io:443".to_string()));
+        assert!(egress
+            .endpoints
+            .contains(&"index.crates.io:443".to_string()));
         assert!(
             !egress.endpoints.iter().any(|e| e.contains("npmjs")),
             "a cargo grant must not show npm on the receipt"
@@ -27856,7 +27997,8 @@ mod tests {
     fn a_receipt_for_a_sandbox_that_opened_nothing_says_so() {
         let db = test_db();
         let specs = vec![spec("check-pass", true)];
-        db.save_check_specs("run-3", "step-3", &specs).expect("freeze");
+        db.save_check_specs("run-3", "step-3", &specs)
+            .expect("freeze");
 
         let mut job = sample_execution_job();
         job.run_id = "run-3".to_string();
@@ -27875,7 +28017,8 @@ mod tests {
             &execution("check-pass", CheckOutcome::Passed, Some(0)),
         )
         .expect("record execution");
-        db.finish_verification(&vid, Verdict::Verified).expect("seal");
+        db.finish_verification(&vid, Verdict::Verified)
+            .expect("seal");
 
         let egress = db
             .get_receipt("run-3", "step-3")
@@ -28257,7 +28400,10 @@ mod truth {
                     |r| r.get(0),
                 )
                 .unwrap();
-            assert_eq!(count, 1, "{event_type} must be recorded with its transition");
+            assert_eq!(
+                count, 1,
+                "{event_type} must be recorded with its transition"
+            );
         }
 
         let refused: i64 = conn
@@ -28452,7 +28598,10 @@ mod truth {
         // this assertion: the shared `schema_version` counter means a
         // collision silently skips whichever migration merged second, and a
         // floor that never moves cannot notice.
-        assert!(version >= 66, "fresh database must reach v66, got {version}");
+        assert!(
+            version >= 66,
+            "fresh database must reach v66, got {version}"
+        );
 
         for table in ["step_verification_state", "manual_overrides"] {
             let found: i64 = conn
@@ -28828,9 +28977,9 @@ impl Database {
     /// Queue depth by state, for the metrics the operator watches.
     pub fn verification_queue_depth(&self) -> Vec<(String, i64)> {
         let conn = self.conn();
-        let mut stmt = match conn.prepare(
-            "SELECT state, COUNT(*) FROM verification_jobs GROUP BY state ORDER BY state",
-        ) {
+        let mut stmt = match conn
+            .prepare("SELECT state, COUNT(*) FROM verification_jobs GROUP BY state ORDER BY state")
+        {
             Ok(stmt) => stmt,
             Err(_) => return Vec::new(),
         };
@@ -28866,6 +29015,144 @@ fn read_verification_job(conn: &Connection, job_id: &str) -> Option<Verification
         },
     )
     .ok()
+}
+
+/// Worker service credentials (`cwk_` keys).
+///
+/// A worker is a long-lived headless daemon, not a browser session, so it
+/// cannot hold a Clerk user JWT. These are the rows that let one prove who it
+/// is. Issuance is deliberately absent from the HTTP surface — see the
+/// `cortex-worker-key` binary.
+impl Database {
+    /// Record a newly issued worker key.
+    ///
+    /// Takes the **hash**, never the plaintext: the caller shows the secret to
+    /// its owner once and drops it, and nothing in this process writes it down.
+    /// A duplicate `key_hash` is an error rather than an overwrite — see the
+    /// UNIQUE constraint in migration v67.
+    ///
+    /// `expires_at` is epoch milliseconds, or `None` for a key that only ends
+    /// by revocation.
+    pub fn create_worker_key(
+        &self,
+        id: &str,
+        key_hash: &str,
+        key_prefix: &str,
+        owner_user_id: &str,
+        scope: &str,
+        expires_at: Option<i64>,
+    ) -> Result<(), String> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO worker_keys
+                (id, key_hash, key_prefix, owner_user_id, scope, created_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                id,
+                key_hash,
+                key_prefix,
+                owner_user_id,
+                scope,
+                Utc::now().timestamp_millis(),
+                expires_at
+            ],
+        )
+        .map_err(|e| format!("failed to create worker key: {e}"))?;
+        Ok(())
+    }
+
+    /// Resolve a presented worker key hash to its owner, and stamp usage.
+    ///
+    /// Returns `None` — never a reason — when the key is unknown, revoked, or
+    /// expired. The caller is an authentication boundary and must not tell a
+    /// client which of those it was.
+    ///
+    /// Revocation and expiry are filtered **in the SQL**, not in Rust after the
+    /// fetch, so there is no shape of this function in which a caller forgets
+    /// the check. `now_ms` is passed in rather than read here so a test can
+    /// place a key in the past or the future without sleeping.
+    ///
+    /// `last_used_at` is stamped only on a successful resolution, and its
+    /// failure is not fatal: an audit timestamp is not worth refusing a
+    /// worker that legitimately authenticated.
+    pub fn authenticate_worker_key(&self, key_hash: &str, now_ms: i64) -> Option<String> {
+        let conn = self.conn();
+        let owner: String = conn
+            .query_row(
+                "SELECT owner_user_id
+                 FROM worker_keys
+                 WHERE key_hash = ?1
+                   AND revoked_at IS NULL
+                   AND (expires_at IS NULL OR expires_at > ?2)
+                 LIMIT 1",
+                params![key_hash, now_ms],
+                |row| row.get(0),
+            )
+            .ok()?;
+
+        if let Err(e) = conn.execute(
+            "UPDATE worker_keys SET last_used_at = ?1 WHERE key_hash = ?2",
+            params![now_ms, key_hash],
+        ) {
+            tracing::warn!("could not stamp worker key last_used_at: {e}");
+        }
+
+        Some(owner)
+    }
+
+    /// Revoke a worker key by its display prefix or id. Returns rows affected.
+    ///
+    /// Idempotent: `revoked_at IS NULL` in the WHERE means re-revoking an
+    /// already-revoked key reports 0 rather than moving the timestamp, so an
+    /// audit keeps the moment revocation actually happened.
+    pub fn revoke_worker_key(&self, id_or_prefix: &str) -> usize {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE worker_keys
+             SET revoked_at = ?1
+             WHERE (id = ?2 OR key_prefix = ?2) AND revoked_at IS NULL",
+            params![Utc::now().timestamp_millis(), id_or_prefix],
+        )
+        .unwrap_or(0)
+    }
+
+    /// List worker keys for an operator view. Never includes key material
+    /// beyond the non-secret display prefix.
+    pub fn list_worker_keys(&self, owner_user_id: Option<&str>) -> Vec<serde_json::Value> {
+        let conn = self.conn();
+        let mut stmt = match conn.prepare(
+            "SELECT id, key_prefix, owner_user_id, scope, created_at,
+                    expires_at, revoked_at, last_used_at
+             FROM worker_keys
+             WHERE ?1 IS NULL OR owner_user_id = ?1
+             ORDER BY created_at DESC",
+        ) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                tracing::warn!("could not list worker keys: {e}");
+                return Vec::new();
+            }
+        };
+        let rows = stmt.query_map(params![owner_user_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "keyPrefix": row.get::<_, String>(1)?,
+                "ownerUserId": row.get::<_, String>(2)?,
+                "scope": row.get::<_, String>(3)?,
+                "createdAt": row.get::<_, i64>(4)?,
+                "expiresAt": row.get::<_, Option<i64>>(5)?,
+                "revokedAt": row.get::<_, Option<i64>>(6)?,
+                "lastUsedAt": row.get::<_, Option<i64>>(7)?,
+            }))
+        });
+        match rows {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                tracing::warn!("could not list worker keys: {e}");
+                Vec::new()
+            }
+        }
+    }
 }
 
 /// The durable verifier queue: a delivery's verification survives the process
@@ -28964,7 +29251,12 @@ mod verifier {
         );
 
         // And the succeeding one brings its job with it.
-        assert!(db.begin_verifying_step("step-1", "a1", gen, Some(enqueue(&run_id, "job-1", &digest))));
+        assert!(db.begin_verifying_step(
+            "step-1",
+            "a1",
+            gen,
+            Some(enqueue(&run_id, "job-1", &digest))
+        ));
         let job = db.get_verification_job("job-1").expect("job exists");
         assert_eq!(job.state, "queued");
         assert_eq!(job.delivered_commit, "c0ffee");
@@ -28979,13 +29271,20 @@ mod verifier {
         let db = test_db();
         let (run_id, gen) = delivered_step(&db, "step-1");
         let digest = spec_set_digest(&[spec("c1")]);
-        assert!(db.begin_verifying_step("step-1", "a1", gen, Some(enqueue(&run_id, "job-1", &digest))));
+        assert!(db.begin_verifying_step(
+            "step-1",
+            "a1",
+            gen,
+            Some(enqueue(&run_id, "job-1", &digest))
+        ));
 
         let pending = db.non_terminal_verification_jobs();
         assert_eq!(pending.len(), 1);
         assert_eq!(pending[0].job_id, "job-1");
 
-        let claimed = db.claim_verification_job("dispatcher-2").expect("claimable");
+        let claimed = db
+            .claim_verification_job("dispatcher-2")
+            .expect("claimable");
         assert_eq!(claimed.job_id, "job-1");
         assert_eq!(claimed.attempt_count, 1);
     }
@@ -28998,10 +29297,20 @@ mod verifier {
         let (run_id, gen) = delivered_step(&db, "step-1");
         let digest = spec_set_digest(&[spec("c1")]);
 
-        assert!(db.begin_verifying_step("step-1", "a1", gen, Some(enqueue(&run_id, "job-1", &digest))));
+        assert!(db.begin_verifying_step(
+            "step-1",
+            "a1",
+            gen,
+            Some(enqueue(&run_id, "job-1", &digest))
+        ));
         // The second transition is refused by the state machine anyway; the
         // unique key is the belt to that pair of braces.
-        assert!(!db.begin_verifying_step("step-1", "a1", gen, Some(enqueue(&run_id, "job-2", &digest))));
+        assert!(!db.begin_verifying_step(
+            "step-1",
+            "a1",
+            gen,
+            Some(enqueue(&run_id, "job-2", &digest))
+        ));
 
         assert!(db.get_verification_job("job-2").is_none());
         let found = db
@@ -29017,14 +29326,25 @@ mod verifier {
         let db = test_db();
         let (run_id, gen) = delivered_step(&db, "step-1");
         let digest = spec_set_digest(&[spec("c1")]);
-        assert!(db.begin_verifying_step("step-1", "a1", gen, Some(enqueue(&run_id, "job-1", &digest))));
+        assert!(db.begin_verifying_step(
+            "step-1",
+            "a1",
+            gen,
+            Some(enqueue(&run_id, "job-1", &digest))
+        ));
 
         let first = db.claim_verification_job("dispatcher-a");
         let second = db.claim_verification_job("dispatcher-b");
         assert!(first.is_some());
-        assert!(second.is_none(), "a claimed job must not be claimable again");
+        assert!(
+            second.is_none(),
+            "a claimed job must not be claimable again"
+        );
         assert_eq!(
-            db.get_verification_job("job-1").unwrap().claim_token.as_deref(),
+            db.get_verification_job("job-1")
+                .unwrap()
+                .claim_token
+                .as_deref(),
             Some("dispatcher-a")
         );
     }
@@ -29036,7 +29356,12 @@ mod verifier {
         let db = test_db();
         let (run_id, gen) = delivered_step(&db, "step-1");
         let digest = spec_set_digest(&[spec("c1")]);
-        assert!(db.begin_verifying_step("step-1", "a1", gen, Some(enqueue(&run_id, "job-1", &digest))));
+        assert!(db.begin_verifying_step(
+            "step-1",
+            "a1",
+            gen,
+            Some(enqueue(&run_id, "job-1", &digest))
+        ));
         db.claim_verification_job("dispatcher-a").expect("claim");
 
         assert!(db.heartbeat_verification_job("job-1", "dispatcher-a"));
@@ -29051,7 +29376,12 @@ mod verifier {
         let db = test_db();
         let (run_id, gen) = delivered_step(&db, "step-1");
         let digest = spec_set_digest(&[spec("c1")]);
-        assert!(db.begin_verifying_step("step-1", "a1", gen, Some(enqueue(&run_id, "job-1", &digest))));
+        assert!(db.begin_verifying_step(
+            "step-1",
+            "a1",
+            gen,
+            Some(enqueue(&run_id, "job-1", &digest))
+        ));
         db.claim_verification_job("dispatcher-a").expect("claim");
 
         // Nothing to reclaim while the lease holds.
@@ -29065,8 +29395,13 @@ mod verifier {
         assert!(job.claim_token.is_none());
         assert_eq!(job.attempt_count, 1);
 
-        let reclaimed = db.claim_verification_job("dispatcher-b").expect("reclaimable");
-        assert_eq!(reclaimed.attempt_count, 2, "reclaim must count as an attempt");
+        let reclaimed = db
+            .claim_verification_job("dispatcher-b")
+            .expect("reclaimable");
+        assert_eq!(
+            reclaimed.attempt_count, 2,
+            "reclaim must count as an attempt"
+        );
     }
 
     #[test]
@@ -29075,10 +29410,16 @@ mod verifier {
         let db = test_db();
         let (run_id, gen) = delivered_step(&db, "step-1");
         let digest = spec_set_digest(&[spec("c1")]);
-        assert!(db.begin_verifying_step("step-1", "a1", gen, Some(enqueue(&run_id, "job-1", &digest))));
+        assert!(db.begin_verifying_step(
+            "step-1",
+            "a1",
+            gen,
+            Some(enqueue(&run_id, "job-1", &digest))
+        ));
 
         for _ in 0..VERIFICATION_MAX_ATTEMPTS {
-            db.claim_verification_job("dispatcher-a").expect("claimable");
+            db.claim_verification_job("dispatcher-a")
+                .expect("claimable");
             expire_claim(&db, "job-1");
             db.reclaim_expired_verification_jobs();
         }
@@ -29100,7 +29441,12 @@ mod verifier {
         let db = test_db();
         let (run_id, gen) = delivered_step(&db, "step-1");
         let digest = spec_set_digest(&[spec("c1")]);
-        assert!(db.begin_verifying_step("step-1", "a1", gen, Some(enqueue(&run_id, "job-1", &digest))));
+        assert!(db.begin_verifying_step(
+            "step-1",
+            "a1",
+            gen,
+            Some(enqueue(&run_id, "job-1", &digest))
+        ));
         db.claim_verification_job("dispatcher-a").expect("claim");
 
         assert!(db.retry_verification_job("job-1", "dispatcher-a", 60_000));
@@ -29124,7 +29470,12 @@ mod verifier {
         let db = test_db();
         let (run_id, gen) = delivered_step(&db, "step-1");
         let digest = spec_set_digest(&[spec("c1")]);
-        assert!(db.begin_verifying_step("step-1", "a1", gen, Some(enqueue(&run_id, "job-1", &digest))));
+        assert!(db.begin_verifying_step(
+            "step-1",
+            "a1",
+            gen,
+            Some(enqueue(&run_id, "job-1", &digest))
+        ));
         db.claim_verification_job("dispatcher-a").expect("claim");
 
         assert!(db.finish_verification_job("job-1", "dispatcher-a", "succeeded", None));
@@ -29150,7 +29501,12 @@ mod verifier {
         let db = test_db();
         let (run_id, gen) = delivered_step(&db, "step-1");
         let digest = spec_set_digest(&[spec("c1")]);
-        assert!(db.begin_verifying_step("step-1", "a1", gen, Some(enqueue(&run_id, "job-1", &digest))));
+        assert!(db.begin_verifying_step(
+            "step-1",
+            "a1",
+            gen,
+            Some(enqueue(&run_id, "job-1", &digest))
+        ));
         db.claim_verification_job("dispatcher-a").expect("claim");
         expire_claim(&db, "job-1");
         db.reclaim_expired_verification_jobs();
@@ -29170,7 +29526,12 @@ mod verifier {
         let db = test_db();
         let (run_id, gen) = delivered_step(&db, "step-1");
         let digest = spec_set_digest(&[spec("c1")]);
-        assert!(db.begin_verifying_step("step-1", "a1", gen, Some(enqueue(&run_id, "job-1", &digest))));
+        assert!(db.begin_verifying_step(
+            "step-1",
+            "a1",
+            gen,
+            Some(enqueue(&run_id, "job-1", &digest))
+        ));
         db.claim_verification_job("a-dispatcher-that-is-now-gone")
             .expect("claim");
 
@@ -29193,7 +29554,11 @@ mod verifier {
         let one = spec_set_digest(&[spec("c1")]);
         let two = spec_set_digest(&[spec("c1"), spec("c2")]);
         assert_ne!(one, two, "a changed exam must produce a changed digest");
-        assert_eq!(one, spec_set_digest(&[spec("c1")]), "and a stable one otherwise");
+        assert_eq!(
+            one,
+            spec_set_digest(&[spec("c1")]),
+            "and a stable one otherwise"
+        );
         assert!(one.starts_with("sha256:"));
     }
 
@@ -29204,7 +29569,12 @@ mod verifier {
         let db = test_db();
         let (run_id, gen) = delivered_step(&db, "step-1");
         let digest = spec_set_digest(&[spec("c1")]);
-        assert!(db.begin_verifying_step("step-1", "a1", gen, Some(enqueue(&run_id, "job-1", &digest))));
+        assert!(db.begin_verifying_step(
+            "step-1",
+            "a1",
+            gen,
+            Some(enqueue(&run_id, "job-1", &digest))
+        ));
 
         let depth = db.verification_queue_depth();
         assert_eq!(depth, vec![("queued".to_string(), 1)]);

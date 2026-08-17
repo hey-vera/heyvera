@@ -3,8 +3,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use bollard::container::{
-    Config, CreateContainerOptions, StartContainerOptions,
-    StopContainerOptions,
+    Config, CreateContainerOptions, StartContainerOptions, StopContainerOptions,
 };
 use bollard::exec::{CreateExecOptions, StartExecResults};
 use bollard::models::HostConfig;
@@ -55,7 +54,10 @@ impl ContainerManager {
     }
 
     fn container_name(user_id: &str) -> String {
-        format!("cortex-byos-{}", user_id.replace(|c: char| !c.is_alphanumeric() && c != '-', "_"))
+        format!(
+            "cortex-byos-{}",
+            user_id.replace(|c: char| !c.is_alphanumeric() && c != '-', "_")
+        )
     }
 
     pub async fn ensure_container(
@@ -77,18 +79,22 @@ impl ContainerManager {
                 );
                 match inspect {
                     Ok(info) => {
-                        let running = info.state
-                            .as_ref()
-                            .and_then(|s| s.running)
-                            .unwrap_or(false);
+                        let running = info.state.as_ref().and_then(|s| s.running).unwrap_or(false);
                         if running {
                             tracing::debug!(user_id, container_id = %id, "reusing running container (cache hit)");
                             return Ok(id.clone());
                         }
                         // Container exists but stopped — start it
                         let start = std::time::Instant::now();
-                        let res = self.docker.start_container(id, None::<StartContainerOptions<String>>).await;
-                        record_container_op(ContainerOp::Start, start, if res.is_ok() { "ok" } else { "error" });
+                        let res = self
+                            .docker
+                            .start_container(id, None::<StartContainerOptions<String>>)
+                            .await;
+                        record_container_op(
+                            ContainerOp::Start,
+                            start,
+                            if res.is_ok() { "ok" } else { "error" },
+                        );
                         res.map_err(|e| {
                             tracing::warn!(user_id, container_id = %id, error = %e, "failed to start cached container");
                             format!("failed to start container: {e}")
@@ -115,14 +121,21 @@ impl ContainerManager {
             );
             match inspect {
                 Ok(info) => {
-                    let running = info.state
-                        .as_ref()
-                        .and_then(|s| s.running)
-                        .unwrap_or(false);
+                    let running = info.state.as_ref().and_then(|s| s.running).unwrap_or(false);
                     if !running {
                         let start = std::time::Instant::now();
-                        let res = self.docker.start_container(&uc.container_id, None::<StartContainerOptions<String>>).await;
-                        record_container_op(ContainerOp::Start, start, if res.is_ok() { "ok" } else { "error" });
+                        let res = self
+                            .docker
+                            .start_container(
+                                &uc.container_id,
+                                None::<StartContainerOptions<String>>,
+                            )
+                            .await;
+                        record_container_op(
+                            ContainerOp::Start,
+                            start,
+                            if res.is_ok() { "ok" } else { "error" },
+                        );
                         res.map_err(|e| {
                             tracing::warn!(user_id, container_id = %uc.container_id, error = %e, "failed to start db-tracked container");
                             format!("failed to start container: {e}")
@@ -130,7 +143,10 @@ impl ContainerManager {
                         tracing::info!(user_id, container_id = %uc.container_id, "started stopped container (db hit)");
                     }
                     db.update_container_status(user_id, "running");
-                    self.cache.write().await.insert(user_id.to_string(), uc.container_id.clone());
+                    self.cache
+                        .write()
+                        .await
+                        .insert(user_id.to_string(), uc.container_id.clone());
                     return Ok(uc.container_id);
                 }
                 Err(_) => {
@@ -178,9 +194,15 @@ impl ContainerManager {
             ..Default::default()
         };
 
-        let create_opts = CreateContainerOptions { name: name.clone(), ..Default::default() };
+        let create_opts = CreateContainerOptions {
+            name: name.clone(),
+            ..Default::default()
+        };
         let create_start = std::time::Instant::now();
-        let create_res = self.docker.create_container(Some(create_opts), config).await;
+        let create_res = self
+            .docker
+            .create_container(Some(create_opts), config)
+            .await;
         record_container_op(
             ContainerOp::Create,
             create_start,
@@ -189,21 +211,33 @@ impl ContainerManager {
 
         let container_id = match create_res {
             Ok(resp) => resp.id,
-            Err(bollard::errors::Error::DockerResponseServerError { status_code: 409, .. }) => {
+            Err(bollard::errors::Error::DockerResponseServerError {
+                status_code: 409, ..
+            }) => {
                 tracing::info!(user_id, container_name = %name, "container name conflict, reusing existing");
-                let inspect = self.docker.inspect_container(&name, None).await.map_err(|e| {
-                    format!("failed to inspect conflicting container: {e}")
-                })?;
+                let inspect = self
+                    .docker
+                    .inspect_container(&name, None)
+                    .await
+                    .map_err(|e| format!("failed to inspect conflicting container: {e}"))?;
                 let id = inspect.id.ok_or("conflicting container has no id")?;
-                let running = inspect.state.as_ref().and_then(|s| s.running).unwrap_or(false);
+                let running = inspect
+                    .state
+                    .as_ref()
+                    .and_then(|s| s.running)
+                    .unwrap_or(false);
                 if !running {
-                    self.docker.start_container(&id, None::<StartContainerOptions<String>>).await.map_err(|e| {
-                        format!("failed to start existing container: {e}")
-                    })?;
+                    self.docker
+                        .start_container(&id, None::<StartContainerOptions<String>>)
+                        .await
+                        .map_err(|e| format!("failed to start existing container: {e}"))?;
                 }
                 let record_id = uuid::Uuid::new_v4().to_string();
                 db.upsert_user_container(&record_id, user_id, &id, provider, "running");
-                self.cache.write().await.insert(user_id.to_string(), id.clone());
+                self.cache
+                    .write()
+                    .await
+                    .insert(user_id.to_string(), id.clone());
                 return Ok(id);
             }
             Err(e) => {
@@ -213,8 +247,15 @@ impl ContainerManager {
         };
 
         let start = std::time::Instant::now();
-        let start_res = self.docker.start_container(&container_id, None::<StartContainerOptions<String>>).await;
-        record_container_op(ContainerOp::Start, start, if start_res.is_ok() { "ok" } else { "error" });
+        let start_res = self
+            .docker
+            .start_container(&container_id, None::<StartContainerOptions<String>>)
+            .await;
+        record_container_op(
+            ContainerOp::Start,
+            start,
+            if start_res.is_ok() { "ok" } else { "error" },
+        );
         start_res.map_err(|e| {
             tracing::error!(user_id, container_id = %container_id, error = %e, "failed to start newly created container");
             format!("failed to start container: {e}")
@@ -222,11 +263,17 @@ impl ContainerManager {
 
         let id = Uuid::new_v4().to_string();
         db.upsert_user_container(&id, user_id, &container_id, provider, "running");
-        self.cache.write().await.insert(user_id.to_string(), container_id.clone());
+        self.cache
+            .write()
+            .await
+            .insert(user_id.to_string(), container_id.clone());
 
         db.audit_log(
-            user_id, "system", "container.created",
-            Some("container"), Some(&container_id),
+            user_id,
+            "system",
+            "container.created",
+            Some("container"),
+            Some(&container_id),
             Some(&format!("{{\"provider\":\"{provider}\"}}")),
             None,
         );
@@ -269,7 +316,11 @@ impl ContainerManager {
         let mut stdout = String::new();
         let mut stderr = String::new();
 
-        if let StartExecResults::Attached { mut output, mut input } = start_result {
+        if let StartExecResults::Attached {
+            mut output,
+            mut input,
+        } = start_result
+        {
             if let Some(data) = stdin_data {
                 use tokio::io::AsyncWriteExt;
                 let _ = input.write_all(data.as_bytes()).await;
@@ -293,7 +344,11 @@ impl ContainerManager {
 
             if tokio::time::timeout(timeout, collect_fut).await.is_err() {
                 record_container_op(ContainerOp::Exec, op_start, "timeout");
-                tracing::warn!(container_id, timeout_secs = timeout.as_secs(), "container exec timed out");
+                tracing::warn!(
+                    container_id,
+                    timeout_secs = timeout.as_secs(),
+                    "container exec timed out"
+                );
                 return Err(format!("exec timed out after {}s", timeout.as_secs()));
             }
         }
@@ -309,11 +364,21 @@ impl ContainerManager {
 
         record_container_op(ContainerOp::Exec, op_start, "ok");
         if exit_code != 0 {
-            crate::metrics::metrics().container_exec_failures_total.inc();
-            tracing::debug!(container_id, exit_code, "container exec returned non-zero exit code");
+            crate::metrics::metrics()
+                .container_exec_failures_total
+                .inc();
+            tracing::debug!(
+                container_id,
+                exit_code,
+                "container exec returned non-zero exit code"
+            );
         }
 
-        Ok(ExecResult { stdout, stderr, exit_code })
+        Ok(ExecResult {
+            stdout,
+            stderr,
+            exit_code,
+        })
     }
 
     pub async fn exec_stream(
@@ -330,11 +395,15 @@ impl ContainerManager {
             ..Default::default()
         };
 
-        let exec = self.docker.create_exec(container_id, exec_opts)
+        let exec = self
+            .docker
+            .create_exec(container_id, exec_opts)
             .await
             .map_err(|e| format!("failed to create exec: {e}"))?;
 
-        let start_result = self.docker.start_exec(&exec.id, None)
+        let start_result = self
+            .docker
+            .start_exec(&exec.id, None)
             .await
             .map_err(|e| format!("failed to start exec: {e}"))?;
 
@@ -351,11 +420,16 @@ impl ContainerManager {
             };
 
             if tokio::time::timeout(timeout, stream_fut).await.is_err() {
-                return Err(format!("exec stream timed out after {}s", timeout.as_secs()));
+                return Err(format!(
+                    "exec stream timed out after {}s",
+                    timeout.as_secs()
+                ));
             }
         }
 
-        let inspect = self.docker.inspect_exec(&exec.id)
+        let inspect = self
+            .docker
+            .inspect_exec(&exec.id)
             .await
             .map_err(|e| format!("failed to inspect exec: {e}"))?;
         Ok(inspect.exit_code.unwrap_or(-1))
@@ -365,7 +439,11 @@ impl ContainerManager {
         let op_start = std::time::Instant::now();
         let opts = StopContainerOptions { t: 10 };
         let res = self.docker.stop_container(container_id, Some(opts)).await;
-        record_container_op(ContainerOp::Stop, op_start, if res.is_ok() { "ok" } else { "error" });
+        record_container_op(
+            ContainerOp::Stop,
+            op_start,
+            if res.is_ok() { "ok" } else { "error" },
+        );
         res.map_err(|e| {
             tracing::warn!(container_id, error = %e, "failed to stop container");
             format!("failed to stop container: {e}")
@@ -377,7 +455,11 @@ impl ContainerManager {
         let _ = self.stop_container(container_id).await;
         let op_start = std::time::Instant::now();
         let res = self.docker.remove_container(container_id, None).await;
-        record_container_op(ContainerOp::Remove, op_start, if res.is_ok() { "ok" } else { "error" });
+        record_container_op(
+            ContainerOp::Remove,
+            op_start,
+            if res.is_ok() { "ok" } else { "error" },
+        );
         res.map_err(|e| {
             tracing::warn!(container_id, error = %e, "failed to remove container");
             format!("failed to remove container: {e}")
@@ -422,12 +504,14 @@ impl ContainerManager {
             let read_url = async {
                 while let Some(Ok(msg)) = output.next().await {
                     match msg {
-                        bollard::container::LogOutput::StdOut { message } |
-                        bollard::container::LogOutput::StdErr { message } => {
+                        bollard::container::LogOutput::StdOut { message }
+                        | bollard::container::LogOutput::StdErr { message } => {
                             let text = String::from_utf8_lossy(&message);
                             captured_output.push_str(&text);
                             // Check if we've captured a URL
-                            if captured_output.contains("http://") || captured_output.contains("https://") {
+                            if captured_output.contains("http://")
+                                || captured_output.contains("https://")
+                            {
                                 break;
                             }
                         }
@@ -437,9 +521,15 @@ impl ContainerManager {
             };
 
             // Give the CLI 15 seconds to output the OAuth URL
-            if tokio::time::timeout(Duration::from_secs(15), read_url).await.is_err() {
+            if tokio::time::timeout(Duration::from_secs(15), read_url)
+                .await
+                .is_err()
+            {
                 record_container_op(ContainerOp::LoginExec, op_start, "timeout");
-                tracing::warn!(container_id, "timeout waiting for login CLI to output auth URL");
+                tracing::warn!(
+                    container_id,
+                    "timeout waiting for login CLI to output auth URL"
+                );
                 return Err("timeout waiting for CLI to output auth URL".into());
             }
         }
@@ -462,12 +552,17 @@ impl ContainerManager {
             _ => return Err(format!("unknown provider: {provider}")),
         };
 
-        let result = self.exec_in_container(container_id, &cmd, None, Duration::from_secs(30)).await?;
+        let result = self
+            .exec_in_container(container_id, &cmd, None, Duration::from_secs(30))
+            .await?;
 
         if result.exit_code == 0 {
             Ok(result.stdout)
         } else {
-            Err(format!("auth failed (exit {}): {}", result.exit_code, result.stderr))
+            Err(format!(
+                "auth failed (exit {}): {}",
+                result.exit_code, result.stderr
+            ))
         }
     }
 }

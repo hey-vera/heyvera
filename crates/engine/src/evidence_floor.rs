@@ -18,8 +18,13 @@ pub struct EvidenceFloor {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum FloorVerdict {
-    Satisfied { signals_met: Vec<String> },
-    Blocked { missing: Vec<String>, risk_level: RiskLevel },
+    Satisfied {
+        signals_met: Vec<String>,
+    },
+    Blocked {
+        missing: Vec<String>,
+        risk_level: RiskLevel,
+    },
 }
 
 pub fn invariant_floors() -> Vec<EvidenceFloor> {
@@ -99,7 +104,10 @@ pub fn check_floor(risk_level: RiskLevel, signals: &[EvidenceSignal]) -> FloorVe
     if missing.is_empty() {
         FloorVerdict::Satisfied { signals_met }
     } else {
-        FloorVerdict::Blocked { missing, risk_level }
+        FloorVerdict::Blocked {
+            missing,
+            risk_level,
+        }
     }
 }
 
@@ -108,15 +116,12 @@ mod tests {
     use super::*;
     use cortex_core::contamination::EvidenceSource;
 
-    fn make_signal(tier: SignalTier, source: EvidenceSource, contamination_override: Option<f64>) -> EvidenceSignal {
-        let mut signal = EvidenceSignal::new(
-            tier,
-            source.clone(),
-            None,
-            None,
-            1.0,
-            "test signal",
-        );
+    fn make_signal(
+        tier: SignalTier,
+        source: EvidenceSource,
+        contamination_override: Option<f64>,
+    ) -> EvidenceSignal {
+        let mut signal = EvidenceSignal::new(tier, source.clone(), None, None, 1.0, "test signal");
         if let Some(c) = contamination_override {
             signal.contamination.raw_value = c;
         }
@@ -126,7 +131,10 @@ mod tests {
     #[test]
     fn test_critical_blocked_without_evidence() {
         match check_floor(RiskLevel::Critical, &[]) {
-            FloorVerdict::Blocked { missing, risk_level } => {
+            FloorVerdict::Blocked {
+                missing,
+                risk_level,
+            } => {
                 assert_eq!(risk_level, RiskLevel::Critical);
                 assert_eq!(missing.len(), 2);
             }
@@ -137,8 +145,16 @@ mod tests {
     #[test]
     fn test_critical_satisfied_with_clean_signals() {
         let signals = vec![
-            make_signal(SignalTier::HardObjective, EvidenceSource::CompilerOutput, None),
-            make_signal(SignalTier::IndependentVerify, EvidenceSource::HumanReview, None),
+            make_signal(
+                SignalTier::HardObjective,
+                EvidenceSource::CompilerOutput,
+                None,
+            ),
+            make_signal(
+                SignalTier::IndependentVerify,
+                EvidenceSource::HumanReview,
+                None,
+            ),
         ];
         match check_floor(RiskLevel::Critical, &signals) {
             FloorVerdict::Satisfied { signals_met } => assert_eq!(signals_met.len(), 2),
@@ -149,11 +165,22 @@ mod tests {
     #[test]
     fn test_critical_blocked_contaminated_signals() {
         let signals = vec![
-            make_signal(SignalTier::HardObjective, EvidenceSource::AiGeneratedTest, Some(0.85)),
-            make_signal(SignalTier::IndependentVerify, EvidenceSource::AiReview, Some(0.8)),
+            make_signal(
+                SignalTier::HardObjective,
+                EvidenceSource::AiGeneratedTest,
+                Some(0.85),
+            ),
+            make_signal(
+                SignalTier::IndependentVerify,
+                EvidenceSource::AiReview,
+                Some(0.8),
+            ),
         ];
         match check_floor(RiskLevel::Critical, &signals) {
-            FloorVerdict::Blocked { missing, risk_level } => {
+            FloorVerdict::Blocked {
+                missing,
+                risk_level,
+            } => {
                 assert_eq!(risk_level, RiskLevel::Critical);
                 assert_eq!(missing.len(), 2);
             }
@@ -163,9 +190,11 @@ mod tests {
 
     #[test]
     fn test_high_satisfied_with_compiler() {
-        let signals = vec![
-            make_signal(SignalTier::HardObjective, EvidenceSource::CompilerOutput, None),
-        ];
+        let signals = vec![make_signal(
+            SignalTier::HardObjective,
+            EvidenceSource::CompilerOutput,
+            None,
+        )];
         match check_floor(RiskLevel::High, &signals) {
             FloorVerdict::Satisfied { signals_met } => assert_eq!(signals_met.len(), 1),
             other => panic!("expected Satisfied, got {other:?}"),

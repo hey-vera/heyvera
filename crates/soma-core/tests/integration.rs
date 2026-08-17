@@ -3,16 +3,14 @@ use soma_core::delegation::{Capability, DelegationConstraints, DelegationScope, 
 use soma_core::envelope::{SealedSessionEnvelope, SessionOutcome, SomaFlow};
 use soma_core::heart::Heart;
 use soma_core::pulse_tree::{
-    DeathRecord, DelegationRecord, FactoryStamp, PulsePayload, SealedSessionRef,
-    SpendReceiptRecord,
+    DeathRecord, DelegationRecord, FactoryStamp, PulsePayload, SealedSessionRef, SpendReceiptRecord,
 };
 use soma_core::room::Room;
 use soma_core::trust::{
-    coherence, compute_trust, compute_velocity, compute_warmth, is_ignited, vera,
-    Interaction,
+    coherence, compute_trust, compute_velocity, compute_warmth, is_ignited, vera, Interaction,
 };
-use soma_core::vera::{domain_warmth, enrichment_ratio, heart_warmth, network_warmth};
 use soma_core::types::{DelegationId, HeartId, RoomId};
+use soma_core::vera::{domain_warmth, enrichment_ratio, heart_warmth, network_warmth};
 use soma_crypto::composite::CompositeKeypair;
 
 fn test_factory_stamp() -> FactoryStamp {
@@ -322,8 +320,7 @@ fn delegation_create_and_accept() {
         cascade_revoke: true,
     };
 
-    let mut token =
-        DelegationToken::create(&parent, child_id, scope, constraints, 1000).unwrap();
+    let mut token = DelegationToken::create(&parent, child_id, scope, constraints, 1000).unwrap();
 
     assert!(!token.is_valid_at(1000)); // not yet accepted
     assert!(token.child_signature.is_none());
@@ -352,8 +349,7 @@ fn delegation_cannot_accept_twice() {
         cascade_revoke: true,
     };
 
-    let mut token =
-        DelegationToken::create(&parent, child_id, scope, constraints, 1000).unwrap();
+    let mut token = DelegationToken::create(&parent, child_id, scope, constraints, 1000).unwrap();
     token.accept(&child_kp).unwrap();
     let result = token.accept(&child_kp);
     assert!(result.is_err());
@@ -378,8 +374,7 @@ fn delegation_expired() {
         cascade_revoke: true,
     };
 
-    let mut token =
-        DelegationToken::create(&parent, child_id, scope, constraints, 1000).unwrap();
+    let mut token = DelegationToken::create(&parent, child_id, scope, constraints, 1000).unwrap();
     token.accept(&child_kp).unwrap();
 
     assert!(token.is_valid_at(4600000)); // at expiry - still valid
@@ -411,14 +406,8 @@ fn delegation_scope_narrowing_accepted() {
         cascade_revoke: true,
     };
 
-    let parent_token = DelegationToken::create(
-        &parent,
-        child_id,
-        parent_scope,
-        parent_constraints,
-        1000,
-    )
-    .unwrap();
+    let parent_token =
+        DelegationToken::create(&parent, child_id, parent_scope, parent_constraints, 1000).unwrap();
 
     // Create a child heart to delegate further
     let child_heart = Heart::new(test_factory_stamp(), 500, 1000).unwrap();
@@ -428,7 +417,7 @@ fn delegation_scope_narrowing_accepted() {
         capabilities: vec![Capability::CodeExecution],
     };
     let child_constraints = DelegationConstraints {
-        max_depth: 2, // less than parent's 3
+        max_depth: 2,   // less than parent's 3
         spend_cap: 300, // less than parent's remaining 500
         spend_remaining: 300,
         ttl_ms: 1800000, // less than parent's 3600000
@@ -471,14 +460,8 @@ fn delegation_reject_scope_widening() {
         cascade_revoke: true,
     };
 
-    let parent_token = DelegationToken::create(
-        &parent,
-        child_id,
-        parent_scope,
-        parent_constraints,
-        1000,
-    )
-    .unwrap();
+    let parent_token =
+        DelegationToken::create(&parent, child_id, parent_scope, parent_constraints, 1000).unwrap();
 
     let child_heart = Heart::new(test_factory_stamp(), 500, 1000).unwrap();
 
@@ -530,14 +513,8 @@ fn delegation_reject_spend_cap_widening() {
         cascade_revoke: true,
     };
 
-    let parent_token = DelegationToken::create(
-        &parent,
-        child_id,
-        parent_scope,
-        parent_constraints,
-        1000,
-    )
-    .unwrap();
+    let parent_token =
+        DelegationToken::create(&parent, child_id, parent_scope, parent_constraints, 1000).unwrap();
 
     let child_heart = Heart::new(test_factory_stamp(), 500, 1000).unwrap();
 
@@ -588,14 +565,8 @@ fn delegation_reject_ttl_widening() {
         cascade_revoke: true,
     };
 
-    let parent_token = DelegationToken::create(
-        &parent,
-        child_id,
-        parent_scope,
-        parent_constraints,
-        1000,
-    )
-    .unwrap();
+    let parent_token =
+        DelegationToken::create(&parent, child_id, parent_scope, parent_constraints, 1000).unwrap();
 
     let child_heart = Heart::new(test_factory_stamp(), 500, 1000).unwrap();
 
@@ -646,14 +617,8 @@ fn delegation_reject_depth_widening() {
         cascade_revoke: true,
     };
 
-    let parent_token = DelegationToken::create(
-        &parent,
-        child_id,
-        parent_scope,
-        parent_constraints,
-        1000,
-    )
-    .unwrap();
+    let parent_token =
+        DelegationToken::create(&parent, child_id, parent_scope, parent_constraints, 1000).unwrap();
 
     let child_heart = Heart::new(test_factory_stamp(), 500, 1000).unwrap();
 
@@ -941,7 +906,9 @@ fn one_equation_failure_still_observed() {
         HeartId([0x02; 32]),
         Capability::CodeExecution,
         1000,
-        SessionOutcome::Failure { error_class: "crash".to_string() },
+        SessionOutcome::Failure {
+            error_class: "crash".to_string(),
+        },
         1000,
     );
 
@@ -1031,8 +998,22 @@ fn one_equation_trust_is_vera_between_two_hearts() {
     let to = HeartId([0x02; 32]);
 
     let interactions = vec![
-        make_interaction(from, to, Capability::CodeExecution, 100, SessionOutcome::Success, 1000),
-        make_interaction(from, to, Capability::CodeExecution, 200, SessionOutcome::Success, 2000),
+        make_interaction(
+            from,
+            to,
+            Capability::CodeExecution,
+            100,
+            SessionOutcome::Success,
+            1000,
+        ),
+        make_interaction(
+            from,
+            to,
+            Capability::CodeExecution,
+            200,
+            SessionOutcome::Success,
+            2000,
+        ),
     ];
 
     let trust = compute_trust(&interactions, &Capability::CodeExecution, 2000);
@@ -1049,11 +1030,22 @@ fn one_equation_failure_produces_negative_trust() {
     let to = HeartId([0x02; 32]);
 
     let failure = vec![make_interaction(
-        from, to, Capability::CodeExecution, 100,
-        SessionOutcome::Failure { error_class: "timeout".to_string() }, 1000,
+        from,
+        to,
+        Capability::CodeExecution,
+        100,
+        SessionOutcome::Failure {
+            error_class: "timeout".to_string(),
+        },
+        1000,
     )];
     let success = vec![make_interaction(
-        from, to, Capability::CodeExecution, 100, SessionOutcome::Success, 1000,
+        from,
+        to,
+        Capability::CodeExecution,
+        100,
+        SessionOutcome::Success,
+        1000,
     )];
 
     let fail_trust = compute_trust(&failure, &Capability::CodeExecution, 1000);
@@ -1066,9 +1058,30 @@ fn one_equation_failure_produces_negative_trust() {
 #[test]
 fn one_equation_warmth_is_vera_across_domain() {
     let interactions = vec![
-        make_interaction(HeartId([1; 32]), HeartId([2; 32]), Capability::CodeExecution, 100, SessionOutcome::Success, 1000),
-        make_interaction(HeartId([3; 32]), HeartId([4; 32]), Capability::CodeExecution, 200, SessionOutcome::Success, 1000),
-        make_interaction(HeartId([5; 32]), HeartId([6; 32]), Capability::FileAccess, 300, SessionOutcome::Success, 1000),
+        make_interaction(
+            HeartId([1; 32]),
+            HeartId([2; 32]),
+            Capability::CodeExecution,
+            100,
+            SessionOutcome::Success,
+            1000,
+        ),
+        make_interaction(
+            HeartId([3; 32]),
+            HeartId([4; 32]),
+            Capability::CodeExecution,
+            200,
+            SessionOutcome::Success,
+            1000,
+        ),
+        make_interaction(
+            HeartId([5; 32]),
+            HeartId([6; 32]),
+            Capability::FileAccess,
+            300,
+            SessionOutcome::Success,
+            1000,
+        ),
     ];
 
     let code_warmth = compute_warmth(&interactions, &Capability::CodeExecution, 1000);
@@ -1100,14 +1113,16 @@ fn one_equation_sybil_no_coherence_no_vera() {
 #[test]
 fn one_equation_ignition() {
     let interactions: Vec<Interaction> = (0..100)
-        .map(|i| make_interaction(
-            HeartId([i as u8; 32]),
-            HeartId([(i + 100) as u8; 32]),
-            Capability::CodeExecution,
-            100,
-            SessionOutcome::Success,
-            1000,
-        ))
+        .map(|i| {
+            make_interaction(
+                HeartId([i as u8; 32]),
+                HeartId([(i + 100) as u8; 32]),
+                Capability::CodeExecution,
+                100,
+                SessionOutcome::Success,
+                1000,
+            )
+        })
         .collect();
 
     assert!(is_ignited(&interactions, &Capability::CodeExecution, 1000));
@@ -1120,8 +1135,22 @@ fn one_equation_capability_specific() {
     let to = HeartId([0x02; 32]);
 
     let interactions = vec![
-        make_interaction(from, to, Capability::CodeExecution, 100, SessionOutcome::Success, 1000),
-        make_interaction(from, to, Capability::FileAccess, 200, SessionOutcome::Success, 1000),
+        make_interaction(
+            from,
+            to,
+            Capability::CodeExecution,
+            100,
+            SessionOutcome::Success,
+            1000,
+        ),
+        make_interaction(
+            from,
+            to,
+            Capability::FileAccess,
+            200,
+            SessionOutcome::Success,
+            1000,
+        ),
     ];
 
     let code = compute_trust(&interactions, &Capability::CodeExecution, 1000);
@@ -1141,9 +1170,30 @@ fn one_equation_velocity() {
     let now = day_ms * 10;
 
     let interactions = vec![
-        make_interaction(from, to, Capability::CodeExecution, 100, SessionOutcome::Success, now - day_ms * 2),
-        make_interaction(from, to, Capability::CodeExecution, 100, SessionOutcome::Success, now - day_ms),
-        make_interaction(from, to, Capability::CodeExecution, 100, SessionOutcome::Success, now),
+        make_interaction(
+            from,
+            to,
+            Capability::CodeExecution,
+            100,
+            SessionOutcome::Success,
+            now - day_ms * 2,
+        ),
+        make_interaction(
+            from,
+            to,
+            Capability::CodeExecution,
+            100,
+            SessionOutcome::Success,
+            now - day_ms,
+        ),
+        make_interaction(
+            from,
+            to,
+            Capability::CodeExecution,
+            100,
+            SessionOutcome::Success,
+            now,
+        ),
     ];
 
     let vel = compute_velocity(&interactions, &Capability::CodeExecution, now, 7);
@@ -1161,7 +1211,12 @@ fn one_equation_velocity_zero_outside_window() {
     let now = day_ms * 100;
 
     let interactions = vec![make_interaction(
-        from, to, Capability::CodeExecution, 100, SessionOutcome::Success, 0,
+        from,
+        to,
+        Capability::CodeExecution,
+        100,
+        SessionOutcome::Success,
+        0,
     )];
 
     let vel = compute_velocity(&interactions, &Capability::CodeExecution, now, 7);
@@ -1173,8 +1228,22 @@ fn one_equation_velocity_zero_outside_window() {
 #[test]
 fn vera_network_warmth() {
     let interactions = vec![
-        make_interaction(HeartId([1; 32]), HeartId([2; 32]), Capability::CodeExecution, 100, SessionOutcome::Success, 1000),
-        make_interaction(HeartId([3; 32]), HeartId([4; 32]), Capability::FileAccess, 200, SessionOutcome::Success, 1000),
+        make_interaction(
+            HeartId([1; 32]),
+            HeartId([2; 32]),
+            Capability::CodeExecution,
+            100,
+            SessionOutcome::Success,
+            1000,
+        ),
+        make_interaction(
+            HeartId([3; 32]),
+            HeartId([4; 32]),
+            Capability::FileAccess,
+            200,
+            SessionOutcome::Success,
+            1000,
+        ),
     ];
 
     let warmth = network_warmth(&interactions, 1000);
@@ -1184,8 +1253,22 @@ fn vera_network_warmth() {
 #[test]
 fn vera_enrichment_ratio() {
     let interactions = vec![
-        make_interaction(HeartId([1; 32]), HeartId([2; 32]), Capability::CodeExecution, 100, SessionOutcome::Success, 1000),
-        make_interaction(HeartId([3; 32]), HeartId([4; 32]), Capability::CodeExecution, 100, SessionOutcome::Success, 1000),
+        make_interaction(
+            HeartId([1; 32]),
+            HeartId([2; 32]),
+            Capability::CodeExecution,
+            100,
+            SessionOutcome::Success,
+            1000,
+        ),
+        make_interaction(
+            HeartId([3; 32]),
+            HeartId([4; 32]),
+            Capability::CodeExecution,
+            100,
+            SessionOutcome::Success,
+            1000,
+        ),
     ];
 
     let ratio = enrichment_ratio(&interactions, 4, 1000);
@@ -1199,9 +1282,30 @@ fn vera_heart_warmth() {
     let c = HeartId([3; 32]);
 
     let interactions = vec![
-        make_interaction(a, b, Capability::CodeExecution, 100, SessionOutcome::Success, 1000),
-        make_interaction(a, c, Capability::CodeExecution, 200, SessionOutcome::Success, 1000),
-        make_interaction(b, c, Capability::FileAccess, 300, SessionOutcome::Success, 1000),
+        make_interaction(
+            a,
+            b,
+            Capability::CodeExecution,
+            100,
+            SessionOutcome::Success,
+            1000,
+        ),
+        make_interaction(
+            a,
+            c,
+            Capability::CodeExecution,
+            200,
+            SessionOutcome::Success,
+            1000,
+        ),
+        make_interaction(
+            b,
+            c,
+            Capability::FileAccess,
+            300,
+            SessionOutcome::Success,
+            1000,
+        ),
     ];
 
     let a_warmth = heart_warmth(&interactions, &a, 1000);
@@ -1214,9 +1318,30 @@ fn vera_heart_warmth() {
 #[test]
 fn vera_domain_warmth() {
     let interactions = vec![
-        make_interaction(HeartId([1; 32]), HeartId([2; 32]), Capability::CodeExecution, 100, SessionOutcome::Success, 1000),
-        make_interaction(HeartId([3; 32]), HeartId([4; 32]), Capability::CodeExecution, 200, SessionOutcome::Success, 1000),
-        make_interaction(HeartId([5; 32]), HeartId([6; 32]), Capability::FileAccess, 500, SessionOutcome::Success, 1000),
+        make_interaction(
+            HeartId([1; 32]),
+            HeartId([2; 32]),
+            Capability::CodeExecution,
+            100,
+            SessionOutcome::Success,
+            1000,
+        ),
+        make_interaction(
+            HeartId([3; 32]),
+            HeartId([4; 32]),
+            Capability::CodeExecution,
+            200,
+            SessionOutcome::Success,
+            1000,
+        ),
+        make_interaction(
+            HeartId([5; 32]),
+            HeartId([6; 32]),
+            Capability::FileAccess,
+            500,
+            SessionOutcome::Success,
+            1000,
+        ),
     ];
 
     let code = domain_warmth(&interactions, &Capability::CodeExecution, 1000);
@@ -1325,7 +1450,9 @@ fn type_serde_roundtrip() {
 // Information Bottleneck: same soul at every level.
 // Diverse consensus = diamond. Spam = dirt. Noise = killed.
 
-use soma_core::compaction::{distill, distill_compacted, recursive_distill, density, CompactedVera};
+use soma_core::compaction::{
+    density, distill, distill_compacted, recursive_distill, CompactedVera,
+};
 
 fn make_n_interactions(n: usize, soma: u64, outcome: SessionOutcome, ts: u64) -> Vec<Interaction> {
     (0..n)
@@ -1349,14 +1476,16 @@ fn make_spam_interactions(n: usize, soma: u64, ts: u64) -> Vec<Interaction> {
     // All from the SAME heart — one observer repeated. Low diversity.
     let from = HeartId([0x01; 32]);
     (0..n)
-        .map(|_| make_interaction(
-            from,
-            HeartId([0xFF; 32]),
-            Capability::CodeExecution,
-            soma,
-            SessionOutcome::Success,
-            ts,
-        ))
+        .map(|_| {
+            make_interaction(
+                from,
+                HeartId([0xFF; 32]),
+                Capability::CodeExecution,
+                soma,
+                SessionOutcome::Success,
+                ts,
+            )
+        })
         .collect()
 }
 
@@ -1370,7 +1499,9 @@ fn make_noise_interactions(n: usize, soma: u64, ts: u64) -> Vec<Interaction> {
             let outcome = if i % 2 == 0 {
                 SessionOutcome::Success
             } else {
-                SessionOutcome::Failure { error_class: "random".into() }
+                SessionOutcome::Failure {
+                    error_class: "random".into(),
+                }
             };
             make_interaction(
                 HeartId(from),
@@ -1393,9 +1524,21 @@ fn distill_diverse_consensus_is_diamond() {
     let compacted = distill(&interactions, now);
 
     assert_eq!(compacted.level, 1);
-    assert!(compacted.signal.consensus > 0.99, "expected consensus ~1.0, got {}", compacted.signal.consensus);
-    assert!(compacted.signal.diversity > 0.99, "expected diversity ~1.0, got {}", compacted.signal.diversity);
-    assert!(compacted.coherence > 0.99, "expected coherence ~1.0, got {}", compacted.coherence);
+    assert!(
+        compacted.signal.consensus > 0.99,
+        "expected consensus ~1.0, got {}",
+        compacted.signal.consensus
+    );
+    assert!(
+        compacted.signal.diversity > 0.99,
+        "expected diversity ~1.0, got {}",
+        compacted.signal.diversity
+    );
+    assert!(
+        compacted.coherence > 0.99,
+        "expected coherence ~1.0, got {}",
+        compacted.coherence
+    );
     assert!(compacted.vera > 0.0);
 }
 
@@ -1409,11 +1552,23 @@ fn distill_spam_is_dirt() {
     let spam_compacted = distill(&spam, now);
     let good_compacted = distill(&good, now);
 
-    assert!(spam_compacted.signal.diversity < 0.05, "spam diversity should be low: {}", spam_compacted.signal.diversity);
-    assert!(spam_compacted.coherence < good_compacted.coherence,
-        "spam C ({}) should be less than good C ({})", spam_compacted.coherence, good_compacted.coherence);
-    assert!(spam_compacted.vera < good_compacted.vera * 0.1,
-        "spam $VERA ({}) should be << good $VERA ({})", spam_compacted.vera, good_compacted.vera);
+    assert!(
+        spam_compacted.signal.diversity < 0.05,
+        "spam diversity should be low: {}",
+        spam_compacted.signal.diversity
+    );
+    assert!(
+        spam_compacted.coherence < good_compacted.coherence,
+        "spam C ({}) should be less than good C ({})",
+        spam_compacted.coherence,
+        good_compacted.coherence
+    );
+    assert!(
+        spam_compacted.vera < good_compacted.vera * 0.1,
+        "spam $VERA ({}) should be << good $VERA ({})",
+        spam_compacted.vera,
+        good_compacted.vera
+    );
 }
 
 #[test]
@@ -1426,25 +1581,49 @@ fn distill_noise_is_killed() {
     let noise_compacted = distill(&noise, now);
     let good_compacted = distill(&good, now);
 
-    assert!(noise_compacted.signal.consensus.abs() < 0.1,
-        "noise consensus should be ~0: {}", noise_compacted.signal.consensus);
-    assert!(noise_compacted.vera < good_compacted.vera * 0.01,
-        "noise $VERA ({}) should be << good $VERA ({})", noise_compacted.vera, good_compacted.vera);
+    assert!(
+        noise_compacted.signal.consensus.abs() < 0.1,
+        "noise consensus should be ~0: {}",
+        noise_compacted.signal.consensus
+    );
+    assert!(
+        noise_compacted.vera < good_compacted.vera * 0.01,
+        "noise $VERA ({}) should be << good $VERA ({})",
+        noise_compacted.vera,
+        good_compacted.vera
+    );
 }
 
 #[test]
 fn distill_consistent_failure_is_coherent() {
     // All observers agree: this agent fails. Coherent signal (negative trust).
     // Coherence is observation completeness, not quality.
-    let failures = make_n_interactions(100, 100,
-        SessionOutcome::Failure { error_class: "bad".into() }, 1000);
+    let failures = make_n_interactions(
+        100,
+        100,
+        SessionOutcome::Failure {
+            error_class: "bad".into(),
+        },
+        1000,
+    );
     let now = 1000;
 
     let compacted = distill(&failures, now);
 
-    assert!(compacted.signal.consensus < -0.99, "expected consensus ~-1.0: {}", compacted.signal.consensus);
-    assert!(compacted.coherence > 0.99, "consistent failure should have high C: {}", compacted.coherence);
-    assert!(compacted.vera > 0.0, "consistent failure produces $VERA (coherent observation)");
+    assert!(
+        compacted.signal.consensus < -0.99,
+        "expected consensus ~-1.0: {}",
+        compacted.signal.consensus
+    );
+    assert!(
+        compacted.coherence > 0.99,
+        "consistent failure should have high C: {}",
+        compacted.coherence
+    );
+    assert!(
+        compacted.vera > 0.0,
+        "consistent failure produces $VERA (coherent observation)"
+    );
 }
 
 #[test]
@@ -1481,7 +1660,10 @@ fn distill_density_scales_with_soma() {
     let low_d = density(&distill(&low, now));
     let high_d = density(&distill(&high, now));
 
-    assert!(high_d > low_d * 100.0, "high-soma density ({high_d}) should be >> low-soma ({low_d})");
+    assert!(
+        high_d > low_d * 100.0,
+        "high-soma density ({high_d}) should be >> low-soma ({low_d})"
+    );
 }
 
 #[test]
@@ -1495,9 +1677,12 @@ fn distill_recursive_diamond_survives_depth() {
     let deep = recursive_distill(&interactions, 3, 100, now);
 
     assert!(deep.vera > 0.0, "diamond should survive 3 levels");
-    assert!(deep.vera > level1.vera * 0.5,
+    assert!(
+        deep.vera > level1.vera * 0.5,
         "diamond at depth 3 ({}) should retain significant value from level 1 ({})",
-        deep.vera, level1.vera);
+        deep.vera,
+        level1.vera
+    );
 }
 
 #[test]
@@ -1510,8 +1695,12 @@ fn distill_recursive_noise_dies_faster() {
     let good_deep = recursive_distill(&good, 3, 100, now);
     let noise_deep = recursive_distill(&noise, 3, 100, now);
 
-    assert!(noise_deep.vera < good_deep.vera * 0.001,
-        "noise should be killed by depth: noise={}, good={}", noise_deep.vera, good_deep.vera);
+    assert!(
+        noise_deep.vera < good_deep.vera * 0.001,
+        "noise should be killed by depth: noise={}, good={}",
+        noise_deep.vera,
+        good_deep.vera
+    );
 }
 
 #[test]
@@ -1544,10 +1733,7 @@ fn distill_level2_from_level1() {
         })
         .collect();
 
-    let level1: Vec<CompactedVera> = batches
-        .iter()
-        .map(|batch| distill(batch, now))
-        .collect();
+    let level1: Vec<CompactedVera> = batches.iter().map(|batch| distill(batch, now)).collect();
 
     let level2 = distill_compacted(&level1);
 
@@ -1569,19 +1755,48 @@ fn distill_spam_vs_diamond_ratio() {
 
     eprintln!("\n=== IB COMPACTION: DIAMOND vs SPAM vs NOISE ===");
     eprintln!("              DIAMOND          SPAM             NOISE");
-    eprintln!("consensus:    {:<16.4} {:<16.4} {:<16.4}", d.signal.consensus, s.signal.consensus, n.signal.consensus);
-    eprintln!("diversity:    {:<16.4} {:<16.4} {:<16.4}", d.signal.diversity, s.signal.diversity, n.signal.diversity);
-    eprintln!("stability:    {:<16.4} {:<16.4} {:<16.4}", d.signal.stability, s.signal.stability, n.signal.stability);
-    eprintln!("coherence C:  {:<16.4} {:<16.4} {:<16.4}", d.coherence, s.coherence, n.coherence);
-    eprintln!("$VERA:        {:<16.2} {:<16.2} {:<16.2}", d.vera, s.vera, n.vera);
-    eprintln!("density:      {:<16.4} {:<16.4} {:<16.4}", density(&d), density(&s), density(&n));
-    eprintln!("diamond/spam ratio: {:.0}x", d.vera / s.vera.max(f64::EPSILON));
-    eprintln!("diamond/noise ratio: {:.0}x", d.vera / n.vera.max(f64::EPSILON));
+    eprintln!(
+        "consensus:    {:<16.4} {:<16.4} {:<16.4}",
+        d.signal.consensus, s.signal.consensus, n.signal.consensus
+    );
+    eprintln!(
+        "diversity:    {:<16.4} {:<16.4} {:<16.4}",
+        d.signal.diversity, s.signal.diversity, n.signal.diversity
+    );
+    eprintln!(
+        "stability:    {:<16.4} {:<16.4} {:<16.4}",
+        d.signal.stability, s.signal.stability, n.signal.stability
+    );
+    eprintln!(
+        "coherence C:  {:<16.4} {:<16.4} {:<16.4}",
+        d.coherence, s.coherence, n.coherence
+    );
+    eprintln!(
+        "$VERA:        {:<16.2} {:<16.2} {:<16.2}",
+        d.vera, s.vera, n.vera
+    );
+    eprintln!(
+        "density:      {:<16.4} {:<16.4} {:<16.4}",
+        density(&d),
+        density(&s),
+        density(&n)
+    );
+    eprintln!(
+        "diamond/spam ratio: {:.0}x",
+        d.vera / s.vera.max(f64::EPSILON)
+    );
+    eprintln!(
+        "diamond/noise ratio: {:.0}x",
+        d.vera / n.vera.max(f64::EPSILON)
+    );
 
     let ratio = d.vera / s.vera.max(f64::EPSILON);
-    assert!(ratio > 100.0,
+    assert!(
+        ratio > 100.0,
         "diamond/spam ratio should be huge: diamond={}, spam={}, ratio={ratio}",
-        d.vera, s.vera);
+        d.vera,
+        s.vera
+    );
 }
 
 // ===== GENE VIABILITY TESTS =====
@@ -1600,7 +1815,9 @@ fn gene_window_invariance() {
     let windows = [5, 10, 20, 25, 50, 100];
 
     eprintln!("\n=== GENE TEST: WINDOW INVARIANCE ===");
-    eprintln!("window   diamond_vera   diamond_C   noise_vera   noise_C   diamond_class   noise_class");
+    eprintln!(
+        "window   diamond_vera   diamond_C   noise_vera   noise_C   diamond_class   noise_class"
+    );
 
     let mut all_diamond_positive = true;
     let mut all_noise_near_zero = true;
@@ -1609,17 +1826,42 @@ fn gene_window_invariance() {
         let d = recursive_distill(&diamond, 3, w, now);
         let n = recursive_distill(&noise, 3, w, now);
 
-        let d_class = if d.vera > 1.0 { "DIAMOND" } else if d.vera > 0.01 { "weak" } else { "DEAD" };
-        let n_class = if n.vera > 1.0 { "ALIVE" } else if n.vera > 0.01 { "weak" } else { "DEAD" };
+        let d_class = if d.vera > 1.0 {
+            "DIAMOND"
+        } else if d.vera > 0.01 {
+            "weak"
+        } else {
+            "DEAD"
+        };
+        let n_class = if n.vera > 1.0 {
+            "ALIVE"
+        } else if n.vera > 0.01 {
+            "weak"
+        } else {
+            "DEAD"
+        };
 
-        eprintln!("  {w:>4}    {:<14.4} {:<11.4} {:<12.4} {:<9.4} {:<15} {}", d.vera, d.coherence, n.vera, n.coherence, d_class, n_class);
+        eprintln!(
+            "  {w:>4}    {:<14.4} {:<11.4} {:<12.4} {:<9.4} {:<15} {}",
+            d.vera, d.coherence, n.vera, n.coherence, d_class, n_class
+        );
 
-        if d.vera <= 0.0 { all_diamond_positive = false; }
-        if n.vera > 1.0 { all_noise_near_zero = false; }
+        if d.vera <= 0.0 {
+            all_diamond_positive = false;
+        }
+        if n.vera > 1.0 {
+            all_noise_near_zero = false;
+        }
     }
 
-    assert!(all_diamond_positive, "diamond must survive all window sizes");
-    assert!(all_noise_near_zero, "noise must stay dead across all window sizes");
+    assert!(
+        all_diamond_positive,
+        "diamond must survive all window sizes"
+    );
+    assert!(
+        all_noise_near_zero,
+        "noise must stay dead across all window sizes"
+    );
 }
 
 #[test]
@@ -1641,14 +1883,27 @@ fn gene_depth_invariance() {
         let d = recursive_distill(&diamond, depth, 10, now);
         let n = recursive_distill(&noise, depth, 10, now);
 
-        eprintln!("  {depth}      {:<16.4} {:<11.4} {:<12.6} {:<9.4}", d.vera, d.coherence, n.vera, n.coherence);
+        eprintln!(
+            "  {depth}      {:<16.4} {:<11.4} {:<12.6} {:<9.4}",
+            d.vera, d.coherence, n.vera, n.coherence
+        );
 
-        if d.vera <= 0.0 { diamond_alive_at_all_depths = false; }
-        if n.vera > 1.0 { noise_dead_at_all_depths = false; }
+        if d.vera <= 0.0 {
+            diamond_alive_at_all_depths = false;
+        }
+        if n.vera > 1.0 {
+            noise_dead_at_all_depths = false;
+        }
     }
 
-    assert!(diamond_alive_at_all_depths, "diamond must survive all depths");
-    assert!(noise_dead_at_all_depths, "noise must stay dead at all depths");
+    assert!(
+        diamond_alive_at_all_depths,
+        "diamond must survive all depths"
+    );
+    assert!(
+        noise_dead_at_all_depths,
+        "noise must stay dead at all depths"
+    );
 }
 
 #[test]
@@ -1692,24 +1947,48 @@ fn gene_composition() {
     let contaminated = distill(&diamond_plus_noise, now);
 
     eprintln!("\n=== GENE TEST: COMPOSITION ===");
-    eprintln!("whole (A∪B diamond):   vera={:<12.4} C={:.4} consensus={:+.4} diversity={:.4}", whole.vera, whole.coherence, whole.signal.consensus, whole.signal.diversity);
-    eprintln!("part A alone:          vera={:<12.4} C={:.4}", part_a.vera, part_a.coherence);
-    eprintln!("part B alone:          vera={:<12.4} C={:.4}", part_b.vera, part_b.coherence);
-    eprintln!("recombined (distill_compacted([A,B])): vera={:<12.4} C={:.4}", recombined.vera, recombined.coherence);
-    eprintln!("contaminated (A+noise):vera={:<12.4} C={:.4} consensus={:+.4}", contaminated.vera, contaminated.coherence, contaminated.signal.consensus);
+    eprintln!(
+        "whole (A∪B diamond):   vera={:<12.4} C={:.4} consensus={:+.4} diversity={:.4}",
+        whole.vera, whole.coherence, whole.signal.consensus, whole.signal.diversity
+    );
+    eprintln!(
+        "part A alone:          vera={:<12.4} C={:.4}",
+        part_a.vera, part_a.coherence
+    );
+    eprintln!(
+        "part B alone:          vera={:<12.4} C={:.4}",
+        part_b.vera, part_b.coherence
+    );
+    eprintln!(
+        "recombined (distill_compacted([A,B])): vera={:<12.4} C={:.4}",
+        recombined.vera, recombined.coherence
+    );
+    eprintln!(
+        "contaminated (A+noise):vera={:<12.4} C={:.4} consensus={:+.4}",
+        contaminated.vera, contaminated.coherence, contaminated.signal.consensus
+    );
 
     // Property 1: diamond + diamond = diamond (whole must have high C)
-    assert!(whole.coherence > 0.9,
-        "two diamonds combined must still be diamond: C={}", whole.coherence);
+    assert!(
+        whole.coherence > 0.9,
+        "two diamonds combined must still be diamond: C={}",
+        whole.coherence
+    );
 
     // Property 2: contamination hurts — diamond + noise must be weaker than pure diamond
-    assert!(contaminated.vera < whole.vera,
+    assert!(
+        contaminated.vera < whole.vera,
         "diamond + noise ({}) must produce less vera than pure diamond ({})",
-        contaminated.vera, whole.vera);
+        contaminated.vera,
+        whole.vera
+    );
 
     // Property 3: recombined parts must still be diamond (not destroyed by partitioning)
-    assert!(recombined.vera > 0.0,
-        "recombined parts must produce positive vera: {}", recombined.vera);
+    assert!(
+        recombined.vera > 0.0,
+        "recombined parts must produce positive vera: {}",
+        recombined.vera
+    );
 }
 
 #[test]
@@ -1736,15 +2015,40 @@ fn gene_ordering_sensitivity() {
     let reordered = distill(&interleaved, now);
 
     eprintln!("\n=== GENE TEST: ORDERING SENSITIVITY ===");
-    eprintln!("forward:     vera={:<12.4} C={:.4} consensus={:+.4} diversity={:.4} stability={:+.4}", forward.vera, forward.coherence, forward.signal.consensus, forward.signal.diversity, forward.signal.stability);
-    eprintln!("reversed:    vera={:<12.4} C={:.4} consensus={:+.4} diversity={:.4} stability={:+.4}", reversed.vera, reversed.coherence, reversed.signal.consensus, reversed.signal.diversity, reversed.signal.stability);
-    eprintln!("interleaved: vera={:<12.4} C={:.4} consensus={:+.4} diversity={:.4} stability={:+.4}", reordered.vera, reordered.coherence, reordered.signal.consensus, reordered.signal.diversity, reordered.signal.stability);
+    eprintln!(
+        "forward:     vera={:<12.4} C={:.4} consensus={:+.4} diversity={:.4} stability={:+.4}",
+        forward.vera,
+        forward.coherence,
+        forward.signal.consensus,
+        forward.signal.diversity,
+        forward.signal.stability
+    );
+    eprintln!(
+        "reversed:    vera={:<12.4} C={:.4} consensus={:+.4} diversity={:.4} stability={:+.4}",
+        reversed.vera,
+        reversed.coherence,
+        reversed.signal.consensus,
+        reversed.signal.diversity,
+        reversed.signal.stability
+    );
+    eprintln!(
+        "interleaved: vera={:<12.4} C={:.4} consensus={:+.4} diversity={:.4} stability={:+.4}",
+        reordered.vera,
+        reordered.coherence,
+        reordered.signal.consensus,
+        reordered.signal.diversity,
+        reordered.signal.stability
+    );
 
     // Consensus and diversity MUST be order-independent (they only count, not sequence)
-    assert!((forward.signal.consensus - reversed.signal.consensus).abs() < f64::EPSILON,
-        "consensus must be order-independent");
-    assert!((forward.signal.diversity - reversed.signal.diversity).abs() < f64::EPSILON,
-        "diversity must be order-independent");
+    assert!(
+        (forward.signal.consensus - reversed.signal.consensus).abs() < f64::EPSILON,
+        "consensus must be order-independent"
+    );
+    assert!(
+        (forward.signal.diversity - reversed.signal.diversity).abs() < f64::EPSILON,
+        "diversity must be order-independent"
+    );
 
     // Stability CAN differ (it measures autocorrelation, which depends on order)
     // But vera should still classify the same way
@@ -1759,34 +2063,73 @@ fn gene_ordering_mixed_signal() {
     let now = 1000;
 
     // Pattern A: alternating success/failure (maximally unstable)
-    let alternating: Vec<Interaction> = (0..100).map(|i| {
-        let mut from = [0u8; 32];
-        from[0] = (i & 0xFF) as u8;
-        let outcome = if i % 2 == 0 { SessionOutcome::Success } else {
-            SessionOutcome::Failure { error_class: "test".into() }
-        };
-        make_interaction(HeartId(from), HeartId([0xFF; 32]), Capability::CodeExecution, 100, outcome, now)
-    }).collect();
+    let alternating: Vec<Interaction> = (0..100)
+        .map(|i| {
+            let mut from = [0u8; 32];
+            from[0] = (i & 0xFF) as u8;
+            let outcome = if i % 2 == 0 {
+                SessionOutcome::Success
+            } else {
+                SessionOutcome::Failure {
+                    error_class: "test".into(),
+                }
+            };
+            make_interaction(
+                HeartId(from),
+                HeartId([0xFF; 32]),
+                Capability::CodeExecution,
+                100,
+                outcome,
+                now,
+            )
+        })
+        .collect();
 
     // Pattern B: same interactions but clustered (50 success then 50 failure)
-    let clustered: Vec<Interaction> = (0..100).map(|i| {
-        let mut from = [0u8; 32];
-        from[0] = (i & 0xFF) as u8;
-        let outcome = if i < 50 { SessionOutcome::Success } else {
-            SessionOutcome::Failure { error_class: "test".into() }
-        };
-        make_interaction(HeartId(from), HeartId([0xFF; 32]), Capability::CodeExecution, 100, outcome, now)
-    }).collect();
+    let clustered: Vec<Interaction> = (0..100)
+        .map(|i| {
+            let mut from = [0u8; 32];
+            from[0] = (i & 0xFF) as u8;
+            let outcome = if i < 50 {
+                SessionOutcome::Success
+            } else {
+                SessionOutcome::Failure {
+                    error_class: "test".into(),
+                }
+            };
+            make_interaction(
+                HeartId(from),
+                HeartId([0xFF; 32]),
+                Capability::CodeExecution,
+                100,
+                outcome,
+                now,
+            )
+        })
+        .collect();
 
     // Pattern C: 80% success, 20% failure (realistic)
-    let realistic: Vec<Interaction> = (0..100).map(|i| {
-        let mut from = [0u8; 32];
-        from[0] = (i & 0xFF) as u8;
-        let outcome = if i % 5 == 0 {
-            SessionOutcome::Failure { error_class: "test".into() }
-        } else { SessionOutcome::Success };
-        make_interaction(HeartId(from), HeartId([0xFF; 32]), Capability::CodeExecution, 100, outcome, now)
-    }).collect();
+    let realistic: Vec<Interaction> = (0..100)
+        .map(|i| {
+            let mut from = [0u8; 32];
+            from[0] = (i & 0xFF) as u8;
+            let outcome = if i % 5 == 0 {
+                SessionOutcome::Failure {
+                    error_class: "test".into(),
+                }
+            } else {
+                SessionOutcome::Success
+            };
+            make_interaction(
+                HeartId(from),
+                HeartId([0xFF; 32]),
+                Capability::CodeExecution,
+                100,
+                outcome,
+                now,
+            )
+        })
+        .collect();
 
     let a = distill(&alternating, now);
     let b = distill(&clustered, now);
@@ -1794,17 +2137,30 @@ fn gene_ordering_mixed_signal() {
 
     eprintln!("\n=== GENE TEST: MIXED SIGNAL ORDERING ===");
     eprintln!("                    vera         C        consensus  diversity  stability");
-    eprintln!("alternating:        {:<12.4} {:<8.4} {:+.4}     {:.4}     {:+.4}", a.vera, a.coherence, a.signal.consensus, a.signal.diversity, a.signal.stability);
-    eprintln!("clustered:          {:<12.4} {:<8.4} {:+.4}     {:.4}     {:+.4}", b.vera, b.coherence, b.signal.consensus, b.signal.diversity, b.signal.stability);
-    eprintln!("realistic (80/20):  {:<12.4} {:<8.4} {:+.4}     {:.4}     {:+.4}", c.vera, c.coherence, c.signal.consensus, c.signal.diversity, c.signal.stability);
+    eprintln!(
+        "alternating:        {:<12.4} {:<8.4} {:+.4}     {:.4}     {:+.4}",
+        a.vera, a.coherence, a.signal.consensus, a.signal.diversity, a.signal.stability
+    );
+    eprintln!(
+        "clustered:          {:<12.4} {:<8.4} {:+.4}     {:.4}     {:+.4}",
+        b.vera, b.coherence, b.signal.consensus, b.signal.diversity, b.signal.stability
+    );
+    eprintln!(
+        "realistic (80/20):  {:<12.4} {:<8.4} {:+.4}     {:.4}     {:+.4}",
+        c.vera, c.coherence, c.signal.consensus, c.signal.diversity, c.signal.stability
+    );
 
     // Key question: alternating and clustered have the SAME consensus and diversity
     // (same observers, same outcomes, different ORDER).
     // Only stability should differ. How much does it affect vera?
-    assert!((a.signal.consensus - b.signal.consensus).abs() < f64::EPSILON,
-        "same data different order must have same consensus");
-    assert!((a.signal.diversity - b.signal.diversity).abs() < f64::EPSILON,
-        "same data different order must have same diversity");
+    assert!(
+        (a.signal.consensus - b.signal.consensus).abs() < f64::EPSILON,
+        "same data different order must have same consensus"
+    );
+    assert!(
+        (a.signal.diversity - b.signal.diversity).abs() < f64::EPSILON,
+        "same data different order must have same diversity"
+    );
 
     let stability_diff = (a.signal.stability - b.signal.stability).abs();
     let vera_diff_pct = ((a.vera - b.vera) / a.vera.max(f64::EPSILON) * 100.0).abs();
@@ -1813,42 +2169,85 @@ fn gene_ordering_mixed_signal() {
 
     // The realistic case: 80% success should produce meaningful vera
     // (not diamond, not dead — somewhere in between)
-    assert!(c.vera > 0.0, "80% success rate should produce positive vera");
-    assert!(c.coherence > 0.0, "80% success rate should have nonzero coherence");
-    eprintln!("\nrealistic density: {:.4} (vera per interaction)", density(&c));
+    assert!(
+        c.vera > 0.0,
+        "80% success rate should produce positive vera"
+    );
+    assert!(
+        c.coherence > 0.0,
+        "80% success rate should have nonzero coherence"
+    );
+    eprintln!(
+        "\nrealistic density: {:.4} (vera per interaction)",
+        density(&c)
+    );
 
     // Hard ordering test: 80% success but arranged differently
     // Pattern D: failures clustered at start (improving over time)
-    let improving: Vec<Interaction> = (0..100).map(|i| {
-        let mut from = [0u8; 32];
-        from[0] = (i & 0xFF) as u8;
-        let outcome = if i < 20 {
-            SessionOutcome::Failure { error_class: "test".into() }
-        } else { SessionOutcome::Success };
-        make_interaction(HeartId(from), HeartId([0xFF; 32]), Capability::CodeExecution, 100, outcome, now)
-    }).collect();
+    let improving: Vec<Interaction> = (0..100)
+        .map(|i| {
+            let mut from = [0u8; 32];
+            from[0] = (i & 0xFF) as u8;
+            let outcome = if i < 20 {
+                SessionOutcome::Failure {
+                    error_class: "test".into(),
+                }
+            } else {
+                SessionOutcome::Success
+            };
+            make_interaction(
+                HeartId(from),
+                HeartId([0xFF; 32]),
+                Capability::CodeExecution,
+                100,
+                outcome,
+                now,
+            )
+        })
+        .collect();
 
     // Pattern E: failures clustered at end (degrading over time)
-    let degrading: Vec<Interaction> = (0..100).map(|i| {
-        let mut from = [0u8; 32];
-        from[0] = (i & 0xFF) as u8;
-        let outcome = if i >= 80 {
-            SessionOutcome::Failure { error_class: "test".into() }
-        } else { SessionOutcome::Success };
-        make_interaction(HeartId(from), HeartId([0xFF; 32]), Capability::CodeExecution, 100, outcome, now)
-    }).collect();
+    let degrading: Vec<Interaction> = (0..100)
+        .map(|i| {
+            let mut from = [0u8; 32];
+            from[0] = (i & 0xFF) as u8;
+            let outcome = if i >= 80 {
+                SessionOutcome::Failure {
+                    error_class: "test".into(),
+                }
+            } else {
+                SessionOutcome::Success
+            };
+            make_interaction(
+                HeartId(from),
+                HeartId([0xFF; 32]),
+                Capability::CodeExecution,
+                100,
+                outcome,
+                now,
+            )
+        })
+        .collect();
 
     let d = distill(&improving, now);
     let e = distill(&degrading, now);
 
     eprintln!("\n--- ORDERING: improving vs degrading (same 80/20 ratio) ---");
-    eprintln!("improving:  vera={:<12.4} C={:<8.4} consensus={:+.4} stability={:+.4}", d.vera, d.coherence, d.signal.consensus, d.signal.stability);
-    eprintln!("degrading:  vera={:<12.4} C={:<8.4} consensus={:+.4} stability={:+.4}", e.vera, e.coherence, e.signal.consensus, e.signal.stability);
+    eprintln!(
+        "improving:  vera={:<12.4} C={:<8.4} consensus={:+.4} stability={:+.4}",
+        d.vera, d.coherence, d.signal.consensus, d.signal.stability
+    );
+    eprintln!(
+        "degrading:  vera={:<12.4} C={:<8.4} consensus={:+.4} stability={:+.4}",
+        e.vera, e.coherence, e.signal.consensus, e.signal.stability
+    );
 
     let ordering_vera_diff = ((d.vera - e.vera) / d.vera.max(f64::EPSILON) * 100.0).abs();
     eprintln!("vera difference from ordering: {:.2}%", ordering_vera_diff);
 
     // Both should have consensus=0.6 and diversity=1.0 (same data)
-    assert!((d.signal.consensus - e.signal.consensus).abs() < f64::EPSILON,
-        "same 80/20 data must have same consensus regardless of order");
+    assert!(
+        (d.signal.consensus - e.signal.consensus).abs() < f64::EPSILON,
+        "same 80/20 data must have same consensus regardless of order"
+    );
 }

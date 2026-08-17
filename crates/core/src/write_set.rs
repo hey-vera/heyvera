@@ -394,7 +394,14 @@ mod tests {
         }
 
         let keys = [
-            ".", "src", "src2", "src/a.rs", "src/b/c.rs", "crates", "crates/api", "",
+            ".",
+            "src",
+            "src2",
+            "src/a.rs",
+            "src/b/c.rs",
+            "crates",
+            "crates/api",
+            "",
         ];
         for a in keys {
             for b in keys {

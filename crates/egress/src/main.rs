@@ -142,7 +142,9 @@ async fn serve(client: TcpStream, allow: &HashSet<String>) -> Result<(), String>
     let mut request_line = String::new();
     let read = tokio::time::timeout(
         REQUEST_TIMEOUT,
-        (&mut reader).take(MAX_REQUEST_LINE).read_line(&mut request_line),
+        (&mut reader)
+            .take(MAX_REQUEST_LINE)
+            .read_line(&mut request_line),
     )
     .await;
     match read {

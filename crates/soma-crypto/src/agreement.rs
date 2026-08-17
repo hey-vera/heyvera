@@ -49,8 +49,7 @@ impl HybridKeypair {
         let x25519_secret = random_x25519_secret();
         let x25519_public = X25519Public::from(&x25519_secret);
 
-        let (mlkem_ek, mlkem_dk) =
-            ml_kem_768::KG::try_keygen().map_err(|_| Error::KeygenFailed)?;
+        let (mlkem_ek, mlkem_dk) = ml_kem_768::KG::try_keygen().map_err(|_| Error::KeygenFailed)?;
 
         Ok(Self {
             x25519_secret,
@@ -84,7 +83,10 @@ impl HybridKeypair {
             .map_err(|_| Error::DecapsFailed)?;
         let mlkem_ss_bytes = mlkem_ss.into_bytes();
 
-        Ok(combine_shared_secrets(x25519_ss.as_bytes(), &mlkem_ss_bytes))
+        Ok(combine_shared_secrets(
+            x25519_ss.as_bytes(),
+            &mlkem_ss_bytes,
+        ))
     }
 }
 
@@ -132,14 +134,13 @@ mod tests {
     fn hybrid_key_agreement_roundtrip() {
         let alice = HybridKeypair::generate().unwrap();
 
-        let encaps_result = encaps(
-            alice.x25519_public.as_bytes(),
-            &alice.mlkem_ek,
-        )
-        .unwrap();
+        let encaps_result = encaps(alice.x25519_public.as_bytes(), &alice.mlkem_ek).unwrap();
 
         let alice_ss = alice
-            .decaps(&encaps_result.x25519_ephemeral, &encaps_result.mlkem_ciphertext)
+            .decaps(
+                &encaps_result.x25519_ephemeral,
+                &encaps_result.mlkem_ciphertext,
+            )
             .unwrap();
 
         assert_eq!(alice_ss, encaps_result.shared_secret);
@@ -160,14 +161,13 @@ mod tests {
         let alice = HybridKeypair::generate().unwrap();
         let bob = HybridKeypair::generate().unwrap();
 
-        let encaps_result = encaps(
-            alice.x25519_public.as_bytes(),
-            &alice.mlkem_ek,
-        )
-        .unwrap();
+        let encaps_result = encaps(alice.x25519_public.as_bytes(), &alice.mlkem_ek).unwrap();
 
         let bob_ss = bob
-            .decaps(&encaps_result.x25519_ephemeral, &encaps_result.mlkem_ciphertext)
+            .decaps(
+                &encaps_result.x25519_ephemeral,
+                &encaps_result.mlkem_ciphertext,
+            )
             .unwrap();
 
         assert_ne!(bob_ss, encaps_result.shared_secret);

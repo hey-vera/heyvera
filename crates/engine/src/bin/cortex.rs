@@ -17,7 +17,11 @@ use cortex_engine::store::CortexStore;
 use cortex_engine::templates::{ExecutionStep, RouteTemplate};
 
 #[derive(Parser, Debug)]
-#[command(name = "cortex", version, about = "User-facing CLI for the Cortex routing engine")]
+#[command(
+    name = "cortex",
+    version,
+    about = "User-facing CLI for the Cortex routing engine"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -154,7 +158,11 @@ fn cmd_route(palette: &Palette, args: RouteArgs) -> Result<()> {
             println!("{}", palette.heading("Routing Blocked"));
             println!("{} {}", palette.label("Reason:"), palette.bad(reason));
             if !missing_evidence.is_empty() {
-                println!("{} {}", palette.label("Missing:"), missing_evidence.join(", "));
+                println!(
+                    "{} {}",
+                    palette.label("Missing:"),
+                    missing_evidence.join(", ")
+                );
             }
             Ok(())
         }
@@ -176,7 +184,11 @@ fn cmd_status(palette: &Palette) -> Result<()> {
     let arm_stats = store.load_arm_stats()?;
 
     println!("{}", palette.heading("Cortex Status"));
-    println!("{} {}", palette.label("Store:"), default_store_path().display());
+    println!(
+        "{} {}",
+        palette.label("Store:"),
+        default_store_path().display()
+    );
     println!("{} {}", palette.label("Total events:"), event_count);
 
     if arm_stats.is_empty() {
@@ -195,11 +207,7 @@ fn cmd_status(palette: &Palette) -> Result<()> {
         };
         println!(
             "- {}  trials={}  wins={}  win_rate={}  mean_reward={:.2}",
-            provider,
-            stats.trials,
-            stats.successes,
-            win_rate,
-            reward
+            provider, stats.trials, stats.successes, win_rate, reward
         );
     }
 
@@ -232,7 +240,11 @@ fn cmd_explain(palette: &Palette, args: ExplainArgs) -> Result<()> {
     println!("{} {}", palette.label("Goal:"), args.goal);
     println!("{} {}", palette.label("Dial:"), args.dial.clamp(1, 10));
     if args.files.is_empty() {
-        println!("{} {}", palette.label("Files:"), palette.muted("(none provided)"));
+        println!(
+            "{} {}",
+            palette.label("Files:"),
+            palette.muted("(none provided)")
+        );
     } else {
         println!("{} {}", palette.label("Files:"), args.files.join(", "));
     }
@@ -291,7 +303,10 @@ fn cmd_explain(palette: &Palette, args: ExplainArgs) -> Result<()> {
             match check_floor(plan.risk_level, &[]) {
                 FloorVerdict::Satisfied { signals_met } => {
                     if signals_met.is_empty() {
-                        println!("{}", palette.good("No additional evidence is required at this risk level."));
+                        println!(
+                            "{}",
+                            palette.good("No additional evidence is required at this risk level.")
+                        );
                     } else {
                         println!("{} {}", palette.good("Satisfied:"), signals_met.join(", "));
                     }
@@ -319,14 +334,22 @@ fn cmd_explain(palette: &Palette, args: ExplainArgs) -> Result<()> {
             println!("{} {}", palette.label("Result:"), palette.bad("blocked"));
             println!("{} {}", palette.label("Reason:"), reason);
             if !missing_evidence.is_empty() {
-                println!("{} {}", palette.label("Missing evidence:"), missing_evidence.join(", "));
+                println!(
+                    "{} {}",
+                    palette.label("Missing evidence:"),
+                    missing_evidence.join(", ")
+                );
             }
             Ok(())
         }
         PipelineResult::NoProviders => {
             println!();
             println!("{}", palette.heading("Decision"));
-            println!("{} {}", palette.label("Result:"), palette.bad("no providers"));
+            println!(
+                "{} {}",
+                palette.label("Result:"),
+                palette.bad("no providers")
+            );
             Ok(())
         }
     }
@@ -524,7 +547,11 @@ fn print_ledger_entry(palette: &Palette, entry: &LedgerEntry) {
     }
 }
 
-fn provider_score_for_plan(context: &RoutingContext, plan: &RoutingPlan, provider: ProviderId) -> f64 {
+fn provider_score_for_plan(
+    context: &RoutingContext,
+    plan: &RoutingPlan,
+    provider: ProviderId,
+) -> f64 {
     let key = cortex_engine::bandit::ArmKey {
         task_family: cortex_engine::bandit::TaskFamily::from_intent(&plan.intent),
         risk_level: plan.risk_level,
@@ -541,16 +568,24 @@ fn print_autonomy_reasoning(
     if is_first_observation {
         println!(
             "{}",
-            palette.warn("Store has no previous events, so autonomy is forced to ask before proceeding.")
+            palette.warn(
+                "Store has no previous events, so autonomy is forced to ask before proceeding."
+            )
         );
         return;
     }
 
     println!("{}", autonomy.description());
     if autonomy.requires_user_input() {
-        println!("{}", palette.warn("This route still requires a user checkpoint."));
+        println!(
+            "{}",
+            palette.warn("This route still requires a user checkpoint.")
+        );
     } else {
-        println!("{}", palette.good("This route can proceed without a hard stop."));
+        println!(
+            "{}",
+            palette.good("This route can proceed without a hard stop.")
+        );
     }
 }
 
@@ -586,8 +621,16 @@ fn cmd_receipt(palette: &Palette, args: ReceiptArgs) -> Result<()> {
             println!();
             println!("{}", palette.heading("Evidence Signals"));
             if signals.is_empty() {
-                println!("{}", palette.muted("  No evidence provided. Use --evidence to add signals."));
-                println!("{}", palette.muted("  Formats: compiler, human-review, ai-test:model, ai-review:gen:ver"));
+                println!(
+                    "{}",
+                    palette.muted("  No evidence provided. Use --evidence to add signals.")
+                );
+                println!(
+                    "{}",
+                    palette.muted(
+                        "  Formats: compiler, human-review, ai-test:model, ai-review:gen:ver"
+                    )
+                );
             } else {
                 for (i, signal) in signals.iter().enumerate() {
                     let contamination_color = if signal.contamination.raw_value < 0.3 {
@@ -622,7 +665,10 @@ fn cmd_receipt(palette: &Palette, args: ReceiptArgs) -> Result<()> {
             match check_floor(plan.risk_level, &signals) {
                 FloorVerdict::Satisfied { signals_met } => {
                     if signals_met.is_empty() {
-                        println!("  {}", palette.good("PASS — no evidence required at this risk level"));
+                        println!(
+                            "  {}",
+                            palette.good("PASS — no evidence required at this risk level")
+                        );
                     } else {
                         println!("  {}", palette.good("PASS — all requirements satisfied:"));
                         for met in &signals_met {
@@ -630,12 +676,11 @@ fn cmd_receipt(palette: &Palette, args: ReceiptArgs) -> Result<()> {
                         }
                     }
                 }
-                FloorVerdict::Blocked { missing, risk_level } => {
-                    println!(
-                        "  {} for {:?} risk:",
-                        palette.bad("BLOCKED"),
-                        risk_level,
-                    );
+                FloorVerdict::Blocked {
+                    missing,
+                    risk_level,
+                } => {
+                    println!("  {} for {:?} risk:", palette.bad("BLOCKED"), risk_level,);
                     for m in &missing {
                         println!("    {} {}", palette.bad("x"), m);
                     }
@@ -646,9 +691,15 @@ fn cmd_receipt(palette: &Palette, args: ReceiptArgs) -> Result<()> {
             println!("{}", palette.heading("Autonomy"));
             println!("  {} {:?}", palette.label("Decision:"), plan.autonomy);
             if plan.autonomy.requires_user_input() {
-                println!("  {}", palette.warn("User checkpoint required before execution."));
+                println!(
+                    "  {}",
+                    palette.warn("User checkpoint required before execution.")
+                );
             } else {
-                println!("  {}", palette.good("Can proceed without user intervention."));
+                println!(
+                    "  {}",
+                    palette.good("Can proceed without user intervention.")
+                );
             }
 
             println!();
@@ -658,35 +709,63 @@ fn cmd_receipt(palette: &Palette, args: ReceiptArgs) -> Result<()> {
             if !signals.is_empty() {
                 let total_raw: f64 = signals.iter().map(|s| s.raw_reward).sum();
                 let total_effective: f64 = signals.iter().map(|s| s.effective_reward).sum();
-                let avg_contamination: f64 = signals.iter().map(|s| s.contamination.raw_value).sum::<f64>() / signals.len() as f64;
-                let penalty_count = signals.iter().filter(|s| s.contamination.same_model_penalty).count();
+                let avg_contamination: f64 = signals
+                    .iter()
+                    .map(|s| s.contamination.raw_value)
+                    .sum::<f64>()
+                    / signals.len() as f64;
+                let penalty_count = signals
+                    .iter()
+                    .filter(|s| s.contamination.same_model_penalty)
+                    .count();
 
                 println!("{}", palette.heading("Contamination Summary"));
-                println!("  {} {:.2}", palette.label("Avg contamination:"), avg_contamination);
+                println!(
+                    "  {} {:.2}",
+                    palette.label("Avg contamination:"),
+                    avg_contamination
+                );
                 println!(
                     "  {} {:.2} -> {:.2} ({:.0}% retained)",
                     palette.label("Reward:"),
                     total_raw,
                     total_effective,
-                    if total_raw > 0.0 { total_effective / total_raw * 100.0 } else { 0.0 }
+                    if total_raw > 0.0 {
+                        total_effective / total_raw * 100.0
+                    } else {
+                        0.0
+                    }
                 );
                 if penalty_count > 0 {
                     println!(
                         "  {}",
-                        palette.bad(format!("{penalty_count} signal(s) penalized for same-model contamination"))
+                        palette.bad(format!(
+                            "{penalty_count} signal(s) penalized for same-model contamination"
+                        ))
                     );
                 }
             }
         }
-        PipelineResult::Blocked { reason, missing_evidence } => {
+        PipelineResult::Blocked {
+            reason,
+            missing_evidence,
+        } => {
             println!("{} {}", palette.label("Result:"), palette.bad("BLOCKED"));
             println!("{} {}", palette.label("Reason:"), reason);
             if !missing_evidence.is_empty() {
-                println!("{} {}", palette.label("Missing:"), missing_evidence.join(", "));
+                println!(
+                    "{} {}",
+                    palette.label("Missing:"),
+                    missing_evidence.join(", ")
+                );
             }
         }
         PipelineResult::NoProviders => {
-            println!("{} {}", palette.label("Result:"), palette.bad("NO PROVIDERS"));
+            println!(
+                "{} {}",
+                palette.label("Result:"),
+                palette.bad("NO PROVIDERS")
+            );
         }
     }
 
@@ -755,19 +834,28 @@ fn parse_evidence_args(args: &[String]) -> Vec<EvidenceSignal> {
                         model,
                         verifier,
                         1.0,
-                        format!("AI-generated test{}", parts.get(1).map(|m| format!(" ({m})")).unwrap_or_default()),
+                        format!(
+                            "AI-generated test{}",
+                            parts.get(1).map(|m| format!(" ({m})")).unwrap_or_default()
+                        ),
                     ))
                 }
                 "ai-review" => {
                     let generator = parts.get(1).map(|s| s.to_string());
-                    let verifier = parts.get(2).map(|s| s.to_string()).or_else(|| generator.clone());
+                    let verifier = parts
+                        .get(2)
+                        .map(|s| s.to_string())
+                        .or_else(|| generator.clone());
                     Some(EvidenceSignal::new(
                         SignalTier::IndependentVerify,
                         EvidenceSource::AiReview,
                         generator,
                         verifier,
                         1.0,
-                        format!("AI review{}", parts.get(1).map(|m| format!(" ({m})")).unwrap_or_default()),
+                        format!(
+                            "AI review{}",
+                            parts.get(1).map(|m| format!(" ({m})")).unwrap_or_default()
+                        ),
                     ))
                 }
                 _ => None,

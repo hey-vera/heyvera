@@ -7,8 +7,8 @@ use axum::http::{HeaderValue, Method, Request, StatusCode};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 
-use crate::state::AppState;
 use crate::lock::LockRecovering;
+use crate::state::AppState;
 
 // ---------------------------------------------------------------------------
 // Sliding window counter
@@ -107,14 +107,14 @@ impl RateLimitCategory {
     /// (max_requests, window_seconds)
     fn limits(self) -> (u32, u64) {
         match self {
-            Self::Read => (120, 60),           // 120/min
-            Self::Write => (60, 60),           // 60/min
-            Self::PostCreate => (10, 3600),    // 10/hour
-            Self::ProfileEdit => (5, 3600),    // 5/hour
+            Self::Read => (120, 60),            // 120/min
+            Self::Write => (60, 60),            // 60/min
+            Self::PostCreate => (10, 3600),     // 10/hour
+            Self::ProfileEdit => (5, 3600),     // 5/hour
             Self::FollowUnfollow => (30, 3600), // 30/hour
-            Self::Reaction => (60, 3600),      // 60/hour
-            Self::KeyRead => (30, 60),         // 30/min
-            Self::KeyWrite => (10, 3600),      // 10/hour
+            Self::Reaction => (60, 3600),       // 60/hour
+            Self::KeyRead => (30, 60),          // 30/min
+            Self::KeyWrite => (10, 3600),       // 10/hour
         }
     }
 }
@@ -224,7 +224,11 @@ impl RateLimiter {
 
     /// Check IP-level rate limit (coarser, prevents abuse from single IPs).
     pub fn check_ip(&self, ip: &str, is_write: bool) -> Result<(), f64> {
-        let limit = if is_write { IP_WRITE_LIMIT } else { IP_READ_LIMIT };
+        let limit = if is_write {
+            IP_WRITE_LIMIT
+        } else {
+            IP_READ_LIMIT
+        };
         let category = if is_write {
             RateLimitCategory::Write
         } else {
@@ -274,13 +278,17 @@ impl RateLimiter {
 /// Handles both Bearer JWT and Soma delegation tokens.
 /// Falls back to IP-based key, then "anonymous".
 fn extract_user_key(req: &Request<axum::body::Body>) -> String {
-    let auth = req.headers()
+    let auth = req
+        .headers()
         .get("authorization")
         .and_then(|v| v.to_str().ok());
 
     if let Some(header) = auth {
         // Agent API key: bucket by key prefix (stable per-agent rate limit)
-        if let Some(token) = header.strip_prefix("Bearer ").or_else(|| header.strip_prefix("Agent ")) {
+        if let Some(token) = header
+            .strip_prefix("Bearer ")
+            .or_else(|| header.strip_prefix("Agent "))
+        {
             if token.starts_with("hvak_") {
                 let take = token.len().min(20);
                 return format!("agent:{}", &token[..take]);
@@ -323,7 +331,11 @@ fn extract_user_key(req: &Request<axum::body::Body>) -> String {
 /// Checks X-Forwarded-For, X-Real-IP, then falls back to "unknown".
 fn extract_client_ip(req: &Request<axum::body::Body>) -> String {
     // X-Forwarded-For: first IP in chain is the client
-    if let Some(xff) = req.headers().get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+    if let Some(xff) = req
+        .headers()
+        .get("x-forwarded-for")
+        .and_then(|v| v.to_str().ok())
+    {
         if let Some(first_ip) = xff.split(',').next().map(|s| s.trim()) {
             if !first_ip.is_empty() {
                 return first_ip.to_string();
@@ -440,10 +452,9 @@ fn rate_limit_response(retry_after: f64) -> Response {
         "retry-after",
         HeaderValue::from_str(&retry_secs.to_string()).unwrap(),
     );
-    response.headers_mut().insert(
-        "content-type",
-        HeaderValue::from_static("application/json"),
-    );
+    response
+        .headers_mut()
+        .insert("content-type", HeaderValue::from_static("application/json"));
     response
 }
 
@@ -527,10 +538,16 @@ mod tests {
         let limiter = RateLimiter::new(60, 60);
         // Post creation: 10/hour
         for _ in 0..10 {
-            assert!(limiter.check_account("user1", RateLimitCategory::PostCreate).is_ok());
+            assert!(limiter
+                .check_account("user1", RateLimitCategory::PostCreate)
+                .is_ok());
         }
-        assert!(limiter.check_account("user1", RateLimitCategory::PostCreate).is_err());
+        assert!(limiter
+            .check_account("user1", RateLimitCategory::PostCreate)
+            .is_err());
         // But reads should still work for the same user
-        assert!(limiter.check_account("user1", RateLimitCategory::Read).is_ok());
+        assert!(limiter
+            .check_account("user1", RateLimitCategory::Read)
+            .is_ok());
     }
 }

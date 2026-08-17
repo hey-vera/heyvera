@@ -105,9 +105,15 @@ impl CortexStore {
             .filter_map(|r| r.ok())
             .filter_map(|(id_str, ts_str, json_str)| {
                 let id = Uuid::parse_str(&id_str).ok()?;
-                let timestamp = DateTime::parse_from_rfc3339(&ts_str).ok()?.with_timezone(&Utc);
+                let timestamp = DateTime::parse_from_rfc3339(&ts_str)
+                    .ok()?
+                    .with_timezone(&Utc);
                 let event: LedgerEvent = serde_json::from_str(&json_str).ok()?;
-                Some(LedgerEntry { id, timestamp, event })
+                Some(LedgerEntry {
+                    id,
+                    timestamp,
+                    event,
+                })
             })
             .collect();
 
@@ -163,8 +169,17 @@ impl CortexStore {
                     .unwrap_or_else(|_| Utc::now());
 
                 map.insert(
-                    ArmKey { task_family, risk_level, provider },
-                    ArmStats { successes, trials, total_reward, last_updated },
+                    ArmKey {
+                        task_family,
+                        risk_level,
+                        provider,
+                    },
+                    ArmStats {
+                        successes,
+                        trials,
+                        total_reward,
+                        last_updated,
+                    },
                 );
             }
         }
@@ -207,41 +222,50 @@ impl CortexStore {
                 let raw_reward: f64 = row.get(5)?;
                 let effective_reward: f64 = row.get(6)?;
                 let description: String = row.get(7)?;
-                Ok((id_str, ts_str, contamination, raw_reward, effective_reward, description))
-            })?
-            .filter_map(|r| r.ok())
-            .filter_map(|(id_str, ts_str, contamination, raw_reward, effective_reward, description)| {
-                use cortex_core::contamination::*;
-                let id = Uuid::parse_str(&id_str).ok()?;
-                let timestamp = DateTime::parse_from_rfc3339(&ts_str).ok()?.with_timezone(&Utc);
-                Some(EvidenceSignal {
-                    id,
-                    timestamp,
-                    tier: SignalTier::HardObjective,
-                    source: EvidenceSource::CompilerOutput,
-                    contamination: ContaminationScore {
-                        raw_value: contamination,
-                        source: EvidenceSource::CompilerOutput,
-                        generator_model: None,
-                        verifier_model: None,
-                        same_model_penalty: false,
-                    },
+                Ok((
+                    id_str,
+                    ts_str,
+                    contamination,
                     raw_reward,
                     effective_reward,
                     description,
-                })
-            })
+                ))
+            })?
+            .filter_map(|r| r.ok())
+            .filter_map(
+                |(id_str, ts_str, contamination, raw_reward, effective_reward, description)| {
+                    use cortex_core::contamination::*;
+                    let id = Uuid::parse_str(&id_str).ok()?;
+                    let timestamp = DateTime::parse_from_rfc3339(&ts_str)
+                        .ok()?
+                        .with_timezone(&Utc);
+                    Some(EvidenceSignal {
+                        id,
+                        timestamp,
+                        tier: SignalTier::HardObjective,
+                        source: EvidenceSource::CompilerOutput,
+                        contamination: ContaminationScore {
+                            raw_value: contamination,
+                            source: EvidenceSource::CompilerOutput,
+                            generator_model: None,
+                            verifier_model: None,
+                            same_model_penalty: false,
+                        },
+                        raw_reward,
+                        effective_reward,
+                        description,
+                    })
+                },
+            )
             .collect();
 
         Ok(signals)
     }
 
     pub fn event_count(&self) -> Result<usize> {
-        let count: i64 = self.conn.query_row(
-            "SELECT COUNT(*) FROM events",
-            [],
-            |row| row.get(0),
-        )?;
+        let count: i64 = self
+            .conn
+            .query_row("SELECT COUNT(*) FROM events", [], |row| row.get(0))?;
         Ok(count as usize)
     }
 }

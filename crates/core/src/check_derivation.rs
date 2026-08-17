@@ -331,7 +331,10 @@ mod tests {
             ..Default::default()
         };
         let checks = derive_checks(&input);
-        assert_eq!(ids(&checks), vec!["ecosystem:npm-ci", "ecosystem:npm-build"]);
+        assert_eq!(
+            ids(&checks),
+            vec!["ecosystem:npm-ci", "ecosystem:npm-build"]
+        );
     }
 
     #[test]

@@ -35,7 +35,9 @@ use cortex_core::execution_job::{
     IsolationClass, ModelRef, NetworkPolicy, ResourceProfile, EXECUTION_JOB_VERSION,
 };
 use cortex_core::provider::ProviderId;
-use cortex_worker::sandbox::{ContainerSandbox, OutputStream, SandboxExit, SandboxRequest, SandboxRunner};
+use cortex_worker::sandbox::{
+    ContainerSandbox, OutputStream, SandboxExit, SandboxRequest, SandboxRunner,
+};
 
 /// Skip unless a runtime is available and the test was asked for.
 ///
@@ -91,11 +93,7 @@ async fn run(
     mutate(&mut job);
 
     let runner = ContainerSandbox::new(image).expect("container runtime must be reachable");
-    let request = SandboxRequest::new(
-        workspace,
-        "sh",
-        vec!["-c".to_string(), script.to_string()],
-    );
+    let request = SandboxRequest::new(workspace, "sh", vec!["-c".to_string(), script.to_string()]);
 
     let mut session = runner
         .submit(&job, &request)
@@ -112,7 +110,10 @@ async fn run(
         output.push_str(&line.text);
         output.push('\n');
     }
-    let exit = session.wait().await.expect("sandbox must report an outcome");
+    let exit = session
+        .wait()
+        .await
+        .expect("sandbox must report an outcome");
     (output, exit)
 }
 
@@ -309,7 +310,14 @@ async fn cannot_escalate_privileges() {
 
     // no-new-privileges plus cap_drop ALL. If a setuid path still works, the
     // unprivileged user is decorative.
-    let (output, exit) = run(&image, &dir, "a9", "su root -c id 2>&1 || echo denied", |_| {}).await;
+    let (output, exit) = run(
+        &image,
+        &dir,
+        "a9",
+        "su root -c id 2>&1 || echo denied",
+        |_| {},
+    )
+    .await;
 
     assert!(
         output.contains("denied") || exited_nonzero(&exit) || !output.contains("uid=0"),
@@ -383,14 +391,20 @@ async fn run_with_egress(
         .with_egress_image(egress_image());
     let request = SandboxRequest::new(workspace, "sh", vec!["-c".to_string(), script.to_string()]);
 
-    let mut session = runner.submit(&job, &request).await.expect("sandbox must start");
+    let mut session = runner
+        .submit(&job, &request)
+        .await
+        .expect("sandbox must start");
 
     let mut output = String::new();
     while let Some(line) = session.next_line().await {
         output.push_str(&line.text);
         output.push('\n');
     }
-    let exit = session.wait().await.expect("sandbox must report an outcome");
+    let exit = session
+        .wait()
+        .await
+        .expect("sandbox must report an outcome");
     (output, exit)
 }
 

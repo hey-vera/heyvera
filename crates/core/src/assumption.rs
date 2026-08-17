@@ -181,10 +181,7 @@ pub fn paths_to_read(assumptions: &[Assumption]) -> Vec<String> {
 /// problem, and blocking a customer's plan on our inability to read a file
 /// converts an infrastructure failure into a product failure.
 pub fn evaluate_all(assumptions: &[Assumption], facts: &WorkspaceFacts) -> AssumptionReport {
-    let results: Vec<AssumptionResult> = assumptions
-        .iter()
-        .map(|a| evaluate(a, facts))
-        .collect();
+    let results: Vec<AssumptionResult> = assumptions.iter().map(|a| evaluate(a, facts)).collect();
     let violated = results
         .iter()
         .filter(|r| r.outcome == AssumptionOutcome::Violated)
@@ -326,10 +323,7 @@ mod tests {
         let mut f = facts(&["src/auth.rs"]);
         f.file_contents
             .push(("src/auth.rs".into(), "pub fn login() {}".into()));
-        assert_eq!(
-            evaluate(&a, &f).outcome,
-            AssumptionOutcome::Held
-        );
+        assert_eq!(evaluate(&a, &f).outcome, AssumptionOutcome::Held);
 
         let mut g = facts(&["src/auth.rs"]);
         g.file_contents

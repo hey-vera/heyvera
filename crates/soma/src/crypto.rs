@@ -37,8 +37,8 @@ pub fn verify(public_key: &[u8], message: &[u8], signature: &[u8]) -> Result<boo
     let key_bytes: [u8; 32] = public_key
         .try_into()
         .map_err(|_| SomaError::InvalidKey("public key must be 32 bytes".into()))?;
-    let verifying_key = VerifyingKey::from_bytes(&key_bytes)
-        .map_err(|e| SomaError::InvalidKey(e.to_string()))?;
+    let verifying_key =
+        VerifyingKey::from_bytes(&key_bytes).map_err(|e| SomaError::InvalidKey(e.to_string()))?;
     let sig_bytes: [u8; 64] = signature
         .try_into()
         .map_err(|_| SomaError::InvalidSignature("signature must be 64 bytes".into()))?;
@@ -60,7 +60,10 @@ pub fn generate_keypair() -> (Vec<u8>, Vec<u8>) {
     secret.copy_from_slice(&random_bytes(32));
     let signing_key = SigningKey::from_bytes(&secret);
     let public_key = signing_key.verifying_key();
-    (signing_key.to_bytes().to_vec(), public_key.to_bytes().to_vec())
+    (
+        signing_key.to_bytes().to_vec(),
+        public_key.to_bytes().to_vec(),
+    )
 }
 
 pub fn encode_base64(data: &[u8]) -> String {
@@ -68,7 +71,9 @@ pub fn encode_base64(data: &[u8]) -> String {
 }
 
 pub fn decode_base64(s: &str) -> Result<Vec<u8>, SomaError> {
-    BASE64.decode(s).map_err(|e| SomaError::InvalidEncoding(e.to_string()))
+    BASE64
+        .decode(s)
+        .map_err(|e| SomaError::InvalidEncoding(e.to_string()))
 }
 
 use crate::SomaError;

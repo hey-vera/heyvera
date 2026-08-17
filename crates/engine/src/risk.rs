@@ -9,30 +9,52 @@ const PATTERNS: &[Pattern] = &[
     Pattern {
         level: RiskLevel::Critical,
         keywords: &[
-            "auth", "credential", "secret", ".env", "token", "password",
-            "encrypt", "certificate", ".pem", ".key",
+            "auth",
+            "credential",
+            "secret",
+            ".env",
+            "token",
+            "password",
+            "encrypt",
+            "certificate",
+            ".pem",
+            ".key",
         ],
     },
     Pattern {
         level: RiskLevel::High,
         keywords: &[
-            "billing", "payment", "migration", "deploy", "ci/cd",
-            ".github/workflows", "security", "permission", "schema.prisma",
-            "schema.sql", "api_contract", "openapi",
+            "billing",
+            "payment",
+            "migration",
+            "deploy",
+            "ci/cd",
+            ".github/workflows",
+            "security",
+            "permission",
+            "schema.prisma",
+            "schema.sql",
+            "api_contract",
+            "openapi",
         ],
     },
     Pattern {
         level: RiskLevel::Medium,
         keywords: &[
-            "test", "spec", ".test.", ".spec.", "shared", "util", "lib/",
-            "config", ".config.",
+            "test", "spec", ".test.", ".spec.", "shared", "util", "lib/", "config", ".config.",
         ],
     },
     Pattern {
         level: RiskLevel::Low,
         keywords: &[
-            "readme", ".md", "docs/", "comment", "format", "lint",
-            ".prettierrc", "changelog",
+            "readme",
+            ".md",
+            "docs/",
+            "comment",
+            "format",
+            "lint",
+            ".prettierrc",
+            "changelog",
         ],
     },
 ];
@@ -58,12 +80,18 @@ mod tests {
 
     #[test]
     fn auth_files_are_critical() {
-        assert_eq!(classify_risk(&["src/auth/middleware.ts"]), RiskLevel::Critical);
+        assert_eq!(
+            classify_risk(&["src/auth/middleware.ts"]),
+            RiskLevel::Critical
+        );
     }
 
     #[test]
     fn migration_files_are_high() {
-        assert_eq!(classify_risk(&["db/migration/001_users.sql"]), RiskLevel::High);
+        assert_eq!(
+            classify_risk(&["db/migration/001_users.sql"]),
+            RiskLevel::High
+        );
     }
 
     #[test]

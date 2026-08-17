@@ -37,7 +37,9 @@ fn db_ref(state: &AppState) -> Result<&crate::db::Database, (StatusCode, Json<Er
     state.db.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: "database not available".into() }),
+            Json(ErrorResponse {
+                error: "database not available".into(),
+            }),
         )
     })
 }
@@ -69,8 +71,14 @@ pub async fn create_conversation(
 ) -> Result<(StatusCode, Json<serde_json::Value>), (StatusCode, Json<ErrorResponse>)> {
     let db = db_ref(&state)?;
     let conversation = db.create_conversation(&user.user_id, req.title.as_deref());
-    let value = serde_json::to_value(conversation)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: "serialization failed".into() })))?;
+    let value = serde_json::to_value(conversation).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "serialization failed".into(),
+            }),
+        )
+    })?;
     Ok((StatusCode::CREATED, Json(value)))
 }
 
@@ -81,10 +89,20 @@ pub async fn get_conversation(
 ) -> Result<Json<serde_json::Value>, (StatusCode, Json<ErrorResponse>)> {
     let db = db_ref(&state)?;
     match db.get_conversation(&id, &user.user_id) {
-        Some(conv) => serde_json::to_value(conv)
-            .map(Json)
-            .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: "serialization failed".into() }))),
-        None => Err((StatusCode::NOT_FOUND, Json(ErrorResponse { error: "conversation not found".into() }))),
+        Some(conv) => serde_json::to_value(conv).map(Json).map_err(|_| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: "serialization failed".into(),
+                }),
+            )
+        }),
+        None => Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "conversation not found".into(),
+            }),
+        )),
     }
 }
 
@@ -123,7 +141,12 @@ pub async fn add_message(
 
     // Verify conversation belongs to this user
     if db.get_conversation(&id, &user.user_id).is_none() {
-        return Err((StatusCode::NOT_FOUND, Json(ErrorResponse { error: "conversation not found".into() })));
+        return Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "conversation not found".into(),
+            }),
+        ));
     }
 
     let message = db.add_message(
@@ -134,7 +157,13 @@ pub async fn add_message(
         req.model.as_deref(),
     );
 
-    let value = serde_json::to_value(message)
-        .map_err(|_| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: "serialization failed".into() })))?;
+    let value = serde_json::to_value(message).map_err(|_| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "serialization failed".into(),
+            }),
+        )
+    })?;
     Ok((StatusCode::CREATED, Json(value)))
 }

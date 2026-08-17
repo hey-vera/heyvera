@@ -58,14 +58,9 @@ async fn post_json(
 
 /// GET a URI, return the response.
 async fn get(app: axum::Router, uri: &str) -> axum::response::Response {
-    app.oneshot(
-        Request::builder()
-            .uri(uri)
-            .body(Body::empty())
-            .unwrap(),
-    )
-    .await
-    .unwrap()
+    app.oneshot(Request::builder().uri(uri).body(Body::empty()).unwrap())
+        .await
+        .unwrap()
 }
 
 // ─── Tests ───────────────────────────────────────────────────────────────────
@@ -148,7 +143,10 @@ async fn test_like_post() {
         serde_json::json!({ "body": "Like me!" }),
     )
     .await;
-    let post_id = body_json(create_resp).await["post"]["id"].as_str().unwrap().to_string();
+    let post_id = body_json(create_resp).await["post"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // Like the post
     let like_resp = post_json(
@@ -185,7 +183,10 @@ async fn test_home_feed() {
     assert_eq!(resp.status(), StatusCode::OK);
     let json = body_json(resp).await;
     let posts = json["posts"].as_array().expect("posts array");
-    assert!(!posts.is_empty(), "home feed should contain at least one post");
+    assert!(
+        !posts.is_empty(),
+        "home feed should contain at least one post"
+    );
 }
 
 /// Search for a post by keyword.
@@ -256,7 +257,10 @@ async fn test_reply_creates_notification() {
         serde_json::json!({ "body": "Original post" }),
     )
     .await;
-    let post_id = body_json(create_resp).await["post"]["id"].as_str().unwrap().to_string();
+    let post_id = body_json(create_resp).await["post"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // Reply to it
     let reply_resp = post_json(
@@ -293,7 +297,10 @@ async fn test_quote_post() {
         serde_json::json!({ "body": "Quotable post" }),
     )
     .await;
-    let post_id = body_json(create_resp).await["post"]["id"].as_str().unwrap().to_string();
+    let post_id = body_json(create_resp).await["post"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // Quote the post
     let quote_resp = post_json(
@@ -329,7 +336,10 @@ async fn test_repost_and_unrepost() {
         serde_json::json!({ "body": "Repost me" }),
     )
     .await;
-    let post_id = body_json(create_resp).await["post"]["id"].as_str().unwrap().to_string();
+    let post_id = body_json(create_resp).await["post"]["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
 
     // Repost
     let repost_resp = post_json(
@@ -467,7 +477,9 @@ async fn test_notifications_flat_camelcase_shape() {
     let resp = get(app.clone(), "/v1/social/notifications").await;
     assert_eq!(resp.status(), StatusCode::OK);
     let json = body_json(resp).await;
-    let notifications = json["notifications"].as_array().expect("notifications array");
+    let notifications = json["notifications"]
+        .as_array()
+        .expect("notifications array");
     for n in notifications {
         assert!(n.get("id").is_some());
         assert!(n.get("type").is_some());
@@ -555,7 +567,11 @@ async fn test_followers_and_following_lists() {
     assert!(body_json(followers2).await["followers"].is_array());
 
     // Missing handle → 404
-    let missing = get(app.clone(), "/v1/social/profiles/no_such_user_xyz/followers").await;
+    let missing = get(
+        app.clone(),
+        "/v1/social/profiles/no_such_user_xyz/followers",
+    )
+    .await;
     assert_eq!(missing.status(), StatusCode::NOT_FOUND);
 }
 
@@ -643,7 +659,11 @@ async fn test_profile_longform_by_handle() {
     let json = body_json(resp).await;
     let entries = json["longform"].as_array().expect("longform is an array");
 
-    assert_eq!(entries.len(), 1, "expected exactly the public entry: {json}");
+    assert_eq!(
+        entries.len(),
+        1,
+        "expected exactly the public entry: {json}"
+    );
     assert_eq!(entries[0]["title"], "On Verification");
     assert_eq!(entries[0]["author"]["handle"], "essayist");
 

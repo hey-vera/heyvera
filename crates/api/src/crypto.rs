@@ -2,7 +2,7 @@ use aes_gcm::aead::rand_core::RngCore;
 use aes_gcm::aead::{Aead, KeyInit, OsRng};
 use aes_gcm::{Aes256Gcm, Nonce};
 use base64::Engine;
-use sha2::{Sha256, Digest};
+use sha2::{Digest, Sha256};
 
 const NONCE_LEN: usize = 12;
 
@@ -12,7 +12,11 @@ fn derive_key() -> [u8; 32] {
     let secret = std::env::var("CLERK_SECRET_KEY")
         .ok()
         .filter(|s| !s.is_empty())
-        .or_else(|| std::env::var("CORTEX_KEY_ENCRYPTION_SECRET").ok().filter(|s| !s.is_empty()))
+        .or_else(|| {
+            std::env::var("CORTEX_KEY_ENCRYPTION_SECRET")
+                .ok()
+                .filter(|s| !s.is_empty())
+        })
         .unwrap_or_else(|| {
             if crate::is_production_env() {
                 panic!("CLERK_SECRET_KEY must be set in production");

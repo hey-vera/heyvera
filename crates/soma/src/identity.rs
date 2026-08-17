@@ -54,8 +54,8 @@ impl HeartIdentity {
             version: 1,
         };
 
-        let canonical = serde_json::to_string(&genome)
-            .map_err(|e| SomaError::Serialization(e.to_string()))?;
+        let canonical =
+            serde_json::to_string(&genome).map_err(|e| SomaError::Serialization(e.to_string()))?;
         let hash = sha256_hex(&canonical);
         let sig_input = format!("soma/genome/v1:{canonical}");
         let sig = sign(&sk, sig_input.as_bytes())?;
@@ -78,11 +78,7 @@ impl HeartIdentity {
     }
 
     /// Load an existing identity from stored keys.
-    pub fn from_keys(
-        secret_key: Vec<u8>,
-        public_key: Vec<u8>,
-        genome: GenomeCommitment,
-    ) -> Self {
+    pub fn from_keys(secret_key: Vec<u8>, public_key: Vec<u8>, genome: GenomeCommitment) -> Self {
         let did = public_key_to_did(&public_key);
         Self {
             secret_key,

@@ -422,7 +422,9 @@ mod tests {
         assert_eq!(plan.granted_registries().len(), 4);
         for host in hosts {
             assert!(
-                REGISTRIES.iter().any(|(_, known)| known.contains(&host.as_str())),
+                REGISTRIES
+                    .iter()
+                    .any(|(_, known)| known.contains(&host.as_str())),
                 "{host} is not in the registry table"
             );
         }
@@ -442,7 +444,10 @@ mod tests {
             .collect();
 
         for host in plan.network_policy.allowed_hosts() {
-            assert!(justified.contains(host), "{host} is allowed but not granted");
+            assert!(
+                justified.contains(host),
+                "{host} is allowed but not granted"
+            );
         }
     }
 
@@ -482,7 +487,10 @@ mod tests {
 
             assert_eq!(hosts.len(), 1, "{provider:?} opened more than one host");
             assert_eq!(hosts[0], provider_host(*provider).expect("has an endpoint"));
-            assert_eq!(plan.granted_provider(), Some(provider_grant_name(*provider)));
+            assert_eq!(
+                plan.granted_provider(),
+                Some(provider_grant_name(*provider))
+            );
 
             // The point of the whole task: no other provider's host is in
             // there. A step routed to one provider cannot reach another.
@@ -582,7 +590,10 @@ mod tests {
         // must not turn that bug into a wider allowlist.
         let two = EgressPlan {
             network_policy: NetworkPolicy::Allowlist {
-                hosts: vec!["api.anthropic.com".to_string(), "api.openai.com".to_string()],
+                hosts: vec![
+                    "api.anthropic.com".to_string(),
+                    "api.openai.com".to_string(),
+                ],
             },
             capability_grants: vec![
                 CapabilityGrant::ReachProvider {

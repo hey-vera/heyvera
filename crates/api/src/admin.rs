@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use axum::Json;
 use axum::extract::{Path, Query, Request, State};
 use axum::http::StatusCode;
 use axum::middleware::Next;
 use axum::response::Response;
+use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::clerk::ClerkUser;
@@ -580,7 +580,9 @@ pub struct AuditLogQuery {
     pub page: Option<i64>,
 }
 
-fn default_audit_limit() -> i64 { 50 }
+fn default_audit_limit() -> i64 {
+    50
+}
 
 pub async fn get_audit_log(
     State(state): State<Arc<AppState>>,
@@ -590,7 +592,9 @@ pub async fn get_audit_log(
     resolve_admin(&state, &user).await?;
     let db = state.db.as_ref().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorResponse { error: "database unavailable".into() }),
+        Json(ErrorResponse {
+            error: "database unavailable".into(),
+        }),
     ))?;
     let limit = query.limit.clamp(1, 200);
     let offset = if let Some(page) = query.page {
@@ -618,7 +622,9 @@ pub async fn suspend_account(
     resolve_admin(&state, &user).await?;
     let db = state.db.as_ref().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorResponse { error: "database unavailable".into() }),
+        Json(ErrorResponse {
+            error: "database unavailable".into(),
+        }),
     ))?;
     let updated = db.admin_suspend_account(&clerk_user_id);
     if updated {
@@ -632,9 +638,16 @@ pub async fn suspend_account(
             None,
         );
         tracing::info!("admin {} suspended account {}", user.user_id, clerk_user_id);
-        Ok(Json(serde_json::json!({ "ok": true, "status": "suspended" })))
+        Ok(Json(
+            serde_json::json!({ "ok": true, "status": "suspended" }),
+        ))
     } else {
-        Err((StatusCode::NOT_FOUND, Json(ErrorResponse { error: "account not found".into() })))
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "account not found".into(),
+            }),
+        ))
     }
 }
 
@@ -646,7 +659,9 @@ pub async fn unsuspend_account(
     resolve_admin(&state, &user).await?;
     let db = state.db.as_ref().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorResponse { error: "database unavailable".into() }),
+        Json(ErrorResponse {
+            error: "database unavailable".into(),
+        }),
     ))?;
     let updated = db.admin_unsuspend_account(&clerk_user_id);
     if updated {
@@ -659,10 +674,19 @@ pub async fn unsuspend_account(
             None,
             None,
         );
-        tracing::info!("admin {} unsuspended account {}", user.user_id, clerk_user_id);
+        tracing::info!(
+            "admin {} unsuspended account {}",
+            user.user_id,
+            clerk_user_id
+        );
         Ok(Json(serde_json::json!({ "ok": true, "status": "active" })))
     } else {
-        Err((StatusCode::NOT_FOUND, Json(ErrorResponse { error: "account not found or not suspended".into() })))
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "account not found or not suspended".into(),
+            }),
+        ))
     }
 }
 
@@ -675,7 +699,9 @@ pub async fn cleanup_orphaned_media(
     resolve_admin(&state, &user).await?;
     let db = state.db.as_ref().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorResponse { error: "database unavailable".into() }),
+        Json(ErrorResponse {
+            error: "database unavailable".into(),
+        }),
     ))?;
     let orphaned = db.social_get_orphaned_media(500);
     let ids: Vec<String> = orphaned
@@ -687,7 +713,11 @@ pub async fn cleanup_orphaned_media(
     } else {
         db.social_delete_orphaned_media(&ids)
     };
-    tracing::info!("admin {} cleaned up {} orphaned media objects", user.user_id, count);
+    tracing::info!(
+        "admin {} cleaned up {} orphaned media objects",
+        user.user_id,
+        count
+    );
     db.audit_log(
         &user.user_id,
         "admin",
@@ -709,10 +739,16 @@ pub async fn reconcile_counters(
     resolve_admin(&state, &user).await?;
     let db = state.db.as_ref().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorResponse { error: "database unavailable".into() }),
+        Json(ErrorResponse {
+            error: "database unavailable".into(),
+        }),
     ))?;
     let updated = db.social_reconcile_counters();
-    tracing::info!("admin {} triggered counter reconciliation: {} posts updated", user.user_id, updated);
+    tracing::info!(
+        "admin {} triggered counter reconciliation: {} posts updated",
+        user.user_id,
+        updated
+    );
     Ok(Json(serde_json::json!({ "updated": updated })))
 }
 
@@ -730,7 +766,9 @@ pub async fn list_containers(
     resolve_admin(&state, &user).await?;
     let db = state.db.as_ref().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorResponse { error: "database unavailable".into() }),
+        Json(ErrorResponse {
+            error: "database unavailable".into(),
+        }),
     ))?;
     let containers = db.list_all_containers();
     let count = containers.len();
@@ -747,7 +785,9 @@ pub async fn container_stats(
     resolve_admin(&state, &user).await?;
     let db = state.db.as_ref().ok_or((
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorResponse { error: "database unavailable".into() }),
+        Json(ErrorResponse {
+            error: "database unavailable".into(),
+        }),
     ))?;
     let containers = db.list_all_containers();
     let total = containers.len();

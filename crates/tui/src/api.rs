@@ -201,8 +201,10 @@ impl ApiClient {
                     continue;
                 }
                 if let Ok(event) = serde_json::from_str::<ChatEvent>(json) {
-                    let terminal =
-                        matches!(event, ChatEvent::Completed { .. } | ChatEvent::Failed { .. });
+                    let terminal = matches!(
+                        event,
+                        ChatEvent::Completed { .. } | ChatEvent::Failed { .. }
+                    );
                     // Receiver gone → stop streaming.
                     if tx.send(event).is_err() {
                         return Ok(());

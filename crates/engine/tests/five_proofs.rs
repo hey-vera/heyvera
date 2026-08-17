@@ -35,16 +35,18 @@ fn proof_1_pressure_scorer_beats_static() {
 
     for trial in 0..100 {
         // UCB picks
-        let ucb_pick = scorer
-            .best_arm(task_family, risk, &providers)
-            .unwrap();
+        let ucb_pick = scorer.best_arm(task_family, risk, &providers).unwrap();
         let ucb_idx = providers.iter().position(|p| *p == ucb_pick).unwrap();
         let ucb_success = pseudo_rand() < true_rates[ucb_idx];
         let ucb_reward = if ucb_success { 1.0 } else { 0.0 };
         ucb_total_reward += ucb_reward;
 
         scorer.update(
-            ArmKey { task_family, risk_level: risk, provider: ucb_pick },
+            ArmKey {
+                task_family,
+                risk_level: risk,
+                provider: ucb_pick,
+            },
             ucb_reward,
             0.0,
         );
@@ -196,7 +198,11 @@ fn proof_3_cold_start_converges_within_50() {
         }
 
         scorer.update(
-            ArmKey { task_family, risk_level: risk, provider: pick },
+            ArmKey {
+                task_family,
+                risk_level: risk,
+                provider: pick,
+            },
             reward,
             0.0,
         );
@@ -204,7 +210,11 @@ fn proof_3_cold_start_converges_within_50() {
 
     // All providers should have been explored
     for &prov in &providers {
-        let arm = ArmKey { task_family, risk_level: risk, provider: prov };
+        let arm = ArmKey {
+            task_family,
+            risk_level: risk,
+            provider: prov,
+        };
         let stats = scorer.arms.get(&arm);
         assert!(
             stats.map_or(false, |s| s.trials >= 1),
@@ -239,14 +249,25 @@ fn proof_3_cold_start_converges_within_50() {
 fn proof_4_evidence_floor_blocks_unsafe_route() {
     // Auth code is Critical risk
     let risk = cortex_engine::risk::classify_risk(&["src/auth/middleware.ts"]);
-    assert_eq!(risk, RiskLevel::Critical, "Auth code should be Critical risk");
+    assert_eq!(
+        risk,
+        RiskLevel::Critical,
+        "Auth code should be Critical risk"
+    );
 
     // No evidence → blocked
     let verdict = check_floor(RiskLevel::Critical, &[]);
     match verdict {
-        FloorVerdict::Blocked { missing, risk_level } => {
+        FloorVerdict::Blocked {
+            missing,
+            risk_level,
+        } => {
             assert_eq!(risk_level, RiskLevel::Critical);
-            assert_eq!(missing.len(), 2, "Should require both HardObjective and IndependentVerify");
+            assert_eq!(
+                missing.len(),
+                2,
+                "Should require both HardObjective and IndependentVerify"
+            );
         }
         other => panic!("Expected Blocked with no evidence, got {other:?}"),
     }
@@ -388,7 +409,12 @@ fn proof_5_three_mode_abstraction_holds() {
         );
     }
 
-    let result = plan_route("fix a typo", &["src/utils.ts"], &multi_config, &multi_scorer);
+    let result = plan_route(
+        "fix a typo",
+        &["src/utils.ts"],
+        &multi_config,
+        &multi_scorer,
+    );
     match &result {
         PipelineResult::Planned(plan) => {
             assert_eq!(
@@ -424,10 +450,7 @@ fn proof_5_three_mode_abstraction_holds() {
 
     // Reload from store
     let loaded = store.load_arm_stats().unwrap();
-    assert!(
-        !loaded.is_empty(),
-        "Reloaded arm stats should not be empty"
-    );
+    assert!(!loaded.is_empty(), "Reloaded arm stats should not be empty");
 
     for (key, original_stats) in &cycle_scorer.arms {
         let loaded_stats = loaded.get(key).expect("Key should exist after reload");

@@ -55,11 +55,11 @@ impl DmSubscriber {
             .is_ok()
     }
 }
+use crate::context_flow::{ContextBus, ContextBusConfig};
 #[cfg(feature = "soma")]
 use crate::soma::CortexHeart;
 use crate::storage::Storage;
 use crate::vera::VeraTracker;
-use crate::context_flow::{ContextBus, ContextBusConfig};
 
 /// The local identifier `VeraTracker` groups interactions under when there is
 /// no Soma heart to borrow a DID from — which is every default build.
@@ -129,6 +129,15 @@ pub struct AppState {
     /// by the persistent incremental index in C2.
     pub repo_map_cache: cortex_context::cache::RepoMapCache,
     pub clerk_secret_key: Option<String>,
+    /// Whether a worker with no credential may connect as `local`.
+    ///
+    /// Read once from `CORTEX_ALLOW_ANONYMOUS_WORKER` at construction and
+    /// stored, rather than consulted per frame, so one connection cannot see
+    /// two different answers and so a test can set it without mutating
+    /// process-global environment. Default **off**: an unset
+    /// `CLERK_SECRET_KEY` used to be enough to authenticate any worker, and it
+    /// is no longer. See [`crate::worker_key`].
+    pub allow_anonymous_worker: bool,
     pub jwks_cache: RwLock<JwksCache>,
     pub jwks_stampede: JwksStampedeGuard,
     pub db: Option<Database>,
@@ -209,7 +218,9 @@ impl AppState {
         clerk_secret_key: Option<String>,
     ) -> Arc<Self> {
         let providers: Vec<ProviderStatus> = Vec::new();
-        tracing::info!("provider detection disabled — credentials are per-user via user_credentials table");
+        tracing::info!(
+            "provider detection disabled — credentials are per-user via user_credentials table"
+        );
 
         tracing::info!("workspace directory: {}", workspace_dir.display());
         if clerk_secret_key.is_some() {
@@ -221,6 +232,18 @@ impl AppState {
         let db_path = cortex_db_path(&workspace_dir);
         let db = Database::open(&db_path);
         tracing::info!("database opened at {}", db_path.display());
+
+        // The anonymous worker path is off unless explicitly opened. Note it is
+        // NOT tied to `CORTEX_AUTH_DISABLED`: losing a Clerk secret is an
+        // accident, and this has to be a decision.
+        let allow_anonymous_worker = crate::worker_key::anonymous_worker_allowed_from_env();
+        if allow_anonymous_worker {
+            tracing::warn!(
+                "{}=1: workers may connect with no credential as `{}` - development only",
+                crate::worker_key::ALLOW_ANONYMOUS_WORKER_ENV,
+                crate::worker_key::ANONYMOUS_WORKER_USER,
+            );
+        }
 
         // Billing enforcement: default true, unless CORTEX_AUTH_DISABLED is set
         let auth_disabled = std::env::var("CORTEX_AUTH_DISABLED")
@@ -258,7 +281,9 @@ impl AppState {
         if github_client.is_some() {
             tracing::info!("GitHub API client initialized (GITHUB_TOKEN set)");
         } else {
-            tracing::info!("GitHub API client not available (no GITHUB_TOKEN), will fall back to gh CLI");
+            tracing::info!(
+                "GitHub API client not available (no GITHUB_TOKEN), will fall back to gh CLI"
+            );
         }
 
         // routing.db is in the same danger as cortex.db, and slightly worse:
@@ -291,7 +316,9 @@ impl AppState {
                 (Some(Mutex::new(store)), scorer)
             }
             Err(e) => {
-                tracing::warn!("failed to open cortex routing store: {e} — bandit scoring disabled");
+                tracing::warn!(
+                    "failed to open cortex routing store: {e} — bandit scoring disabled"
+                );
                 (None, UcbScorer::new(1.0))
             }
         };
@@ -372,6 +399,7 @@ impl AppState {
             workspace_dir,
             repo_map_cache: cortex_context::cache::RepoMapCache::new(),
             clerk_secret_key,
+            allow_anonymous_worker,
             jwks_cache: RwLock::new(JwksCache::empty()),
             jwks_stampede: JwksStampedeGuard::new(),
             db: Some(db),
@@ -435,13 +463,18 @@ impl AppState {
         tracing::info!("worker {worker_id} removed, active: {}", workers.len());
     }
 
-    pub async fn find_worker_for_user(&self, user_id: &str) -> Option<(String, mpsc::Sender<BrainMessage>)> {
+    pub async fn find_worker_for_user(
+        &self,
+        user_id: &str,
+    ) -> Option<(String, mpsc::Sender<BrainMessage>)> {
         let workers = self.workers.read().await;
         workers
             .iter()
             .find(|(_, w)| {
                 w.user_id == user_id && {
-                    let has_usable = w.available_providers.iter()
+                    let has_usable = w
+                        .available_providers
+                        .iter()
                         .any(|p| !w.disabled_providers.contains(p));
                     has_usable || w.available_providers.is_empty()
                 }
@@ -457,7 +490,10 @@ impl AppState {
             w.disabled_providers.insert(provider);
             tracing::warn!(
                 "provider {} disabled on worker {} — disabled: {:?}, available: {:?}",
-                provider, worker_id, w.disabled_providers, w.available_providers
+                provider,
+                worker_id,
+                w.disabled_providers,
+                w.available_providers
             );
         }
     }
@@ -483,12 +519,9 @@ impl AppState {
         decision: RoutingDecision,
         result_tx: mpsc::Sender<StepEvent>,
     ) -> Result<String, String> {
-        let (worker_id, worker_tx) = self
-            .find_worker_for_user(user_id)
-            .await
-            .ok_or_else(|| {
-                "no connected worker — run `npx cortex connect` in your environment".to_string()
-            })?;
+        let (worker_id, worker_tx) = self.find_worker_for_user(user_id).await.ok_or_else(|| {
+            "no connected worker — run `npx cortex connect` in your environment".to_string()
+        })?;
 
         let attempt_id = Uuid::new_v4().to_string();
         let lease_gen = 1;
@@ -499,7 +532,8 @@ impl AppState {
         let (run_id, step_id) = if let Some(db) = &self.db {
             let rid = db.create_run(user_id, &task.objective, "chat", &[]);
             let sid = db.create_step(
-                &rid, "chat",
+                &rid,
+                "chat",
                 &format!("{:?}", decision.tier),
                 &format!("{:?}", task.risk),
                 &task.objective,
@@ -644,10 +678,8 @@ impl AppState {
                 .db
                 .as_ref()
                 .map(|database| {
-                    database.social_conversation_is_accessible(
-                        conversation_id,
-                        &subscriber.profile_id,
-                    )
+                    database
+                        .social_conversation_is_accessible(conversation_id, &subscriber.profile_id)
                 })
                 .unwrap_or(false);
             if !authorized {
@@ -749,10 +781,13 @@ impl AppState {
 
             for step_id in &active_steps {
                 tracing::info!("cancelling step {step_id} on worker {worker_id}");
-                let _ = worker.tx.send(BrainMessage::CancelStep {
-                    step_id: step_id.clone(),
-                    reason: "server shutting down".to_string(),
-                }).await;
+                let _ = worker
+                    .tx
+                    .send(BrainMessage::CancelStep {
+                        step_id: step_id.clone(),
+                        reason: "server shutting down".to_string(),
+                    })
+                    .await;
             }
         }
         drop(workers);
@@ -766,7 +801,9 @@ impl AppState {
                 break;
             }
             if tokio::time::Instant::now() >= deadline {
-                tracing::warn!("{count} worker(s) still connected after 30s timeout, proceeding with shutdown");
+                tracing::warn!(
+                    "{count} worker(s) still connected after 30s timeout, proceeding with shutdown"
+                );
                 break;
             }
             tokio::time::sleep(std::time::Duration::from_millis(250)).await;
@@ -775,7 +812,8 @@ impl AppState {
         // Persist final state
         if let Some(db) = &self.db {
             // Mark any remaining leased steps as cancelled
-            let remaining_steps: Vec<String> = self.step_senders.read().await.keys().cloned().collect();
+            let remaining_steps: Vec<String> =
+                self.step_senders.read().await.keys().cloned().collect();
             for step_id in &remaining_steps {
                 tracing::info!("marking in-flight step {step_id} as cancelled in DB");
                 db.cancel_assigned_step(step_id, "server shutdown");

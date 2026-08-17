@@ -83,14 +83,16 @@ impl TaskFailureKind {
     pub fn scope(&self) -> FailureScope {
         match self {
             Self::ProviderServiceDown => FailureScope::Provider,
-            Self::ProviderAuthExpired | Self::ProviderQuotaExceeded => FailureScope::ProviderAccount,
+            Self::ProviderAuthExpired | Self::ProviderQuotaExceeded => {
+                FailureScope::ProviderAccount
+            }
             Self::ProviderRateLimited
             | Self::ProviderModelUnavailable
             | Self::ProviderSafetyRefusal => FailureScope::ProviderModel,
 
-            Self::WorkerCrashed
-            | Self::WorkerDisconnected
-            | Self::WorkerResourceExhausted => FailureScope::Worker,
+            Self::WorkerCrashed | Self::WorkerDisconnected | Self::WorkerResourceExhausted => {
+                FailureScope::Worker
+            }
 
             Self::CliNotInstalled | Self::CliNotAuthenticated => FailureScope::WorkerTooling,
 
@@ -232,10 +234,16 @@ mod tests {
 
     #[test]
     fn scope_mapping() {
-        assert_eq!(TaskFailureKind::ProviderAuthExpired.scope(), FailureScope::ProviderAccount);
+        assert_eq!(
+            TaskFailureKind::ProviderAuthExpired.scope(),
+            FailureScope::ProviderAccount
+        );
         assert_eq!(TaskFailureKind::WorkerCrashed.scope(), FailureScope::Worker);
         assert_eq!(TaskFailureKind::TestsFailed.scope(), FailureScope::Task);
-        assert_eq!(TaskFailureKind::GitConflict.scope(), FailureScope::Workspace);
+        assert_eq!(
+            TaskFailureKind::GitConflict.scope(),
+            FailureScope::Workspace
+        );
     }
 
     #[test]

@@ -573,7 +573,7 @@ mod tests {
         original.context_bundle = Some(BundleRef {
             bundle_id: "bundle-1".to_string(),
             packed_bytes: Some(4096),
-                    composition: None,
+            composition: None,
         });
         original.quote_id = Some("quote-1".to_string());
         original.plan_receipt_id = Some("receipt-1".to_string());

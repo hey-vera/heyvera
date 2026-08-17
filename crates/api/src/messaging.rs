@@ -37,8 +37,8 @@ fn api_response(status: StatusCode, value: serde_json::Value) -> ApiResponse {
         status,
         [
             (
-            header::CACHE_CONTROL,
-            HeaderValue::from_static("private, no-store"),
+                header::CACHE_CONTROL,
+                HeaderValue::from_static("private, no-store"),
             ),
             (header::PRAGMA, HeaderValue::from_static("no-cache")),
         ],

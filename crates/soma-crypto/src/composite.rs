@@ -50,8 +50,7 @@ impl CompositeKeypair {
         let ed25519_sk = ed25519_dalek::SigningKey::from_bytes(&seed);
         let ed25519_pk = ed25519_sk.verifying_key();
 
-        let (mldsa65_pk, mldsa65_sk) =
-            ml_dsa_65::try_keygen().map_err(|_| Error::KeygenFailed)?;
+        let (mldsa65_pk, mldsa65_sk) = ml_dsa_65::try_keygen().map_err(|_| Error::KeygenFailed)?;
 
         Ok(Self {
             ed25519_sk,
@@ -73,12 +72,7 @@ impl CompositeKeypair {
     }
 
     pub fn sign(&self, message: &[u8]) -> crate::Result<CompositeSignature> {
-        sign(
-            &self.ed25519_sk,
-            &self.mldsa65_sk,
-            GENESIS_SUITE,
-            message,
-        )
+        sign(&self.ed25519_sk, &self.mldsa65_sk, GENESIS_SUITE, message)
     }
 }
 

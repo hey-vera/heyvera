@@ -80,13 +80,21 @@ function currentTask(tasks: TaskManagerTask[], member: TaskMember) {
   return tasks.find((task) => task.id === member.currentTaskId) ?? null;
 }
 
+/// `declaredMembers` is the group's own headcount; `members` is who this
+/// client actually has data for. When the two disagree the difference is
+/// rendered as a count, never as invented people — see `defaultMembers`.
 function TeamPanel({
   members,
   tasks,
+  declaredMembers,
 }: {
   members: TaskMember[];
   tasks: TaskManagerTask[];
+  declaredMembers: number;
 }) {
+  const knownCount = members.length;
+  const totalCount = Math.max(declaredMembers, knownCount);
+  const unknownCount = totalCount - knownCount;
   return (
     <section className="flex min-h-0 flex-col">
       <div className="mb-3 flex items-center justify-between">
@@ -94,7 +102,9 @@ function TeamPanel({
           <Users className="h-4 w-4 text-[var(--muted)]" />
           <h2 className="text-sm font-semibold text-white">Team</h2>
         </div>
-        <span className="text-[11px] text-[var(--muted)]">{members.length} members</span>
+        <span className="text-[11px] text-[var(--muted)]">
+          {totalCount} {totalCount === 1 ? 'member' : 'members'}
+        </span>
       </div>
       <div className="space-y-2">
         {members.map((member) => {
@@ -125,6 +135,12 @@ function TeamPanel({
             </div>
           );
         })}
+        {unknownCount > 0 && (
+          <div className="rounded-lg border border-dashed border-white/8 px-3 py-2.5 text-xs text-[var(--muted)]">
+            {unknownCount} other {unknownCount === 1 ? 'member' : 'members'} in this
+            group. Their details have not loaded yet.
+          </div>
+        )}
       </div>
     </section>
   );
@@ -768,7 +784,11 @@ export default function TaskManagerChat({
             />
           </div>
           <div className={`${mobilePanel === 'team' ? 'flex' : 'hidden'} min-h-0 flex-1 flex-col gap-5 overflow-y-auto p-3 lg:flex lg:p-4`}>
-            <TeamPanel members={taskManager.state.members} tasks={taskManager.state.tasks} />
+            <TeamPanel
+              members={taskManager.state.members}
+              tasks={taskManager.state.tasks}
+              declaredMembers={group.members}
+            />
             {memoryData && showMemoryPanel && (
               <MemoryPanel
                 memoryData={memoryData}

@@ -10,9 +10,9 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use crate::clerk;
-use crate::state::AppState;
 #[cfg(feature = "soma")]
 use crate::lock::LockRecovering;
+use crate::state::AppState;
 
 /// Events pushed to Mission Control frontend clients.
 #[derive(Debug, Clone, Serialize)]
@@ -116,11 +116,7 @@ pub async fn mc_handler(
     ws.on_upgrade(move |socket| handle_mc_connection(socket, state, params))
 }
 
-async fn handle_mc_connection(
-    mut socket: WebSocket,
-    state: Arc<AppState>,
-    params: McQueryParams,
-) {
+async fn handle_mc_connection(mut socket: WebSocket, state: Arc<AppState>, params: McQueryParams) {
     // Authenticate via JWT token from query param
     let user_id = match authenticate_mc(&state, params.token.as_deref().unwrap_or("")).await {
         Ok(uid) => uid,
@@ -337,7 +333,9 @@ pub async fn mc_snapshot(
     let heart = state.soma_heart.as_ref().map(|h| {
         let chain = h.heartbeat_chain.lock_recovering();
         let revoked = h.revoked_delegations.lock_recovering();
-        let capabilities = h.lineage.as_ref()
+        let capabilities = h
+            .lineage
+            .as_ref()
             .map(|l| soma::lineage::effective_capabilities(l))
             .unwrap_or_else(|| vec!["*".into()]);
         McHeartState {
@@ -355,14 +353,19 @@ pub async fn mc_snapshot(
 
     // Worker states
     let workers_guard = state.workers.read().await;
-    let workers: Vec<McWorkerState> = workers_guard.iter().map(|(id, w)| {
-        McWorkerState {
+    let workers: Vec<McWorkerState> = workers_guard
+        .iter()
+        .map(|(id, w)| McWorkerState {
             worker_id: id.clone(),
             user_id: w.user_id.clone(),
-            providers: w.available_providers.iter().map(|p| p.to_string()).collect(),
+            providers: w
+                .available_providers
+                .iter()
+                .map(|p| p.to_string())
+                .collect(),
             disabled_providers: w.disabled_providers.iter().map(|p| p.to_string()).collect(),
-        }
-    }).collect();
+        })
+        .collect();
     drop(workers_guard);
 
     // Active runs from DB
@@ -385,15 +388,16 @@ pub async fn mc_snapshot(
 
     // Provider states
     let providers_guard = state.providers.read().await;
-    let providers: Vec<McProviderState> = providers_guard.iter().map(|p| {
-        McProviderState {
+    let providers: Vec<McProviderState> = providers_guard
+        .iter()
+        .map(|p| McProviderState {
             id: p.provider.to_string(),
             label: p.provider.to_string(),
             authenticated: p.authenticated,
             pressure: p.pressure,
             tiers: p.available_tiers.iter().map(|t| format!("{t:?}")).collect(),
-        }
-    }).collect();
+        })
+        .collect();
     drop(providers_guard);
 
     // Spend state. Soma's spend log is not the Cortex ledger; it is Soma's own
@@ -440,14 +444,25 @@ async fn authenticate_mc(state: &AppState, token: &str) -> Result<String, String
         return Err("missing token query parameter — connect with ?token=<jwt>".into());
     }
 
-    let keys = clerk::get_or_refresh_jwks_pub(&state.jwks_cache, &state.jwks_stampede, clerk_secret, false).await?;
+    let keys = clerk::get_or_refresh_jwks_pub(
+        &state.jwks_cache,
+        &state.jwks_stampede,
+        clerk_secret,
+        false,
+    )
+    .await?;
 
     match clerk::verify_token_pub(token, &keys) {
         Ok(user_id) => Ok(user_id),
         Err(_) => {
             // Retry with fresh JWKS (key rotation)
-            let keys =
-                clerk::get_or_refresh_jwks_pub(&state.jwks_cache, &state.jwks_stampede, clerk_secret, true).await?;
+            let keys = clerk::get_or_refresh_jwks_pub(
+                &state.jwks_cache,
+                &state.jwks_stampede,
+                clerk_secret,
+                true,
+            )
+            .await?;
             clerk::verify_token_pub(token, &keys)
         }
     }
