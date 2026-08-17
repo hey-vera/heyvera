@@ -1005,7 +1005,11 @@ mod executed_tests {
     fn execution(id: &str, outcome: CheckOutcome) -> CheckExecution {
         CheckExecution {
             spec_id: id.into(),
-            exit_code: Some(if matches!(outcome, CheckOutcome::Passed) { 0 } else { 1 }),
+            exit_code: Some(if matches!(outcome, CheckOutcome::Passed) {
+                0
+            } else {
+                1
+            }),
             outcome,
             duration_ms: 10,
             output_digest: "sha256:x".into(),
@@ -1063,12 +1067,8 @@ mod executed_tests {
 
     #[test]
     fn nothing_derivable_is_not_quietly_a_success() {
-        let result = verify_from_executions(
-            &contract(),
-            &StructuredStepEvidence::default(),
-            &[],
-            &[],
-        );
+        let result =
+            verify_from_executions(&contract(), &StructuredStepEvidence::default(), &[], &[]);
         assert_eq!(result.verdict, VerifierVerdict::NeedsEvidence);
         assert_eq!(result.gate.verdict, Verdict::Unverified);
     }

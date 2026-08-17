@@ -42,12 +42,13 @@ impl ContaminationScore {
         generator_model: Option<String>,
         verifier_model: Option<String>,
     ) -> Self {
-        let same_model_penalty =
-            matches!(source, EvidenceSource::AiGeneratedTest | EvidenceSource::AiReview)
-                && matches!(
-                    (&generator_model, &verifier_model),
-                    (Some(generator), Some(verifier)) if generator == verifier
-                );
+        let same_model_penalty = matches!(
+            source,
+            EvidenceSource::AiGeneratedTest | EvidenceSource::AiReview
+        ) && matches!(
+            (&generator_model, &verifier_model),
+            (Some(generator), Some(verifier)) if generator == verifier
+        );
 
         let raw_value = match source {
             EvidenceSource::CompilerOutput

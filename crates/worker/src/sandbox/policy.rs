@@ -148,10 +148,7 @@ pub const SCRATCH_ENV: &[&str] = &[
 /// Split out so the rule is testable without mutating the process environment.
 /// A test that sets a real variable races every other test in the binary, and
 /// the one that lost the race would report this function as safe.
-fn sanctioned_env_from(
-    job: &ExecutionJob,
-    lookup: impl Fn(&str) -> Option<String>,
-) -> Vec<String> {
+fn sanctioned_env_from(job: &ExecutionJob, lookup: impl Fn(&str) -> Option<String>) -> Vec<String> {
     let Some(provider) = granted_provider(job) else {
         return Vec::new();
     };
@@ -421,7 +418,10 @@ mod tests {
         // the constant in a diff somebody reads.
         assert_eq!(
             sanctioned_env(&job()),
-            SCRATCH_ENV.iter().map(|s| (*s).to_string()).collect::<Vec<_>>()
+            SCRATCH_ENV
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect::<Vec<_>>()
         );
     }
 

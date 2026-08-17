@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::provider::{ProviderId, Tier};
-use crate::routing::{RiskLevel, Intent, RoutingDecision, ScoredRoute, RationaleCode};
+use crate::routing::{Intent, RationaleCode, RiskLevel, RoutingDecision, ScoredRoute};
 
 // --- Profiles ---
 
@@ -393,7 +393,12 @@ fn provider_fit_score(
     let rel = reliability_bonus(candidate.success_rate, candidate.sample_count);
     let lat = latency_penalty(candidate.provider, candidate.estimated_duration_ms);
     let risk_align = risk_alignment_bonus(evidence.risk.level, candidate.tier);
-    let bias = profile_bias(profile, candidate.provider, candidate.tier, evidence.risk.level);
+    let bias = profile_bias(
+        profile,
+        candidate.provider,
+        candidate.tier,
+        evidence.risk.level,
+    );
 
     cap + rel + lat + risk_align + bias
 }
@@ -458,7 +463,10 @@ impl DefaultPolicy {
                 rationale.push(RationaleCode::RiskRequiresHigherTier);
             }
             if matches!(
-                evidence.budget.pressures.get(&(candidate.provider, candidate.tier)),
+                evidence
+                    .budget
+                    .pressures
+                    .get(&(candidate.provider, candidate.tier)),
                 Some(PressureState::Throttled(_))
             ) {
                 rationale.push(RationaleCode::CostOptimized);
@@ -660,10 +668,7 @@ pub fn classify_risk(
     file_paths: &[String],
     history_success_rate: Option<f64>,
 ) -> RiskEvidence {
-    let file_risk = file_paths
-        .iter()
-        .map(|p| classify_file_risk(p))
-        .max();
+    let file_risk = file_paths.iter().map(|p| classify_file_risk(p)).max();
 
     let level = [
         Some(static_level),
@@ -704,33 +709,46 @@ pub fn classify_risk(
 pub fn parse_intent(input: &str) -> IntentEvidence {
     let lower = input.to_lowercase();
 
-    let (intent, confidence) = if starts_with_any(&lower, &["fix", "repair", "patch", "resolve", "debug"]) {
-        (Intent::Fix, 0.95)
-    } else if starts_with_any(&lower, &["add", "create", "implement", "build", "write"]) {
-        (Intent::Add, 0.90)
-    } else if starts_with_any(&lower, &["explore", "find", "search", "grep", "where", "what is"]) {
-        (Intent::Explore, 0.90)
-    } else if starts_with_any(&lower, &["review", "audit", "check", "inspect"]) {
-        (Intent::Review, 0.85)
-    } else if starts_with_any(&lower, &["should", "how should", "architecture", "design", "think about"]) {
-        (Intent::Think, 0.85)
-    } else if starts_with_any(&lower, &["test", "verify", "validate"]) {
-        (Intent::Test, 0.90)
-    } else if starts_with_any(&lower, &["refactor", "clean", "simplify", "restructure"]) {
-        (Intent::Refactor, 0.85)
-    } else if starts_with_any(&lower, &["ship", "deploy", "release", "publish", "pr"]) {
-        (Intent::Ship, 0.90)
-    } else if contains_any(&lower, &["fix", "bug", "broken", "error"]) {
-        (Intent::Fix, 0.70)
-    } else if contains_any(&lower, &["add", "feature", "implement"]) {
-        (Intent::Add, 0.65)
-    } else if contains_any(&lower, &["find", "search", "where"]) {
-        (Intent::Explore, 0.65)
-    } else if contains_any(&lower, &["test", "spec"]) {
-        (Intent::Test, 0.65)
-    } else {
-        (Intent::Add, 0.30)
-    };
+    let (intent, confidence) =
+        if starts_with_any(&lower, &["fix", "repair", "patch", "resolve", "debug"]) {
+            (Intent::Fix, 0.95)
+        } else if starts_with_any(&lower, &["add", "create", "implement", "build", "write"]) {
+            (Intent::Add, 0.90)
+        } else if starts_with_any(
+            &lower,
+            &["explore", "find", "search", "grep", "where", "what is"],
+        ) {
+            (Intent::Explore, 0.90)
+        } else if starts_with_any(&lower, &["review", "audit", "check", "inspect"]) {
+            (Intent::Review, 0.85)
+        } else if starts_with_any(
+            &lower,
+            &[
+                "should",
+                "how should",
+                "architecture",
+                "design",
+                "think about",
+            ],
+        ) {
+            (Intent::Think, 0.85)
+        } else if starts_with_any(&lower, &["test", "verify", "validate"]) {
+            (Intent::Test, 0.90)
+        } else if starts_with_any(&lower, &["refactor", "clean", "simplify", "restructure"]) {
+            (Intent::Refactor, 0.85)
+        } else if starts_with_any(&lower, &["ship", "deploy", "release", "publish", "pr"]) {
+            (Intent::Ship, 0.90)
+        } else if contains_any(&lower, &["fix", "bug", "broken", "error"]) {
+            (Intent::Fix, 0.70)
+        } else if contains_any(&lower, &["add", "feature", "implement"]) {
+            (Intent::Add, 0.65)
+        } else if contains_any(&lower, &["find", "search", "where"]) {
+            (Intent::Explore, 0.65)
+        } else if contains_any(&lower, &["test", "spec"]) {
+            (Intent::Test, 0.65)
+        } else {
+            (Intent::Add, 0.30)
+        };
 
     IntentEvidence {
         intent,
@@ -764,7 +782,10 @@ mod tests {
         for i in 0..=125 {
             let p = i as f64 / 100.0;
             let penalty = pressure_penalty(p);
-            assert!(penalty >= prev, "penalty decreased at p={p}: {penalty} < {prev}");
+            assert!(
+                penalty >= prev,
+                "penalty decreased at p={p}: {penalty} < {prev}"
+            );
             prev = penalty;
         }
     }
@@ -910,8 +931,14 @@ mod tests {
             },
             budget: BudgetEvidence {
                 pressures: HashMap::from([
-                    ((ProviderId::Claude, Tier::Execute), PressureState::Hot(0.85)),
-                    ((ProviderId::Openai, Tier::Execute), PressureState::Healthy(0.2)),
+                    (
+                        (ProviderId::Claude, Tier::Execute),
+                        PressureState::Hot(0.85),
+                    ),
+                    (
+                        (ProviderId::Openai, Tier::Execute),
+                        PressureState::Healthy(0.2),
+                    ),
                 ]),
             },
             provider_fit: ProviderFitEvidence {
@@ -949,7 +976,10 @@ mod tests {
 
     #[test]
     fn file_risk_classification() {
-        assert_eq!(classify_file_risk("src/auth/middleware.rs"), RiskLevel::Critical);
+        assert_eq!(
+            classify_file_risk("src/auth/middleware.rs"),
+            RiskLevel::Critical
+        );
         assert_eq!(classify_file_risk("src/billing/stripe.rs"), RiskLevel::High);
         assert_eq!(classify_file_risk("src/utils/format.rs"), RiskLevel::Medium);
         assert_eq!(classify_file_risk("docs/README.md"), RiskLevel::Low);
@@ -959,7 +989,10 @@ mod tests {
     fn intent_parsing() {
         assert_eq!(parse_intent("fix the login bug").intent, Intent::Fix);
         assert_eq!(parse_intent("add dark mode").intent, Intent::Add);
-        assert_eq!(parse_intent("find where auth is defined").intent, Intent::Explore);
+        assert_eq!(
+            parse_intent("find where auth is defined").intent,
+            Intent::Explore
+        );
         assert_eq!(parse_intent("should we use Redis?").intent, Intent::Think);
         assert_eq!(parse_intent("test the payment flow").intent, Intent::Test);
         assert_eq!(parse_intent("ship it").intent, Intent::Ship);
@@ -968,13 +1001,28 @@ mod tests {
     #[test]
     fn auto_mode_transitions() {
         let normal = AutoMode::Normal;
-        assert_eq!(normal.transition(0.90, RiskLevel::Low, 0, 0), AutoMode::ProtectBudget);
-        assert_eq!(normal.transition(0.50, RiskLevel::Critical, 0, 0), AutoMode::ProtectQuality);
-        assert_eq!(normal.transition(0.50, RiskLevel::Low, 3, 0), AutoMode::Recovering);
-        assert_eq!(normal.transition(0.50, RiskLevel::Low, 0, 0), AutoMode::Normal);
+        assert_eq!(
+            normal.transition(0.90, RiskLevel::Low, 0, 0),
+            AutoMode::ProtectBudget
+        );
+        assert_eq!(
+            normal.transition(0.50, RiskLevel::Critical, 0, 0),
+            AutoMode::ProtectQuality
+        );
+        assert_eq!(
+            normal.transition(0.50, RiskLevel::Low, 3, 0),
+            AutoMode::Recovering
+        );
+        assert_eq!(
+            normal.transition(0.50, RiskLevel::Low, 0, 0),
+            AutoMode::Normal
+        );
 
         let pb = AutoMode::ProtectBudget;
         assert_eq!(pb.transition(0.60, RiskLevel::Low, 0, 35), AutoMode::Normal);
-        assert_eq!(pb.transition(0.70, RiskLevel::Low, 0, 35), AutoMode::ProtectBudget);
+        assert_eq!(
+            pb.transition(0.70, RiskLevel::Low, 0, 35),
+            AutoMode::ProtectBudget
+        );
     }
 }

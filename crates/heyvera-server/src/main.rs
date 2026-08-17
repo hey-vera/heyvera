@@ -30,11 +30,8 @@ async fn shutdown_signal() {
 
 #[tokio::main]
 async fn main() {
-    let env_filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| "info".parse().unwrap());
-    tracing_subscriber::fmt()
-        .with_env_filter(env_filter)
-        .init();
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".parse().unwrap());
+    tracing_subscriber::fmt().with_env_filter(env_filter).init();
 
     let ledger_path = std::env::var("HEYVERA_LEDGER_PATH")
         .unwrap_or_else(|_| ".heyvera/ledger.jsonl".to_string());
@@ -80,14 +77,19 @@ async fn main() {
         Some(socket2::Protocol::TCP),
     )
     .expect("failed to create socket");
-    socket.set_reuse_address(true).expect("failed to set SO_REUSEADDR");
-    socket.set_nonblocking(true).expect("failed to set nonblocking");
+    socket
+        .set_reuse_address(true)
+        .expect("failed to set SO_REUSEADDR");
+    socket
+        .set_nonblocking(true)
+        .expect("failed to set nonblocking");
     socket.bind(&addr.into()).unwrap_or_else(|e| {
         panic!("failed to bind {addr}: {e}");
     });
     socket.listen(1024).expect("failed to listen");
 
-    let listener = tokio::net::TcpListener::from_std(socket.into()).expect("failed to create listener");
+    let listener =
+        tokio::net::TcpListener::from_std(socket.into()).expect("failed to create listener");
     tracing::info!("heyvera server listening on {addr}");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

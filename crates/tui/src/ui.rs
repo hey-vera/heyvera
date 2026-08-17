@@ -39,7 +39,9 @@ pub fn draw(frame: &mut Frame, app: &App) {
 
 fn border_style(focused: bool) -> Style {
     if focused {
-        Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        Style::default()
+            .fg(Color::Cyan)
+            .add_modifier(Modifier::BOLD)
     } else {
         Style::default().fg(Color::DarkGray)
     }

@@ -48,12 +48,10 @@ impl StripeConfig {
             price_monthly: std::env::var("STRIPE_PRICE_MONTHLY").unwrap_or_default(),
             price_annual: std::env::var("STRIPE_PRICE_ANNUAL").unwrap_or_default(),
             price_credit_pack: std::env::var("STRIPE_PRICE_CREDIT_PACK").unwrap_or_default(),
-            success_url: std::env::var("STRIPE_SUCCESS_URL").unwrap_or_else(|_| {
-                "https://cortex.heyvera.org/billing?success=true".into()
-            }),
-            cancel_url: std::env::var("STRIPE_CANCEL_URL").unwrap_or_else(|_| {
-                "https://cortex.heyvera.org/billing?cancelled=true".into()
-            }),
+            success_url: std::env::var("STRIPE_SUCCESS_URL")
+                .unwrap_or_else(|_| "https://cortex.heyvera.org/billing?success=true".into()),
+            cancel_url: std::env::var("STRIPE_CANCEL_URL")
+                .unwrap_or_else(|_| "https://cortex.heyvera.org/billing?cancelled=true".into()),
         })
     }
 }
@@ -168,16 +166,10 @@ impl StripeClient {
         params.insert("line_items[0][quantity]", "1".to_string());
         params.insert("success_url", self.success_url.clone());
         params.insert("cancel_url", self.cancel_url.clone());
-        params.insert(
-            "phone_number_collection[enabled]",
-            "true".to_string(),
-        );
+        params.insert("phone_number_collection[enabled]", "true".to_string());
 
         if let Some(days) = trial_days {
-            params.insert(
-                "subscription_data[trial_period_days]",
-                days.to_string(),
-            );
+            params.insert("subscription_data[trial_period_days]", days.to_string());
         }
         if let Some(coupon) = coupon_id {
             params.insert("discounts[0][coupon]", coupon.to_string());

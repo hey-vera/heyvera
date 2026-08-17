@@ -120,12 +120,7 @@ pub fn extract_repo(root: &Path) -> Extraction {
 
 /// Parse one file's contents. Separated from the walk so it can be tested
 /// without a directory tree.
-pub fn extract_file(
-    path: &Path,
-    relative: &str,
-    source: &str,
-    extraction: &mut Extraction,
-) {
+pub fn extract_file(path: &Path, relative: &str, source: &str, extraction: &mut Extraction) {
     let Some(spec) = grammar_for(path) else {
         return;
     };
@@ -252,11 +247,7 @@ pub fn validate_token(raw: &str) -> bool { helper(raw) }
 fn helper(raw: &str) -> bool { !raw.is_empty() }
 "#,
         );
-        let names: Vec<&str> = extraction
-            .symbols
-            .iter()
-            .map(|s| s.name.as_str())
-            .collect();
+        let names: Vec<&str> = extraction.symbols.iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"validate_token"), "got {names:?}");
         assert!(names.contains(&"helper"), "got {names:?}");
     }
@@ -278,11 +269,7 @@ fn helper(raw: &str) -> bool { !raw.is_empty() }
             "api.ts",
             "export function fetchUser(id: string) { return id; }",
         );
-        let names: Vec<&str> = extraction
-            .symbols
-            .iter()
-            .map(|s| s.name.as_str())
-            .collect();
+        let names: Vec<&str> = extraction.symbols.iter().map(|s| s.name.as_str()).collect();
         assert!(names.contains(&"fetchUser"), "got {names:?}");
     }
 

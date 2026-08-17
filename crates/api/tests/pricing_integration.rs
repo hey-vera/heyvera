@@ -40,8 +40,8 @@ fn a_fresh_database_publishes_a_provisional_list_that_prices_every_class() {
     );
 
     for class in TaskClass::all() {
-        let (credits, billable) = pricing::quote(&list, &class)
-            .unwrap_or_else(|| panic!("no price for {}", class.key()));
+        let (credits, billable) =
+            pricing::quote(&list, &class).unwrap_or_else(|| panic!("no price for {}", class.key()));
         assert!(credits > 0, "{} quoted zero", class.key());
         assert!(
             !billable,
@@ -56,11 +56,15 @@ fn seeding_is_idempotent_and_never_republishes() {
     let dir = tempfile::tempdir().expect("temp dir");
     let path = dir.path().join("cortex.db");
 
-    let first = Database::open(&path).active_price_list().expect("published");
+    let first = Database::open(&path)
+        .active_price_list()
+        .expect("published");
     // Reopening is what a restart does, and a restart that republished would
     // mint a new version on every deploy — so every receipt would name a
     // different list than the one before it, for no change in price.
-    let second = Database::open(&path).active_price_list().expect("published");
+    let second = Database::open(&path)
+        .active_price_list()
+        .expect("published");
 
     assert_eq!(first.id, second.id, "reopening republished the price list");
     assert_eq!(first.version, second.version);
@@ -174,7 +178,8 @@ fn a_frozen_quote_survives_a_retry_at_its_original_price() {
         quoted_credits: 99,
         ..quote.clone()
     };
-    db.freeze_step_quote(&requote).expect("second freeze is a no-op");
+    db.freeze_step_quote(&requote)
+        .expect("second freeze is a no-op");
 
     let stored = db.get_step_quote("run-1", "step-1").expect("stored");
     assert_eq!(stored.quote_id, "q1", "a retry re-quoted the step");

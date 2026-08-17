@@ -1,5 +1,5 @@
-use crate::trust::{self, Interaction};
 use crate::envelope::SessionOutcome;
+use crate::trust::{self, Interaction};
 
 /// Compaction rooted in the Information Bottleneck principle (Tishby 1999).
 ///
@@ -249,9 +249,9 @@ fn extract_signal_from_compacted(inputs: &[CompactedVera]) -> SignalProfile {
     // More distinct compaction batches = more diverse meta-observation.
     let total_sources: usize = inputs.iter().map(|cv| cv.source_count).sum();
     let diversity = if total_sources > 0 {
-        (inputs.len() as f64 / total_sources as f64).min(1.0).max(
-            inputs.iter().map(|cv| cv.signal.diversity).sum::<f64>() / n,
-        )
+        (inputs.len() as f64 / total_sources as f64)
+            .min(1.0)
+            .max(inputs.iter().map(|cv| cv.signal.diversity).sum::<f64>() / n)
     } else {
         0.0
     };
@@ -352,10 +352,7 @@ pub fn compact_interactions(
     distill(interactions, now)
 }
 
-pub fn compact(
-    inputs: &[CompactedVera],
-    _total_available: usize,
-) -> CompactedVera {
+pub fn compact(inputs: &[CompactedVera], _total_available: usize) -> CompactedVera {
     distill_compacted(inputs)
 }
 

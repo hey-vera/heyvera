@@ -1,11 +1,11 @@
 use std::collections::HashSet;
 
+use cortex_core::egress::EgressPlan;
 use cortex_core::error::CortexError;
 use cortex_core::execution_job::{
-    BackendKind, Blocked, BlockedReason, BundleRef, Budgets, EffortApplication, ExecutionJob,
+    BackendKind, Blocked, BlockedReason, Budgets, BundleRef, EffortApplication, ExecutionJob,
     ModelRef, ResourceProfile, EXECUTION_JOB_VERSION,
 };
-use cortex_core::egress::EgressPlan;
 use cortex_core::failure::{WorkerFailureKind, WorkerFailureReport};
 use cortex_core::protocol::{
     CheckEvidence, CommandEvidence, GitEvidence, StepContext, StepOutput, WorkerEvidencePacket,
@@ -1199,8 +1199,7 @@ async fn run_required_checks<R: SandboxRunner>(
         // by the attempt's budget.
         let mut check_job = job.clone();
         check_job.job_id = uuid::Uuid::new_v4().to_string();
-        check_job.budgets.wall_clock =
-            std::time::Duration::from_secs(REQUIRED_CHECK_TIMEOUT_SECS);
+        check_job.budgets.wall_clock = std::time::Duration::from_secs(REQUIRED_CHECK_TIMEOUT_SECS);
 
         let request = SandboxRequest::new(
             working_dir,
@@ -1306,7 +1305,6 @@ async fn drain_check_session(
     (stdout, stderr, exit)
 }
 
-
 fn excerpt_from_lines(lines: &[String], max_chars: usize) -> Option<String> {
     excerpt_from_text(&lines.join("\n"), max_chars)
 }
@@ -1403,10 +1401,22 @@ mod tests {
         // because every test asserted on the contract half alone.
         let prompt = build_prompt(&spy_task(), &spy_context());
 
-        assert!(prompt.contains("crates/worker/src/executor.rs"), "the repository map never reached the model");
-        assert!(prompt.contains("make the tests pass"), "the user's goal never reached the model");
-        assert!(prompt.contains("the timeout is in ws.rs"), "the predecessor summary never reached the model");
-        assert!(prompt.contains("I tried it locally"), "the conversation excerpt never reached the model");
+        assert!(
+            prompt.contains("crates/worker/src/executor.rs"),
+            "the repository map never reached the model"
+        );
+        assert!(
+            prompt.contains("make the tests pass"),
+            "the user's goal never reached the model"
+        );
+        assert!(
+            prompt.contains("the timeout is in ws.rs"),
+            "the predecessor summary never reached the model"
+        );
+        assert!(
+            prompt.contains("I tried it locally"),
+            "the conversation excerpt never reached the model"
+        );
     }
 
     #[test]
@@ -1466,8 +1476,16 @@ mod tests {
         let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
         let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
 
-        let job = build_job(&step, &spy_task(), &decision, &runner, &build_command(&decision).unwrap());
-        let bundle = job.context_bundle.expect("the bundle is recorded per attempt");
+        let job = build_job(
+            &step,
+            &spy_task(),
+            &decision,
+            &runner,
+            &build_command(&decision).unwrap(),
+        );
+        let bundle = job
+            .context_bundle
+            .expect("the bundle is recorded per attempt");
         let composition = bundle.composition.expect("composition is recorded");
 
         assert_eq!(composition.total_items, 5);
@@ -1501,7 +1519,10 @@ mod tests {
             "the budget was measured on raw content, not on what reaches the model"
         );
         assert!(composition.total_rendered_bytes <= prompt_bytes);
-        assert_eq!(bundle.packed_bytes, Some(composition.total_rendered_bytes as u64));
+        assert_eq!(
+            bundle.packed_bytes,
+            Some(composition.total_rendered_bytes as u64)
+        );
     }
 
     #[test]
@@ -1954,7 +1975,13 @@ mod tests {
         let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
         let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
 
-        let job = build_job(&step, &spy_task(), &decision, &runner, &build_command(&decision).unwrap());
+        let job = build_job(
+            &step,
+            &spy_task(),
+            &decision,
+            &runner,
+            &build_command(&decision).unwrap(),
+        );
 
         // The step carries no provider grant, so the union is the plan alone.
         assert_eq!(job.network_policy, plan.network_policy);
@@ -1980,7 +2007,13 @@ mod tests {
         let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
         let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
 
-        let job = build_job(&step, &spy_task(), &decision, &runner, &build_command(&decision).unwrap());
+        let job = build_job(
+            &step,
+            &spy_task(),
+            &decision,
+            &runner,
+            &build_command(&decision).unwrap(),
+        );
 
         assert!(job.effective_egress.expect("recorded").is_empty());
         assert!(job.egress_mediator.is_none());
@@ -2012,7 +2045,13 @@ mod tests {
             let decision = spy_decision(provider, "some-model");
             let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
 
-            let job = build_job(&step, &spy_task(), &decision, &runner, &build_command(&decision).unwrap());
+            let job = build_job(
+                &step,
+                &spy_task(),
+                &decision,
+                &runner,
+                &build_command(&decision).unwrap(),
+            );
             let effective = job.effective_egress.expect("effective egress is recorded");
 
             assert!(
@@ -2050,7 +2089,13 @@ mod tests {
         let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
         let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
 
-        let job = build_job(&step, &spy_task(), &decision, &runner, &build_command(&decision).unwrap());
+        let job = build_job(
+            &step,
+            &spy_task(),
+            &decision,
+            &runner,
+            &build_command(&decision).unwrap(),
+        );
         let effective = job.effective_egress.expect("recorded");
 
         assert!(effective.iter().any(|e| e == "api.anthropic.com:443"));
@@ -2099,7 +2144,13 @@ mod tests {
         let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
         let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
 
-        let job = build_job(&step, &spy_task(), &decision, &runner, &build_command(&decision).unwrap());
+        let job = build_job(
+            &step,
+            &spy_task(),
+            &decision,
+            &runner,
+            &build_command(&decision).unwrap(),
+        );
         let effective = job.effective_egress.expect("recorded");
 
         for (_, host) in cortex_core::egress::PROVIDER_ENDPOINTS {
@@ -2117,7 +2168,13 @@ mod tests {
         let (runner, _) = SpyRunner::new(SpyOutcome::Exit(0));
         let decision = spy_decision(ProviderId::Claude, "claude-opus-5");
         let step = spy_step();
-        let job = build_job(&step, &spy_task(), &decision, &runner, &build_command(&decision).unwrap());
+        let job = build_job(
+            &step,
+            &spy_task(),
+            &decision,
+            &runner,
+            &build_command(&decision).unwrap(),
+        );
 
         assert_eq!(job.job_version, EXECUTION_JOB_VERSION);
         assert_eq!(job.attempt_id, "attempt-1");
@@ -2135,9 +2192,14 @@ mod tests {
         // recorded on every attempt, and it is recorded even when the context
         // is empty — a step told nothing but its contract is a fact worth
         // having on the receipt, and absent would mean "no record" instead.
-        let bundle = job.context_bundle.expect("a bundle is recorded per attempt");
+        let bundle = job
+            .context_bundle
+            .expect("a bundle is recorded per attempt");
         let composition = bundle.composition.expect("composition is recorded");
-        assert_eq!(composition.total_items, 1, "only the contract, on an empty context");
+        assert_eq!(
+            composition.total_items, 1,
+            "only the contract, on an empty context"
+        );
         assert!(composition.directive_findings.is_empty());
         assert_eq!(job.quote_id, None);
         assert_eq!(job.plan_receipt_id, None);

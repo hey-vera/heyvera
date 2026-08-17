@@ -108,9 +108,11 @@ impl Index {
         let mut index = Self { conn };
         let stored: Option<String> = index
             .conn
-            .query_row("SELECT value FROM meta WHERE key = 'schema_tag'", [], |row| {
-                row.get(0)
-            })
+            .query_row(
+                "SELECT value FROM meta WHERE key = 'schema_tag'",
+                [],
+                |row| row.get(0),
+            )
             .ok();
 
         match stored.as_deref() {
@@ -171,7 +173,9 @@ impl Index {
                 .prepare("SELECT file, content_hash FROM file_meta")
                 .map_err(|e| format!("failed to read file_meta: {e}"))?;
             let rows = stmt
-                .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
+                .query_map([], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                })
                 .map_err(|e| format!("failed to read file_meta rows: {e}"))?;
             rows.filter_map(Result::ok).collect()
         };
@@ -483,11 +487,7 @@ mod tests {
         assert_eq!(stats.files_indexed, 1);
 
         let map = index.repo_map().expect("map");
-        let names: Vec<&str> = map
-            .symbols
-            .iter()
-            .map(|s| s.symbol.name.as_str())
-            .collect();
+        let names: Vec<&str> = map.symbols.iter().map(|s| s.symbol.name.as_str()).collect();
         assert!(names.contains(&"after"));
         assert!(
             !names.contains(&"before"),

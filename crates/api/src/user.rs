@@ -177,7 +177,10 @@ fn sync_selected_github_authority(state: &AppState, user_id: &str, selected_repo
         let repo_key = format!("github:{}", repo.full_name);
         let (access, role) = repo_authority_access(repo);
         let current_role = org_roles.get(&scope_id).copied();
-        org_roles.insert(scope_id.clone(), strongest_authority_role(current_role, role));
+        org_roles.insert(
+            scope_id.clone(),
+            strongest_authority_role(current_role, role),
+        );
         db.upsert_authority_scope(
             user_id,
             &scope_id,
@@ -217,10 +220,7 @@ fn sync_selected_github_authority(state: &AppState, user_id: &str, selected_repo
     }
 }
 
-pub async fn get_profile(
-    State(state): State<Arc<AppState>>,
-    user: ClerkUser,
-) -> Json<UserProfile> {
+pub async fn get_profile(State(state): State<Arc<AppState>>, user: ClerkUser) -> Json<UserProfile> {
     let data = read_user_data(&state, &user.user_id);
     Json(UserProfile {
         user_id: user.user_id,
@@ -242,9 +242,7 @@ pub async fn github_status(
         .map_err(|e| {
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(ErrorResponse {
-                    error: e,
-                }),
+                Json(ErrorResponse { error: e }),
             )
         })?;
 
@@ -272,7 +270,9 @@ pub async fn github_status(
     let username = match user_res {
         Ok(res) if res.status().is_success() => {
             let v: serde_json::Value = res.json().await.unwrap_or_default();
-            v.get("login").and_then(|l| l.as_str()).map(|s| s.to_string())
+            v.get("login")
+                .and_then(|l| l.as_str())
+                .map(|s| s.to_string())
         }
         _ => None,
     };
@@ -385,10 +385,8 @@ pub async fn get_routing_profile(
         .db
         .as_ref()
         .map(|db| {
-            let raw = db.pressure_for_user(
-                &user.user_id,
-                cortex_core::evaluator::WINDOW_SECS * 1000,
-            );
+            let raw =
+                db.pressure_for_user(&user.user_id, cortex_core::evaluator::WINDOW_SECS * 1000);
             raw.into_iter()
                 .map(|(provider, tier, tokens)| {
                     serde_json::json!({

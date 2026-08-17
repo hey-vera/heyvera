@@ -171,6 +171,35 @@ jobs:
             exit 1
           fi
 
+  # Formatting is a separate job from `rust` on purpose: it is seconds long and
+  # needs no dependency graph, so it must not queue behind a four-minute
+  # compile, and its own status context can be made required independently.
+  #
+  # `rustfmt.toml` pins only stable options, so this passes on the pinned
+  # toolchain rather than needing nightly. The workspace was formatted once, in
+  # a single mechanical commit recorded in .git-blame-ignore-revs; from here on
+  # a formatting drift is a one-command fix.
+  fmt:
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+
+      - name: Install Rust toolchain
+        run: |
+          # Same pin as the `rust` job. rustfmt output is version-dependent, so
+          # an unpinned toolchain would make this gate fail on a rustfmt release
+          # rather than on anything a contributor did.
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          rustup default 1.97.1
+          cargo fmt --version
+
+      - name: Formatting
+        # If this fails, run `cargo fmt --all` and commit the result. There is
+        # nothing to interpret: the fix is the command.
+        run: cargo fmt --all --check
+
   rust:
     runs-on: ubuntu-latest
     env:

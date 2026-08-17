@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use crate::state::AppState;
+use std::sync::Arc;
 
 pub fn spawn_token_refresh_job(state: Arc<AppState>) {
     tokio::spawn(async move {

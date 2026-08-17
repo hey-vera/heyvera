@@ -130,6 +130,28 @@ type WorkerStream = futures_util::stream::SplitStream<
     tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>,
 >;
 
+/// Mint a real `cwk_` worker credential against this test's database.
+///
+/// The empty token no longer authenticates a worker (migration v67 closed that
+/// path behind `CORTEX_ALLOW_ANONYMOUS_WORKER`), and re-opening the escape
+/// hatch here would put the suite back on the safe side of the boundary this
+/// whole file exists to cross. So the test registers the way production will:
+/// with an issued key that the server resolves against `worker_keys`.
+fn issue_worker_key(state: &AppState) -> String {
+    let db = state.db.as_ref().expect("test app has a database");
+    let key = cortex_api::worker_key::generate_worker_key();
+    db.create_worker_key(
+        &format!("wk_{}", &key.hash[..12]),
+        &key.hash,
+        &key.display_prefix,
+        "local",
+        cortex_api::worker_key::DEFAULT_WORKER_SCOPE,
+        None,
+    )
+    .expect("worker key is issued");
+    key.secret
+}
+
 /// Connect and register a worker, and hold the sink open.
 ///
 /// **Registered before the run is created, deliberately.** Dispatch is
@@ -143,6 +165,7 @@ type WorkerStream = futures_util::stream::SplitStream<
 /// socket, and a closed socket deregisters the worker.
 async fn connect_worker(
     base_url: &str,
+    token: String,
 ) -> (
     futures_util::stream::SplitSink<
         tokio_tungstenite::WebSocketStream<
@@ -166,7 +189,7 @@ async fn connect_worker(
         .expect("ws ok");
 
     let register = WorkerMessage::Register {
-        token: String::new(),
+        token,
         protocol_version: PROTOCOL_VERSION,
         providers: vec![ProviderClaim {
             provider: ProviderId::Claude,
@@ -220,11 +243,11 @@ async fn first_execute_step(stream: &mut WorkerStream) -> BrainMessage {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_dispatched_step_can_reach_its_model_and_is_told_about_the_repository() {
     let repo = real_repository();
-    let (app, _state) = test_app(repo.path()).await;
+    let (app, state) = test_app(repo.path()).await;
     let base_url = serve_app(app.clone()).await;
 
     // Worker first, then the run. See `connect_worker`.
-    let (_sink, mut stream) = connect_worker(&base_url).await;
+    let (_sink, mut stream) = connect_worker(&base_url, issue_worker_key(&state)).await;
     let _run_id = create_run(&app, "make the arithmetic in src/lib.rs correct").await;
     let frame = first_execute_step(&mut stream).await;
 
@@ -325,7 +348,10 @@ async fn a_dispatched_step_can_reach_its_model_and_is_told_about_the_repository(
             cortex_core::execution_job::CapabilityGrant::ReachProvider { .. }
         )
     });
-    assert!(has_provider, "the job carries no provider grant: {grants:?}");
+    assert!(
+        has_provider,
+        "the job carries no provider grant: {grants:?}"
+    );
 
     // What the model is actually handed.
     let bundle = job
@@ -363,11 +389,11 @@ async fn a_repository_with_no_manifest_still_reaches_its_model() {
     std::fs::create_dir_all(tmp.path().join(".cortex")).unwrap();
     std::fs::write(tmp.path().join("README.md"), "no manifests here\n").unwrap();
 
-    let (app, _state) = test_app(tmp.path()).await;
+    let (app, state) = test_app(tmp.path()).await;
     let base_url = serve_app(app.clone()).await;
 
     // Worker first, then the run. See `connect_worker`.
-    let (_sink, mut stream) = connect_worker(&base_url).await;
+    let (_sink, mut stream) = connect_worker(&base_url, issue_worker_key(&state)).await;
     let _run_id = create_run(&app, "read the readme and describe the project").await;
     let frame = first_execute_step(&mut stream).await;
 
@@ -402,11 +428,11 @@ async fn the_frame_carries_a_context_the_worker_can_render() {
     // hole PR U closed, and it would still pass an "is the context present"
     // assertion.
     let repo = real_repository();
-    let (app, _state) = test_app(repo.path()).await;
+    let (app, state) = test_app(repo.path()).await;
     let base_url = serve_app(app.clone()).await;
 
     // Worker first, then the run. See `connect_worker`.
-    let (_sink, mut stream) = connect_worker(&base_url).await;
+    let (_sink, mut stream) = connect_worker(&base_url, issue_worker_key(&state)).await;
     let _run_id = create_run(&app, "explain what add() does").await;
     let frame = first_execute_step(&mut stream).await;
 
@@ -630,7 +656,7 @@ async fn cortex_completes_one_real_task_end_to_end() {
     cortex_api::verification_dispatcher::spawn(state.clone());
 
     let base_url = serve_app(app.clone()).await;
-    let (mut sink, mut stream) = connect_worker(&base_url).await;
+    let (mut sink, mut stream) = connect_worker(&base_url, issue_worker_key(&state)).await;
     let run_id = create_run(&app, "fix the bug in src/lib.rs so that cargo test passes").await;
 
     let frame = first_execute_step(&mut stream).await;
@@ -773,13 +799,19 @@ async fn cortex_completes_one_real_task_end_to_end() {
     // empty execution set would be the same vacuous green this file exists to
     // prevent.
     assert!(
-        receipt.executions.iter().any(|e| e.spec_id == "ecosystem:cargo-test"
-            && e.outcome == cortex_core::verification::CheckOutcome::Passed),
+        receipt
+            .executions
+            .iter()
+            .any(|e| e.spec_id == "ecosystem:cargo-test"
+                && e.outcome == cortex_core::verification::CheckOutcome::Passed),
         "cargo test did not run against the delivered tree: {:?}",
         receipt.executions
     );
     assert!(
-        receipt.executions.iter().all(|e| !e.runner_image.is_empty()),
+        receipt
+            .executions
+            .iter()
+            .all(|e| !e.runner_image.is_empty()),
         "an execution does not record where it ran, so it is not reproducible"
     );
 

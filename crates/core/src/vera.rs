@@ -498,7 +498,14 @@ mod tests {
         let now = 1_000;
         let cap = Capability::CodeExecution;
         let ok = interaction(1, cap.clone(), SessionOutcome::Success, now);
-        let bad = interaction(2, cap.clone(), SessionOutcome::Failure { error_class: "x".into() }, now);
+        let bad = interaction(
+            2,
+            cap.clone(),
+            SessionOutcome::Failure {
+                error_class: "x".into(),
+            },
+            now,
+        );
 
         // Warmth is observation mass: a failure is as observed as a success.
         assert!((compute_warmth(&[ok.clone(), bad.clone()], &cap, now) - 2.0).abs() < 1e-9);
@@ -524,14 +531,24 @@ mod tests {
             .map(|_| interaction(7, Capability::CodeExecution, SessionOutcome::Success, now))
             .collect();
         let diverse: Vec<Interaction> = (0..20)
-            .map(|n| interaction(n as u8, Capability::CodeExecution, SessionOutcome::Success, now))
+            .map(|n| {
+                interaction(
+                    n as u8,
+                    Capability::CodeExecution,
+                    SessionOutcome::Success,
+                    now,
+                )
+            })
             .collect();
 
         let gamed_c = distill(&gamed, now).coherence;
         let diverse_c = distill(&diverse, now).coherence;
 
         assert!(gamed_c < 0.1, "one repeated observer reached C={gamed_c}");
-        assert!(diverse_c > 0.9, "twenty independent observers only reached C={diverse_c}");
+        assert!(
+            diverse_c > 0.9,
+            "twenty independent observers only reached C={diverse_c}"
+        );
         assert!(diverse_c > gamed_c);
     }
 
@@ -549,7 +566,14 @@ mod tests {
     fn compaction_raises_the_level_and_sums_the_sources() {
         let now = 0;
         let batch: Vec<Interaction> = (0..10)
-            .map(|n| interaction(n as u8, Capability::CodeExecution, SessionOutcome::Success, now))
+            .map(|n| {
+                interaction(
+                    n as u8,
+                    Capability::CodeExecution,
+                    SessionOutcome::Success,
+                    now,
+                )
+            })
             .collect();
         let level1: Vec<CompactedVera> = (0..3).map(|_| distill(&batch, now)).collect();
         let level2 = distill_compacted(&level1);
@@ -563,7 +587,14 @@ mod tests {
     fn network_enrichment_is_warmth_per_actor() {
         let now = 0;
         let interactions: Vec<Interaction> = (0..4)
-            .map(|n| interaction(n as u8, Capability::CodeExecution, SessionOutcome::Success, now))
+            .map(|n| {
+                interaction(
+                    n as u8,
+                    Capability::CodeExecution,
+                    SessionOutcome::Success,
+                    now,
+                )
+            })
             .collect();
         let net = compute_network(&interactions, 4, now);
         assert!((net.total_warmth - 4.0).abs() < 1e-9);
@@ -577,7 +608,12 @@ mod tests {
     fn a_future_timestamp_does_not_underflow() {
         // `now` behind the interaction's timestamp must saturate, not wrap into
         // an enormous elapsed time.
-        let i = interaction(1, Capability::CodeExecution, SessionOutcome::Success, 10_000);
+        let i = interaction(
+            1,
+            Capability::CodeExecution,
+            SessionOutcome::Success,
+            10_000,
+        );
         assert!((coherence(&i, 0) - 1.0).abs() < f64::EPSILON);
     }
 }

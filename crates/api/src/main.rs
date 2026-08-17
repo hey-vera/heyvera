@@ -8,7 +8,9 @@ use cortex_api::state::AppState;
 /// Initialize the OpenTelemetry OTLP tracing pipeline.
 /// Returns the tracer provider so it can be shut down on exit.
 #[cfg(feature = "otel")]
-fn init_otel(endpoint: &str) -> Result<opentelemetry_sdk::trace::SdkTracerProvider, Box<dyn std::error::Error>> {
+fn init_otel(
+    endpoint: &str,
+) -> Result<opentelemetry_sdk::trace::SdkTracerProvider, Box<dyn std::error::Error>> {
     use opentelemetry::KeyValue;
     use opentelemetry_otlp::WithExportConfig;
     use opentelemetry_sdk::trace::SdkTracerProvider;
@@ -69,11 +71,14 @@ async fn main() {
     // can be wired in. The guard must live for the entire duration of main.
     #[cfg(feature = "sentry-tracking")]
     let _sentry_guard = if let Ok(dsn) = std::env::var("SENTRY_DSN") {
-        let guard = sentry::init((dsn, sentry::ClientOptions {
-            release: Some(env!("CARGO_PKG_VERSION").into()),
-            traces_sample_rate: 0.1,
-            ..Default::default()
-        }));
+        let guard = sentry::init((
+            dsn,
+            sentry::ClientOptions {
+                release: Some(env!("CARGO_PKG_VERSION").into()),
+                traces_sample_rate: 0.1,
+                ..Default::default()
+            },
+        ));
         Some(guard)
     } else {
         None
@@ -83,8 +88,8 @@ async fn main() {
     #[cfg(feature = "sentry-tracking")]
     {
         use tracing_subscriber::prelude::*;
-        let env_filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "info".parse().unwrap());
+        let env_filter =
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".parse().unwrap());
         let sentry_active = std::env::var("SENTRY_DSN").is_ok();
         if sentry_active {
             tracing_subscriber::registry()
@@ -93,9 +98,7 @@ async fn main() {
                 .init();
             eprintln!("Sentry error tracking enabled");
         } else {
-            tracing_subscriber::fmt()
-                .with_env_filter(env_filter)
-                .init();
+            tracing_subscriber::fmt().with_env_filter(env_filter).init();
             eprintln!("SENTRY_DSN not set, error tracking disabled");
         }
     }
@@ -104,8 +107,8 @@ async fn main() {
     {
         use tracing_subscriber::prelude::*;
 
-        let env_filter = EnvFilter::try_from_default_env()
-            .unwrap_or_else(|_| "info".parse().unwrap());
+        let env_filter =
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| "info".parse().unwrap());
         // Use structured JSON logging when CORTEX_JSON_LOGS=true (production default)
         let use_json = std::env::var("CORTEX_JSON_LOGS")
             .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
@@ -167,8 +170,8 @@ async fn main() {
         }
     }
 
-    let ledger_path = std::env::var("CORTEX_LEDGER_PATH")
-        .unwrap_or_else(|_| ".cortex/ledger.jsonl".to_string());
+    let ledger_path =
+        std::env::var("CORTEX_LEDGER_PATH").unwrap_or_else(|_| ".cortex/ledger.jsonl".to_string());
 
     if let Some(parent) = std::path::Path::new(&ledger_path).parent() {
         std::fs::create_dir_all(parent).ok();
@@ -178,12 +181,16 @@ async fn main() {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|_| std::env::current_dir().unwrap_or_else(|_| ".".into()));
 
-    let clerk_secret_key = std::env::var("CLERK_SECRET_KEY").ok().filter(|s| !s.is_empty());
+    let clerk_secret_key = std::env::var("CLERK_SECRET_KEY")
+        .ok()
+        .filter(|s| !s.is_empty());
 
     if clerk_secret_key.is_some() {
         tracing::info!("auth: Clerk JWT verification enabled");
     } else {
-        tracing::info!("auth: disabled (no CLERK_SECRET_KEY) — all requests treated as user \"local\"");
+        tracing::info!(
+            "auth: disabled (no CLERK_SECRET_KEY) — all requests treated as user \"local\""
+        );
     }
 
     let state = AppState::new(ledger_path, workspace_dir, clerk_secret_key).await;
@@ -219,14 +226,19 @@ async fn main() {
         Some(socket2::Protocol::TCP),
     )
     .expect("failed to create socket");
-    socket.set_reuse_address(true).expect("failed to set SO_REUSEADDR");
-    socket.set_nonblocking(true).expect("failed to set nonblocking");
+    socket
+        .set_reuse_address(true)
+        .expect("failed to set SO_REUSEADDR");
+    socket
+        .set_nonblocking(true)
+        .expect("failed to set nonblocking");
     socket.bind(&addr.into()).unwrap_or_else(|e| {
         panic!("failed to bind {addr}: {e} — is another instance running?");
     });
     socket.listen(1024).expect("failed to listen");
 
-    let listener = tokio::net::TcpListener::from_std(socket.into()).expect("failed to create tokio listener");
+    let listener =
+        tokio::net::TcpListener::from_std(socket.into()).expect("failed to create tokio listener");
     tracing::info!("cortex server listening on {addr}");
     axum::serve(listener, app)
         .with_graceful_shutdown(shutdown_signal())

@@ -43,6 +43,10 @@ mod tests {
         assert!(outcome.is_err(), "the worker thread must have panicked");
 
         assert!(counter.lock().is_err(), "the mutex is genuinely poisoned");
-        assert_eq!(*counter.lock_recovering(), 2, "the value is still reachable");
+        assert_eq!(
+            *counter.lock_recovering(),
+            2,
+            "the value is still reachable"
+        );
     }
 }

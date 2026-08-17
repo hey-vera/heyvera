@@ -16,9 +16,20 @@ impl CostEstimator {
         cached_tokens: Option<i64>,
     ) -> (f64, RequestCostBreakdown) {
         let cost = if let Some(cached) = cached_tokens {
-            estimate_cost_with_cache(provider, model, estimated_input_tokens, cached, estimated_output_tokens)
+            estimate_cost_with_cache(
+                provider,
+                model,
+                estimated_input_tokens,
+                cached,
+                estimated_output_tokens,
+            )
         } else {
-            estimate_cost(provider, model, estimated_input_tokens, estimated_output_tokens)
+            estimate_cost(
+                provider,
+                model,
+                estimated_input_tokens,
+                estimated_output_tokens,
+            )
         };
 
         let breakdown = RequestCostBreakdown {
@@ -28,7 +39,12 @@ impl CostEstimator {
             output_tokens: estimated_output_tokens,
             cached_tokens,
             total_cost: cost,
-            input_cost: Self::calculate_input_cost(provider, model, estimated_input_tokens, cached_tokens),
+            input_cost: Self::calculate_input_cost(
+                provider,
+                model,
+                estimated_input_tokens,
+                cached_tokens,
+            ),
             output_cost: Self::calculate_output_cost(provider, model, estimated_output_tokens),
         };
 
@@ -44,7 +60,13 @@ impl CostEstimator {
         cached_tokens: Option<i64>,
     ) -> f64 {
         if let Some(cached) = cached_tokens {
-            estimate_cost_with_cache(provider, model, actual_input_tokens, cached, actual_output_tokens)
+            estimate_cost_with_cache(
+                provider,
+                model,
+                actual_input_tokens,
+                cached,
+                actual_output_tokens,
+            )
         } else {
             estimate_cost(provider, model, actual_input_tokens, actual_output_tokens)
         }
@@ -62,8 +84,8 @@ impl CostEstimator {
         user_message: &str,
         context_size: Option<usize>,
     ) -> i64 {
-        let base_tokens = Self::estimate_tokens_from_text(system_prompt) +
-                          Self::estimate_tokens_from_text(user_message);
+        let base_tokens = Self::estimate_tokens_from_text(system_prompt)
+            + Self::estimate_tokens_from_text(user_message);
 
         // Add context tokens if provided
         let context_tokens = context_size.unwrap_or(0) as i64;
@@ -77,13 +99,13 @@ impl CostEstimator {
     /// Estimate output tokens based on request type and model.
     pub fn estimate_output_tokens(request_type: &str, model: &str) -> i64 {
         match (request_type, model) {
-            ("chat", m) if m.contains("haiku") => 512,    // Quick responses
-            ("chat", m) if m.contains("opus") => 2048,    // Detailed responses
-            ("chat", _) => 1024,                          // Sonnet/default
-            ("code", _) => 4096,                          // Code generation
-            ("search", _) => 256,                         // Search/lookup
-            ("summary", _) => 512,                        // Summarization
-            _ => 1024,                                    // Default estimate
+            ("chat", m) if m.contains("haiku") => 512, // Quick responses
+            ("chat", m) if m.contains("opus") => 2048, // Detailed responses
+            ("chat", _) => 1024,                       // Sonnet/default
+            ("code", _) => 4096,                       // Code generation
+            ("search", _) => 256,                      // Search/lookup
+            ("summary", _) => 512,                     // Summarization
+            _ => 1024,                                 // Default estimate
         }
     }
 
@@ -101,13 +123,18 @@ impl CostEstimator {
         }
     }
 
-    fn calculate_input_cost(provider: &str, model: &str, tokens: i64, cached_tokens: Option<i64>) -> f64 {
+    fn calculate_input_cost(
+        provider: &str,
+        model: &str,
+        tokens: i64,
+        cached_tokens: Option<i64>,
+    ) -> f64 {
         let (in_rate, _) = Self::get_model_rates(provider, model);
 
         if let Some(cached) = cached_tokens {
             let cache_discount = match provider {
-                "claude" => 0.1,  // 90% discount on cached
-                "openai" => 0.5,  // 50% discount estimate
+                "claude" => 0.1, // 90% discount on cached
+                "openai" => 0.5, // 50% discount estimate
                 _ => 0.5,
             };
             let regular_tokens = (tokens - cached).max(0);
@@ -214,8 +241,17 @@ mod tests {
 
     #[test]
     fn test_output_estimation() {
-        assert_eq!(CostEstimator::estimate_output_tokens("chat", "claude-3-haiku"), 512);
-        assert_eq!(CostEstimator::estimate_output_tokens("code", "claude-3-sonnet"), 4096);
-        assert_eq!(CostEstimator::estimate_output_tokens("summary", "gpt-4"), 512);
+        assert_eq!(
+            CostEstimator::estimate_output_tokens("chat", "claude-3-haiku"),
+            512
+        );
+        assert_eq!(
+            CostEstimator::estimate_output_tokens("code", "claude-3-sonnet"),
+            4096
+        );
+        assert_eq!(
+            CostEstimator::estimate_output_tokens("summary", "gpt-4"),
+            512
+        );
     }
 }

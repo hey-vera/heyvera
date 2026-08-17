@@ -52,6 +52,13 @@ USER cortex
 WORKDIR /workspace
 
 ENV CORTEX_BRAIN_URL=ws://brain:3001/ws
+
+# The worker's service credential: a `cwk_` key minted on the host with
+# `cortex-worker-key issue --owner <clerk_user_id>`. Empty here so it must be
+# supplied at run time (`-e CORTEX_TOKEN=cwk_...`) rather than baked into a
+# layer. A container that starts with this unset will be refused at connect —
+# an unset CLERK_SECRET_KEY on the brain is no longer sufficient to
+# authenticate a worker. See crates/api/src/worker_key.rs.
 ENV CORTEX_TOKEN=
 
 ENTRYPOINT ["cortex-worker"]

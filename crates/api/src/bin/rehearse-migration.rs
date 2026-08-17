@@ -188,7 +188,8 @@ fn snapshot(path: &Path) -> Snapshot {
         };
         let rows = stmt.query_map([], |r| {
             Ok((
-                r.get::<_, Option<String>>(0)?.unwrap_or_else(|| "NULL".into()),
+                r.get::<_, Option<String>>(0)?
+                    .unwrap_or_else(|| "NULL".into()),
                 r.get::<_, i64>(1)?,
             ))
         });

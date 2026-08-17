@@ -275,8 +275,8 @@ mod tests {
         }
 
         fn indexed(&self) -> Index {
-            let mut index = Index::open(&self.root.join(".cortex").join("index.sqlite"))
-                .expect("open index");
+            let mut index =
+                Index::open(&self.root.join(".cortex").join("index.sqlite")).expect("open index");
             index.sync(&self.root).expect("sync");
             index
         }
@@ -352,7 +352,10 @@ mod tests {
         let ws = Workspace::new("empty");
         ws.write("auth.rs", "pub fn validate_token() {}\n");
         let index = ws.indexed();
-        assert!(index.search(&Query::default(), 10).expect("search").is_empty());
+        assert!(index
+            .search(&Query::default(), 10)
+            .expect("search")
+            .is_empty());
     }
 
     #[test]

@@ -3,14 +3,16 @@
 //! Tests the complete Context-Flow system including artifact creation,
 //! context assembly, database persistence, and end-to-end flow.
 
-use std::sync::Arc;
+use chrono::Utc;
 use std::collections::HashMap;
+use std::sync::Arc;
 use tempfile::TempDir;
 use uuid::Uuid;
-use chrono::Utc;
 
+use cortex_api::context_flow::{
+    Artifact, ArtifactKind, ContextBus, ContextBusConfig, ContextTransform,
+};
 use cortex_api::db::Database;
-use cortex_api::context_flow::{ContextBus, ContextBusConfig, ArtifactKind, ContextTransform, Artifact};
 
 /// Helper to create a test database
 fn create_test_db() -> (TempDir, Database) {
@@ -72,7 +74,17 @@ async fn test_artifact_creation_and_storage() {
     let stored_artifacts = db.get_context_artifacts_for_run(run_id);
     assert_eq!(stored_artifacts.len(), 1);
 
-    let (stored_id, stored_step_id, stored_kind, stored_content, stored_summary, stored_files, stored_confidence, stored_tokens, _created_at) = &stored_artifacts[0];
+    let (
+        stored_id,
+        stored_step_id,
+        stored_kind,
+        stored_content,
+        stored_summary,
+        stored_files,
+        stored_confidence,
+        stored_tokens,
+        _created_at,
+    ) = &stored_artifacts[0];
 
     assert_eq!(stored_id, &artifact.id);
     assert_eq!(stored_step_id, step_id);
@@ -124,12 +136,9 @@ async fn test_context_assembly_from_multiple_artifacts() {
     }
 
     // Assemble context for next step
-    let context = context_bus.assemble_context(
-        Some(&db),
-        run_id,
-        "Create a web server",
-        None,
-    ).await;
+    let context = context_bus
+        .assemble_context(Some(&db), run_id, "Create a web server", None)
+        .await;
 
     // Verify context assembly
     assert_eq!(context.user_goal, "Create a web server");
@@ -144,7 +153,10 @@ async fn test_context_assembly_from_multiple_artifacts() {
     assert_eq!(context.predecessor_summaries[2].kind, "code");
 
     // Check that files_changed are preserved
-    assert_eq!(context.predecessor_summaries[0].files_changed, vec!["test.rs"]);
+    assert_eq!(
+        context.predecessor_summaries[0].files_changed,
+        vec!["test.rs"]
+    );
 }
 
 #[tokio::test]
@@ -186,19 +198,17 @@ async fn test_token_budget_enforcement() {
     }
 
     // Assemble context - should respect token budget
-    let context = context_bus.assemble_context(
-        Some(&db),
-        run_id,
-        "Test goal",
-        None,
-    ).await;
+    let context = context_bus
+        .assemble_context(Some(&db), run_id, "Test goal", None)
+        .await;
 
     // Should only include artifacts that fit within budget
     // With 50 token budget, should only fit first artifact (partially)
     assert!(context.predecessor_summaries.len() <= 2);
 
     // Verify total content is within reasonable bounds
-    let total_content_length: usize = context.predecessor_summaries
+    let total_content_length: usize = context
+        .predecessor_summaries
         .iter()
         .map(|s| s.summary.len())
         .sum();
@@ -235,12 +245,9 @@ async fn test_max_predecessors_limit() {
     }
 
     // Assemble context - should respect predecessor limit
-    let context = context_bus.assemble_context(
-        Some(&db),
-        run_id,
-        "Test goal",
-        None,
-    ).await;
+    let context = context_bus
+        .assemble_context(Some(&db), run_id, "Test goal", None)
+        .await;
 
     // Should only include first 2 artifacts (oldest first)
     assert_eq!(context.predecessor_summaries.len(), 2);
@@ -259,7 +266,11 @@ async fn test_artifact_type_classification() {
     let test_cases = vec![
         (ArtifactKind::Answer, "answer", "This is the final answer"),
         (ArtifactKind::Code, "code", "fn main() {}"),
-        (ArtifactKind::Analysis, "analysis", "Analysis of the problem"),
+        (
+            ArtifactKind::Analysis,
+            "analysis",
+            "Analysis of the problem",
+        ),
         (ArtifactKind::Plan, "plan", "Step 1: Do something"),
         (ArtifactKind::Review, "review", "Code looks good"),
         (ArtifactKind::Error, "error", "Something went wrong"),
@@ -267,13 +278,7 @@ async fn test_artifact_type_classification() {
     ];
 
     for (kind, expected_kind_str, content) in test_cases {
-        let artifact = create_test_artifact(
-            "step-1",
-            run_id,
-            kind,
-            content,
-            "Test artifact",
-        );
+        let artifact = create_test_artifact("step-1", run_id, kind, content, "Test artifact");
 
         context_bus.add_artifact(Some(&db), artifact).await;
 
@@ -306,12 +311,9 @@ async fn test_graceful_degradation_without_database() {
     context_bus.add_artifact(None, artifact).await;
 
     // Assemble context without database (should return empty context)
-    let context = context_bus.assemble_context(
-        None,
-        run_id,
-        "Test goal",
-        None,
-    ).await;
+    let context = context_bus
+        .assemble_context(None, run_id, "Test goal", None)
+        .await;
 
     assert_eq!(context.user_goal, "Test goal");
     assert_eq!(context.predecessor_summaries.len(), 0);
@@ -357,16 +359,21 @@ async fn test_empty_run_returns_empty_context() {
     let run_id = "empty-run";
 
     // Assemble context for run with no artifacts
-    let context = context_bus.assemble_context(
-        Some(&db),
-        run_id,
-        "Test goal",
-        Some("Test conversation".to_string()),
-    ).await;
+    let context = context_bus
+        .assemble_context(
+            Some(&db),
+            run_id,
+            "Test goal",
+            Some("Test conversation".to_string()),
+        )
+        .await;
 
     assert_eq!(context.user_goal, "Test goal");
     assert_eq!(context.predecessor_summaries.len(), 0);
-    assert_eq!(context.conversation_excerpt, Some("Test conversation".to_string()));
+    assert_eq!(
+        context.conversation_excerpt,
+        Some("Test conversation".to_string())
+    );
 }
 
 #[tokio::test]
@@ -386,13 +393,7 @@ async fn test_database_statistics() {
     ];
 
     for (run_id, kind, content) in artifacts {
-        let artifact = create_test_artifact(
-            "step-1",
-            run_id,
-            kind,
-            content,
-            "test summary",
-        );
+        let artifact = create_test_artifact("step-1", run_id, kind, content, "test summary");
         context_bus.add_artifact(Some(&db), artifact).await;
     }
 

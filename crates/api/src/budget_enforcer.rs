@@ -1,6 +1,6 @@
-use chrono::{Utc, Datelike};
-use crate::db::{Database, UserBudget, CostSession, CostWarning};
 use crate::cost_estimator::{CostEstimator, RequestCostBreakdown};
+use crate::db::{CostSession, CostWarning, Database, UserBudget};
+use chrono::{Datelike, Utc};
 
 /// Budget enforcer for tracking and limiting user costs.
 /// Integrates with the existing billing gate system.
@@ -96,8 +96,9 @@ impl<'a> BudgetEnforcer<'a> {
         let mut warning = None;
         if budget.notifications_enabled {
             // Check daily warning threshold
-            if daily_after / budget.daily_budget >= budget.warning_threshold &&
-               daily_spent / budget.daily_budget < budget.warning_threshold {
+            if daily_after / budget.daily_budget >= budget.warning_threshold
+                && daily_spent / budget.daily_budget < budget.warning_threshold
+            {
                 warning = Some(CostWarning {
                     id: String::new(), // Will be set by DB
                     user_id: user_id.to_string(),
@@ -110,8 +111,9 @@ impl<'a> BudgetEnforcer<'a> {
                 });
             }
             // Check weekly warning threshold
-            else if weekly_after / budget.weekly_budget >= budget.warning_threshold &&
-                    weekly_spent / budget.weekly_budget < budget.warning_threshold {
+            else if weekly_after / budget.weekly_budget >= budget.warning_threshold
+                && weekly_spent / budget.weekly_budget < budget.warning_threshold
+            {
                 warning = Some(CostWarning {
                     id: String::new(),
                     user_id: user_id.to_string(),
@@ -124,8 +126,9 @@ impl<'a> BudgetEnforcer<'a> {
                 });
             }
             // Check monthly warning threshold
-            else if monthly_after / budget.monthly_budget >= budget.warning_threshold &&
-                    monthly_spent / budget.monthly_budget < budget.warning_threshold {
+            else if monthly_after / budget.monthly_budget >= budget.warning_threshold
+                && monthly_spent / budget.monthly_budget < budget.warning_threshold
+            {
                 warning = Some(CostWarning {
                     id: String::new(),
                     user_id: user_id.to_string(),
@@ -178,7 +181,8 @@ impl<'a> BudgetEnforcer<'a> {
         tokens_out: i64,
     ) -> bool {
         let session_end = Utc::now().timestamp();
-        self.db.update_cost_session(session_id, session_end, actual_cost, tokens_out)
+        self.db
+            .update_cost_session(session_id, session_end, actual_cost, tokens_out)
     }
 
     /// Record a cost warning in the database.
@@ -193,7 +197,8 @@ impl<'a> BudgetEnforcer<'a> {
 
         // Daily spending (since midnight UTC)
         let midnight = now.date_naive().and_hms_opt(0, 0, 0).unwrap();
-        let daily_start = chrono::DateTime::<Utc>::from_naive_utc_and_offset(midnight, Utc).timestamp();
+        let daily_start =
+            chrono::DateTime::<Utc>::from_naive_utc_and_offset(midnight, Utc).timestamp();
         let (daily_byok, _) = self.db.get_user_cost_breakdown(user_id, daily_start);
 
         // Weekly spending (since Monday at midnight UTC)
@@ -202,7 +207,8 @@ impl<'a> BudgetEnforcer<'a> {
         let weekly_start = chrono::DateTime::<Utc>::from_naive_utc_and_offset(
             monday.and_hms_opt(0, 0, 0).unwrap(),
             Utc,
-        ).timestamp();
+        )
+        .timestamp();
         let (weekly_byok, _) = self.db.get_user_cost_breakdown(user_id, weekly_start);
 
         // Monthly spending (since 1st of month UTC)
@@ -212,8 +218,8 @@ impl<'a> BudgetEnforcer<'a> {
             .unwrap()
             .and_hms_opt(0, 0, 0)
             .unwrap();
-        let monthly_start = chrono::DateTime::<Utc>::from_naive_utc_and_offset(first_of_month, Utc)
-            .timestamp();
+        let monthly_start =
+            chrono::DateTime::<Utc>::from_naive_utc_and_offset(first_of_month, Utc).timestamp();
         let (monthly_byok, _) = self.db.get_user_cost_breakdown(user_id, monthly_start);
 
         (daily_byok, weekly_byok, monthly_byok)
@@ -229,23 +235,29 @@ impl<'a> BudgetEnforcer<'a> {
             let day_start = chrono::DateTime::<Utc>::from_naive_utc_and_offset(
                 date.and_hms_opt(0, 0, 0).unwrap(),
                 Utc,
-            ).timestamp();
+            )
+            .timestamp();
             let day_end = chrono::DateTime::<Utc>::from_naive_utc_and_offset(
                 date.and_hms_opt(23, 59, 59).unwrap(),
                 Utc,
-            ).timestamp();
+            )
+            .timestamp();
 
-            let sessions = self.db.get_user_cost_sessions(user_id, day_start)
+            let sessions = self
+                .db
+                .get_user_cost_sessions(user_id, day_start)
                 .into_iter()
                 .filter(|s| s.session_start <= day_end)
                 .collect::<Vec<_>>();
 
-            let byok_cost = sessions.iter()
+            let byok_cost = sessions
+                .iter()
                 .filter(|s| s.cost_type == "byok")
                 .map(|s| s.actual_cost.unwrap_or(s.estimated_cost))
                 .sum::<f64>();
 
-            let byos_cost = sessions.iter()
+            let byos_cost = sessions
+                .iter()
                 .filter(|s| s.cost_type == "byos")
                 .map(|s| s.estimated_cost)
                 .sum::<f64>();
@@ -273,7 +285,9 @@ impl<'a> BudgetEnforcer<'a> {
         let last_24h = Utc::now().timestamp() - 24 * 60 * 60;
         let recent_warnings = self.db.get_user_cost_warnings(user_id, last_24h);
 
-        !recent_warnings.iter().any(|w| w.warning_type == warning_type && w.acknowledged_at.is_none())
+        !recent_warnings
+            .iter()
+            .any(|w| w.warning_type == warning_type && w.acknowledged_at.is_none())
     }
 }
 

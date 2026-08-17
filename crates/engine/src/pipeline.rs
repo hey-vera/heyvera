@@ -155,12 +155,10 @@ fn contains_any(haystack: &str, needles: &[&str]) -> bool {
 
 fn select_template(dial: u8, providers: &[ProviderId]) -> Option<RouteTemplate> {
     let available = RouteTemplate::available_for_dial(dial.clamp(1, 10));
-    available
-        .into_iter()
-        .find(|t| {
-            let cfg = t.config();
-            (providers.len() as u8) >= cfg.min_providers
-        })
+    available.into_iter().find(|t| {
+        let cfg = t.config();
+        (providers.len() as u8) >= cfg.min_providers
+    })
 }
 
 #[cfg(test)]
@@ -280,7 +278,12 @@ mod tests {
             is_first_observation: false,
         };
 
-        let result = plan_route("implement payments", &["src/billing/pay.ts"], &config, &scorer);
+        let result = plan_route(
+            "implement payments",
+            &["src/billing/pay.ts"],
+            &config,
+            &scorer,
+        );
         match result {
             PipelineResult::Planned(plan) => {
                 assert!(plan.template.config().estimated_cost_multiplier >= 3.0);
