@@ -7621,24 +7621,23 @@ immediately, in parallel with Wave 1. Surface work follows the APIs it renders.
   money-path test density, and clear the open dependency advisories. **The lock
   poisoning fix and the advisories are days of work against a live outage risk
   and a live credibility problem — neither should wait for anything.**
-- **PR AU · The teaching layer (Phase 35).** The receipt's derived plain-language
-  account, faded sandbox exercises anchored to the user's own diff, contrastive
+- **PR AU · The teaching layer (Phase 35).** Render a teaching artifact from the
+  decision record, with per-section disclosure tiers, degradation that shortens
+  rather than blurs, and a test asserting no model is invoked in the rendering
+  path. Then faded sandbox exercises anchored to the user's own diff, contrastive
   cross-language mappings, spaced retrieval over the user's own decision record,
   the per-subsystem competence estimate that sets the fading schedule, and the
-  comprehension-delta measurement. **Needs AO (comprehension) and AP (the
-  scoreboard), and is downstream of a Cortex that has actually completed tasks** —
-  the corpus it teaches from does not exist before then. **One part does not wait
+  comprehension-delta measurement. **Needs the record before the renderer** —
+  35.14 lists which parts of it exist — which in practice means **AO
+  (comprehension) and AP (the scoreboard), and a Cortex that has actually
+  completed tasks**, since the corpus it teaches from does not exist before then.
+  Scheduled last deliberately: built early it would render mostly "not recorded",
+  and a feature judged useless is a feature somebody later fills in with a model,
+  which is the one design this phase exists to refuse. **One part does not wait
   and is not really this PR:** the plain-language "what failed and why this check
   was chosen" account on the receipt is receipt quality, is already implied by the
   Phase 33.5 disclosure tiers, and should land with the first receipt a customer
   ever sees.
-- **PR AU · Teaching layer (Phase 35).** Render a teaching artifact from the
-  decision record, per-section disclosure tiers, degradation that shortens
-  rather than blurs, and the test asserting no model is invoked in the rendering
-  path. **Needs the record before the renderer** — 35.7 lists which parts of it
-  exist. Scheduled last deliberately: built early it would render mostly "not
-  recorded", and a feature judged useless is a feature somebody later fills in
-  with a model, which is the one design this phase exists to refuse.
 
 ### If only three things get done
 
