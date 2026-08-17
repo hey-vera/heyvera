@@ -1,8 +1,6 @@
 use cortex_core::evaluator::{classify_risk, parse_intent};
 use cortex_core::routing::{Intent, RiskLevel};
-use cortex_core::task::{
-    AcceptanceCriterion, AcceptanceVerification, WorkKind, WorkRecipeSeed,
-};
+use cortex_core::task::{AcceptanceCriterion, AcceptanceVerification, WorkKind, WorkRecipeSeed};
 
 use crate::captain::{RunBuilder, StepKind};
 
@@ -18,7 +16,9 @@ pub fn decompose_goal(
         return Err("empty goal".into());
     }
     if splits.len() > 5 {
-        return Err("too many segments (max 5) — please clarify or split into separate requests".into());
+        return Err(
+            "too many segments (max 5) — please clarify or split into separate requests".into(),
+        );
     }
 
     let mut builder = RunBuilder::new(user_id.to_string(), goal.to_string(), profile.to_string());
@@ -79,21 +79,43 @@ struct Split {
 // --- Compound splitting ---
 
 const SEQUENTIAL_MARKERS: &[&str] = &[
-    " and then ", " then ", " after that ", " after ", " finally ",
+    " and then ",
+    " then ",
+    " after that ",
+    " after ",
+    " finally ",
 ];
 
-const PARALLEL_MARKERS: &[&str] = &[
-    " and also ", " also ", " plus ",
-];
+const PARALLEL_MARKERS: &[&str] = &[" and also ", " also ", " plus "];
 
 const ACTION_VERBS: &[&str] = &[
-    "fix", "add", "create", "implement", "build", "write",
-    "find", "explore", "search", "grep",
-    "test", "verify", "validate", "check",
-    "review", "audit", "inspect",
-    "refactor", "clean", "simplify",
-    "remove", "delete", "update", "rename",
-    "deploy", "ship", "release",
+    "fix",
+    "add",
+    "create",
+    "implement",
+    "build",
+    "write",
+    "find",
+    "explore",
+    "search",
+    "grep",
+    "test",
+    "verify",
+    "validate",
+    "check",
+    "review",
+    "audit",
+    "inspect",
+    "refactor",
+    "clean",
+    "simplify",
+    "remove",
+    "delete",
+    "update",
+    "rename",
+    "deploy",
+    "ship",
+    "release",
     "run",
 ];
 
@@ -262,7 +284,10 @@ fn split_on_comma_verb(text: &str) -> Vec<String> {
 
 fn is_clause_boundary(s: &str) -> bool {
     let last_word = s.split_whitespace().last().unwrap_or("");
-    !["the", "a", "an", "is", "are", "was", "in", "on", "to", "for", "with"].contains(&last_word)
+    ![
+        "the", "a", "an", "is", "are", "was", "in", "on", "to", "for", "with",
+    ]
+    .contains(&last_word)
 }
 
 fn intent_to_step_kind(intent: Intent) -> StepKind {
@@ -327,11 +352,7 @@ fn risk_level_str(level: RiskLevel) -> String {
     .to_string()
 }
 
-fn infer_dependencies(
-    builder: &mut RunBuilder,
-    indices: &[usize],
-    splits: &[Split],
-) {
+fn infer_dependencies(builder: &mut RunBuilder, indices: &[usize], splits: &[Split]) {
     // Search/explore steps naturally come before execute steps
     for (i, split_i) in splits.iter().enumerate() {
         let intent_i = parse_intent(&split_i.text).intent;
@@ -393,8 +414,13 @@ mod tests {
 
     #[test]
     fn compound_with_then() {
-        let builder =
-            decompose_goal("u1", "explore the auth module then fix the bug", &[], "auto").unwrap();
+        let builder = decompose_goal(
+            "u1",
+            "explore the auth module then fix the bug",
+            &[],
+            "auto",
+        )
+        .unwrap();
         assert_eq!(builder.steps().len(), 2);
         assert_eq!(builder.edges().len(), 1);
     }
@@ -409,7 +435,10 @@ mod tests {
         )
         .unwrap();
         assert_eq!(builder.steps().len(), 2);
-        assert!(builder.edges().len() >= 1, "and then should create sequential edge");
+        assert!(
+            builder.edges().len() >= 1,
+            "and then should create sequential edge"
+        );
     }
 
     #[test]
@@ -421,13 +450,8 @@ mod tests {
 
     #[test]
     fn preserves_quoted_strings() {
-        let builder = decompose_goal(
-            "u1",
-            "fix the \"foo and bar\" function",
-            &[],
-            "auto",
-        )
-        .unwrap();
+        let builder =
+            decompose_goal("u1", "fix the \"foo and bar\" function", &[], "auto").unwrap();
         assert_eq!(builder.steps().len(), 1);
     }
 

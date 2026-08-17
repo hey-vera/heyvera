@@ -1,26 +1,26 @@
 use std::sync::Arc;
 
-use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::IntoResponse;
+use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use cortex_core::ledger::{LedgerEntry, LedgerEvent};
 use cortex_core::routing::RoutingDecision;
 use cortex_core::task::TaskContract;
-use cortex_core::usage::{CostProjection, StepCostEstimate, estimate_cost_by_provider};
+use cortex_core::usage::{estimate_cost_by_provider, CostProjection, StepCostEstimate};
 use cortex_engine::decomposer::decompose_goal;
 use cortex_engine::router::Router;
 
 use crate::billing::PremiumUser;
 use crate::clerk::ClerkUser;
 use crate::github;
+#[cfg(feature = "soma")]
+use crate::lock::LockRecovering;
 use crate::run_payload::{build_run_graph_payload, build_run_step_payloads};
 use crate::scheduler;
 use crate::state::AppState;
-#[cfg(feature = "soma")]
-use crate::lock::LockRecovering;
 
 #[derive(Deserialize)]
 pub struct RouteRequest {
@@ -987,7 +987,9 @@ fn build_pr_body(
             .unwrap_or(false)
     });
     if has_evidence {
-        body.push_str("\n> **Verified by Cortex** — this PR includes steps with verified evidence.\n");
+        body.push_str(
+            "\n> **Verified by Cortex** — this PR includes steps with verified evidence.\n",
+        );
     }
 
     body.push_str("\n---\n*Automated PR created by [Cortex](https://github.com/cortex)*\n");
@@ -1284,7 +1286,10 @@ fn inspect_deployment_status(adapter: &DeploymentAdapter) -> DeploymentStatus {
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown")
                 .to_string(),
-            commit_sha: config.get("commit_sha").and_then(|v| v.as_str()).map(String::from),
+            commit_sha: config
+                .get("commit_sha")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             deployed_at: config.get("deployed_at").and_then(|v| v.as_i64()),
             health_check_url: config
                 .get("health_check_url")
@@ -1303,7 +1308,10 @@ fn inspect_deployment_status(adapter: &DeploymentAdapter) -> DeploymentStatus {
                 .and_then(|v| v.as_str())
                 .unwrap_or("unknown")
                 .to_string(),
-            commit_sha: config.get("commit_sha").and_then(|v| v.as_str()).map(String::from),
+            commit_sha: config
+                .get("commit_sha")
+                .and_then(|v| v.as_str())
+                .map(String::from),
             deployed_at: config.get("deployed_at").and_then(|v| v.as_i64()),
             health_check_url: config
                 .get("health_check_url")

@@ -187,16 +187,14 @@ mod tests {
 
     #[test]
     fn parse_https_remote() {
-        let (owner, repo) =
-            parse_owner_repo("https://github.com/acme/widgets.git").unwrap();
+        let (owner, repo) = parse_owner_repo("https://github.com/acme/widgets.git").unwrap();
         assert_eq!(owner, "acme");
         assert_eq!(repo, "widgets");
     }
 
     #[test]
     fn parse_https_no_dotgit() {
-        let (owner, repo) =
-            parse_owner_repo("https://github.com/acme/widgets").unwrap();
+        let (owner, repo) = parse_owner_repo("https://github.com/acme/widgets").unwrap();
         assert_eq!(owner, "acme");
         assert_eq!(repo, "widgets");
     }

@@ -162,7 +162,10 @@ mod tests {
     fn chain_integrity() {
         let mut chain = HeartbeatChain::new();
         chain.record(HeartbeatEventType::SessionStart, "test session");
-        chain.record(HeartbeatEventType::RouteSelected, r#"{"provider":"claude"}"#);
+        chain.record(
+            HeartbeatEventType::RouteSelected,
+            r#"{"provider":"claude"}"#,
+        );
         chain.record(HeartbeatEventType::RouteCompleted, r#"{"success":true}"#);
 
         assert_eq!(chain.len(), 3);

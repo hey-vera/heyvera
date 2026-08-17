@@ -113,20 +113,28 @@ function isActivity(value: unknown): value is TaskActivity {
     );
 }
 
-function defaultMembers(group: CortexGroup, userId: string): TaskMember[] {
-  const ownerName = group.kind === 'personal' ? 'You' : 'You';
-  const baseNames = group.kind === 'personal'
-    ? [ownerName]
-    : [ownerName, 'Joe', 'Maya', 'Sam'].slice(0, Math.max(group.members, 2));
-
-  return baseNames.map((name, index) => ({
-    id: index === 0 ? userId : `member-${normalize(name).replace(/[^a-z0-9]+/g, '-')}`,
-    name,
-    initials: toInitials(name),
-    status: index === 0 ? 'online' : index === 1 ? 'working' : 'online',
+/// The only member this client can vouch for: the signed-in user.
+///
+/// This function used to invent 'Joe', 'Maya' and 'Sam' for any non-personal
+/// group, complete with 'online' and 'working' statuses, and hand them to the
+/// team panel, the assignee picker and the model prompt. None of them existed.
+/// A status is a claim about a person; a name in an assignee dropdown is an
+/// instruction to hand work to someone. Neither may be fabricated to fill a
+/// layout.
+///
+/// A group that declares N members and has no member data renders **the
+/// count** — see `TeamPanel` — because the count is the one thing that is
+/// actually known. Real members arrive from the backend and are merged in by
+/// `mergeDefaultMembers`.
+function defaultMembers(_group: CortexGroup, userId: string): TaskMember[] {
+  return [{
+    id: userId,
+    name: 'You',
+    initials: toInitials('You'),
+    status: 'online',
     currentTaskId: null,
-    color: MEMBER_COLORS[index % MEMBER_COLORS.length],
-  }));
+    color: MEMBER_COLORS[0],
+  }];
 }
 
 function emptyState(group: CortexGroup, userId: string): TaskManagerState {
@@ -437,6 +445,19 @@ async function validateTaskCompletion(
     }
     return { canComplete: true };
   } catch (error) {
+    // Fails OPEN, deliberately left as-is — see
+    // cortex/plan/FINDING-evidence-gate-fail-open.md.
+    //
+    // This check is a UX pre-check, not the boundary: the server refuses every
+    // transition to `done` without an evidence-backed verified run, on all four
+    // write routes (`require_evidence_for_done_transitions`,
+    // crates/api/src/integrations.rs:1320). So this branch cannot be used to
+    // accept unverified work.
+    //
+    // It is still wrong, and flipping it to `false` makes it worse: a dropped
+    // connection would then tell a user their verified work is unverified. The
+    // real fix needs a third state — a verdict of "no" is not the same as no
+    // verdict — and is written up rather than smuggled into a foundation PR.
     console.warn('Evidence validation failed, allowing completion:', error);
     return { canComplete: true };
   }

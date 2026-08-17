@@ -200,7 +200,11 @@ fn worst_of(a: CheckOutcome, b: CheckOutcome) -> CheckOutcome {
             CheckOutcome::Passed => 0,
         }
     }
-    if severity(b) > severity(a) { b } else { a }
+    if severity(b) > severity(a) {
+        b
+    } else {
+        a
+    }
 }
 
 pub fn compute_verdict(specs: &[CheckSpec], executions: &[CheckExecution]) -> VerdictReport {
@@ -473,7 +477,10 @@ mod adversarial {
             specs.push(spec(&id, true));
             executions.push(execution(&id, CheckOutcome::Passed));
         }
-        assert_eq!(compute_verdict(&specs, &executions).verdict, Verdict::Failed);
+        assert_eq!(
+            compute_verdict(&specs, &executions).verdict,
+            Verdict::Failed
+        );
     }
 
     /// Attack: mark the checks that would fail as advisory so they cannot

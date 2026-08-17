@@ -177,9 +177,7 @@ pub fn check_caveats(caveats: &[Caveat], ctx: &InvocationContext) -> DelegationV
                 if let Some(cumulative) = ctx.cumulative_credits_spent {
                     if cumulative > *credits {
                         return DelegationVerification::Invalid {
-                            reason: format!(
-                                "budget exceeded: spent {cumulative}, cap {credits}"
-                            ),
+                            reason: format!("budget exceeded: spent {cumulative}, cap {credits}"),
                         };
                     }
                 }
@@ -188,9 +186,7 @@ pub fn check_caveats(caveats: &[Caveat], ctx: &InvocationContext) -> DelegationV
                 if let Some(invocations) = ctx.invocation_count {
                     if invocations >= *count {
                         return DelegationVerification::Invalid {
-                            reason: format!(
-                                "max invocations exceeded: {invocations} >= {count}"
-                            ),
+                            reason: format!("max invocations exceeded: {invocations} >= {count}"),
                         };
                     }
                 }

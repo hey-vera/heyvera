@@ -26,7 +26,11 @@ pub fn score_providers(ctx: &ScoringContext) -> Option<RoutingDecision> {
         });
     }
 
-    candidates.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+    candidates.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
 
     let winner = candidates.first()?;
 
@@ -35,8 +39,14 @@ pub fn score_providers(ctx: &ScoringContext) -> Option<RoutingDecision> {
 
     if candidates.len() > 1 {
         let runner_up = &candidates[1];
-        let winner_status = ctx.providers.iter().find(|p| p.provider == winner.provider)?;
-        let runner_status = ctx.providers.iter().find(|p| p.provider == runner_up.provider)?;
+        let winner_status = ctx
+            .providers
+            .iter()
+            .find(|p| p.provider == winner.provider)?;
+        let runner_status = ctx
+            .providers
+            .iter()
+            .find(|p| p.provider == runner_up.provider)?;
         if winner_status.pressure < runner_status.pressure {
             rationale.push(RationaleCode::LowerPressure);
         }

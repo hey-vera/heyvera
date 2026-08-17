@@ -2,14 +2,14 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use axum::Json;
 use axum::extract::{Query, State};
+use axum::Json;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::state::AppState;
 use crate::lock::LockRecovering;
+use crate::state::AppState;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -1185,13 +1185,11 @@ mod tests {
         assert_eq!(status.run_status.as_deref(), Some("completed"));
         assert_eq!(status.conclusion.as_deref(), Some("success"));
         assert_eq!(status.head_sha_short.as_deref(), Some("07bab45"));
-        assert!(
-            status
-                .error
-                .as_deref()
-                .unwrap_or_default()
-                .contains("deploy metadata fallback")
-        );
+        assert!(status
+            .error
+            .as_deref()
+            .unwrap_or_default()
+            .contains("deploy metadata fallback"));
     }
 
     fn test_resolved_workflow() -> ResolvedGitHubWorkflow {

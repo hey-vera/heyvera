@@ -123,7 +123,9 @@ impl WorktreeGuard {
             .map_err(|e| CortexError::WorkerExecution(format!("git rev-parse HEAD failed: {e}")))?;
 
         if head_output.status.success() {
-            let hash = String::from_utf8_lossy(&head_output.stdout).trim().to_string();
+            let hash = String::from_utf8_lossy(&head_output.stdout)
+                .trim()
+                .to_string();
             tracing::info!(
                 branch = %self.branch_name,
                 commit = %hash,
@@ -226,10 +228,7 @@ impl Drop for WorktreeGuard {
 ///
 /// Returns `None` if `workspace_dir` is not inside a git repository (graceful
 /// fallback — the caller should use the original working directory instead).
-pub fn create_worktree(
-    workspace_dir: &Path,
-    step_id: &str,
-) -> Result<WorktreeGuard, CortexError> {
+pub fn create_worktree(workspace_dir: &Path, step_id: &str) -> Result<WorktreeGuard, CortexError> {
     // Verify this is a git repo by getting the repo root.
     let repo_root_output = Command::new("git")
         .current_dir(workspace_dir)
@@ -314,15 +313,18 @@ pub fn collect_git_evidence(
         .filter(|b| !b.trim().is_empty())
         .map(|b| b.to_string())
         .or_else(|| {
-            git_stdout(working_dir, &["branch", "--show-current"])
-                .filter(|b| !b.trim().is_empty())
+            git_stdout(working_dir, &["branch", "--show-current"]).filter(|b| !b.trim().is_empty())
         });
-    let status_porcelain = git_stdout(working_dir, &["status", "--porcelain"])
-        .filter(|s| !s.trim().is_empty());
+    let status_porcelain =
+        git_stdout(working_dir, &["status", "--porcelain"]).filter(|s| !s.trim().is_empty());
 
     let mut changed_files = BTreeSet::new();
     if let Some(base) = base_commit.filter(|b| !b.trim().is_empty()) {
-        collect_name_only(working_dir, &["diff", "--name-only", base], &mut changed_files);
+        collect_name_only(
+            working_dir,
+            &["diff", "--name-only", base],
+            &mut changed_files,
+        );
     } else {
         collect_name_only(
             working_dir,
@@ -358,10 +360,7 @@ fn collect_name_only(working_dir: &Path, args: &[&str], changed_files: &mut BTre
     }
 }
 
-fn collect_diff_excerpt(
-    working_dir: &Path,
-    base_commit: Option<&str>,
-) -> (Option<String>, bool) {
+fn collect_diff_excerpt(working_dir: &Path, base_commit: Option<&str>) -> (Option<String>, bool) {
     let output = if let Some(base) = base_commit {
         git_output(working_dir, &["diff", "--binary", base])
     } else {

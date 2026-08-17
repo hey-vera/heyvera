@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-11 (wave 5 - the model call is built and unrun; the deploy is rehearsed and blocked on one config line; F9 and F10 found)
+**Last updated:** 2026-08-16 (wave 6 / task 2 - the two Phase 35 drafts are one, and round 6 graded the evidence Phases 27-31 lean on)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -47,6 +47,8 @@ re-deriving anything.
 | 24 | Task 2 - deploy production, with a worker | **deployed; execution still blocked** - production is at v66, healthy, zero rows moved. A worker service exists and cannot authenticate (**F11**), no sandbox image existed on the host, and no provider key is set. See "Task 2 outcome" below. |
 | 25 | Task 3 - catalog and estimator, price list as versioned data | **done** - migration v66, `provisional` prices that quote and never charge. PR J and PR Q deliberately not built. |
 | 26 | Task 4 - Phase 35 (teaching layer) written | **done** - written only, per the brief. PR AU added to the delivery list. |
+| **Wave 6** | | |
+| 27 | Task 2 - reconcile the two Phase 35 drafts; round 6 amendments | **done** - branch `docs/round6-amendments`. Docs only. `docs/round5-teaching` merged by hand and deleted. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -1757,6 +1759,205 @@ the record and goes straight to a user.
 Scheduled last deliberately. 35.7 lists what has to exist first; built early it
 would render mostly "not recorded", and a feature judged useless is a feature
 somebody later fills in with a model.
+
+**Superseded in structure by wave 6 / task 2.** This section describes the draft
+that landed on `main`. A second, different Phase 35 existed on
+`docs/round5-teaching` at the same time; the two were hand-merged in wave 6 and
+renumbered, so the section numbers quoted above no longer resolve — "what has to
+exist first" is now 35.14. The arguments recorded here all survive the merge.
+
+## Wave 6 / Task 2 — one Phase 35, and the evidence graded
+
+Branch `docs/round6-amendments`, off `3585c711`. **Docs only — nothing under
+`crates/` was touched.** Ran in parallel with `fix/worker-service-credential`;
+the file sets are disjoint.
+
+### The reconciliation, and why it was not a rebase
+
+`main` and `docs/round5-teaching` each grew a **different Phase 35** from the
+same merge base (`a466bb1f`), using the same section numbers for different
+arguments. A rebase would have conflicted on every line of the phase and
+resolved to whichever draft the resolver liked. It was hand-merged instead:
+
+- **main's draft was the architectural spine** — the derived-never-narrated
+  thesis, the may-assert / may-never-assert tables, thin-record degradation,
+  disclosure tiers, why it is not a chat surface.
+- **the branch held the evidence and the product shape** — the RCT, the
+  pull-not-push rule, the surfaces ranked by evidence, the expertise split, the
+  interruption cost, the cold start, how it dies.
+
+Neither was discarded. The merged phase runs 35.1–35.17 and
+`docs/round5-teaching` is **deleted, local and remote** (no PR existed on it), so
+there is one draft rather than two. `ROUND5-STATE.md` was ported unchanged — it
+is the round-5 resume file and it records reasoning the merged phase does not
+restate.
+
+**One error corrected while merging.** The branch claimed `--lib` "compiles and
+passes while running none of them". It does run every unit test in
+`crates/api/src/` — hundreds. What it never does is *compile* `crates/api/tests/`,
+so the integration suite where every cross-crate finding in waves 4 and 5 lived
+is silently absent from a green result. Both places in the plan that recommend a
+test command now say `--all-targets` and say why.
+
+### What round 6 actually attacked
+
+Not a new axis. **Evidence quality** — whether the numbers the plan leans on say
+what the plan says they say. Several did not, and two of those would have
+mispriced the product.
+
+**The capability thesis is bounded harder than it was.**
+
+| Was | Is |
+|---|---|
+| "N samples from different providers correlate far less" | Cross-vendor decorrelates *measurably more* than temperature sampling, but frontier models show **high** correlation across providers and architectures, and correlation **rises with capability** — ~60% agreement when both err (Correlated Errors in LLMs, ICML 2025, [arXiv:2506.07962](https://arxiv.org/abs/2506.07962), n > 350) |
+| `1 − (1 − a)^N` as the sampling gain | An **upper bound Cortex will not reach**, recorded as one on the receipt and in the estimator |
+| A race arm is a model | A race arm is `(model_ref, method_ref, context_rendering_ref)`; complementarity is measured over the **tuple**, and a race varying only `model_ref` is recorded `single_axis_diversity` and may not claim pass@N above single-arm |
+
+The `ultra` position gains a specific requirement: **at least one arm re-derives
+its context from the `TaskFrame`** rather than inheriting the shared rendering.
+Every arm anchored to one context inherits that context's errors — the
+shared-anchor term — and one re-deriving arm is the only sample of it Cortex will
+ever get. **Context diversity is unmeasured in the literature for code**, so this
+is also the cheapest original result available: a Phase 30 suite configuration,
+not a research programme.
+
+**The published negative result now has an answer on the page.** Mixed-model MoA
+underperforms self-MoA by 6.6% ([arXiv:2502.00674](https://arxiv.org/abs/2502.00674)).
+It does not bind because MoA aggregates by **synthesis** — a weak candidate
+contaminates the output — while Cortex aggregates by **execution**, where a weak
+candidate fails its checks and is discarded. The quality–diversity tradeoff does
+not bind on a selector. That makes Phase 12.10's "aggregation is execution, not
+voting" load-bearing rather than stylistic: **if aggregation ever drifts toward
+synthesis, the 6.6% result starts applying in full.**
+
+**The existence proof was missing and is now in 28.2.** CodeMonkeys
+([arXiv:2501.14723](https://arxiv.org/abs/2501.14723)) pooled candidate edits
+across five agent systems: ensemble selection **66.2%** against a best individual
+member of **62.8%** — combining models beat the best model. The third number is
+the product thesis: **pooled coverage 80.8%**, so roughly **14 points** of correct
+answers were generated and thrown away because the selector could not identify
+them. The pool is cheap; the selector is the moat.
+
+### The finding that costs the most to have missed
+
+**Invariant 34 — an evaluation environment is sealed, and the seal is recorded
+with the result.** Phase 30.2's post-cutoff restriction closes **training**
+contamination and nothing else, and 30.2's own construction — tasks *are* merged
+PRs — puts the reference solution in the repository's own git history, one
+`git log` from the agent being graded.
+
+Cursor's June 2026 measurement, on sealing a previously-open environment:
+**87.1% → 73.0%** and **74.7% → 54.0%**, with 57% of runs performing an upstream
+lookup, 9% mining git history, and **63% of resolutions retrieved rather than
+derived**. A twenty-point swing is larger than every capability effect this plan
+proposes to measure. An unsealed run is not a noisy measurement of capability; it
+measures a different quantity, and may not be compared to a sealed one.
+
+**PR C2's egress allowlist already closes the web-lookup channel** — the 57% row
+— in shipped code, derived at plan time and enforced at the sandbox boundary. It
+was built for tenancy and safety and has never been claimed as an evaluation
+asset. What remains is git truncation (at the merge base, with no reachable
+object after it — reflogs, remote refs, packed objects, tags and sibling branches
+all count) and the retrieval-leak probe.
+
+### Three smaller corrections
+
+- **28.5's falsification test was not a valid experiment.** The baseline is now
+  each single model dropped into **Cortex's own scaffold**, cost-matched, sealed,
+  post-cutoff. A vendor's published score measures the model *and* the scaffold
+  its vendor built around it, and the same family shows a ~17-point spread
+  between vendor scaffold and standardised harness — larger than the effect being
+  claimed. A **human-acceptance arm** is added: METR (March 2026) found automated
+  grading overstates merge-worthiness by **24.2 points**, so a battery-only number
+  overstates the deliverable by a known margin.
+- **PR AM's budget has a direction now.** Execution-grounded selection beats
+  output-pattern voting by **19–52 points**; aggregation-rule variants sit within
+  **±0.79pp** of each other (p > 0.05); sketch-based input construction beats
+  random fuzzing by **11.3pp**. Effort goes into discriminating inputs, not into
+  clever voting math — and the same machinery that builds a discriminating check
+  for Phase 27.5's differential control builds a discriminating input for
+  selection.
+- **Phase 31's loss-ratio prior is seeded rather than guessed.** 15.7% of patches
+  passing SWE-bench Verified were erroneous under augmented tests (UTBoost,
+  [arXiv:2506.09289](https://arxiv.org/abs/2506.09289)); **77%** of instances
+  retain a surviving mutant ([arXiv:2603.00520](https://arxiv.org/abs/2603.00520))
+  — which is `battery_power` measured on someone else's corpus and coming back
+  weak; ~50% of test-passing PRs were rejected by maintainers (METR). **Cortex's
+  own false-accept rate is its gross margin** and must be measured before a
+  guarantee is priced.
+
+### What changed in Phase 35 beyond the merge
+
+The teaching amendments were applied *during* the reconciliation rather than
+after it, so the merged phase never carried the uncorrected claims:
+
+- **The headline number is now the preregistered one** — 50% vs 67%, d = 0.738,
+  p = 0.01, n = 52, widest gap in debugging, ~2 min time difference not
+  significant — replacing the looser "17% lower".
+- **The population is corrected.** Table 1 says a majority had **7+ years**;
+  "mostly junior" does not survive it. The effect is about **domain novelty, not
+  seniority** — the situation of every senior touching an unfamiliar library,
+  which is a much larger market. Conceptual Inquiry was also the second-fastest
+  pattern overall, so the learning-vs-speed tradeoff may be illusory (flagged
+  n = 7, exploratory).
+- **The mode taxonomy is a hypothesis, never a finding.**
+  [arXiv:2601.20245](https://arxiv.org/abs/2601.20245) is exploratory, n = 2–7 per
+  pattern, self-selected and therefore confounded with prior skill.
+- **35.1 leads with the perception gap**, from four independent designs — the AI
+  arm rating the task easier; METR's +20% perceived against −19% measured; Perry
+  et al. CCS '23 ([arXiv:2211.03622](https://arxiv.org/abs/2211.03622)); Lee et al.
+  CHI 2025. **METR's February 2026 update qualifies the −19% and it must not be
+  cited as a standing fact.**
+- **The thesis gained two structural legs.** Rudin
+  ([arXiv:1811.10154](https://arxiv.org/abs/1811.10154)): a post-hoc explanation
+  cannot be perfectly faithful by construction — if it were, it would *be* the
+  model. Turpin ([arXiv:2305.04388](https://arxiv.org/abs/2305.04388)): CoT
+  explanations systematically misrepresent the true reason, omit the bias that
+  changed the answer, accuracy drops up to 36%, and they **increase** trust. The
+  audience argument stays alongside as leg one.
+- **The verifier is the teacher.** Rustlings is the compiler; Gossip Glomers is
+  Maelstrom injecting partitions; Exercism is test runners with humans optional
+  (19,603 mentors, ~0.65% of 61M submissions); protohackers is a protocol checker.
+  Cortex already owns a frozen battery and a sandbox, so **Phase 35 is a rendering
+  of the core asset, not an addition to it.**
+- **Two surfaces added.** Contrastive cross-language mapping under five required
+  conditions — semantic not syntactic, break point in the same sentence as the
+  analogy, ≥2 analogies, falsifiable against a runnable program, anchored to the
+  diff in front of the user. And **spaced retrieval over the user's own
+  receipts**, which **reverses round 5's flashcard cut** and says so: 26,258
+  practising physicians (58.0% vs 43.2% learning, 58.3% vs 52.4% transfer, both
+  p < .001) and a 2026 meta-analysis at SMD 0.78, n = 21,415. Every question asks
+  **why** a check failed, never whether it passed — Brown's IRT analysis, and the
+  reason Rustlings' make-it-compile format is the low-discrimination kind.
+- **Practice rooms rejected** on deliberate practice explaining <1% of variance in
+  professions (Macnamara 2014), transfer being predicted by work-environment
+  support (Blume 2010, 89 studies), and single-digit completion for optional dev
+  curricula (~5% AoC day1→day25; 2% of 62,526 Brown Rust Book readers reached
+  ch19). **"10% of training transfers", "learning in the flow of work" and
+  70-20-10 are named as folklore and banned from Cortex material.** Faded
+  exercises anchored to the user's own diff are explicitly *not* rejected.
+- **The teaching layer is never a priced line item** — Pluralsight (~$3.5–3.9B,
+  equity to zero by 2024), Katacoda (shut down 2022), Replit Teams for Education
+  (killed at 18 months). A metered faded exercise bills as **sandbox execution**,
+  not as tuition.
+
+### What this task deliberately did not do
+
+- **No Rust, no schema, no migration.** Nothing here consumes a migration number,
+  so the shared counter is untouched at v66.
+- **PR AU is not implemented.** Phase 35 remains written-only, and 35.14 lists
+  what has to exist first.
+- **Invariant 34 is not implemented.** The seal is specified; git truncation and
+  the retrieval-leak probe are Phase 30 work under PR AP.
+- **No round-6 state file.** Round 5 kept `ROUND5-STATE.md` because it was an
+  open review; round 6 landed in one pass and this section is its record.
+
+### For round 7
+
+The plan's own closing section now says it: round 5 opened the human axis and did
+not finish it. **Round 7 should attack what Cortex does to a *team's* practice
+over months, rather than to one developer inside one task** — and it should keep
+round 6's habit of grading the evidence as hard as the argument.
 
 ## Wave 4 / governance — decision 3 is blocked, and not by us
 

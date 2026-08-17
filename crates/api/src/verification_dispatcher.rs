@@ -169,26 +169,25 @@ async fn run_claimed_job(
     }
 
     // Our infrastructure, not the customer's work. It gets another go.
-    let runner = match crate::check_runner::ContainerCheckRunner::new(
-        verification_driver::runner_image(),
-    ) {
-        Ok(runner) => runner,
-        Err(e) => {
-            tracing::warn!(
-                job_id = %job.job_id,
-                error = %e,
-                "no container runner available; the job waits rather than being lost"
-            );
-            if db.retry_verification_job(
-                &job.job_id,
-                dispatcher_id,
-                RETRY_BACKOFF.as_millis() as i64,
-            ) {
-                crate::metrics::record_verification_retry();
+    let runner =
+        match crate::check_runner::ContainerCheckRunner::new(verification_driver::runner_image()) {
+            Ok(runner) => runner,
+            Err(e) => {
+                tracing::warn!(
+                    job_id = %job.job_id,
+                    error = %e,
+                    "no container runner available; the job waits rather than being lost"
+                );
+                if db.retry_verification_job(
+                    &job.job_id,
+                    dispatcher_id,
+                    RETRY_BACKOFF.as_millis() as i64,
+                ) {
+                    crate::metrics::record_verification_retry();
+                }
+                return;
             }
-            return;
-        }
-    };
+        };
 
     let facts = DeliveryFacts {
         run_id: job.run_id.clone(),
@@ -267,7 +266,9 @@ async fn run_claimed_job(
     }
 
     let (state_name, reason) = match verdict {
-        Some(cortex_core::verification::Verdict::Verified) => ("succeeded", "required checks passed"),
+        Some(cortex_core::verification::Verdict::Verified) => {
+            ("succeeded", "required checks passed")
+        }
         Some(cortex_core::verification::Verdict::Failed) => ("failed", "a required check failed"),
         Some(cortex_core::verification::Verdict::Inconclusive) => {
             ("inconclusive", "no verdict could be obtained")
@@ -368,10 +369,16 @@ mod tests {
 
         std::env::remove_var("CORTEX_SINGLE_NODE");
         let err = assert_single_node().expect_err("an unset variable must not start a dispatcher");
-        assert!(err.contains("CORTEX_SINGLE_NODE"), "and must say what to set");
+        assert!(
+            err.contains("CORTEX_SINGLE_NODE"),
+            "and must say what to set"
+        );
 
         std::env::set_var("CORTEX_SINGLE_NODE", "0");
-        assert!(assert_single_node().is_err(), "and must not accept a denial");
+        assert!(
+            assert_single_node().is_err(),
+            "and must not accept a denial"
+        );
 
         std::env::set_var("CORTEX_SINGLE_NODE", "1");
         assert!(assert_single_node().is_ok());

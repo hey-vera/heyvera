@@ -16,7 +16,8 @@ pub trait Storage: Send + Sync {
     // ── Runs ───────────────────────────────────────────────────────────
 
     /// Create a new run, returning the generated run ID.
-    fn create_run(&self, user_id: &str, goal: &str, profile: &str, file_paths: &[String]) -> String;
+    fn create_run(&self, user_id: &str, goal: &str, profile: &str, file_paths: &[String])
+        -> String;
 
     /// Retrieve the goal text for a run.
     fn get_run_goal(&self, run_id: &str) -> Option<String>;
@@ -202,7 +203,13 @@ pub trait Storage: Send + Sync {
 use crate::db::Database;
 
 impl Storage for Database {
-    fn create_run(&self, user_id: &str, goal: &str, profile: &str, file_paths: &[String]) -> String {
+    fn create_run(
+        &self,
+        user_id: &str,
+        goal: &str,
+        profile: &str,
+        file_paths: &[String],
+    ) -> String {
         Database::create_run(self, user_id, goal, profile, file_paths)
     }
 
@@ -389,7 +396,17 @@ impl Storage for Database {
         tokens_out: Option<i64>,
         duration_ms: Option<i64>,
     ) {
-        Database::record_usage(self, user_id, provider, tier, model, worker_id, tokens_in, tokens_out, duration_ms)
+        Database::record_usage(
+            self,
+            user_id,
+            provider,
+            tier,
+            model,
+            worker_id,
+            tokens_in,
+            tokens_out,
+            duration_ms,
+        )
     }
 
     fn get_user_daily_cost(&self, user_id: &str) -> (f64, i64) {

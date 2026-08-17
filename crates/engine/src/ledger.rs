@@ -16,8 +16,7 @@ impl Ledger {
 
     pub fn append(&self, entry: &LedgerEntry) -> Result<(), CortexError> {
         if let Some(parent) = self.path.parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| CortexError::LedgerWrite(e.to_string()))?;
+            std::fs::create_dir_all(parent).map_err(|e| CortexError::LedgerWrite(e.to_string()))?;
         }
 
         let mut file = OpenOptions::new()
@@ -26,8 +25,8 @@ impl Ledger {
             .open(&self.path)
             .map_err(|e| CortexError::LedgerWrite(e.to_string()))?;
 
-        let line = serde_json::to_string(entry)
-            .map_err(|e| CortexError::LedgerWrite(e.to_string()))?;
+        let line =
+            serde_json::to_string(entry).map_err(|e| CortexError::LedgerWrite(e.to_string()))?;
 
         writeln!(file, "{line}").map_err(|e| CortexError::LedgerWrite(e.to_string()))?;
         Ok(())
@@ -38,8 +37,7 @@ impl Ledger {
             return Ok(Vec::new());
         }
 
-        let file =
-            File::open(&self.path).map_err(|e| CortexError::LedgerWrite(e.to_string()))?;
+        let file = File::open(&self.path).map_err(|e| CortexError::LedgerWrite(e.to_string()))?;
 
         let reader = BufReader::new(file);
         let mut entries = Vec::new();
@@ -49,8 +47,8 @@ impl Ledger {
             if line.trim().is_empty() {
                 continue;
             }
-            let entry: LedgerEntry = serde_json::from_str(&line)
-                .map_err(|e| CortexError::LedgerWrite(e.to_string()))?;
+            let entry: LedgerEntry =
+                serde_json::from_str(&line).map_err(|e| CortexError::LedgerWrite(e.to_string()))?;
             entries.push(entry);
         }
 

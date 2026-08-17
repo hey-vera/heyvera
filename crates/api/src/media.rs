@@ -25,17 +25,9 @@ fn media_err(status: StatusCode, code: &str, msg: &str) -> MediaResponse {
 }
 
 /// Allowed MIME types for media uploads.
-const ALLOWED_IMAGE_TYPES: &[&str] = &[
-    "image/jpeg",
-    "image/png",
-    "image/gif",
-    "image/webp",
-];
+const ALLOWED_IMAGE_TYPES: &[&str] = &["image/jpeg", "image/png", "image/gif", "image/webp"];
 
-const ALLOWED_VIDEO_TYPES: &[&str] = &[
-    "video/mp4",
-    "video/webm",
-];
+const ALLOWED_VIDEO_TYPES: &[&str] = &["video/mp4", "video/webm"];
 
 /// Max file sizes in bytes.
 const MAX_IMAGE_SIZE: u64 = 10 * 1024 * 1024; // 10 MB
@@ -98,9 +90,7 @@ fn sign_media_delivery(
     use sha2::Sha256;
 
     let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts media signing keys");
-    mac.update(
-        media_delivery_payload(media_id, post_id, viewer_profile_id, expires_at).as_bytes(),
-    );
+    mac.update(media_delivery_payload(media_id, post_id, viewer_profile_id, expires_at).as_bytes());
     mac.finalize().into_bytes().to_vec()
 }
 
@@ -123,9 +113,7 @@ fn verify_media_delivery(
         return false;
     };
     let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts media signing keys");
-    mac.update(
-        media_delivery_payload(media_id, post_id, viewer_profile_id, expires_at).as_bytes(),
-    );
+    mac.update(media_delivery_payload(media_id, post_id, viewer_profile_id, expires_at).as_bytes());
     mac.verify_slice(&signature).is_ok()
 }
 
@@ -205,7 +193,11 @@ pub async fn request_upload_url(
     }
 
     // Validate file size
-    let max_size = if is_video { MAX_VIDEO_SIZE } else { MAX_IMAGE_SIZE };
+    let max_size = if is_video {
+        MAX_VIDEO_SIZE
+    } else {
+        MAX_IMAGE_SIZE
+    };
     if req.size > max_size {
         let max_mb = max_size / (1024 * 1024);
         return Json(serde_json::json!({
@@ -420,11 +412,8 @@ pub async fn serve_media(
     let authorized = if let Some(post_id) = post_id {
         status == "attached"
             && db(&state).social_media_is_attached_to_post(&media_id, post_id)
-            && db(&state).social_authorize_post(
-                post_id,
-                viewer_profile_id,
-                PostAction::ViewMedia,
-            ) == PolicyDecision::Allow
+            && db(&state).social_authorize_post(post_id, viewer_profile_id, PostAction::ViewMedia)
+                == PolicyDecision::Allow
     } else {
         matches!(status.as_str(), "ready" | "attached")
             && viewer_profile_id == Some(owner_profile_id.as_str())
@@ -531,8 +520,8 @@ pub async fn finalize_upload(
 
     // When storage is configured, require a real object HEAD before finalize.
     // Mock/local mode requires the mock file to have been PUT already.
-    let storage_configured = std::env::var("STORAGE_ENDPOINT").is_ok()
-        && std::env::var("STORAGE_BUCKET").is_ok();
+    let storage_configured =
+        std::env::var("STORAGE_ENDPOINT").is_ok() && std::env::var("STORAGE_BUCKET").is_ok();
 
     if storage_configured {
         let storage_check_start = std::time::Instant::now();
@@ -657,11 +646,7 @@ async fn verify_storage_object_exists(storage_key: &str) -> Result<bool, String>
 /// Public/object URL for a storage key (no signature — object must be readable or HEAD-able).
 fn storage_object_url(storage_key: &str) -> Option<String> {
     if let Ok(domain) = std::env::var("STORAGE_PUBLIC_URL") {
-        return Some(format!(
-            "{}/{}",
-            domain.trim_end_matches('/'),
-            storage_key
-        ));
+        return Some(format!("{}/{}", domain.trim_end_matches('/'), storage_key));
     }
     let endpoint = std::env::var("STORAGE_ENDPOINT").ok()?;
     let bucket = std::env::var("STORAGE_BUCKET").ok()?;
@@ -809,7 +794,10 @@ fn generate_s3_presigned_get(
         "AWS4-HMAC-SHA256\n{}\n{}\n{}",
         amz_date, credential_scope, canonical_hash
     );
-    let k_date = hmac_sha256(format!("AWS4{}", secret_key).as_bytes(), date_stamp.as_bytes());
+    let k_date = hmac_sha256(
+        format!("AWS4{}", secret_key).as_bytes(),
+        date_stamp.as_bytes(),
+    );
     let k_region = hmac_sha256(&k_date, region.as_bytes());
     let k_service = hmac_sha256(&k_region, b"s3");
     let k_signing = hmac_sha256(&k_service, b"aws4_request");
@@ -883,7 +871,10 @@ fn generate_s3_presigned_put(
     );
 
     // Signing key
-    let k_date = hmac_sha256(format!("AWS4{}", secret_key).as_bytes(), date_stamp.as_bytes());
+    let k_date = hmac_sha256(
+        format!("AWS4{}", secret_key).as_bytes(),
+        date_stamp.as_bytes(),
+    );
     let k_region = hmac_sha256(&k_date, region.as_bytes());
     let k_service = hmac_sha256(&k_region, service.as_bytes());
     let k_signing = hmac_sha256(&k_service, b"aws4_request");
@@ -910,7 +901,7 @@ fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
 }
 
 fn hex_sha256(data: &[u8]) -> String {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(data);
     hex::encode(hasher.finalize())
@@ -1119,13 +1110,8 @@ mod tests {
             None,
         );
 
-        let media = database.social_create_media_object(
-            owner_id,
-            "private.png",
-            "image/png",
-            12,
-            "image",
-        );
+        let media =
+            database.social_create_media_object(owner_id, "private.png", "image/png", 12, "image");
         let media_id = media["id"].as_str().unwrap();
         let storage_key = media["storageKey"].as_str().unwrap();
         mock_store_put(storage_key, b"private bytes").expect("mock media");
@@ -1217,12 +1203,7 @@ mod tests {
         .into_response();
         assert_eq!(wrong_attachment_response.status(), StatusCode::NOT_FOUND);
 
-        database.upsert_account(
-            "clerk_media_route_viewer",
-            "",
-            "Viewer",
-            "suspended",
-        );
+        database.upsert_account("clerk_media_route_viewer", "", "Viewer", "suspended");
         let suspended_response = serve_media(
             Path(media_id.to_string()),
             Query(delivery_query(&allowed_url)),
@@ -1350,13 +1331,7 @@ mod tests {
         let db = crate::db::Database::open(&dir.path().join("media-test.sqlite"));
         let profile = db.social_create_profile("clerk_media", "mediauser", "Media User", "");
         let profile_id = profile["id"].as_str().unwrap();
-        let media = db.social_create_media_object(
-            profile_id,
-            "shot.png",
-            "image/png",
-            12,
-            "image",
-        );
+        let media = db.social_create_media_object(profile_id, "shot.png", "image/png", 12, "image");
         let media_id = media["id"].as_str().unwrap();
         let storage_key = media["storageKey"].as_str().unwrap();
 

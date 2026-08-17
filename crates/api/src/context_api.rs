@@ -2,14 +2,14 @@
 //!
 //! Provides endpoints to inspect and debug the Context-Flow Pipeline
 
-use std::sync::Arc;
-use axum::extract::{Path, State, Query};
-use axum::http::StatusCode;
-use axum::response::{Json, IntoResponse};
-use serde::{Deserialize, Serialize};
-use crate::state::AppState;
-use crate::context_flow::{ContextBus, ArtifactKind, ContextTransform, ContextBusConfig};
 use crate::clerk::ClerkUser;
+use crate::context_flow::{ArtifactKind, ContextBus, ContextBusConfig, ContextTransform};
+use crate::state::AppState;
+use axum::extract::{Path, Query, State};
+use axum::http::StatusCode;
+use axum::response::{IntoResponse, Json};
+use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 
 #[derive(Debug, Serialize)]
 pub struct ArtifactResponse {
@@ -76,20 +76,22 @@ pub async fn list_artifacts_for_run(
     _user: ClerkUser,
 ) -> impl IntoResponse {
     let Some(db) = state.db.as_ref() else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
-            "error": "Database not available"
-        })));
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "Database not available"
+            })),
+        );
     };
 
     let artifacts = db.get_context_artifacts_for_run(&run_id);
 
     let response: Vec<ArtifactResponse> = artifacts
         .into_iter()
-        .map(|(id, producer_step_id, kind, content, summary, files_changed, confidence, tokens, created_at)| {
-            ArtifactResponse {
+        .map(
+            |(
                 id,
                 producer_step_id,
-                producer_run_id: run_id.clone(),
                 kind,
                 content,
                 summary,
@@ -97,8 +99,21 @@ pub async fn list_artifacts_for_run(
                 confidence,
                 tokens,
                 created_at,
-            }
-        })
+            )| {
+                ArtifactResponse {
+                    id,
+                    producer_step_id,
+                    producer_run_id: run_id.clone(),
+                    kind,
+                    content,
+                    summary,
+                    files_changed,
+                    confidence,
+                    tokens,
+                    created_at,
+                }
+            },
+        )
         .collect();
 
     (StatusCode::OK, Json(serde_json::json!(response)))
@@ -124,19 +139,17 @@ pub async fn preview_context_for_run(
     }
 
     let temp_bus = ContextBus::new(config.clone());
-    let context = temp_bus.assemble_context(
-        state.db.as_ref(),
-        &run_id,
-        &user_goal,
-        None,
-    ).await;
+    let context = temp_bus
+        .assemble_context(state.db.as_ref(), &run_id, &user_goal, None)
+        .await;
 
     // Calculate statistics
     let total_tokens: u32 = context.predecessor_summaries.iter()
         .map(|s| s.summary.len() as u32 / 4) // rough token estimation
         .sum();
 
-    let predecessor_previews: Vec<PredecessorSummaryPreview> = context.predecessor_summaries
+    let predecessor_previews: Vec<PredecessorSummaryPreview> = context
+        .predecessor_summaries
         .into_iter()
         .map(|pred| {
             let token_count = pred.summary.len() as u32 / 4;
@@ -152,7 +165,9 @@ pub async fn preview_context_for_run(
 
     let truncated_count = if let Some(db) = state.db.as_ref() {
         let all_artifacts = db.get_context_artifacts_for_run(&run_id);
-        all_artifacts.len().saturating_sub(predecessor_previews.len())
+        all_artifacts
+            .len()
+            .saturating_sub(predecessor_previews.len())
     } else {
         0
     };
@@ -175,13 +190,17 @@ pub async fn get_context_stats(
     _user: ClerkUser,
 ) -> impl IntoResponse {
     let Some(db) = state.db.as_ref() else {
-        return (StatusCode::SERVICE_UNAVAILABLE, Json(serde_json::json!({
-            "error": "Database not available"
-        })));
+        return (
+            StatusCode::SERVICE_UNAVAILABLE,
+            Json(serde_json::json!({
+                "error": "Database not available"
+            })),
+        );
     };
 
     // Get statistics from database
-    let (total_artifacts, artifacts_by_kind, average_tokens_per_artifact) = db.get_context_artifact_stats();
+    let (total_artifacts, artifacts_by_kind, average_tokens_per_artifact) =
+        db.get_context_artifact_stats();
     let recent_runs_with_artifacts = db.get_recent_runs_with_artifacts(10);
     let config = &state.context_bus.config;
 
@@ -209,12 +228,7 @@ pub async fn test_context_assembly(
     Json(params): Json<TestContextQuery>,
 ) -> impl IntoResponse {
     let run_id = params.run_id.clone();
-    preview_context_for_run(
-        State(state),
-        Path(run_id),
-        Query(params),
-        _user,
-    ).await
+    preview_context_for_run(State(state), Path(run_id), Query(params), _user).await
 }
 
 /// GET /api/context/health

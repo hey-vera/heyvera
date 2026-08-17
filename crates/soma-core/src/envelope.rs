@@ -91,11 +91,9 @@ impl SealedSessionEnvelope {
     }
 
     pub fn is_fully_signed(&self) -> bool {
-        self.participants.iter().all(|p| {
-            self.participant_signatures
-                .iter()
-                .any(|(id, _)| id == p)
-        })
+        self.participants
+            .iter()
+            .all(|p| self.participant_signatures.iter().any(|(id, _)| id == p))
     }
 
     pub fn envelope_hash(&self) -> [u8; 32] {

@@ -413,7 +413,11 @@ mod tests {
             match next {
                 Some(Ok(outcome)) => Ok(CheckExecution {
                     spec_id: check.id.clone(),
-                    exit_code: Some(if outcome == CheckOutcome::Passed { 0 } else { 1 }),
+                    exit_code: Some(if outcome == CheckOutcome::Passed {
+                        0
+                    } else {
+                        1
+                    }),
                     outcome,
                     duration_ms: 5,
                     output_digest: "sha256:test".to_string(),
@@ -560,13 +564,15 @@ mod tests {
         let specs = vec![spec("c1"), spec("c2")];
         db.save_check_specs("run-1", "step-1", &specs).unwrap();
 
-        let runner =
-            ScriptedRunner::new(vec![Ok(CheckOutcome::Passed), Ok(CheckOutcome::Passed)]);
+        let runner = ScriptedRunner::new(vec![Ok(CheckOutcome::Passed), Ok(CheckOutcome::Passed)]);
         let verdict = verify_delivery(&db, &runner, &facts(&dir, &head)).await;
         assert_eq!(verdict, Some(Verdict::Verified));
 
         let receipt = db.get_receipt("run-1", "step-1").expect("receipt exists");
-        assert_eq!(receipt.tree_hash, head, "the receipt pins the graded commit");
+        assert_eq!(
+            receipt.tree_hash, head,
+            "the receipt pins the graded commit"
+        );
         assert_eq!(receipt.executions.len(), 2);
         assert_eq!(receipt.gate.required_total, 2);
         assert_eq!(receipt.gate.required_passed, 2);
@@ -579,8 +585,7 @@ mod tests {
         let specs = vec![spec("c1"), spec("c2")];
         db.save_check_specs("run-1", "step-1", &specs).unwrap();
 
-        let runner =
-            ScriptedRunner::new(vec![Ok(CheckOutcome::Passed), Ok(CheckOutcome::Failed)]);
+        let runner = ScriptedRunner::new(vec![Ok(CheckOutcome::Passed), Ok(CheckOutcome::Failed)]);
         let verdict = verify_delivery(&db, &runner, &facts(&dir, &head)).await;
         assert_eq!(verdict, Some(Verdict::Failed));
 
@@ -619,14 +624,22 @@ mod tests {
             .unwrap();
         let f = facts(&dir, &head);
 
-        let first =
-            verify_delivery(&db, &ScriptedRunner::new(vec![Ok(CheckOutcome::Passed)]), &f).await;
+        let first = verify_delivery(
+            &db,
+            &ScriptedRunner::new(vec![Ok(CheckOutcome::Passed)]),
+            &f,
+        )
+        .await;
         assert_eq!(first, Some(Verdict::Verified));
 
         // A duplicate delivery for the same attempt: the CAS must lose, so the
         // ledger key derived from the verification id is minted exactly once.
-        let second =
-            verify_delivery(&db, &ScriptedRunner::new(vec![Ok(CheckOutcome::Failed)]), &f).await;
+        let second = verify_delivery(
+            &db,
+            &ScriptedRunner::new(vec![Ok(CheckOutcome::Failed)]),
+            &f,
+        )
+        .await;
         assert!(
             second.is_none(),
             "the second claim must not produce a verdict"
