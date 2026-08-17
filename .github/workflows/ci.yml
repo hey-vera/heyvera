@@ -286,8 +286,21 @@ jobs:
       # Optional features are invisible to `--workspace`, and `otel` had rotted
       # to the point of not compiling at all while still pinning a dependency
       # with an open advisory. Check the feature so it cannot rot again.
+      # `otel` is here because it rotted to the point of not compiling while
+      # still pinning a dependency with an open advisory. `sentry-tracking` was
+      # the third optional feature and was never checked at all — which is how
+      # dependabot #540 (sentry 0.35 -> 0.49) reported every required check
+      # green while `cargo check -p cortex-api --features sentry-tracking`
+      # failed with two hard errors: `ClientOptions` became non-exhaustive and
+      # `traces_sample_rate` moved off it.
+      #
+      # A green check on a bump to a crate the build never compiles is not
+      # evidence about that crate. Every optional feature in this manifest is
+      # now checked, so the next such bump fails where it should.
       - name: Check optional features
-        run: cargo check -p cortex-api --features otel --bins --locked
+        run: |
+          cargo check -p cortex-api --features otel --bins --locked
+          cargo check -p cortex-api --features sentry-tracking --bins --locked
 
       # The `soma` feature is off by default, so `--workspace` above compiles
       # the fenced-out configuration and never the fenced-in one. Check the
