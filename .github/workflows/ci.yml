@@ -251,6 +251,38 @@ jobs:
       - name: Test Rust workspace
         run: cargo test --workspace --locked
 
+      # The boundary check for F4.
+      #
+      # Four `export_test_vectors` "tests" in soma-crypto wrote their own
+      # fixtures with `std::fs::write` instead of asserting against them. Three
+      # had fixed inputs so they rewrote identical bytes and looked harmless;
+      # the fourth generated a random keypair, so `cargo test` left a clean
+      # checkout dirty and the committed "golden" vector was only ever a record
+      # of the last run. A fixture the test overwrites can never disagree with
+      # the code.
+      #
+      # Nothing caught it because every assertion was *near* the boundary and
+      # not *at* it: the suite asserted on values it had just produced, and no
+      # check ever asked whether running the suite changed the repository. This
+      # step asks exactly that, and it is the one that would have caught it.
+      #
+      # It is deliberately not scoped to test-vectors/. Any test that writes
+      # into the working tree is the same defect, wherever it appears.
+      - name: The test run must not modify the working tree
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::running the test suite modified tracked files (listed above). A test that rewrites its own fixture cannot fail. Assert against the committed file instead of writing it."
+            exit 1
+          fi
+          # Tracked files are covered above; an untracked file dropped into the
+          # tree by a test is the same problem wearing a different hat.
+          untracked=$(git ls-files --others --exclude-standard)
+          if [ -n "$untracked" ]; then
+            echo "::error::the test run created untracked files:"
+            echo "$untracked"
+            exit 1
+          fi
+
       # Optional features are invisible to `--workspace`, and `otel` had rotted
       # to the point of not compiling at all while still pinning a dependency
       # with an open advisory. Check the feature so it cannot rot again.
