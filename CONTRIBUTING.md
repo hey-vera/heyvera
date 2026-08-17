@@ -97,9 +97,23 @@ cargo fmt --check
 ### Formatting
 
 `rustfmt.toml` pins the format explicitly so `cargo fmt` is reproducible across
-toolchains. Run `cargo fmt` as its **own commit**, never mixed with a change to
-behaviour — a reviewer cannot see a logic change inside a thousand-line
-whitespace diff. Formatting-only commits belong in `.git-blame-ignore-revs`.
+toolchains. **The `fmt` CI job runs `cargo fmt --all --check`** — if it fails,
+run `cargo fmt --all` and commit the result. There is nothing to interpret; the
+fix is the command.
+
+Run `cargo fmt` as its **own commit**, never mixed with a change to behaviour —
+a reviewer cannot see a logic change inside a thousand-line whitespace diff.
+Formatting-only commits belong in `.git-blame-ignore-revs`, and only commits
+that changed no behaviour at all may go in that file: a commit listed there is
+invisible in blame.
+
+Turn the ignore file on for your checkout — a commit cannot do it for you:
+
+```bash
+git config blame.ignoreRevsFile .git-blame-ignore-revs
+```
+
+GitHub's blame view reads the file automatically and needs no setup.
 
 `.editorconfig` covers everything rustfmt does not.
 
