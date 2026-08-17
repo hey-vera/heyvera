@@ -80,6 +80,12 @@ sentry-tracking = ["sentry"]
 otel = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp", "tracing-opentelemetry"]
 
 [dev-dependencies]
+# The integration tests install no subscriber, so `tracing::error!` inside
+# the verification driver goes nowhere. A stubbed run that produced
+# `Inconclusive` with an empty execution set could therefore report only the
+# symptom and never the reason -- the driver names its failure and nothing
+# was listening.
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
 tempfile = "3"
 cortex-worker = { path = "../worker" }
 tower = { version = "0.5", features = ["util"] }
