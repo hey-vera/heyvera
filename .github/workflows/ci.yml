@@ -1,10 +1,32 @@
 name: CI
 
+# Pull requests only, plus a manual button.
+#
+# `main` is protected with `required_status_checks.strict: true`, which means a
+# pull request cannot merge until it has been tested *against the current tip of
+# main*. The commit that lands is therefore the same tree the PR run already
+# built and tested, and the post-merge `push` run re-ran all six jobs on it —
+# measured at roughly 18 minutes of runner time per merge, duplicating work that
+# had just finished.
+#
+# Removing `push` costs one thing, stated plainly rather than discovered later:
+# a workflow run can restore caches created on its own branch or on the default
+# branch, and nothing else. With no run on `main`, no *new* default-branch cache
+# is created, so after a Cargo.lock change every PR restores a partial cache
+# until it saves its own. If PR wall-clock regresses, the fix is a single
+# `cache-warm` job gated on `push: branches: [main]` with a `shared-key`, not
+# the return of the whole matrix.
+#
+# `supply-chain.yml` already runs on `pull_request` + `schedule` with no `push`
+# trigger, so this is the pattern this repository already uses.
+#
+# Deliberately NOT added: `paths` filters or change detection. See the note on
+# the deleted `web` job below — a skipped job reports success, and every job
+# here is a required status check.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
