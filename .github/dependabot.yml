@@ -8,12 +8,30 @@
 # against archive/ — 357 package.json files live under a directory README.md
 # marks "reference only, do not build from". Untracking archive/root-node-modules
 # is what actually stops those; see the same PR as this change.
+#
+# Schedule is MONTHLY, not weekly, and that is a cost decision with a stated
+# tradeoff.
+#
+# Weekly across four ecosystems produced faster than they were merged: seven
+# sat open simultaneously, every one of them BEHIND, because `main` is
+# protected with `strict: true` and each merge invalidates every other open
+# PR. Each one then costs a branch update plus a full CI run to recover. The
+# backlog was not a review problem, it was an arrival-rate problem.
+#
+# What this gives up: a non-security dependency update may now wait up to a
+# month. That is acceptable because it is NOT the security path — repo-level
+# Dependabot *security* updates are a separate setting and are unaffected by
+# this interval, and `cargo-deny` plus `npm-audit (cortex)` and
+# `npm-audit (heyvera)` are required checks, so an advisory blocks merges
+# regardless of when a bump PR happens to arrive.
+#
+# Grouping is deliberately unchanged. See the notes on each group below.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /cortex
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
     groups:
       cortex-npm:
@@ -31,7 +49,7 @@ updates:
   - package-ecosystem: npm
     directory: /heyvera
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
     groups:
       heyvera-npm:
@@ -41,7 +59,7 @@ updates:
   - package-ecosystem: cargo
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
     groups:
       # Minor and patch only. A major arrives as its own PR, ungrouped.
@@ -83,7 +101,7 @@ updates:
   - package-ecosystem: github-actions
     directory: /
     schedule:
-      interval: weekly
+      interval: monthly
     open-pull-requests-limit: 5
     groups:
       github-actions:
