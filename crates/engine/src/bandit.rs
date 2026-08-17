@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use chrono::{DateTime, Utc};
-use cortex_core::provider::{ProviderId};
+use cortex_core::provider::ProviderId;
 use cortex_core::routing::{Intent, RiskLevel};
 use serde::{Deserialize, Serialize};
 
@@ -197,7 +197,9 @@ mod tests {
         assert!((UcbScorer::exploration_weight_for_dial(1) - 0.1).abs() < 1e-9);
         assert!((UcbScorer::exploration_weight_for_dial(5) - 1.0).abs() < 1e-9);
         assert!((UcbScorer::exploration_weight_for_dial(10) - 2.5).abs() < 1e-9);
-        assert!(UcbScorer::exploration_weight_for_dial(8) > UcbScorer::exploration_weight_for_dial(3));
+        assert!(
+            UcbScorer::exploration_weight_for_dial(8) > UcbScorer::exploration_weight_for_dial(3)
+        );
     }
 
     #[test]

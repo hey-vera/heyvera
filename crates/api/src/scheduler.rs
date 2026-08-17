@@ -3,11 +3,11 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use cortex_core::check_derivation::{DerivationInput, derive_checks};
+use cortex_core::check_derivation::{derive_checks, DerivationInput};
 use cortex_core::egress::{derive_egress, derive_provider_egress, EgressPlan};
 use cortex_core::evaluator::{
-    AutoMode, BudgetEvidence, CandidateScore, DecisionEvidence, DefaultPolicy, IntentEvidence,
-    PressureState, Profile, ProviderFitEvidence, RiskEvidence, WINDOW_SECS, token_budget,
+    token_budget, AutoMode, BudgetEvidence, CandidateScore, DecisionEvidence, DefaultPolicy,
+    IntentEvidence, PressureState, Profile, ProviderFitEvidence, RiskEvidence, WINDOW_SECS,
 };
 use cortex_core::protocol::{BrainMessage, PredecessorSummary, StepContext};
 use cortex_core::provider::{ProviderId, Tier};
@@ -17,8 +17,8 @@ use cortex_core::task::{
     WorkRecipeSeed,
 };
 use cortex_engine::captain::{
-    EdgeType, RunStatus, SchedulerEvent, SchedulerState, StepKind, StepRef, StepStatus,
-    check_run_completion, plan_heal,
+    check_run_completion, plan_heal, EdgeType, RunStatus, SchedulerEvent, SchedulerState, StepKind,
+    StepRef, StepStatus,
 };
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -357,7 +357,7 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
     // dispatch time (evidence accumulates after execution), so we log a warning
     // for high-risk steps to ensure observability.
     {
-        use cortex_engine::evidence_floor::{FloorVerdict, check_floor};
+        use cortex_engine::evidence_floor::{check_floor, FloorVerdict};
         let verdict = check_floor(risk, &[]);
         match verdict {
             FloorVerdict::Blocked { missing, .. } => {
@@ -396,14 +396,20 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
                         approval_id,
                     );
                 }
-                Some((approval_id, status)) if matches!(status.as_str(), "rejected" | "cancelled") => {
+                Some((approval_id, status))
+                    if matches!(status.as_str(), "rejected" | "cancelled") =>
+                {
                     tracing::warn!(
                         "autonomy gate: step {} was terminally blocked by approval {} with status {}",
                         step.step_id,
                         approval_id,
                         status,
                     );
-                    if db.fail_unleased_step(&step.step_id, "approval rejected", Some("ApprovalRejected")) {
+                    if db.fail_unleased_step(
+                        &step.step_id,
+                        "approval rejected",
+                        Some("ApprovalRejected"),
+                    ) {
                         state
                             .emit_scheduler_event(SchedulerEvent::StepFailed {
                                 run_id: step.run_id.clone(),
@@ -433,7 +439,11 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
                             "Cortex wants to dispatch a {:?} risk step: {}",
                             risk, step.objective
                         ),
-                        if risk >= RiskLevel::Critical { "urgent" } else { "high" },
+                        if risk >= RiskLevel::Critical {
+                            "urgent"
+                        } else {
+                            "high"
+                        },
                         "scheduler-risk-gate",
                     );
                     match approval {
@@ -597,7 +607,8 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
     // Derive once, then use the result twice: frozen for verification, and
     // downgraded to display strings for the worker contract. Deriving twice
     // would risk the exam differing from the one the worker was shown.
-    let check_specs = derive_step_check_specs(step.kind, risk, &allowed_paths, &state.workspace_dir);
+    let check_specs =
+        derive_step_check_specs(step.kind, risk, &allowed_paths, &state.workspace_dir);
 
     // Freeze the exam here, at dispatch, before the worker sees the task.
     // Verification happens after delivery, and the `CheckSpec` argv needed to
@@ -792,11 +803,9 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
 /// is no longer one, which is the entire point of V2.
 fn step_changes_the_tree(kind: StepKind) -> bool {
     match kind {
-        StepKind::Execute
-        | StepKind::Test
-        | StepKind::Build
-        | StepKind::Lint
-        | StepKind::Heal => true,
+        StepKind::Execute | StepKind::Test | StepKind::Build | StepKind::Lint | StepKind::Heal => {
+            true
+        }
         StepKind::Search | StepKind::Think | StepKind::Review | StepKind::Gate => false,
     }
 }
@@ -868,7 +877,8 @@ fn freeze_step_quote(
 ) {
     let Some(list) = db.active_price_list() else {
         tracing::warn!(
-            run_id, step_id,
+            run_id,
+            step_id,
             "no price list is published; this step is dispatched without a quote and \
              cannot be charged for"
         );
@@ -2035,8 +2045,11 @@ pub fn build_resource_lease_requests_extended(
     // maintaining. Sorting here makes every acquirer agree without needing to
     // coordinate, and costs nothing.
     requests.sort_by(|a, b| {
-        (&a.resource_type, &a.repo_key, &a.resource_key)
-            .cmp(&(&b.resource_type, &b.repo_key, &b.resource_key))
+        (&a.resource_type, &a.repo_key, &a.resource_key).cmp(&(
+            &b.resource_type,
+            &b.repo_key,
+            &b.resource_key,
+        ))
     });
 
     requests
@@ -2116,20 +2129,21 @@ pub async fn create_run_from_goal(
     let normalized_repo_key = normalize_repo_key(repo_key);
     let resource_leases =
         build_resource_lease_requests(file_paths, Some(&normalized_repo_key), task_id, group_id);
-    let run_id = db.create_run_with_steps_and_resource_leases_with_authority(
-        user_id,
-        goal,
-        profile,
-        file_paths,
-        task_id,
-        group_id,
-        conversation_id,
-        &resource_leases,
-        &steps,
-        &edges,
-        authority_context.as_ref(),
-    )
-    .map_err(|err| err.message())?;
+    let run_id = db
+        .create_run_with_steps_and_resource_leases_with_authority(
+            user_id,
+            goal,
+            profile,
+            file_paths,
+            task_id,
+            group_id,
+            conversation_id,
+            &resource_leases,
+            &steps,
+            &edges,
+            authority_context.as_ref(),
+        )
+        .map_err(|err| err.message())?;
 
     scheduler_tx
         .send(SchedulerEvent::RunCreated {
@@ -2164,8 +2178,7 @@ mod soma_fence_tests {
         let temporary = tempfile::tempdir().expect("temporary workspace");
         let workspace = temporary.path().to_path_buf();
         std::fs::create_dir_all(workspace.join(".cortex")).expect("workspace metadata");
-        let state =
-            AppState::new(workspace.join(".cortex/ledger.jsonl"), workspace, None).await;
+        let state = AppState::new(workspace.join(".cortex/ledger.jsonl"), workspace, None).await;
 
         let issued = issue_step_delegation(&state, "step-1", 1_000_000, "worker-1");
 
@@ -2223,12 +2236,10 @@ mod tests {
         paths.sort();
         // The duplicate `src/main.rs` collapses.
         assert_eq!(paths, vec!["src/lib.rs", "src/main.rs"]);
-        assert!(
-            requests
-                .iter()
-                .filter(|r| r.resource_type == "path")
-                .all(|r| r.mode == "write" && r.repo_key == "github:hey-vera/heyvera")
-        );
+        assert!(requests
+            .iter()
+            .filter(|r| r.resource_type == "path")
+            .all(|r| r.mode == "write" && r.repo_key == "github:hey-vera/heyvera"));
     }
 
     /// Every acquirer must derive the same order without coordinating, or two
@@ -2353,11 +2364,9 @@ mod tests {
                 "ecosystem:npm-build",
             ]
         );
-        assert!(
-            checks
-                .iter()
-                .any(|c| c.command == "cargo check --locked --workspace")
-        );
+        assert!(checks
+            .iter()
+            .any(|c| c.command == "cargo check --locked --workspace"));
     }
 
     #[test]
@@ -2375,7 +2384,11 @@ mod tests {
         let names: Vec<&str> = checks.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(
             names,
-            vec!["ecosystem:npm-ci", "ecosystem:npm-build", "risk:allowed-paths"]
+            vec![
+                "ecosystem:npm-ci",
+                "ecosystem:npm-build",
+                "risk:allowed-paths"
+            ]
         );
     }
 
@@ -2405,12 +2418,10 @@ mod tests {
             recipe.acceptance[0].text,
             "Required check `cargo:test` passes"
         );
-        assert!(
-            recipe
-                .constraints
-                .iter()
-                .any(|c| c == "expected_base_commit=abc123")
-        );
+        assert!(recipe
+            .constraints
+            .iter()
+            .any(|c| c == "expected_base_commit=abc123"));
     }
 
     #[test]
@@ -2439,12 +2450,10 @@ mod tests {
         assert_eq!(recipe.kind, WorkKind::Refactor);
         assert_eq!(recipe.target_paths, vec!["crates/engine/src/decomposer.rs"]);
         assert_eq!(recipe.acceptance[0].text, "Planner objective is satisfied");
-        assert!(
-            recipe
-                .constraints
-                .iter()
-                .any(|c| c == "planner_risk=medium")
-        );
+        assert!(recipe
+            .constraints
+            .iter()
+            .any(|c| c == "planner_risk=medium"));
     }
 
     #[test]

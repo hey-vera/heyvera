@@ -141,8 +141,8 @@ impl ModelPrice {
     /// Cost of a completion, in micros. Integer arithmetic end to end.
     pub fn cost_micros(&self, tokens_in: i64, cached_in: i64, tokens_out: i64) -> i64 {
         let uncached_in = (tokens_in - cached_in).max(0);
-        let cached = cached_in * self.input_micros_per_1k * self.cache_read_bp
-            / (1_000 * BP_PER_WHOLE);
+        let cached =
+            cached_in * self.input_micros_per_1k * self.cache_read_bp / (1_000 * BP_PER_WHOLE);
         let regular = uncached_in * self.input_micros_per_1k / 1_000;
         let out = tokens_out * self.output_micros_per_1k / 1_000;
         cached + regular + out
@@ -290,9 +290,8 @@ pub fn seed_provisional(
             // Round up to a whole credit, and never to zero: a task that costs
             // nothing is not a task, and a zero-credit class would make a
             // billable verdict a silent no-op later.
-            let credits = ((with_margin + SEED_MICROS_PER_CREDIT - 1)
-                / SEED_MICROS_PER_CREDIT)
-                .max(1);
+            let credits =
+                ((with_margin + SEED_MICROS_PER_CREDIT - 1) / SEED_MICROS_PER_CREDIT).max(1);
             ClassPrice {
                 task_class: class.key(),
                 quoted_credits: credits,
@@ -397,14 +396,58 @@ pub fn seed_models() -> Vec<ModelPrice> {
     }
 
     vec![
-        m("claude", "claude-opus-5", 15_000, 75_000, 1_000, 200_000, "frontier"),
-        m("claude", "claude-sonnet-5", 3_000, 15_000, 1_000, 200_000, "balanced"),
-        m("claude", "claude-haiku-4-5-20251001", 800, 4_000, 1_000, 200_000, "fast"),
-        m("openai", "gpt-5.5", 10_000, 40_000, 5_000, 400_000, "frontier"),
-        m("openai", "gpt-5.4", 5_000, 15_000, 5_000, 400_000, "balanced"),
+        m(
+            "claude",
+            "claude-opus-5",
+            15_000,
+            75_000,
+            1_000,
+            200_000,
+            "frontier",
+        ),
+        m(
+            "claude",
+            "claude-sonnet-5",
+            3_000,
+            15_000,
+            1_000,
+            200_000,
+            "balanced",
+        ),
+        m(
+            "claude",
+            "claude-haiku-4-5-20251001",
+            800,
+            4_000,
+            1_000,
+            200_000,
+            "fast",
+        ),
+        m(
+            "openai", "gpt-5.5", 10_000, 40_000, 5_000, 400_000, "frontier",
+        ),
+        m(
+            "openai", "gpt-5.4", 5_000, 15_000, 5_000, 400_000, "balanced",
+        ),
         m("openai", "gpt-5-mini", 400, 1_600, 5_000, 400_000, "fast"),
-        m("gemini", "gemini-3-pro", 1_250, 5_000, 5_000, 1_000_000, "balanced"),
-        m("gemini", "gemini-3-flash", 150, 600, 5_000, 1_000_000, "fast"),
+        m(
+            "gemini",
+            "gemini-3-pro",
+            1_250,
+            5_000,
+            5_000,
+            1_000_000,
+            "balanced",
+        ),
+        m(
+            "gemini",
+            "gemini-3-flash",
+            150,
+            600,
+            5_000,
+            1_000_000,
+            "fast",
+        ),
     ]
 }
 
@@ -431,11 +474,7 @@ mod tests {
         // decision not to price it.
         let list = seeded();
         for class in TaskClass::all() {
-            assert!(
-                list.class(&class).is_some(),
-                "no price for {}",
-                class.key()
-            );
+            assert!(list.class(&class).is_some(), "no price for {}", class.key());
         }
     }
 
@@ -532,7 +571,11 @@ mod tests {
             .unwrap()
             .quoted_credits;
         let dear = list
-            .class(&TaskClass::new(WorkKind::Refactor, RiskLevel::Critical, true))
+            .class(&TaskClass::new(
+                WorkKind::Refactor,
+                RiskLevel::Critical,
+                true,
+            ))
             .unwrap()
             .quoted_credits;
         assert!(

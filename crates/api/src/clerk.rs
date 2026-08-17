@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use axum::extract::FromRef;
 use axum::extract::FromRequestParts;
@@ -269,7 +269,10 @@ pub async fn fetch_jwks(clerk_secret_key: &str) -> Result<Vec<JwkKey>, String> {
         return Err(format!("JWKS fetch returned {}", status));
     }
 
-    let jwks: JwksResponse = res.json().await.map_err(|e| format!("JWKS parse failed: {e}"))?;
+    let jwks: JwksResponse = res
+        .json()
+        .await
+        .map_err(|e| format!("JWKS parse failed: {e}"))?;
     tracing::info!(
         method = "jwks_fetch",
         duration_ms = start.elapsed().as_millis() as u64,
@@ -294,7 +297,11 @@ async fn get_or_refresh_jwks(
     }
 
     // Stampede protection: only one caller fetches, others wait
-    if stampede.fetching.compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst).is_ok() {
+    if stampede
+        .fetching
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_ok()
+    {
         // We won the race — fetch JWKS
         let result = fetch_jwks(clerk_secret_key).await;
         match result {
@@ -409,11 +416,14 @@ pub async fn verify_clerk_jwt(token: &str, state: &Arc<AppState>) -> Result<Stri
         .as_ref()
         .ok_or("clerk auth not configured")?;
 
-    let keys = get_or_refresh_jwks(&state.jwks_cache, &state.jwks_stampede, clerk_secret, false).await?;
+    let keys =
+        get_or_refresh_jwks(&state.jwks_cache, &state.jwks_stampede, clerk_secret, false).await?;
     let user_id = match verify_token(token, &keys) {
         Ok(claims) => claims.sub,
         Err(_) => {
-            let keys = get_or_refresh_jwks(&state.jwks_cache, &state.jwks_stampede, clerk_secret, true).await?;
+            let keys =
+                get_or_refresh_jwks(&state.jwks_cache, &state.jwks_stampede, clerk_secret, true)
+                    .await?;
             verify_token(token, &keys)?.sub
         }
     };
@@ -454,10 +464,7 @@ where
                     }
                     Err(e) => {
                         let msg = format!("{e:?}");
-                        return Err((
-                            StatusCode::UNAUTHORIZED,
-                            Json(ErrorResponse { error: msg }),
-                        ));
+                        return Err((StatusCode::UNAUTHORIZED, Json(ErrorResponse { error: msg })));
                     }
                 }
 
@@ -503,20 +510,27 @@ where
                 }
                 return Err((
                     StatusCode::UNAUTHORIZED,
-                    Json(ErrorResponse { error: "bearer token required".into() }),
+                    Json(ErrorResponse {
+                        error: "bearer token required".into(),
+                    }),
                 ));
             }
         };
 
         // Try with cached JWKS first (with stampede protection)
-        let keys = get_or_refresh_jwks(&app_state.jwks_cache, &app_state.jwks_stampede, &clerk_secret, false)
-            .await
-            .map_err(|e| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(ErrorResponse { error: e }),
-                )
-            })?;
+        let keys = get_or_refresh_jwks(
+            &app_state.jwks_cache,
+            &app_state.jwks_stampede,
+            &clerk_secret,
+            false,
+        )
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse { error: e }),
+            )
+        })?;
 
         match verify_token(&token, &keys) {
             Ok(claims) => {
@@ -527,12 +541,21 @@ where
             }
             Err(_first_err) => {
                 // Key rotation: retry with fresh JWKS
-                let keys = match get_or_refresh_jwks(&app_state.jwks_cache, &app_state.jwks_stampede, &clerk_secret, true).await {
+                let keys = match get_or_refresh_jwks(
+                    &app_state.jwks_cache,
+                    &app_state.jwks_stampede,
+                    &clerk_secret,
+                    true,
+                )
+                .await
+                {
                     Ok(keys) => keys,
                     Err(_) => {
                         return Err((
                             StatusCode::SERVICE_UNAVAILABLE,
-                            Json(ErrorResponse { error: "clerk jwks unavailable".into() }),
+                            Json(ErrorResponse {
+                                error: "clerk jwks unavailable".into(),
+                            }),
                         ));
                     }
                 };
@@ -603,14 +626,9 @@ mod tests {
         .expect_err("issuer must use https");
         assert!(issuer_error.contains("https URL"));
 
-        let party_error = validate_auth_config_values(
-            true,
-            false,
-            SECRET,
-            ISSUER,
-            Some("http://heyvera.org"),
-        )
-        .expect_err("authorized party must use https");
+        let party_error =
+            validate_auth_config_values(true, false, SECRET, ISSUER, Some("http://heyvera.org"))
+                .expect_err("authorized party must use https");
         assert!(party_error.contains("https origin"));
 
         for invalid in [

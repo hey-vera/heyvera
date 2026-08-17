@@ -1,10 +1,10 @@
 use std::convert::Infallible;
 use std::sync::Arc;
 
-use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::sse::{Event, KeepAlive, Sse};
+use axum::Json;
 use futures_core::Stream;
 
 use crate::clerk::ClerkUser;

@@ -1,19 +1,19 @@
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
+use axum::Json;
 use serde::{Deserialize, Serialize};
 
 use soma::crypto::encode_base64;
-use soma::delegation::{Caveat, Delegation, create_delegation};
+use soma::delegation::{create_delegation, Caveat, Delegation};
 use soma::identity::HeartIdentity;
 
 use crate::clerk::ClerkUser;
+use crate::lock::LockRecovering;
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
-use crate::lock::LockRecovering;
 
 /// A user's Soma identity — created on first session request, persisted across sessions.
 #[derive(Debug, Serialize)]

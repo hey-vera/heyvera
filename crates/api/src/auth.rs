@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use axum::Json;
 use axum::extract::State;
 use axum::http::StatusCode;
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -105,7 +105,9 @@ pub async fn auth_start(
         other => {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse { error: format!("unknown provider: {other}") }),
+                Json(ErrorResponse {
+                    error: format!("unknown provider: {other}"),
+                }),
             ));
         }
     };
@@ -136,16 +138,25 @@ pub async fn auth_start(
         _ => {
             return Err((
                 StatusCode::SERVICE_UNAVAILABLE,
-                Json(ErrorResponse { error: "container system not available — cannot authenticate subscriptions".into() }),
+                Json(ErrorResponse {
+                    error: "container system not available — cannot authenticate subscriptions"
+                        .into(),
+                }),
             ));
         }
     };
 
-    let container_id = cm.ensure_container(db, &user.user_id, provider_normalized)
+    let container_id = cm
+        .ensure_container(db, &user.user_id, provider_normalized)
         .await
         .map_err(|e| {
             tracing::error!("failed to ensure container for BYOS auth: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("container setup failed: {e}") }))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("container setup failed: {e}"),
+                }),
+            )
         })?;
 
     let login_cmd: Vec<&str> = match provider_normalized {
@@ -153,10 +164,17 @@ pub async fn auth_start(
         _ => vec!["codex", "login", "--device-auth"],
     };
 
-    let (exec_id, output) = cm.start_login_exec(&container_id, &login_cmd).await
+    let (exec_id, output) = cm
+        .start_login_exec(&container_id, &login_cmd)
+        .await
         .map_err(|e| {
             tracing::error!("container login exec failed: {e}");
-            (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("failed to start CLI login: {e}") }))
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(ErrorResponse {
+                    error: format!("failed to start CLI login: {e}"),
+                }),
+            )
         })?;
 
     let auth_url = extract_url_from_output(&output);
@@ -164,7 +182,12 @@ pub async fn auth_start(
         tracing::error!(output = %output, "CLI login produced no auth URL");
         return Err((
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: format!("CLI login did not produce an auth URL. Output: {}", output.chars().take(200).collect::<String>()) }),
+            Json(ErrorResponse {
+                error: format!(
+                    "CLI login did not produce an auth URL. Output: {}",
+                    output.chars().take(200).collect::<String>()
+                ),
+            }),
         ));
     }
 
@@ -174,7 +197,10 @@ pub async fn auth_start(
         exec_id,
         started_at: chrono::Utc::now().timestamp(),
     };
-    state.pending_container_auths.write().await
+    state
+        .pending_container_auths
+        .write()
+        .await
         .insert(user.user_id.clone(), pending);
 
     let message = match provider_normalized {
@@ -193,7 +219,20 @@ pub async fn auth_start(
 fn extract_url_from_output(output: &str) -> Option<String> {
     for word in output.split_whitespace() {
         if word.starts_with("https://") || word.starts_with("http://") {
-            return Some(word.trim_matches(|c: char| !c.is_alphanumeric() && c != ':' && c != '/' && c != '.' && c != '-' && c != '_' && c != '?' && c != '=' && c != '&').to_string());
+            return Some(
+                word.trim_matches(|c: char| {
+                    !c.is_alphanumeric()
+                        && c != ':'
+                        && c != '/'
+                        && c != '.'
+                        && c != '-'
+                        && c != '_'
+                        && c != '?'
+                        && c != '='
+                        && c != '&'
+                })
+                .to_string(),
+            );
         }
     }
     None
@@ -207,7 +246,9 @@ pub async fn auth_submit(
     let db = state.db.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: "database unavailable".into() }),
+            Json(ErrorResponse {
+                error: "database unavailable".into(),
+            }),
         )
     })?;
 
@@ -218,7 +259,9 @@ pub async fn auth_submit(
         other => {
             return Err((
                 StatusCode::BAD_REQUEST,
-                Json(ErrorResponse { error: format!("unknown provider: {other}") }),
+                Json(ErrorResponse {
+                    error: format!("unknown provider: {other}"),
+                }),
             ));
         }
     };
@@ -228,16 +271,25 @@ pub async fn auth_submit(
     if code.is_empty() {
         return Err((
             StatusCode::BAD_REQUEST,
-            Json(ErrorResponse { error: "code cannot be empty".into() }),
+            Json(ErrorResponse {
+                error: "code cannot be empty".into(),
+            }),
         ));
     }
 
     // For subscription credentials with container auth, complete the login inside the container
     if credential_type == "subscription" {
         if let Some(cm) = &state.container_manager {
-            let pending = state.pending_container_auths.write().await.remove(&user.user_id);
+            let pending = state
+                .pending_container_auths
+                .write()
+                .await
+                .remove(&user.user_id);
             if let Some(pending) = pending {
-                match cm.complete_login_exec(&pending.container_id, &pending.provider, code).await {
+                match cm
+                    .complete_login_exec(&pending.container_id, &pending.provider, code)
+                    .await
+                {
                     Ok(_output) => {
                         tracing::info!(
                             user_id = %user.user_id,
@@ -253,7 +305,9 @@ pub async fn auth_submit(
                         );
                         return Err((
                             StatusCode::BAD_REQUEST,
-                            Json(ErrorResponse { error: format!("subscription auth failed: {e}") }),
+                            Json(ErrorResponse {
+                                error: format!("subscription auth failed: {e}"),
+                            }),
                         ));
                     }
                 }
@@ -264,13 +318,12 @@ pub async fn auth_submit(
     // Build the data blob to encrypt
     let data_to_encrypt = match credential_type {
         "api_key" => code.to_string(),
-        "subscription" => {
-            serde_json::json!({
-                "container_auth": state.container_manager.is_some(),
-                "provider": provider_normalized,
-                "authed_at": chrono::Utc::now().timestamp(),
-            }).to_string()
-        }
+        "subscription" => serde_json::json!({
+            "container_auth": state.container_manager.is_some(),
+            "provider": provider_normalized,
+            "authed_at": chrono::Utc::now().timestamp(),
+        })
+        .to_string(),
         _ => code.to_string(),
     };
 
@@ -278,7 +331,9 @@ pub async fn auth_submit(
         tracing::error!("encryption failed: {e}");
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: "failed to encrypt credential".into() }),
+            Json(ErrorResponse {
+                error: "failed to encrypt credential".into(),
+            }),
         )
     })?;
 
@@ -290,12 +345,16 @@ pub async fn auth_submit(
         user_id: user.user_id.clone(),
         provider: provider_normalized.to_string(),
         credential_type: credential_type.to_string(),
-        label: req.label.or_else(|| Some(format!("{} {}", provider_normalized, credential_type))),
+        label: req
+            .label
+            .or_else(|| Some(format!("{} {}", provider_normalized, credential_type))),
         email: None,
-        is_default: db.list_credentials(&user.user_id)
+        is_default: db
+            .list_credentials(&user.user_id)
             .iter()
             .filter(|c| c.provider == provider_normalized)
-            .count() == 0,
+            .count()
+            == 0,
         status: "active".to_string(),
         last_used_at: None,
         token_expires_at: None,
@@ -306,9 +365,14 @@ pub async fn auth_submit(
     db.insert_credential_with_data(&cred, &encrypted);
 
     db.audit_log(
-        &user.user_id, "user", "credential.created",
-        Some("credential"), Some(&cred_id),
-        Some(&format!("{{\"provider\":\"{provider_normalized}\",\"type\":\"{credential_type}\"}}")),
+        &user.user_id,
+        "user",
+        "credential.created",
+        Some("credential"),
+        Some(&cred_id),
+        Some(&format!(
+            "{{\"provider\":\"{provider_normalized}\",\"type\":\"{credential_type}\"}}"
+        )),
         None,
     );
 
@@ -322,7 +386,10 @@ pub async fn auth_submit(
 
     Ok(Json(AuthSubmitResponse {
         success: true,
-        message: format!("{} {} connected successfully", provider_normalized, credential_type),
+        message: format!(
+            "{} {} connected successfully",
+            provider_normalized, credential_type
+        ),
         credential_id: Some(cred_id),
     }))
 }
@@ -342,7 +409,9 @@ pub async fn credential_delete(
     let db = state.db.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: "database unavailable".into() }),
+            Json(ErrorResponse {
+                error: "database unavailable".into(),
+            }),
         )
     })?;
 
@@ -362,8 +431,13 @@ pub async fn credential_delete(
     let deleted = db.delete_credential(&user.user_id, &req.credential_id);
     if deleted {
         db.audit_log(
-            &user.user_id, "user", "credential.deleted",
-            Some("credential"), Some(&req.credential_id), None, None,
+            &user.user_id,
+            "user",
+            "credential.deleted",
+            Some("credential"),
+            Some(&req.credential_id),
+            None,
+            None,
         );
     }
     Ok(Json(AuthSubmitResponse {
@@ -385,7 +459,9 @@ pub async fn credential_set_default(
     let db = state.db.as_ref().ok_or_else(|| {
         (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(ErrorResponse { error: "database unavailable".into() }),
+            Json(ErrorResponse {
+                error: "database unavailable".into(),
+            }),
         )
     })?;
 

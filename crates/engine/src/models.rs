@@ -1,14 +1,34 @@
 use cortex_core::provider::{ProviderId, ProviderModel, Tier};
 
 const REGISTRY: &[(ProviderId, Tier, &str, &str)] = &[
-    (ProviderId::Claude, Tier::Search, "claude-haiku-4-5", "claude"),
-    (ProviderId::Claude, Tier::Execute, "claude-sonnet-4-6", "claude"),
+    (
+        ProviderId::Claude,
+        Tier::Search,
+        "claude-haiku-4-5",
+        "claude",
+    ),
+    (
+        ProviderId::Claude,
+        Tier::Execute,
+        "claude-sonnet-4-6",
+        "claude",
+    ),
     (ProviderId::Claude, Tier::Think, "claude-opus-4-6", "claude"),
     (ProviderId::Openai, Tier::Search, "gpt-4.1-mini", "codex"),
     (ProviderId::Openai, Tier::Execute, "gpt-5.4", "codex"),
     (ProviderId::Openai, Tier::Think, "gpt-5.5", "codex"),
-    (ProviderId::Gemini, Tier::Search, "gemini-2.5-flash", "gemini"),
-    (ProviderId::Gemini, Tier::Execute, "gemini-2.5-pro", "gemini"),
+    (
+        ProviderId::Gemini,
+        Tier::Search,
+        "gemini-2.5-flash",
+        "gemini",
+    ),
+    (
+        ProviderId::Gemini,
+        Tier::Execute,
+        "gemini-2.5-pro",
+        "gemini",
+    ),
     (ProviderId::Gemini, Tier::Think, "gemini-2.5-pro", "gemini"),
     // OpenCode Zen model IDs (opencode.ai/docs/zen). "zen" is a label, not a
     // CLI — the provider is API-only. Picks are uncalibrated defaults; Phase

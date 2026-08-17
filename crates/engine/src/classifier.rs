@@ -9,8 +9,16 @@ const PATTERNS: &[IntentPattern] = &[
     IntentPattern {
         intent: Intent::Think,
         keywords: &[
-            "should we", "what's the best", "how should", "architecture",
-            "design", "decide", "compare", "tradeoff", "evaluate", "approach",
+            "should we",
+            "what's the best",
+            "how should",
+            "architecture",
+            "design",
+            "decide",
+            "compare",
+            "tradeoff",
+            "evaluate",
+            "approach",
         ],
     },
     IntentPattern {
@@ -20,8 +28,15 @@ const PATTERNS: &[IntentPattern] = &[
     IntentPattern {
         intent: Intent::Explore,
         keywords: &[
-            "find", "where is", "search", "look for", "explore", "understand",
-            "what does", "how does", "show me",
+            "find",
+            "where is",
+            "search",
+            "look for",
+            "explore",
+            "understand",
+            "what does",
+            "how does",
+            "show me",
         ],
     },
     IntentPattern {
@@ -30,7 +45,13 @@ const PATTERNS: &[IntentPattern] = &[
     },
     IntentPattern {
         intent: Intent::Refactor,
-        keywords: &["refactor", "clean up", "restructure", "rename", "reorganize"],
+        keywords: &[
+            "refactor",
+            "clean up",
+            "restructure",
+            "rename",
+            "reorganize",
+        ],
     },
     IntentPattern {
         intent: Intent::Fix,
@@ -39,8 +60,17 @@ const PATTERNS: &[IntentPattern] = &[
     IntentPattern {
         intent: Intent::Add,
         keywords: &[
-            "add", "create", "build", "implement", "make", "new", "feature",
-            "set up", "setup", "install", "wire",
+            "add",
+            "create",
+            "build",
+            "implement",
+            "make",
+            "new",
+            "feature",
+            "set up",
+            "setup",
+            "install",
+            "wire",
         ],
     },
 ];
@@ -78,27 +108,42 @@ mod tests {
 
     #[test]
     fn explore_intent() {
-        assert_eq!(classify_intent("where is auth handled?"), Some(Intent::Explore));
+        assert_eq!(
+            classify_intent("where is auth handled?"),
+            Some(Intent::Explore)
+        );
     }
 
     #[test]
     fn think_intent() {
-        assert_eq!(classify_intent("should we use Redis or Postgres?"), Some(Intent::Think));
+        assert_eq!(
+            classify_intent("should we use Redis or Postgres?"),
+            Some(Intent::Think)
+        );
     }
 
     #[test]
     fn add_intent() {
-        assert_eq!(classify_intent("add a new endpoint for users"), Some(Intent::Add));
+        assert_eq!(
+            classify_intent("add a new endpoint for users"),
+            Some(Intent::Add)
+        );
     }
 
     #[test]
     fn review_intent() {
-        assert_eq!(classify_intent("review the changes on this branch"), Some(Intent::Review));
+        assert_eq!(
+            classify_intent("review the changes on this branch"),
+            Some(Intent::Review)
+        );
     }
 
     #[test]
     fn test_intent() {
-        assert_eq!(classify_intent("write tests for the auth module"), Some(Intent::Test));
+        assert_eq!(
+            classify_intent("write tests for the auth module"),
+            Some(Intent::Test)
+        );
     }
 
     #[test]

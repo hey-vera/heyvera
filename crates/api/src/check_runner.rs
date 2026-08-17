@@ -291,7 +291,8 @@ impl CheckRunner for ContainerCheckRunner {
         let mut wait = self
             .docker
             .wait_container(&container_id, None::<WaitContainerOptions<String>>);
-        let waited = tokio::time::timeout(Duration::from_secs(check.timeout_secs), wait.next()).await;
+        let waited =
+            tokio::time::timeout(Duration::from_secs(check.timeout_secs), wait.next()).await;
 
         // Timeout is a verdict about the work, not about us: a hung test is
         // the defect the customer is paying to be protected from. Collect what
@@ -333,13 +334,7 @@ impl CheckRunner for ContainerCheckRunner {
             CheckOutcome::Failed
         };
 
-        Ok(self.execution(
-            check,
-            outcome,
-            Some(exit_code as i32),
-            started,
-            &output,
-        ))
+        Ok(self.execution(check, outcome, Some(exit_code as i32), started, &output))
     }
 
     fn runner_image(&self) -> &str {
@@ -477,7 +472,10 @@ mod tests {
 
         assert_eq!(
             env,
-            SCRATCH_ENV.iter().map(|s| (*s).to_string()).collect::<Vec<_>>(),
+            SCRATCH_ENV
+                .iter()
+                .map(|s| (*s).to_string())
+                .collect::<Vec<_>>(),
             "the check environment is no longer exactly the constant"
         );
         for forbidden in ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "CLERK_SECRET_KEY"] {

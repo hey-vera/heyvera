@@ -1,17 +1,15 @@
 use std::sync::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use cortex_core::vera::{
-    self, Capability, CompactedVera, HeartId, Interaction, SessionOutcome,
-};
+use cortex_core::vera::{self, Capability, CompactedVera, HeartId, Interaction, SessionOutcome};
 
-use cortex_core::routing::Intent;
-use cortex_core::verification::Verdict;
 use crate::db::AttemptChain;
 use crate::lock::LockRecovering;
+use cortex_core::routing::Intent;
+use cortex_core::verification::Verdict;
 
 pub fn heart_id_from_user(user_id: &str) -> HeartId {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let mut hasher = Sha256::new();
     hasher.update(b"soma-heart-v1:");
     hasher.update(user_id.as_bytes());
@@ -193,11 +191,8 @@ impl VeraTracker {
         // If we have enough level-1 compactions, distill them into level 2
         let level1_count = compacted.iter().filter(|c| c.level == 1).count();
         if level1_count >= COMPACTION_THRESHOLD {
-            let level1s: Vec<CompactedVera> = compacted
-                .iter()
-                .filter(|c| c.level == 1)
-                .cloned()
-                .collect();
+            let level1s: Vec<CompactedVera> =
+                compacted.iter().filter(|c| c.level == 1).cloned().collect();
 
             let level2 = vera::distill_compacted(&level1s);
 
@@ -385,8 +380,8 @@ impl VeraTracker {
     /// actually generated so a caller can tell that it was clamped.
     pub fn simulate_ecosystem(&self, agent_count: usize, interactions_per_agent: usize) -> usize {
         let agent_count = agent_count.clamp(1, Self::MAX_SIMULATED_INTERACTIONS);
-        let interactions_per_agent = interactions_per_agent
-            .clamp(1, Self::MAX_SIMULATED_INTERACTIONS / agent_count.max(1));
+        let interactions_per_agent =
+            interactions_per_agent.clamp(1, Self::MAX_SIMULATED_INTERACTIONS / agent_count.max(1));
 
         let capabilities = [
             Capability::CodeExecution,
@@ -418,13 +413,7 @@ impl VeraTracker {
                     SessionOutcome::Success
                 };
 
-                self.record_interaction(
-                    heart,
-                    cap.clone(),
-                    1,
-                    outcome,
-                    (round as u64 + 1) * 100,
-                );
+                self.record_interaction(heart, cap.clone(), 1, outcome, (round as u64 + 1) * 100);
             }
         }
 
@@ -644,11 +633,21 @@ mod tests {
     #[test]
     fn a_cheap_success_outweighs_nothing_it_should_not() {
         let one_try = tracker();
-        one_try.record_verdict("user-1", Verdict::Verified, chain(1, 500), Some(Intent::Fix));
+        one_try.record_verdict(
+            "user-1",
+            Verdict::Verified,
+            chain(1, 500),
+            Some(Intent::Fix),
+        );
         let cheap = one_try.snapshot().total_warmth;
 
         let six_tries = tracker();
-        six_tries.record_verdict("user-2", Verdict::Verified, chain(6, 500), Some(Intent::Fix));
+        six_tries.record_verdict(
+            "user-2",
+            Verdict::Verified,
+            chain(6, 500),
+            Some(Intent::Fix),
+        );
         let expensive = six_tries.snapshot().total_warmth;
 
         assert!(
@@ -678,7 +677,12 @@ mod tests {
         assert!(domains.iter().any(|d| d.capability == "CodeExecution"));
 
         let thinking = tracker();
-        thinking.record_verdict("user-1", Verdict::Verified, chain(1, 0), Some(Intent::Think));
+        thinking.record_verdict(
+            "user-1",
+            Verdict::Verified,
+            chain(1, 0),
+            Some(Intent::Think),
+        );
         let domains = thinking.snapshot().domains;
         assert!(domains.iter().any(|d| d.capability == "Intelligence"));
     }
@@ -688,17 +692,22 @@ mod tests {
     #[test]
     fn a_failed_verdict_lowers_trust_without_erasing_the_observation() {
         let tracker = tracker();
-        tracker.record_verdict("user-1", Verdict::Failed, chain(2, 4_000), Some(Intent::Fix));
+        tracker.record_verdict(
+            "user-1",
+            Verdict::Failed,
+            chain(2, 4_000),
+            Some(Intent::Fix),
+        );
 
         let snapshot = tracker.snapshot();
         assert_eq!(snapshot.total_interactions, 1);
         // Warmth is unsigned observation mass, so the failure still shows up.
         assert!(snapshot.total_warmth > 0.0);
         // Trust is signed, so it does not.
-        let trust = tracker.heart_trust(
-            &heart_id_from_user("user-1"),
-            &Capability::CodeExecution,
+        let trust = tracker.heart_trust(&heart_id_from_user("user-1"), &Capability::CodeExecution);
+        assert!(
+            trust < 0.0,
+            "a failed verdict must lower trust, got {trust}"
         );
-        assert!(trust < 0.0, "a failed verdict must lower trust, got {trust}");
     }
 }

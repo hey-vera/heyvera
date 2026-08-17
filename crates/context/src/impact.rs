@@ -203,10 +203,7 @@ mod tests {
     fn chain(tag: &str) -> Workspace {
         let ws = Workspace::new(tag);
         ws.write("auth.rs", "pub fn validate_token() {}\n");
-        ws.write(
-            "checkout.rs",
-            "pub fn charge() { validate_token(); }\n",
-        );
+        ws.write("checkout.rs", "pub fn charge() { validate_token(); }\n");
         ws.write("api.rs", "fn handler() { charge(); }\n");
         ws
     }

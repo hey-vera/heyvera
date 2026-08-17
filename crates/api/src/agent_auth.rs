@@ -100,18 +100,14 @@ pub fn extract_agent_token(raw_auth: Option<&str>) -> Option<&str> {
 fn unauthorized(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::UNAUTHORIZED,
-        Json(ErrorResponse {
-            error: msg.into(),
-        }),
+        Json(ErrorResponse { error: msg.into() }),
     )
 }
 
 fn forbidden(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::FORBIDDEN,
-        Json(ErrorResponse {
-            error: msg.into(),
-        }),
+        Json(ErrorResponse { error: msg.into() }),
     )
 }
 
@@ -250,15 +246,7 @@ mod tests {
         let (secret, prefix, hash) = generate_agent_api_key();
         let agent = db
             .social_create_linked_agent(
-                profile_id,
-                "Bot",
-                "bot-one",
-                &prefix,
-                &hash,
-                "general",
-                "public",
-                "pending",
-                true,
+                profile_id, "Bot", "bot-one", &prefix, &hash, "general", "public", "pending", true,
             )
             .unwrap();
 
@@ -269,7 +257,9 @@ mod tests {
 
         // Wrong key fails
         let wrong_hash = hash_agent_api_key("hvak_not_the_real_key_xxxxxxxxxxxx");
-        assert!(db.social_find_linked_agent_by_key_hash(&wrong_hash).is_none());
+        assert!(db
+            .social_find_linked_agent_by_key_hash(&wrong_hash)
+            .is_none());
 
         // List does not return full key / hash
         let listed = db.social_get_linked_agents(profile_id);
@@ -304,14 +294,7 @@ mod tests {
         let (secret1, prefix1, hash1) = generate_agent_api_key();
         let agent = db
             .social_create_linked_agent(
-                profile_id,
-                "RotBot",
-                "rot-bot",
-                &prefix1,
-                &hash1,
-                "general",
-                "public",
-                "pending",
+                profile_id, "RotBot", "rot-bot", &prefix1, &hash1, "general", "public", "pending",
                 false,
             )
             .unwrap();

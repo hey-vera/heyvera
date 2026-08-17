@@ -6,16 +6,14 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::Serialize;
 
-use soma::delegation::{
-    verify_delegation, verify_delegation_chain, Delegation, InvocationContext,
-};
+use soma::delegation::{verify_delegation, verify_delegation_chain, Delegation, InvocationContext};
 use soma::heartbeat::{HeartbeatChain, HeartbeatEventType};
 use soma::identity::HeartIdentity;
 use soma::lineage::HeartLineage;
 use soma::spend::SpendLog;
 
-use crate::state::AppState;
 use crate::lock::LockRecovering;
+use crate::state::AppState;
 
 /// Cortex's own Soma heart identity — the agent's cryptographic self.
 /// Created once at startup, used to sign heartbeats, birth certificates, and spend receipts.
@@ -39,9 +37,17 @@ impl CortexHeart {
         let identity =
             HeartIdentity::load_or_create(&heart_path, "heyvera", "cortex-router", "cortex-v0.1")?;
         if existed {
-            tracing::info!("soma heart loaded from {} — DID: {}", heart_path.display(), identity.did);
+            tracing::info!(
+                "soma heart loaded from {} — DID: {}",
+                heart_path.display(),
+                identity.did
+            );
         } else {
-            tracing::info!("soma heart created at {} — DID: {}", heart_path.display(), identity.did);
+            tracing::info!(
+                "soma heart created at {} — DID: {}",
+                heart_path.display(),
+                identity.did
+            );
         }
 
         // Load lineage chain if available
@@ -62,7 +68,9 @@ impl CortexHeart {
                                 (Some(l), Some(root))
                             }
                             Ok(false) => {
-                                tracing::warn!("soma lineage chain INVALID — running without lineage");
+                                tracing::warn!(
+                                    "soma lineage chain INVALID — running without lineage"
+                                );
                                 (None, None)
                             }
                             Err(e) => {
@@ -82,7 +90,10 @@ impl CortexHeart {
                 }
             }
         } else {
-            tracing::info!("no soma lineage found at {} — running as standalone heart", lineage_path.display());
+            tracing::info!(
+                "no soma lineage found at {} — running as standalone heart",
+                lineage_path.display()
+            );
             (None, None)
         };
 
@@ -155,7 +166,9 @@ impl CortexHeart {
                             );
                             return chain;
                         }
-                        tracing::warn!("persisted heartbeat chain failed verification — starting fresh");
+                        tracing::warn!(
+                            "persisted heartbeat chain failed verification — starting fresh"
+                        );
                     }
                     Err(e) => tracing::warn!("failed to parse heartbeat chain: {e}"),
                 },
@@ -253,7 +266,9 @@ impl CortexHeart {
     }
 
     pub fn is_revoked(&self, delegation_id: &str) -> bool {
-        self.revoked_delegations.lock_recovering().contains(delegation_id)
+        self.revoked_delegations
+            .lock_recovering()
+            .contains(delegation_id)
     }
 
     fn revoked_path() -> std::path::PathBuf {
@@ -307,7 +322,10 @@ impl CortexHeart {
         let pruned = before - logs.len();
         if pruned > 0 {
             Self::persist_spend_logs_inner(&logs);
-            tracing::info!("pruned {pruned} expired spend logs ({} remaining)", logs.len());
+            tracing::info!(
+                "pruned {pruned} expired spend logs ({} remaining)",
+                logs.len()
+            );
         }
         pruned
     }
@@ -466,14 +484,15 @@ async fn verify_soma_token(
     parts: &Parts,
     state: &Arc<AppState>,
 ) -> Result<AuthenticatedIdentity, AuthError> {
-    let delegation: Delegation = serde_json::from_str(token).map_err(|e| {
-        AuthError::InvalidToken(format!("malformed soma delegation token: {e}"))
-    })?;
+    let delegation: Delegation = serde_json::from_str(token)
+        .map_err(|e| AuthError::InvalidToken(format!("malformed soma delegation token: {e}")))?;
 
     // Check revocation set before expensive crypto verification
     if let Some(heart) = &state.soma_heart {
         if heart.is_revoked(&delegation.id) {
-            return Err(AuthError::Unauthorized("delegation has been revoked".into()));
+            return Err(AuthError::Unauthorized(
+                "delegation has been revoked".into(),
+            ));
         }
     }
 
@@ -520,15 +539,11 @@ async fn verify_soma_token(
 
     // Verify the delegation issuer is Cortex's own heart (trusted root).
     // Without this check, anyone could self-issue a delegation.
-    let cortex_did_ref = state
-        .soma_heart
-        .as_ref()
-        .map(|h| h.did().to_string());
+    let cortex_did_ref = state.soma_heart.as_ref().map(|h| h.did().to_string());
 
     if let Some(chain_json) = chain_header {
-        let chain: Vec<Delegation> = serde_json::from_str(chain_json).map_err(|e| {
-            AuthError::InvalidToken(format!("malformed delegation chain: {e}"))
-        })?;
+        let chain: Vec<Delegation> = serde_json::from_str(chain_json)
+            .map_err(|e| AuthError::InvalidToken(format!("malformed delegation chain: {e}")))?;
 
         // Chain root must be issued by Cortex's heart
         if let (Some(first), Some(cortex_did)) = (chain.first(), &cortex_did_ref) {
@@ -540,9 +555,8 @@ async fn verify_soma_token(
             }
         }
 
-        let result = verify_delegation_chain(&chain, &ctx).map_err(|e| {
-            AuthError::VerificationFailed(format!("chain verification error: {e}"))
-        })?;
+        let result = verify_delegation_chain(&chain, &ctx)
+            .map_err(|e| AuthError::VerificationFailed(format!("chain verification error: {e}")))?;
 
         if !result.is_valid() {
             return Err(AuthError::Unauthorized(format!(

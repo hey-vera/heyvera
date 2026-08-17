@@ -50,13 +50,7 @@ impl DelegationToken {
         constraints: DelegationConstraints,
         timestamp: u64,
     ) -> crate::Result<Self> {
-        let signable = Self::signable_bytes(
-            &parent.id,
-            &child_id,
-            &scope,
-            &constraints,
-            timestamp,
-        );
+        let signable = Self::signable_bytes(&parent.id, &child_id, &scope, &constraints, timestamp);
 
         let parent_signature = parent.sign(&signable)?;
 

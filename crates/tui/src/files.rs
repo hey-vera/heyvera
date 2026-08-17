@@ -114,7 +114,8 @@ impl FileBrowser {
     /// Path of the current entry relative to the project root, for use as a
     /// chat `file_path`. Returns `None` for directories or the `..` entry.
     pub fn selected_relative_file(&self) -> Option<String> {
-        self.current().and_then(|e| self.selected_relative_file_for(e))
+        self.current()
+            .and_then(|e| self.selected_relative_file_for(e))
     }
 
     /// Project-relative path for a given entry, or `None` for directories.

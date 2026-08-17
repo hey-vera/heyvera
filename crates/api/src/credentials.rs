@@ -1,8 +1,8 @@
 use std::sync::Arc;
 
-use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
+use axum::Json;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -35,28 +35,36 @@ pub struct AssignmentResponse {
 fn db_error(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(ErrorResponse { error: msg.to_string() }),
+        Json(ErrorResponse {
+            error: msg.to_string(),
+        }),
     )
 }
 
 fn bad_request(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::BAD_REQUEST,
-        Json(ErrorResponse { error: msg.to_string() }),
+        Json(ErrorResponse {
+            error: msg.to_string(),
+        }),
     )
 }
 
 fn not_found(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::NOT_FOUND,
-        Json(ErrorResponse { error: msg.to_string() }),
+        Json(ErrorResponse {
+            error: msg.to_string(),
+        }),
     )
 }
 
 fn forbidden(msg: &str) -> (StatusCode, Json<ErrorResponse>) {
     (
         StatusCode::FORBIDDEN,
-        Json(ErrorResponse { error: msg.to_string() }),
+        Json(ErrorResponse {
+            error: msg.to_string(),
+        }),
     )
 }
 
@@ -80,10 +88,15 @@ pub async fn assign_credential(
 
     // Non-global targets require a target_id
     if req.target_type != "global" && req.target_id.is_none() {
-        return Err(bad_request("target_id is required when target_type is not 'global'"));
+        return Err(bad_request(
+            "target_id is required when target_type is not 'global'",
+        ));
     }
 
-    let db = state.db.as_ref().ok_or_else(|| db_error("database unavailable"))?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| db_error("database unavailable"))?;
 
     // Verify the credential belongs to this user
     let (cred, _encrypted) = db
@@ -113,9 +126,15 @@ pub async fn assign_credential(
     );
 
     db.audit_log(
-        &user.user_id, "user", "credential.assigned",
-        Some("credential_assignment"), Some(&assignment_id),
-        Some(&format!("{{\"credential_id\":\"{}\",\"target_type\":\"{}\"}}", req.credential_id, req.target_type)),
+        &user.user_id,
+        "user",
+        "credential.assigned",
+        Some("credential_assignment"),
+        Some(&assignment_id),
+        Some(&format!(
+            "{{\"credential_id\":\"{}\",\"target_type\":\"{}\"}}",
+            req.credential_id, req.target_type
+        )),
         None,
     );
 
@@ -133,7 +152,10 @@ pub async fn list_assignments(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
 ) -> Result<Json<Vec<crate::db::CredentialAssignment>>, (StatusCode, Json<ErrorResponse>)> {
-    let db = state.db.as_ref().ok_or_else(|| db_error("database unavailable"))?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| db_error("database unavailable"))?;
 
     let assignments = db.get_credential_assignments(&user.user_id);
 
@@ -148,14 +170,22 @@ pub async fn remove_assignment(
     user: ClerkUser,
     Path(assignment_id): Path<String>,
 ) -> Result<Json<AssignmentResponse>, (StatusCode, Json<ErrorResponse>)> {
-    let db = state.db.as_ref().ok_or_else(|| db_error("database unavailable"))?;
+    let db = state
+        .db
+        .as_ref()
+        .ok_or_else(|| db_error("database unavailable"))?;
 
     let removed = db.remove_credential_assignment(&user.user_id, &assignment_id);
 
     if removed {
         db.audit_log(
-            &user.user_id, "user", "credential.unassigned",
-            Some("credential_assignment"), Some(&assignment_id), None, None,
+            &user.user_id,
+            "user",
+            "credential.unassigned",
+            Some("credential_assignment"),
+            Some(&assignment_id),
+            None,
+            None,
         );
         Ok(Json(AssignmentResponse {
             success: true,
@@ -163,6 +193,8 @@ pub async fn remove_assignment(
             message: "assignment removed".to_string(),
         }))
     } else {
-        Err(not_found("assignment not found or does not belong to this user"))
+        Err(not_found(
+            "assignment not found or does not belong to this user",
+        ))
     }
 }

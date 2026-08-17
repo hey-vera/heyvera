@@ -221,7 +221,10 @@ mod tests {
     fn test_cheap_single_any_dial_1_to_4() {
         for dial in 1..=4 {
             let available = RouteTemplate::available_for_dial(dial);
-            assert!(available.contains(&RouteTemplate::CheapSingle), "dial {dial}");
+            assert!(
+                available.contains(&RouteTemplate::CheapSingle),
+                "dial {dial}"
+            );
         }
         let at_5 = RouteTemplate::available_for_dial(5);
         assert!(!at_5.contains(&RouteTemplate::CheapSingle));

@@ -92,8 +92,8 @@ pub fn estimate_cost_with_cache(
 ) -> f64 {
     let (in_rate, out_rate) = model_rates(provider, model);
     let cache_discount = match provider {
-        "claude" => 0.1,  // 90% discount on cached
-        "openai" => 0.5,  // 50% discount estimate
+        "claude" => 0.1, // 90% discount on cached
+        "openai" => 0.5, // 50% discount estimate
         _ => 0.5,
     };
     let regular_in = (tokens_in - cached_tokens_in).max(0);

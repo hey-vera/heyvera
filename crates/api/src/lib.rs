@@ -12,43 +12,42 @@ mod context_api;
 // Public because tests/context_flow_integration_test.rs exercises it as a
 // consumer would. That test has never compiled in CI: the rust job ran
 // `cargo test --workspace --lib`, which excludes tests/.
+pub mod check_runner;
 pub mod context_flow;
 mod conversations;
 pub mod cost_estimator;
-mod crypto;
-mod deploy_status;
-pub mod db;
 pub mod credentials;
-pub mod check_runner;
-pub mod verification_dispatcher;
-pub mod pricing;
-pub mod verification_driver;
-pub mod ecosystem_probe;
+mod crypto;
+pub mod db;
+mod deploy_status;
 pub mod docker;
+pub mod ecosystem_probe;
 pub mod github;
 pub mod github_repos;
 mod integrations;
 pub mod key_material;
-mod lock;
 pub mod llm_client;
+mod lock;
 pub mod media;
 mod messaging;
 pub mod metrics;
 pub mod mission_control;
 mod moderation;
+pub mod pricing;
 mod pulse;
+pub mod verification_dispatcher;
+pub mod verification_driver;
 // pub mod memory; // removed for Context-Flow Pipeline deployment
 pub mod notifications;
 // mod orchestrator; // removed for Context-Flow Pipeline deployment
 mod ratelimit;
 pub mod replit;
-pub mod storage;
 pub mod routes;
 mod run_payload;
 mod run_stream;
+pub mod scheduler;
 pub mod social;
 pub mod social_policy;
-pub mod scheduler;
 #[cfg(feature = "soma")]
 pub mod soma;
 #[cfg(feature = "soma")]
@@ -56,8 +55,9 @@ mod soma_bridge;
 pub mod soma_fence;
 mod sse;
 pub mod state;
-pub mod token_refresh;
+pub mod storage;
 pub mod stripe_client;
+pub mod token_refresh;
 mod usage_api;
 mod user;
 mod validate;
@@ -72,15 +72,15 @@ use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
 use axum::middleware;
+use axum::response::IntoResponse;
 use axum::routing::{delete, get, patch, post, put};
 use axum::Router;
 use tower_http::cors::{AllowHeaders, AllowMethods, AllowOrigin, CorsLayer};
 use tower_http::services::ServeDir;
-use axum::response::IntoResponse;
 
-use state::AppState;
 #[cfg(feature = "soma")]
 use crate::lock::LockRecovering;
+use state::AppState;
 
 async fn vera_snapshot(
     axum::extract::State(state): axum::extract::State<Arc<AppState>>,
@@ -102,8 +102,12 @@ struct SimulateParams {
     #[serde(default = "default_per_agent")]
     per_agent: usize,
 }
-fn default_agent_count() -> usize { 20 }
-fn default_per_agent() -> usize { 10 }
+fn default_agent_count() -> usize {
+    20
+}
+fn default_per_agent() -> usize {
+    10
+}
 
 /// POST /api/admin/vera/simulate — fill the tracker with synthetic traffic.
 ///
@@ -139,7 +143,9 @@ async fn soma_identity(
     match &state.soma_heart {
         Some(heart) => {
             let chain = heart.heartbeat_chain.lock_recovering();
-            let capabilities = heart.lineage.as_ref()
+            let capabilities = heart
+                .lineage
+                .as_ref()
                 .map(|l| ::soma::lineage::effective_capabilities(l))
                 .unwrap_or_else(|| vec!["*".into()]);
             axum::Json(serde_json::json!({
@@ -184,10 +190,13 @@ async fn v1_ready(
     } else {
         axum::http::StatusCode::SERVICE_UNAVAILABLE
     };
-    (status, axum::Json(serde_json::json!({
-        "ready": ready,
-        "db": db_ok,
-    })))
+    (
+        status,
+        axum::Json(serde_json::json!({
+            "ready": ready,
+            "db": db_ok,
+        })),
+    )
 }
 
 fn cors_layer() -> CorsLayer {
@@ -333,9 +342,8 @@ async fn request_id_middleware(
     let (mut parts, body) = response.into_parts();
     parts.headers.insert(
         "x-request-id",
-        axum::http::HeaderValue::from_str(&request_id).unwrap_or_else(|_| {
-            axum::http::HeaderValue::from_static("unknown")
-        }),
+        axum::http::HeaderValue::from_str(&request_id)
+            .unwrap_or_else(|_| axum::http::HeaderValue::from_static("unknown")),
     );
 
     if let Some(traceparent) = incoming_traceparent {
@@ -393,22 +401,28 @@ async fn metrics_handler(
 /// True when any product env flag is set to production.
 /// Checks HEYVERA_ENV, CORTEX_ENV, APP_ENV, RUST_ENV, and ENVIRONMENT.
 pub(crate) fn is_production_env() -> bool {
-    ["HEYVERA_ENV", "CORTEX_ENV", "APP_ENV", "RUST_ENV", "ENVIRONMENT"]
-        .iter()
-        .filter_map(|key| std::env::var(key).ok())
-        .any(|value| {
-            value.eq_ignore_ascii_case("production") || value.eq_ignore_ascii_case("prod")
-        })
+    [
+        "HEYVERA_ENV",
+        "CORTEX_ENV",
+        "APP_ENV",
+        "RUST_ENV",
+        "ENVIRONMENT",
+    ]
+    .iter()
+    .filter_map(|key| std::env::var(key).ok())
+    .any(|value| value.eq_ignore_ascii_case("production") || value.eq_ignore_ascii_case("prod"))
 }
 
 /// Build router with only Cortex routes (cortex.heyvera.org).
 pub fn build_cortex_router(state: Arc<AppState>) -> Router {
-    let cortex_static_dir = std::env::var("CORTEX_STATIC_DIR")
-        .unwrap_or_else(|_| "cortex/dist".to_string());
+    let cortex_static_dir =
+        std::env::var("CORTEX_STATIC_DIR").unwrap_or_else(|_| "cortex/dist".to_string());
 
-    async fn spa_fallback_cortex(_req: axum::http::Request<axum::body::Body>) -> Result<axum::response::Response, std::convert::Infallible> {
-        let static_dir = std::env::var("CORTEX_STATIC_DIR")
-            .unwrap_or_else(|_| "cortex/dist".to_string());
+    async fn spa_fallback_cortex(
+        _req: axum::http::Request<axum::body::Body>,
+    ) -> Result<axum::response::Response, std::convert::Infallible> {
+        let static_dir =
+            std::env::var("CORTEX_STATIC_DIR").unwrap_or_else(|_| "cortex/dist".to_string());
         let index_path = format!("{}/index.html", static_dir);
         let response = match std::fs::read_to_string(&index_path) {
             Ok(content) => axum::response::Html(content).into_response(),
@@ -420,8 +434,8 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         Ok(response)
     }
 
-    let static_service = ServeDir::new(&cortex_static_dir)
-        .not_found_service(tower::service_fn(spa_fallback_cortex));
+    let static_service =
+        ServeDir::new(&cortex_static_dir).not_found_service(tower::service_fn(spa_fallback_cortex));
 
     let rate_limited = Router::new()
         .route("/api/route", post(routes::route_task))
@@ -431,32 +445,74 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         .route("/api/runs/estimate", post(routes::estimate_run))
         .route("/api/runs/{id}", get(routes::get_run))
         .route("/api/runs/{id}/events", get(routes::get_run_events))
-        .route("/api/runs/{run_id}/steps/{step_id}/verifier-report/{report_id}", get(routes::get_verifier_report))
-        .route("/api/runs/{run_id}/steps/{step_id}/receipt", get(routes::get_receipt))
+        .route(
+            "/api/runs/{run_id}/steps/{step_id}/verifier-report/{report_id}",
+            get(routes::get_verifier_report),
+        )
+        .route(
+            "/api/runs/{run_id}/steps/{step_id}/receipt",
+            get(routes::get_receipt),
+        )
         .route("/api/runs/{id}/pr", post(routes::create_pr))
         .route("/api/runs/{id}/stream", get(run_stream::stream_run))
         .route("/api/chat/suggestions", get(chat::chat_suggestions))
         .route("/api/chat/options", post(chat::chat_options))
-        .route("/api/conversations", post(conversations::create_conversation))
-        .route("/api/conversations/{id}/messages", post(conversations::add_message))
-        .route("/api/context/runs/{run_id}/artifacts", get(context_api::list_artifacts_for_run))
-        .route("/api/context/runs/{run_id}/context", get(context_api::preview_context_for_run))
+        .route(
+            "/api/conversations",
+            post(conversations::create_conversation),
+        )
+        .route(
+            "/api/conversations/{id}/messages",
+            post(conversations::add_message),
+        )
+        .route(
+            "/api/context/runs/{run_id}/artifacts",
+            get(context_api::list_artifacts_for_run),
+        )
+        .route(
+            "/api/context/runs/{run_id}/context",
+            get(context_api::preview_context_for_run),
+        )
         .route("/api/context/stats", get(context_api::get_context_stats))
         .route("/api/context/health", get(context_api::get_context_health))
         .route("/api/context/impact", get(context_api::get_impact_set))
-        .route("/api/context/test", post(context_api::test_context_assembly))
+        .route(
+            "/api/context/test",
+            post(context_api::test_context_assembly),
+        )
         .route("/api/keys", get(api_keys::list_api_keys))
-        .route("/api/keys/{provider}", put(api_keys::save_api_key).delete(api_keys::delete_api_key))
+        .route(
+            "/api/keys/{provider}",
+            put(api_keys::save_api_key).delete(api_keys::delete_api_key),
+        )
         .route("/api/github/repos", get(github_repos::list_repos))
         .route("/api/github/imports", get(github_repos::list_imports))
         .route("/api/github/import", post(github_repos::import_repo))
-        .route("/api/github/status/{import_id}", get(github_repos::import_status))
-        .route("/api/github/sync/{import_id}", post(github_repos::sync_repo))
-        .route("/api/projects", get(replit::list_projects).post(replit::create_project))
+        .route(
+            "/api/github/status/{import_id}",
+            get(github_repos::import_status),
+        )
+        .route(
+            "/api/github/sync/{import_id}",
+            post(github_repos::sync_repo),
+        )
+        .route(
+            "/api/projects",
+            get(replit::list_projects).post(replit::create_project),
+        )
         .route("/api/projects/import", post(replit::import_project))
-        .route("/api/projects/{id}", get(replit::get_project).delete(replit::delete_project))
-        .route("/api/projects/{id}/chat", post(replit::proxy_chat_to_workspace))
-        .layer(middleware::from_fn_with_state(state.clone(), ratelimit::rate_limit_middleware));
+        .route(
+            "/api/projects/{id}",
+            get(replit::get_project).delete(replit::delete_project),
+        )
+        .route(
+            "/api/projects/{id}/chat",
+            post(replit::proxy_chat_to_workspace),
+        )
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            ratelimit::rate_limit_middleware,
+        ));
 
     let admin_routes = Router::new()
         .route("/api/admin/workers", get(admin::get_workers))
@@ -467,16 +523,34 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         .route("/api/admin/pressure", get(admin::pressure_dashboard))
         .route("/api/admin/usage", get(usage_api::admin_usage))
         .route("/api/admin/usage/users", get(usage_api::admin_usage_users))
-        .route("/api/admin/codes", get(admin::list_promo_codes).post(admin::create_promo_code))
-        .route("/api/admin/codes/{id}", patch(admin::update_promo_code).delete(admin::delete_promo_code))
+        .route(
+            "/api/admin/codes",
+            get(admin::list_promo_codes).post(admin::create_promo_code),
+        )
+        .route(
+            "/api/admin/codes/{id}",
+            patch(admin::update_promo_code).delete(admin::delete_promo_code),
+        )
         .route("/api/admin/redemptions", get(admin::list_redemptions))
-        .route("/api/admin/accounts/{clerk_user_id}/suspend", post(admin::suspend_account))
-        .route("/api/admin/accounts/{clerk_user_id}/unsuspend", post(admin::unsuspend_account))
+        .route(
+            "/api/admin/accounts/{clerk_user_id}/suspend",
+            post(admin::suspend_account),
+        )
+        .route(
+            "/api/admin/accounts/{clerk_user_id}/unsuspend",
+            post(admin::unsuspend_account),
+        )
         .route("/api/admin/audit-log", get(admin::get_audit_log))
-        .route("/api/admin/reconcile-counters", post(admin::reconcile_counters))
+        .route(
+            "/api/admin/reconcile-counters",
+            post(admin::reconcile_counters),
+        )
         .route("/api/admin/containers", get(admin::list_containers))
         .route("/api/admin/containers/stats", get(admin::container_stats))
-        .layer(middleware::from_fn_with_state(state.clone(), admin::require_admin_middleware));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            admin::require_admin_middleware,
+        ));
 
     Router::new()
         .route("/v1/health", get(v1_health))
@@ -678,12 +752,14 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
 
 /// Build router with only HeyVera Social routes (heyvera.org).
 pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
-    let heyvera_static_dir = std::env::var("HEYVERA_STATIC_DIR")
-        .unwrap_or_else(|_| "heyvera/dist".to_string());
+    let heyvera_static_dir =
+        std::env::var("HEYVERA_STATIC_DIR").unwrap_or_else(|_| "heyvera/dist".to_string());
 
-    async fn spa_fallback_heyvera(_req: axum::http::Request<axum::body::Body>) -> Result<axum::response::Response, std::convert::Infallible> {
-        let static_dir = std::env::var("HEYVERA_STATIC_DIR")
-            .unwrap_or_else(|_| "heyvera/dist".to_string());
+    async fn spa_fallback_heyvera(
+        _req: axum::http::Request<axum::body::Body>,
+    ) -> Result<axum::response::Response, std::convert::Infallible> {
+        let static_dir =
+            std::env::var("HEYVERA_STATIC_DIR").unwrap_or_else(|_| "heyvera/dist".to_string());
         let index_path = format!("{}/index.html", static_dir);
         let response = match std::fs::read_to_string(&index_path) {
             Ok(content) => axum::response::Html(content).into_response(),
@@ -700,15 +776,33 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
 
     let admin_routes = Router::new()
         .route("/api/admin/stats", get(admin::system_stats))
-        .route("/api/admin/codes", get(admin::list_promo_codes).post(admin::create_promo_code))
-        .route("/api/admin/codes/{id}", patch(admin::update_promo_code).delete(admin::delete_promo_code))
+        .route(
+            "/api/admin/codes",
+            get(admin::list_promo_codes).post(admin::create_promo_code),
+        )
+        .route(
+            "/api/admin/codes/{id}",
+            patch(admin::update_promo_code).delete(admin::delete_promo_code),
+        )
         .route("/api/admin/redemptions", get(admin::list_redemptions))
-        .route("/api/admin/accounts/{clerk_user_id}/suspend", post(admin::suspend_account))
-        .route("/api/admin/accounts/{clerk_user_id}/unsuspend", post(admin::unsuspend_account))
-        .route("/api/admin/cleanup-orphaned-media", post(admin::cleanup_orphaned_media))
+        .route(
+            "/api/admin/accounts/{clerk_user_id}/suspend",
+            post(admin::suspend_account),
+        )
+        .route(
+            "/api/admin/accounts/{clerk_user_id}/unsuspend",
+            post(admin::unsuspend_account),
+        )
+        .route(
+            "/api/admin/cleanup-orphaned-media",
+            post(admin::cleanup_orphaned_media),
+        )
         .route("/api/admin/reports", get(moderation::list_reports))
         .route("/api/admin/audit-log", get(admin::get_audit_log))
-        .layer(middleware::from_fn_with_state(state.clone(), admin::require_admin_middleware));
+        .layer(middleware::from_fn_with_state(
+            state.clone(),
+            admin::require_admin_middleware,
+        ));
 
     Router::new()
         .route("/v1/health", get(v1_health))
@@ -863,19 +957,24 @@ pub fn build_heyvera_router(state: Arc<AppState>) -> Router {
 /// Use build_cortex_router() or build_heyvera_router() for separate deployments.
 pub fn build_router(state: Arc<AppState>) -> Router {
     // Static file serving for Cortex frontend
-    let cortex_static_dir = std::env::var("CORTEX_STATIC_DIR")
-        .unwrap_or_else(|_| "cortex/dist".to_string());
+    let cortex_static_dir =
+        std::env::var("CORTEX_STATIC_DIR").unwrap_or_else(|_| "cortex/dist".to_string());
 
     // Create fallback handler for SPA routing
-    async fn spa_fallback(_req: axum::http::Request<axum::body::Body>) -> Result<axum::response::Response, std::convert::Infallible> {
-        let static_dir = std::env::var("CORTEX_STATIC_DIR")
-            .unwrap_or_else(|_| "cortex/dist".to_string());
+    async fn spa_fallback(
+        _req: axum::http::Request<axum::body::Body>,
+    ) -> Result<axum::response::Response, std::convert::Infallible> {
+        let static_dir =
+            std::env::var("CORTEX_STATIC_DIR").unwrap_or_else(|_| "cortex/dist".to_string());
         let index_path = format!("{}/index.html", static_dir);
 
         let response = match std::fs::read_to_string(&index_path) {
             Ok(content) => axum::response::Html(content).into_response(),
             Err(_) => {
-                tracing::warn!("Could not find Cortex frontend at {}, serving fallback", index_path);
+                tracing::warn!(
+                    "Could not find Cortex frontend at {}, serving fallback",
+                    index_path
+                );
                 (
                     axum::http::StatusCode::NOT_FOUND,
                     axum::response::Html("<!DOCTYPE html><html><head><title>Cortex</title></head><body><h1>Cortex Frontend Not Available</h1><p>The Cortex frontend files could not be found. Please build the frontend first.</p></body></html>")
@@ -885,8 +984,8 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         Ok(response)
     }
 
-    let static_service = ServeDir::new(&cortex_static_dir)
-        .not_found_service(tower::service_fn(spa_fallback));
+    let static_service =
+        ServeDir::new(&cortex_static_dir).not_found_service(tower::service_fn(spa_fallback));
     // Rate-limited routes (expensive endpoints)
     let rate_limited = Router::new()
         .route("/api/route", post(routes::route_task))

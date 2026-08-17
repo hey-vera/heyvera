@@ -16,7 +16,12 @@ pub struct SaveKeyRequest {
 
 fn db_ref(state: &AppState) -> Result<&crate::db::Database, (StatusCode, Json<ErrorResponse>)> {
     state.db.as_ref().ok_or_else(|| {
-        (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: "database not available".into() }))
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "database not available".into(),
+            }),
+        )
     })
 }
 
@@ -29,14 +34,30 @@ pub async fn save_api_key(
     Json(req): Json<SaveKeyRequest>,
 ) -> Result<StatusCode, (StatusCode, Json<ErrorResponse>)> {
     if !VALID_PROVIDERS.contains(&provider.as_str()) {
-        return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: format!("invalid provider: {provider}") })));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("invalid provider: {provider}"),
+            }),
+        ));
     }
     if req.api_key.is_empty() || req.api_key.len() > 500 {
-        return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: "invalid API key length".into() })));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: "invalid API key length".into(),
+            }),
+        ));
     }
     let db = db_ref(&state)?;
-    let encrypted = crate::crypto::encrypt(&req.api_key)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, Json(ErrorResponse { error: format!("encryption failed: {e}") })))?;
+    let encrypted = crate::crypto::encrypt(&req.api_key).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: format!("encryption failed: {e}"),
+            }),
+        )
+    })?;
     db.upsert_api_key(&user.user_id, &provider, &encrypted);
     Ok(StatusCode::NO_CONTENT)
 }
@@ -58,6 +79,11 @@ pub async fn delete_api_key(
     if db.delete_api_key(&user.user_id, &provider) {
         Ok(StatusCode::NO_CONTENT)
     } else {
-        Err((StatusCode::NOT_FOUND, Json(ErrorResponse { error: "no key found for that provider".into() })))
+        Err((
+            StatusCode::NOT_FOUND,
+            Json(ErrorResponse {
+                error: "no key found for that provider".into(),
+            }),
+        ))
     }
 }
