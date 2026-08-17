@@ -80,7 +80,10 @@ impl Egress {
     /// user-defined network, and the name is derived from the attempt, so it
     /// cannot collide with another attempt's mediator.
     pub fn proxy_url(&self) -> String {
-        format!("http://{}:{MEDIATOR_PORT}", mediator_name_from(&self.network_name))
+        format!(
+            "http://{}:{MEDIATOR_PORT}",
+            mediator_name_from(&self.network_name)
+        )
     }
 
     /// What was actually reachable, for the receipt.
@@ -105,7 +108,10 @@ impl Egress {
             v: true,
             ..Default::default()
         };
-        if let Err(e) = docker.remove_container(&self.container_id, Some(opts)).await {
+        if let Err(e) = docker
+            .remove_container(&self.container_id, Some(opts))
+            .await
+        {
             tracing::warn!(
                 container_id = %self.container_id,
                 error = %e,

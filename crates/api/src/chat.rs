@@ -55,8 +55,12 @@ pub struct RoutingPreferences {
     pub model_tier: Option<String>,
 }
 
-fn default_balanced() -> String { "balanced".into() }
-fn default_guided() -> String { "guided".into() }
+fn default_balanced() -> String {
+    "balanced".into()
+}
+fn default_guided() -> String {
+    "guided".into()
+}
 
 const MAX_MESSAGE_LEN: usize = 32_768;
 const MAX_FILE_PATHS: usize = 50;
@@ -82,9 +86,17 @@ enum ProviderPath {
     /// Workspace: route to user's isolated Replit workspace
     Workspace { workspace_id: String },
     /// BYOS: authenticated subscription via CLI tool on the server
-    Subscription { provider: Provider, model: String, credential_data: String },
+    Subscription {
+        provider: Provider,
+        model: String,
+        credential_data: String,
+    },
     /// BYOK: raw API key (use cheap model by default)
-    ApiKey { provider: Provider, api_key: String, model: String },
+    ApiKey {
+        provider: Provider,
+        api_key: String,
+        model: String,
+    },
     /// Stored key exists but decryption failed (key rotation or corruption)
     DecryptFailed { provider: String },
     /// No provider available
@@ -106,7 +118,11 @@ fn byok_model(provider: &Provider, tier: Option<&str>) -> String {
     }
 }
 
-async fn resolve_provider(state: &AppState, user_id: &str, model_tier: Option<&str>) -> ProviderPath {
+async fn resolve_provider(
+    state: &AppState,
+    user_id: &str,
+    model_tier: Option<&str>,
+) -> ProviderPath {
     // TODO: check credential_assignments when project context is available
     // 0. Workspace request (workspace:{workspace_id})
     if user_id.starts_with("workspace:") {
@@ -157,7 +173,11 @@ async fn resolve_provider(state: &AppState, user_id: &str, model_tier: Option<&s
                                 (Provider::Openai, _) => "gpt-4.1-mini".into(),
                                 (Provider::Zen, _) => unreachable!("handled above"),
                             };
-                            return ProviderPath::Subscription { provider, model, credential_data: decrypted };
+                            return ProviderPath::Subscription {
+                                provider,
+                                model,
+                                credential_data: decrypted,
+                            };
                         }
                         _ => {
                             let model = byok_model(&provider, model_tier);
@@ -171,7 +191,9 @@ async fn resolve_provider(state: &AppState, user_id: &str, model_tier: Option<&s
                 }
                 Err(e) => {
                     tracing::warn!(user_id, provider = %cred.provider, "failed to decrypt credential: {e}");
-                    return ProviderPath::DecryptFailed { provider: cred.provider };
+                    return ProviderPath::DecryptFailed {
+                        provider: cred.provider,
+                    };
                 }
             }
         }
@@ -182,12 +204,18 @@ async fn resolve_provider(state: &AppState, user_id: &str, model_tier: Option<&s
                 Ok(api_key) => {
                     if let Some(provider) = Provider::from_str(&provider_name) {
                         let model = byok_model(&provider, model_tier);
-                        return ProviderPath::ApiKey { provider, api_key, model };
+                        return ProviderPath::ApiKey {
+                            provider,
+                            api_key,
+                            model,
+                        };
                     }
                 }
                 Err(e) => {
                     tracing::warn!(user_id, provider = %provider_name, "failed to decrypt legacy API key: {e}");
-                    return ProviderPath::DecryptFailed { provider: provider_name };
+                    return ProviderPath::DecryptFailed {
+                        provider: provider_name,
+                    };
                 }
             }
         }
@@ -202,10 +230,20 @@ pub async fn chat(
     Json(req): Json<ChatRequest>,
 ) -> Result<Sse<impl Stream<Item = Result<Event, Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
     if req.message.len() > MAX_MESSAGE_LEN {
-        return Err((StatusCode::PAYLOAD_TOO_LARGE, Json(ErrorResponse { error: format!("message exceeds {MAX_MESSAGE_LEN} bytes") })));
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            Json(ErrorResponse {
+                error: format!("message exceeds {MAX_MESSAGE_LEN} bytes"),
+            }),
+        ));
     }
     if req.file_paths.len() > MAX_FILE_PATHS {
-        return Err((StatusCode::BAD_REQUEST, Json(ErrorResponse { error: format!("too many file paths (max {MAX_FILE_PATHS})") })));
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(ErrorResponse {
+                error: format!("too many file paths (max {MAX_FILE_PATHS})"),
+            }),
+        ));
     }
     let _file_paths = crate::validate::sanitize_file_paths(&req.file_paths)
         .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
@@ -219,7 +257,10 @@ pub async fn chat(
     let intent = classify_intent(&req.message);
     let (tx, rx) = mpsc::channel::<StepEvent>(64);
 
-    let model_tier = req.routing_preferences.as_ref().and_then(|p| p.model_tier.as_deref());
+    let model_tier = req
+        .routing_preferences
+        .as_ref()
+        .and_then(|p| p.model_tier.as_deref());
     let provider_path = resolve_provider(&state, &user.user_id, model_tier).await;
 
     match provider_path {
@@ -240,30 +281,40 @@ pub async fn chat(
             }
 
             tokio::spawn(async move {
-                let _ = tx.send(StepEvent::Started {
-                    step_id: "workspace-chat".into(),
-                    provider: "replit".into(),
-                    model: workspace_id.clone(),
-                }).await;
+                let _ = tx
+                    .send(StepEvent::Started {
+                        step_id: "workspace-chat".into(),
+                        provider: "replit".into(),
+                        model: workspace_id.clone(),
+                    })
+                    .await;
 
                 // Route to workspace instead of CLI
-                match route_to_workspace(&state_clone, &workspace_id, &system_prompt, &user_message).await {
+                match route_to_workspace(&state_clone, &workspace_id, &system_prompt, &user_message)
+                    .await
+                {
                     Ok(response) => {
-                        let _ = tx.send(StepEvent::Output {
-                            step_id: "workspace-chat".into(),
-                            line: response,
-                        }).await;
+                        let _ = tx
+                            .send(StepEvent::Output {
+                                step_id: "workspace-chat".into(),
+                                line: response,
+                            })
+                            .await;
 
-                        let _ = tx.send(StepEvent::Completed {
-                            step_id: "workspace-chat".into(),
-                            exit_code: 0,
-                        }).await;
+                        let _ = tx
+                            .send(StepEvent::Completed {
+                                step_id: "workspace-chat".into(),
+                                exit_code: 0,
+                            })
+                            .await;
                     }
                     Err(error) => {
-                        let _ = tx.send(StepEvent::Failed {
-                            step_id: "workspace-chat".into(),
-                            error,
-                        }).await;
+                        let _ = tx
+                            .send(StepEvent::Failed {
+                                step_id: "workspace-chat".into(),
+                                error,
+                            })
+                            .await;
                     }
                 }
 
@@ -275,7 +326,11 @@ pub async fn chat(
             });
         }
 
-        ProviderPath::Subscription { provider, model, credential_data } => {
+        ProviderPath::Subscription {
+            provider,
+            model,
+            credential_data,
+        } => {
             let system_prompt = system_prompt_for_intent(intent).to_string();
             let user_message = req.message.clone();
             let state_clone = state.clone();
@@ -293,17 +348,21 @@ pub async fn chat(
             }
 
             tokio::spawn(async move {
-                let _ = tx.send(StepEvent::Started {
-                    step_id: "chat".into(),
-                    provider: provider_name.clone(),
-                    model: model.clone(),
-                }).await;
+                let _ = tx
+                    .send(StepEvent::Started {
+                        step_id: "chat".into(),
+                        provider: provider_name.clone(),
+                        model: model.clone(),
+                    })
+                    .await;
 
                 let (chunk_tx, mut chunk_rx) = mpsc::channel::<String>(64);
                 let tx_clone = tx.clone();
 
                 // Resolve container or tmpfs path, then stream in a child task
-                let use_container = if let (Some(cm), Some(db)) = (&state_clone.container_manager, &state_clone.db) {
+                let use_container = if let (Some(cm), Some(db)) =
+                    (&state_clone.container_manager, &state_clone.db)
+                {
                     match cm.ensure_container(db, &user_id, provider.name()).await {
                         Ok(container_id) => {
                             db.touch_container_activity(&user_id);
@@ -323,9 +382,15 @@ pub async fn chat(
                     tokio::spawn(async move {
                         if let Some(cm) = &sc.container_manager {
                             llm_client::stream_chat_via_container(
-                                &provider, &model, &system_prompt, &user_message,
-                                cm, &container_id, chunk_tx,
-                            ).await
+                                &provider,
+                                &model,
+                                &system_prompt,
+                                &user_message,
+                                cm,
+                                &container_id,
+                                chunk_tx,
+                            )
+                            .await
                         } else {
                             Err("container manager disappeared".into())
                         }
@@ -333,51 +398,75 @@ pub async fn chat(
                 } else {
                     tokio::spawn(async move {
                         llm_client::stream_chat_cli_isolated(
-                            &provider, Some(&model), &credential_data,
-                            &user_id, &system_prompt, &user_message, chunk_tx,
-                        ).await
+                            &provider,
+                            Some(&model),
+                            &credential_data,
+                            &user_id,
+                            &system_prompt,
+                            &user_message,
+                            chunk_tx,
+                        )
+                        .await
                     })
                 };
 
                 let mut full_response = String::new();
                 while let Some(chunk) = chunk_rx.recv().await {
                     full_response.push_str(&chunk);
-                    let _ = tx_clone.send(StepEvent::Output {
-                        step_id: "chat".into(),
-                        line: chunk,
-                    }).await;
+                    let _ = tx_clone
+                        .send(StepEvent::Output {
+                            step_id: "chat".into(),
+                            line: chunk,
+                        })
+                        .await;
                 }
 
                 match stream_handle.await {
                     Ok(Ok(())) => {
-                        let _ = tx_clone.send(StepEvent::Completed {
-                            step_id: "chat".into(),
-                            exit_code: 0,
-                        }).await;
+                        let _ = tx_clone
+                            .send(StepEvent::Completed {
+                                step_id: "chat".into(),
+                                exit_code: 0,
+                            })
+                            .await;
                     }
                     Ok(Err(e)) => {
-                        let _ = tx_clone.send(StepEvent::Failed {
-                            step_id: "chat".into(),
-                            error: e,
-                        }).await;
+                        let _ = tx_clone
+                            .send(StepEvent::Failed {
+                                step_id: "chat".into(),
+                                error: e,
+                            })
+                            .await;
                     }
                     Err(e) => {
-                        let _ = tx_clone.send(StepEvent::Failed {
-                            step_id: "chat".into(),
-                            error: format!("task panicked: {e}"),
-                        }).await;
+                        let _ = tx_clone
+                            .send(StepEvent::Failed {
+                                step_id: "chat".into(),
+                                error: format!("task panicked: {e}"),
+                            })
+                            .await;
                     }
                 }
 
                 if let (Some(db), Some(cid)) = (&state_clone.db, &conv_id) {
                     if !full_response.is_empty() {
-                        db.add_message(cid, "assistant", &full_response, Some(&provider_name), None);
+                        db.add_message(
+                            cid,
+                            "assistant",
+                            &full_response,
+                            Some(&provider_name),
+                            None,
+                        );
                     }
                 }
             });
         }
 
-        ProviderPath::ApiKey { provider, api_key, model } => {
+        ProviderPath::ApiKey {
+            provider,
+            api_key,
+            model,
+        } => {
             let system_prompt = system_prompt_for_intent(intent).to_string();
             let user_message = req.message.clone();
             let state_clone = state.clone();
@@ -387,10 +476,17 @@ pub async fn chat(
             // Budget enforcement — check before spending user's money
             if let Some(db) = &state.db {
                 let enforcer = crate::budget_enforcer::BudgetEnforcer::new(db);
-                let est_input = crate::cost_estimator::CostEstimator::estimate_tokens_from_text(&req.message);
-                let est_output = crate::cost_estimator::CostEstimator::estimate_output_tokens("chat", &model);
+                let est_input =
+                    crate::cost_estimator::CostEstimator::estimate_tokens_from_text(&req.message);
+                let est_output =
+                    crate::cost_estimator::CostEstimator::estimate_output_tokens("chat", &model);
                 let (allowed, budget_result, warning) = enforcer.check_budget_before_request(
-                    &user.user_id, provider.name(), &model, est_input, est_output, true,
+                    &user.user_id,
+                    provider.name(),
+                    &model,
+                    est_input,
+                    est_output,
+                    true,
                 );
 
                 if let Some(w) = &warning {
@@ -400,16 +496,29 @@ pub async fn chat(
                 if !allowed {
                     let budget_total = budget_result.daily_spent + budget_result.daily_remaining;
                     let reason = if budget_result.daily_remaining <= 0.0 {
-                        format!("Daily budget limit reached (${:.2} / ${:.2}).", budget_result.daily_spent, budget_total)
+                        format!(
+                            "Daily budget limit reached (${:.2} / ${:.2}).",
+                            budget_result.daily_spent, budget_total
+                        )
                     } else if budget_result.weekly_remaining <= 0.0 {
-                        format!("Weekly budget limit reached (${:.2} spent this week).", budget_result.weekly_spent)
+                        format!(
+                            "Weekly budget limit reached (${:.2} spent this week).",
+                            budget_result.weekly_spent
+                        )
                     } else {
-                        format!("Monthly budget limit reached (${:.2} spent this month).", budget_result.monthly_spent)
+                        format!(
+                            "Monthly budget limit reached (${:.2} spent this month).",
+                            budget_result.monthly_spent
+                        )
                     };
-                    let _ = tx.send(StepEvent::Failed {
-                        step_id: "chat".into(),
-                        error: format!("{reason} Adjust your limits in Settings → Budget & Costs."),
-                    }).await;
+                    let _ = tx
+                        .send(StepEvent::Failed {
+                            step_id: "chat".into(),
+                            error: format!(
+                                "{reason} Adjust your limits in Settings → Budget & Costs."
+                            ),
+                        })
+                        .await;
                     let stream = ReceiverStream::new(rx).map(step_event_to_sse);
                     return Ok(Sse::new(stream).keep_alive(KeepAlive::default()));
                 }
@@ -428,22 +537,39 @@ pub async fn chat(
             let session_id = state.db.as_ref().map(|db| {
                 let enforcer = crate::budget_enforcer::BudgetEnforcer::new(db);
                 let est_cost = {
-                    let est_in = crate::cost_estimator::CostEstimator::estimate_tokens_from_text(&user_message);
-                    let est_out = crate::cost_estimator::CostEstimator::estimate_output_tokens("chat", &model);
+                    let est_in = crate::cost_estimator::CostEstimator::estimate_tokens_from_text(
+                        &user_message,
+                    );
+                    let est_out = crate::cost_estimator::CostEstimator::estimate_output_tokens(
+                        "chat", &model,
+                    );
                     let (cost, _) = crate::cost_estimator::CostEstimator::estimate_request_cost(
-                        provider.name(), &model, est_in, est_out, None,
+                        provider.name(),
+                        &model,
+                        est_in,
+                        est_out,
+                        None,
                     );
                     cost
                 };
-                enforcer.start_cost_session(&user.user_id, provider.name(), "byok", est_cost, 0, Some(&model))
+                enforcer.start_cost_session(
+                    &user.user_id,
+                    provider.name(),
+                    "byok",
+                    est_cost,
+                    0,
+                    Some(&model),
+                )
             });
 
             tokio::spawn(async move {
-                let _ = tx.send(StepEvent::Started {
-                    step_id: "chat".into(),
-                    provider: provider_name.clone(),
-                    model: model.clone(),
-                }).await;
+                let _ = tx
+                    .send(StepEvent::Started {
+                        step_id: "chat".into(),
+                        provider: provider_name.clone(),
+                        model: model.clone(),
+                    })
+                    .await;
 
                 let (chunk_tx, mut chunk_rx) = mpsc::channel::<String>(64);
                 let tx_clone = tx.clone();
@@ -462,38 +588,47 @@ pub async fn chat(
                         &system_prompt,
                         &messages,
                         chunk_tx,
-                    ).await
+                    )
+                    .await
                 });
 
                 let mut full_response = String::new();
                 while let Some(chunk) = chunk_rx.recv().await {
                     full_response.push_str(&chunk);
-                    let _ = tx_clone.send(StepEvent::Output {
-                        step_id: "chat".into(),
-                        line: chunk,
-                    }).await;
+                    let _ = tx_clone
+                        .send(StepEvent::Output {
+                            step_id: "chat".into(),
+                            line: chunk,
+                        })
+                        .await;
                 }
 
                 let success = match stream_handle.await {
                     Ok(Ok(())) => {
-                        let _ = tx_clone.send(StepEvent::Completed {
-                            step_id: "chat".into(),
-                            exit_code: 0,
-                        }).await;
+                        let _ = tx_clone
+                            .send(StepEvent::Completed {
+                                step_id: "chat".into(),
+                                exit_code: 0,
+                            })
+                            .await;
                         true
                     }
                     Ok(Err(e)) => {
-                        let _ = tx_clone.send(StepEvent::Failed {
-                            step_id: "chat".into(),
-                            error: e,
-                        }).await;
+                        let _ = tx_clone
+                            .send(StepEvent::Failed {
+                                step_id: "chat".into(),
+                                error: e,
+                            })
+                            .await;
                         false
                     }
                     Err(e) => {
-                        let _ = tx_clone.send(StepEvent::Failed {
-                            step_id: "chat".into(),
-                            error: format!("task panicked: {e}"),
-                        }).await;
+                        let _ = tx_clone
+                            .send(StepEvent::Failed {
+                                step_id: "chat".into(),
+                                error: format!("task panicked: {e}"),
+                            })
+                            .await;
                         false
                     }
                 };
@@ -501,16 +636,30 @@ pub async fn chat(
                 // Finalize cost session
                 if let (Some(db), Some(sid)) = (&state_clone.db, &session_id) {
                     let enforcer = crate::budget_enforcer::BudgetEnforcer::new(db);
-                    let tokens_out = crate::cost_estimator::CostEstimator::estimate_tokens_from_text(&full_response);
-                    let (actual_cost, _) = crate::cost_estimator::CostEstimator::estimate_request_cost(
-                        &provider_name, &model_for_cost, 0, tokens_out, None,
-                    );
+                    let tokens_out =
+                        crate::cost_estimator::CostEstimator::estimate_tokens_from_text(
+                            &full_response,
+                        );
+                    let (actual_cost, _) =
+                        crate::cost_estimator::CostEstimator::estimate_request_cost(
+                            &provider_name,
+                            &model_for_cost,
+                            0,
+                            tokens_out,
+                            None,
+                        );
                     enforcer.finalize_cost_session(sid, actual_cost, tokens_out);
                 }
 
                 if let (Some(db), Some(cid)) = (&state_clone.db, &conv_id) {
                     if !full_response.is_empty() {
-                        db.add_message(cid, "assistant", &full_response, Some(&provider_name), None);
+                        db.add_message(
+                            cid,
+                            "assistant",
+                            &full_response,
+                            Some(&provider_name),
+                            None,
+                        );
                     }
                 }
             });
@@ -518,11 +667,13 @@ pub async fn chat(
 
         ProviderPath::DecryptFailed { provider } => {
             tokio::spawn(async move {
-                let _ = tx.send(StepEvent::Started {
-                    step_id: "chat".into(),
-                    provider: "cortex".into(),
-                    model: "system".into(),
-                }).await;
+                let _ = tx
+                    .send(StepEvent::Started {
+                        step_id: "chat".into(),
+                        provider: "cortex".into(),
+                        model: "system".into(),
+                    })
+                    .await;
 
                 let _ = tx.send(StepEvent::Output {
                     step_id: "chat".into(),
@@ -532,10 +683,12 @@ pub async fn chat(
                     ),
                 }).await;
 
-                let _ = tx.send(StepEvent::Completed {
-                    step_id: "chat".into(),
-                    exit_code: 0,
-                }).await;
+                let _ = tx
+                    .send(StepEvent::Completed {
+                        step_id: "chat".into(),
+                        exit_code: 0,
+                    })
+                    .await;
             });
         }
 
@@ -543,11 +696,13 @@ pub async fn chat(
             let state_conv = state.clone();
             let user_id = user.user_id.clone();
             tokio::spawn(async move {
-                let _ = tx.send(StepEvent::Started {
-                    step_id: "chat".into(),
-                    provider: "cortex".into(),
-                    model: "system".into(),
-                }).await;
+                let _ = tx
+                    .send(StepEvent::Started {
+                        step_id: "chat".into(),
+                        provider: "cortex".into(),
+                        model: "system".into(),
+                    })
+                    .await;
 
                 let _ = tx.send(StepEvent::Output {
                     step_id: "chat".into(),
@@ -557,10 +712,12 @@ pub async fn chat(
                            Once connected, I can help you build, debug, review, and ship code.".into(),
                 }).await;
 
-                let _ = tx.send(StepEvent::Completed {
-                    step_id: "chat".into(),
-                    exit_code: 0,
-                }).await;
+                let _ = tx
+                    .send(StepEvent::Completed {
+                        step_id: "chat".into(),
+                        exit_code: 0,
+                    })
+                    .await;
 
                 state_conv.vera_tracker.record_conversation(&user_id);
             });
@@ -672,7 +829,8 @@ fn extract_options_from_response(message: &str) -> Vec<ChatOption> {
     let mut options = Vec::new();
     for line in message.lines() {
         let trimmed = line.trim();
-        if let Some(rest) = trimmed.strip_prefix(|c: char| c.is_ascii_digit())
+        if let Some(rest) = trimmed
+            .strip_prefix(|c: char| c.is_ascii_digit())
             .and_then(|s| s.strip_prefix(". ").or_else(|| s.strip_prefix(") ")))
         {
             let label = rest.trim().to_string();

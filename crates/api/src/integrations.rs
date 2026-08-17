@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
-use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{Html, IntoResponse};
+use axum::Json;
 use hmac::{Hmac, Mac};
 use serde::{Deserialize, Serialize};
 use sha2::Sha256;
@@ -727,8 +727,14 @@ pub async fn create_authority_scope(
         ));
     }
 
-    let scope_id = format!("{}:{}", req.kind.as_deref().unwrap_or("team"), Uuid::new_v4());
-    let description = req.description.unwrap_or_else(|| format!("Authority scope for {}", req.name));
+    let scope_id = format!(
+        "{}:{}",
+        req.kind.as_deref().unwrap_or("team"),
+        Uuid::new_v4()
+    );
+    let description = req
+        .description
+        .unwrap_or_else(|| format!("Authority scope for {}", req.name));
     let kind = req.kind.unwrap_or_else(|| "team".to_string());
 
     // Create scope with appropriate authority level policy
@@ -798,14 +804,16 @@ pub async fn update_authority_scope(
     let db = db_ref(&state)?;
 
     // Verify user has admin access to this scope
-    let scope = db.get_authority_scope_for_user(&user.user_id, &scope_id).ok_or_else(|| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "access denied or scope not found".into(),
-            }),
-        )
-    })?;
+    let scope = db
+        .get_authority_scope_for_user(&user.user_id, &scope_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "access denied or scope not found".into(),
+                }),
+            )
+        })?;
 
     if scope.role != "owner" && scope.role != "admin" {
         return Err((
@@ -845,14 +853,16 @@ pub async fn delegate_authority(
     let db = db_ref(&state)?;
 
     // Verify user has authority to delegate from this scope
-    let scope = db.get_authority_scope_for_user(&user.user_id, &req.scope_id).ok_or_else(|| {
-        (
-            StatusCode::FORBIDDEN,
-            Json(ErrorResponse {
-                error: "access denied or scope not found".into(),
-            }),
-        )
-    })?;
+    let scope = db
+        .get_authority_scope_for_user(&user.user_id, &req.scope_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::FORBIDDEN,
+                Json(ErrorResponse {
+                    error: "access denied or scope not found".into(),
+                }),
+            )
+        })?;
 
     if scope.role != "owner" && scope.role != "admin" {
         return Err((
@@ -1789,7 +1799,18 @@ fn apply_task_actions(
             32,
             &format!("action {index} type"),
         )?;
-        if !matches!(action_type.as_str(), "task" | "status" | "handoff" | "note" | "pause" | "resume" | "retry" | "cancel" | "prioritize") {
+        if !matches!(
+            action_type.as_str(),
+            "task"
+                | "status"
+                | "handoff"
+                | "note"
+                | "pause"
+                | "resume"
+                | "retry"
+                | "cancel"
+                | "prioritize"
+        ) {
             return Err(format!("action {index} has invalid type"));
         }
         let title = required_string(
@@ -1885,7 +1906,10 @@ fn apply_task_actions(
             continue;
         }
 
-        if matches!(action_type.as_str(), "pause" | "resume" | "retry" | "cancel" | "prioritize") {
+        if matches!(
+            action_type.as_str(),
+            "pause" | "resume" | "retry" | "cancel" | "prioritize"
+        ) {
             let target_task_id = required_string(
                 action_object.get("targetTaskId"),
                 256,
@@ -2554,13 +2578,7 @@ mod tests {
         // Evidence-backed completion means *verified*, so the delivery has to
         // survive our own runner before the task may be marked done.
         assert!(db.begin_verifying_step(&step_id, "attempt-1", lease_gen, None));
-        assert!(db.record_verification_outcome(
-            &step_id,
-            "attempt-1",
-            lease_gen,
-            "verified",
-            None
-        ));
+        assert!(db.record_verification_outcome(&step_id, "attempt-1", lease_gen, "verified", None));
         assert!(db.update_run_status(&run_id, "succeeded", None));
         let (next, _, _) = apply_task_patch(
             "group-1",

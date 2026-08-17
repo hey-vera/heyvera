@@ -1,10 +1,10 @@
 use serde::{Deserialize, Serialize};
+use std::process::Stdio;
 use std::sync::OnceLock;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
-use std::process::Stdio;
-use std::time::Duration;
 use uuid::Uuid;
 
 /// Resolve the CLI binary path from an env var, falling back to a default name.
@@ -46,19 +46,17 @@ fn check_cli_exists(binary: &str, label: &str) {
 fn log_installation_guidance(label: &str) {
     match label {
         "claude" => {
-            tracing::info!(
-                "To install Claude CLI: npm install -g @anthropic-ai/claude-cli"
-            );
+            tracing::info!("To install Claude CLI: npm install -g @anthropic-ai/claude-cli");
             if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-                tracing::info!("ANTHROPIC_API_KEY detected - will auto-configure auth after install");
+                tracing::info!(
+                    "ANTHROPIC_API_KEY detected - will auto-configure auth after install"
+                );
             } else {
                 tracing::info!("Set ANTHROPIC_API_KEY environment variable for headless auth");
             }
         }
         "codex" => {
-            tracing::info!(
-                "To install Codex CLI: npm install -g @openai/codex"
-            );
+            tracing::info!("To install Codex CLI: npm install -g @openai/codex");
             if std::env::var("OPENAI_API_KEY").is_ok() {
                 tracing::info!("OPENAI_API_KEY detected - will auto-configure auth after install");
             } else {
@@ -82,15 +80,11 @@ async fn check_cli_auth_async(binary: String, label: String) {
             tracing::info!("{label} CLI authenticated and ready");
         }
         AuthStatus::NotAuthenticated => {
-            tracing::warn!(
-                "{label} CLI found but not authenticated. BYOS chat will fail."
-            );
+            tracing::warn!("{label} CLI found but not authenticated. BYOS chat will fail.");
             log_auth_guidance(&label);
         }
         AuthStatus::Unknown => {
-            tracing::warn!(
-                "Could not determine {label} CLI auth status"
-            );
+            tracing::warn!("Could not determine {label} CLI auth status");
         }
     }
 }
@@ -149,7 +143,9 @@ fn log_auth_guidance(label: &str) {
     match label {
         "claude" => {
             if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-                tracing::info!("Run: bash scripts/setup-headless-auth.sh to auto-configure Claude auth");
+                tracing::info!(
+                    "Run: bash scripts/setup-headless-auth.sh to auto-configure Claude auth"
+                );
             } else {
                 tracing::info!("To authenticate Claude:");
                 tracing::info!("  1. Set ANTHROPIC_API_KEY environment variable, or");
@@ -158,7 +154,9 @@ fn log_auth_guidance(label: &str) {
         }
         "codex" => {
             if std::env::var("OPENAI_API_KEY").is_ok() {
-                tracing::info!("Run: bash scripts/setup-headless-auth.sh to auto-configure Codex auth");
+                tracing::info!(
+                    "Run: bash scripts/setup-headless-auth.sh to auto-configure Codex auth"
+                );
             } else {
                 tracing::info!("To authenticate Codex:");
                 tracing::info!("  1. Set OPENAI_API_KEY environment variable, or");
@@ -245,9 +243,8 @@ impl TmpfsCredentialDir {
         let dir_name = format!("cortex-{}-{}", user_id, Uuid::new_v4().simple());
         let path = std::path::PathBuf::from("/dev/shm").join(&dir_name);
 
-        std::fs::create_dir_all(&path).map_err(|e| {
-            format!("failed to create tmpfs dir {}: {e}", path.display())
-        })?;
+        std::fs::create_dir_all(&path)
+            .map_err(|e| format!("failed to create tmpfs dir {}: {e}", path.display()))?;
 
         // Restrict permissions to owner only
         #[cfg(unix)]
@@ -283,7 +280,10 @@ impl TmpfsCredentialDir {
 impl Drop for TmpfsCredentialDir {
     fn drop(&mut self) {
         if let Err(e) = std::fs::remove_dir_all(&self.path) {
-            tracing::warn!("failed to clean up tmpfs credential dir {}: {e}", self.path.display());
+            tracing::warn!(
+                "failed to clean up tmpfs credential dir {}: {e}",
+                self.path.display()
+            );
         } else {
             tracing::debug!("cleaned up tmpfs credential dir {}", self.path.display());
         }
@@ -320,8 +320,7 @@ pub async fn stream_chat_cli(
         .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
         .unwrap_or(false);
 
-    let api_key_available =
-        fallback_enabled && std::env::var(provider.api_key_env()).is_ok();
+    let api_key_available = fallback_enabled && std::env::var(provider.api_key_env()).is_ok();
 
     let result = match provider {
         Provider::Claude => stream_claude_cli(model, system_prompt, user_message, tx.clone()).await,
@@ -419,9 +418,7 @@ pub async fn stream_chat_cli_isolated(
             tmpdir.write_credential_file(".codex/auth.json", credential_data)?;
         }
         Provider::Zen => {
-            return Err(
-                "OpenCode Zen is API-only — no CLI credentials to isolate".to_string(),
-            );
+            return Err("OpenCode Zen is API-only — no CLI credentials to isolate".to_string());
         }
     }
 
@@ -441,10 +438,12 @@ pub async fn stream_chat_cli_isolated(
             let mut cmd = Command::new(&cli_path);
             cmd.args([
                 "-p",
-                "--output-format", "stream-json",
+                "--output-format",
+                "stream-json",
                 "--verbose",
                 "--no-session-persistence",
-                "--model", model_str,
+                "--model",
+                model_str,
             ])
             .arg(&prompt)
             .env("HOME", &home_path)
@@ -458,8 +457,10 @@ pub async fn stream_chat_cli_isolated(
             let mut cmd = Command::new(&cli_path);
             cmd.args([
                 "exec",
-                "-c", &format!("model={model_str}"),
-                "-c", "approval_policy=never",
+                "-c",
+                &format!("model={model_str}"),
+                "-c",
+                "approval_policy=never",
             ])
             .arg(&prompt)
             .env("HOME", &home_path)
@@ -496,24 +497,26 @@ pub async fn stream_chat_via_container(
 
     let cmd: Vec<String> = match provider {
         Provider::Zen => {
-            return Err(
-                "OpenCode Zen is API-only — it cannot run in a CLI container".to_string(),
-            )
+            return Err("OpenCode Zen is API-only — it cannot run in a CLI container".to_string())
         }
         Provider::Claude => vec![
             "claude".into(),
             "-p".into(),
-            "--output-format".into(), "stream-json".into(),
+            "--output-format".into(),
+            "stream-json".into(),
             "--verbose".into(),
             "--no-session-persistence".into(),
-            "--model".into(), model.into(),
+            "--model".into(),
+            model.into(),
             prompt,
         ],
         Provider::Openai => vec![
             "codex".into(),
             "exec".into(),
-            "-c".into(), format!("model={model}"),
-            "-c".into(), "approval_policy=never".into(),
+            "-c".into(),
+            format!("model={model}"),
+            "-c".into(),
+            "approval_policy=never".into(),
             prompt,
         ],
     };
@@ -533,18 +536,38 @@ pub async fn stream_chat_via_container(
                     while let Some(chunk) = raw_rx.recv().await {
                         for line in chunk.lines() {
                             let trimmed = line.trim();
-                            if trimmed.is_empty() { continue; }
+                            if trimmed.is_empty() {
+                                continue;
+                            }
                             if let Ok(event) = serde_json::from_str::<serde_json::Value>(trimmed) {
-                                let text = event.get("result")
+                                let text = event
+                                    .get("result")
                                     .and_then(|r| r.get("content"))
                                     .and_then(|c| c.as_array())
-                                    .and_then(|arr| arr.iter().find_map(|b| b.get("text").and_then(|t| t.as_str())))
-                                    .or_else(|| event.get("delta").and_then(|d| d.get("text").and_then(|t| t.as_str())))
-                                    .or_else(|| event.get("message").and_then(|m| m.get("content"))
-                                        .and_then(|c| c.as_array())
-                                        .and_then(|arr| arr.iter().find_map(|b| b.get("text").and_then(|t| t.as_str()))));
+                                    .and_then(|arr| {
+                                        arr.iter()
+                                            .find_map(|b| b.get("text").and_then(|t| t.as_str()))
+                                    })
+                                    .or_else(|| {
+                                        event
+                                            .get("delta")
+                                            .and_then(|d| d.get("text").and_then(|t| t.as_str()))
+                                    })
+                                    .or_else(|| {
+                                        event
+                                            .get("message")
+                                            .and_then(|m| m.get("content"))
+                                            .and_then(|c| c.as_array())
+                                            .and_then(|arr| {
+                                                arr.iter().find_map(|b| {
+                                                    b.get("text").and_then(|t| t.as_str())
+                                                })
+                                            })
+                                    });
                                 if let Some(text) = text {
-                                    if tx.send(text.to_string()).await.is_err() { return; }
+                                    if tx.send(text.to_string()).await.is_err() {
+                                        return;
+                                    }
                                 }
                             }
                         }
@@ -557,7 +580,9 @@ pub async fn stream_chat_via_container(
                         for line in chunk.lines() {
                             let trimmed = line.trim();
                             if !trimmed.is_empty() {
-                                if tx.send(format!("{trimmed}\n")).await.is_err() { return; }
+                                if tx.send(format!("{trimmed}\n")).await.is_err() {
+                                    return;
+                                }
                             }
                         }
                     }
@@ -566,12 +591,17 @@ pub async fn stream_chat_via_container(
         })
     };
 
-    let exit_code = container_manager.exec_stream(container_id, &cmd_refs, raw_tx, timeout).await?;
+    let exit_code = container_manager
+        .exec_stream(container_id, &cmd_refs, raw_tx, timeout)
+        .await?;
     drop(tx); // signal parser we're done
     let _ = parse_handle.await;
 
     if exit_code != 0 {
-        return Err(format!("{} CLI exited with code {exit_code}", provider.name()));
+        return Err(format!(
+            "{} CLI exited with code {exit_code}",
+            provider.name()
+        ));
     }
     Ok(())
 }
@@ -583,9 +613,9 @@ async fn spawn_and_stream_cli(
     timeout: Duration,
     tx: mpsc::Sender<String>,
 ) -> Result<(), String> {
-    let mut child = cmd.spawn().map_err(|e| {
-        format!("failed to spawn {label} CLI at '{cli_path}': {e}")
-    })?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to spawn {label} CLI at '{cli_path}': {e}"))?;
 
     let stdout = child.stdout.take().ok_or("failed to capture stdout")?;
 
@@ -598,17 +628,23 @@ async fn spawn_and_stream_cli(
                 match event {
                     ClaudeStreamEvent::Assistant { message } => {
                         if let Some(content) = extract_claude_text(&message) {
-                            if tx.send(content).await.is_err() { break; }
+                            if tx.send(content).await.is_err() {
+                                break;
+                            }
                         }
                     }
                     ClaudeStreamEvent::ContentBlockDelta { delta } => {
                         if let Some(text) = delta.get("text").and_then(|t| t.as_str()) {
-                            if tx.send(text.to_string()).await.is_err() { break; }
+                            if tx.send(text.to_string()).await.is_err() {
+                                break;
+                            }
                         }
                     }
                     ClaudeStreamEvent::Result { result } => {
                         if let Some(text) = extract_claude_text(&result) {
-                            if tx.send(text).await.is_err() { break; }
+                            if tx.send(text).await.is_err() {
+                                break;
+                            }
                         }
                     }
                     _ => {}
@@ -621,7 +657,10 @@ async fn spawn_and_stream_cli(
     match tokio::time::timeout(timeout, stream_fut).await {
         Ok(result) => {
             result?;
-            let status = child.wait().await.map_err(|e| format!("{label} process error: {e}"))?;
+            let status = child
+                .wait()
+                .await
+                .map_err(|e| format!("{label} process error: {e}"))?;
             if !status.success() {
                 return Err(format!("{label} exited with status {status}"));
             }
@@ -629,7 +668,10 @@ async fn spawn_and_stream_cli(
         }
         Err(_) => {
             let _ = child.kill().await;
-            Err(format!("{label} CLI timed out after {} seconds", timeout.as_secs()))
+            Err(format!(
+                "{label} CLI timed out after {} seconds",
+                timeout.as_secs()
+            ))
         }
     }
 }
@@ -640,9 +682,9 @@ async fn spawn_and_stream_codex(
     timeout: Duration,
     tx: mpsc::Sender<String>,
 ) -> Result<(), String> {
-    let mut child = cmd.spawn().map_err(|e| {
-        format!("failed to spawn codex CLI at '{cli_path}': {e}")
-    })?;
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| format!("failed to spawn codex CLI at '{cli_path}': {e}"))?;
 
     let stdout = child.stdout.take().ok_or("failed to capture stdout")?;
 
@@ -653,7 +695,9 @@ async fn spawn_and_stream_codex(
         while let Ok(Some(line)) = lines.next_line().await {
             let trimmed = line.trim();
             if !trimmed.is_empty() {
-                if tx.send(format!("{trimmed}\n")).await.is_err() { break; }
+                if tx.send(format!("{trimmed}\n")).await.is_err() {
+                    break;
+                }
             }
         }
         Ok::<(), String>(())
@@ -662,7 +706,10 @@ async fn spawn_and_stream_codex(
     match tokio::time::timeout(timeout, stream_fut).await {
         Ok(result) => {
             result?;
-            let status = child.wait().await.map_err(|e| format!("codex process error: {e}"))?;
+            let status = child
+                .wait()
+                .await
+                .map_err(|e| format!("codex process error: {e}"))?;
             if !status.success() {
                 return Err(format!("codex exited with status {status}"));
             }
@@ -670,7 +717,10 @@ async fn spawn_and_stream_codex(
         }
         Err(_) => {
             let _ = child.kill().await;
-            Err(format!("codex CLI timed out after {} seconds", timeout.as_secs()))
+            Err(format!(
+                "codex CLI timed out after {} seconds",
+                timeout.as_secs()
+            ))
         }
     }
 }
@@ -694,29 +744,29 @@ async fn stream_claude_cli(
     let mut cmd = Command::new(&cli_path);
     cmd.args([
         "-p",
-        "--output-format", "stream-json",
+        "--output-format",
+        "stream-json",
         "--verbose",
         "--no-session-persistence",
-        "--model", model,
+        "--model",
+        model,
     ])
     .arg(&prompt)
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
-    let mut child = cmd.spawn().map_err(|e| {
-        match e.kind() {
-            std::io::ErrorKind::NotFound => format!(
-                "Claude CLI not found at '{cli_path}'. Install it with: \
+    let mut child = cmd.spawn().map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => format!(
+            "Claude CLI not found at '{cli_path}'. Install it with: \
                  npm install -g @anthropic-ai/claude-cli — or set CORTEX_CLAUDE_PATH \
                  to the full path of the binary. For headless auth, set ANTHROPIC_API_KEY \
                  and run: bash scripts/setup-headless-auth.sh"
-            ),
-            std::io::ErrorKind::PermissionDenied => format!(
-                "Permission denied running '{cli_path}'. Check file permissions \
+        ),
+        std::io::ErrorKind::PermissionDenied => format!(
+            "Permission denied running '{cli_path}'. Check file permissions \
                  (chmod +x) or set CORTEX_CLAUDE_PATH to an accessible binary."
-            ),
-            _ => format!("Failed to spawn claude CLI at '{cli_path}': {e}"),
-        }
+        ),
+        _ => format!("Failed to spawn claude CLI at '{cli_path}': {e}"),
     })?;
 
     let stdout = child.stdout.take().ok_or("failed to capture stdout")?;
@@ -760,7 +810,10 @@ async fn stream_claude_cli(
     match tokio::time::timeout(timeout, stream_fut).await {
         Ok(result) => {
             result?;
-            let status = child.wait().await.map_err(|e| format!("claude process error: {e}"))?;
+            let status = child
+                .wait()
+                .await
+                .map_err(|e| format!("claude process error: {e}"))?;
             if !status.success() {
                 let error_msg = format!("claude exited with status {status}");
                 tracing::error!("{error_msg}");
@@ -778,7 +831,10 @@ async fn stream_claude_cli(
             Ok(())
         }
         Err(_) => {
-            tracing::error!(timeout_secs = timeout.as_secs(), "claude CLI timed out — killing process");
+            tracing::error!(
+                timeout_secs = timeout.as_secs(),
+                "claude CLI timed out — killing process"
+            );
             let _ = child.kill().await;
             Err(format!(
                 "Claude CLI timed out after {} seconds. Increase CORTEX_CLI_TIMEOUT_SECS \
@@ -808,27 +864,27 @@ async fn stream_codex_cli(
     let mut cmd = Command::new(&cli_path);
     cmd.args([
         "exec",
-        "-c", &format!("model={model}"),
-        "-c", "approval_policy=never",
+        "-c",
+        &format!("model={model}"),
+        "-c",
+        "approval_policy=never",
     ])
     .arg(&prompt)
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
-    let mut child = cmd.spawn().map_err(|e| {
-        match e.kind() {
-            std::io::ErrorKind::NotFound => format!(
-                "Codex CLI not found at '{cli_path}'. Install it with: \
+    let mut child = cmd.spawn().map_err(|e| match e.kind() {
+        std::io::ErrorKind::NotFound => format!(
+            "Codex CLI not found at '{cli_path}'. Install it with: \
                  npm install -g @openai/codex — or set CORTEX_CODEX_PATH \
                  to the full path of the binary. For headless auth, set OPENAI_API_KEY \
                  and run: bash scripts/setup-headless-auth.sh"
-            ),
-            std::io::ErrorKind::PermissionDenied => format!(
-                "Permission denied running '{cli_path}'. Check file permissions \
+        ),
+        std::io::ErrorKind::PermissionDenied => format!(
+            "Permission denied running '{cli_path}'. Check file permissions \
                  (chmod +x) or set CORTEX_CODEX_PATH to an accessible binary."
-            ),
-            _ => format!("Failed to spawn codex CLI at '{cli_path}': {e}"),
-        }
+        ),
+        _ => format!("Failed to spawn codex CLI at '{cli_path}': {e}"),
     })?;
 
     let stdout = child.stdout.take().ok_or("failed to capture stdout")?;
@@ -852,7 +908,10 @@ async fn stream_codex_cli(
     match tokio::time::timeout(timeout, stream_fut).await {
         Ok(result) => {
             result?;
-            let status = child.wait().await.map_err(|e| format!("codex process error: {e}"))?;
+            let status = child
+                .wait()
+                .await
+                .map_err(|e| format!("codex process error: {e}"))?;
             if !status.success() {
                 let error_msg = format!("codex exited with status {status}");
                 tracing::error!("{error_msg}");
@@ -870,7 +929,10 @@ async fn stream_codex_cli(
             Ok(())
         }
         Err(_) => {
-            tracing::error!(timeout_secs = timeout.as_secs(), "codex CLI timed out — killing process");
+            tracing::error!(
+                timeout_secs = timeout.as_secs(),
+                "codex CLI timed out — killing process"
+            );
             let _ = child.kill().await;
             Err(format!(
                 "Codex CLI timed out after {} seconds. Increase CORTEX_CLI_TIMEOUT_SECS \
@@ -892,12 +954,9 @@ pub async fn chat_completion(
     messages: &[ChatMessage],
 ) -> Result<String, String> {
     match provider {
-        Provider::Claude => {
-            complete_anthropic_api(api_key, model, system_prompt, messages).await
-        }
+        Provider::Claude => complete_anthropic_api(api_key, model, system_prompt, messages).await,
         Provider::Openai | Provider::Zen => {
-            complete_openai_compatible_api(provider, api_key, model, system_prompt, messages)
-                .await
+            complete_openai_compatible_api(provider, api_key, model, system_prompt, messages).await
         }
     }
 }
@@ -1207,7 +1266,10 @@ async fn stream_openai_compatible_api(
                     return Ok(());
                 }
                 if let Ok(event) = serde_json::from_str::<serde_json::Value>(data) {
-                    if let Some(content) = event.pointer("/choices/0/delta/content").and_then(|t| t.as_str()) {
+                    if let Some(content) = event
+                        .pointer("/choices/0/delta/content")
+                        .and_then(|t| t.as_str())
+                    {
                         if tx.send(content.to_string()).await.is_err() {
                             return Ok(());
                         }
@@ -1241,7 +1303,8 @@ fn extract_claude_text(value: &serde_json::Value) -> Option<String> {
     }
     if let Some(content) = value.get("content") {
         if let Some(arr) = content.as_array() {
-            let text: String = arr.iter()
+            let text: String = arr
+                .iter()
                 .filter_map(|block| block.get("text").and_then(|t| t.as_str()))
                 .collect::<Vec<_>>()
                 .join("");
@@ -1260,14 +1323,23 @@ mod provider_tests {
     #[test]
     fn from_str_parses_zen_aliases() {
         assert!(matches!(Provider::from_str("zen"), Some(Provider::Zen)));
-        assert!(matches!(Provider::from_str("opencode"), Some(Provider::Zen)));
-        assert!(matches!(Provider::from_str("opencode-zen"), Some(Provider::Zen)));
+        assert!(matches!(
+            Provider::from_str("opencode"),
+            Some(Provider::Zen)
+        ));
+        assert!(matches!(
+            Provider::from_str("opencode-zen"),
+            Some(Provider::Zen)
+        ));
         assert!(Provider::from_str("not-a-provider").is_none());
     }
 
     #[test]
     fn openai_compatible_endpoints_are_distinct() {
-        assert_eq!(openai_compat_endpoint(&Provider::Zen), ZEN_CHAT_COMPLETIONS_URL);
+        assert_eq!(
+            openai_compat_endpoint(&Provider::Zen),
+            ZEN_CHAT_COMPLETIONS_URL
+        );
         assert_eq!(
             openai_compat_endpoint(&Provider::Openai),
             OPENAI_CHAT_COMPLETIONS_URL

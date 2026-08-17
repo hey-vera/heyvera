@@ -26,8 +26,8 @@ use super::policy::{
     binds, effective_endpoints, sanctioned_env, ungranted_hosts, unknown_providers,
     unknown_registries, WORKSPACE_MOUNT,
 };
-use super::{OutputStream, SandboxDriver, SandboxExit, SandboxLine, SandboxRequest, SandboxRunner};
 use super::SandboxSession;
+use super::{OutputStream, SandboxDriver, SandboxExit, SandboxLine, SandboxRequest, SandboxRunner};
 
 /// Unprivileged user baked into the runner image, used when the workspace
 /// owner cannot be determined.
@@ -158,11 +158,8 @@ impl ContainerSandbox {
             env: Some(env),
             user: Some(sandbox_user(&request.workspace)),
             network_disabled,
-            networking_config: endpoints.map(|endpoints_config| {
-                bollard::container::NetworkingConfig {
-                    endpoints_config,
-                }
-            }),
+            networking_config: endpoints
+                .map(|endpoints_config| bollard::container::NetworkingConfig { endpoints_config }),
             attach_stdout: Some(true),
             attach_stderr: Some(true),
             host_config: Some(HostConfig {
@@ -278,7 +275,9 @@ impl SandboxRunner for ContainerSandbox {
                     &self.docker,
                     job,
                     &granted,
-                    self.egress_image.clone().unwrap_or_else(egress::mediator_image),
+                    self.egress_image
+                        .clone()
+                        .unwrap_or_else(egress::mediator_image),
                 )
                 .await?,
             )

@@ -65,9 +65,18 @@ async fn test_app_with_limits(
     // reads from env vars, we set them before construction and restore after.
     // This is test-only — we accept the slight env-var coupling.
     unsafe {
-        std::env::set_var("CORTEX_DAILY_COST_LIMIT", format!("{}", limits.daily_cost_limit));
-        std::env::set_var("CORTEX_DAILY_STEP_LIMIT", format!("{}", limits.daily_step_limit));
-        std::env::set_var("CORTEX_MONTHLY_COST_LIMIT", format!("{}", limits.monthly_cost_limit));
+        std::env::set_var(
+            "CORTEX_DAILY_COST_LIMIT",
+            format!("{}", limits.daily_cost_limit),
+        );
+        std::env::set_var(
+            "CORTEX_DAILY_STEP_LIMIT",
+            format!("{}", limits.daily_step_limit),
+        );
+        std::env::set_var(
+            "CORTEX_MONTHLY_COST_LIMIT",
+            format!("{}", limits.monthly_cost_limit),
+        );
         if enforce {
             std::env::set_var("CORTEX_BILLING_ENFORCE", "1");
             std::env::set_var("CORTEX_AUTH_DISABLED", "false");
@@ -123,9 +132,7 @@ async fn create_run(app: &axum::Router, goal: &str) -> String {
                 .method("POST")
                 .uri("/api/runs")
                 .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::json!({"goal": goal}).to_string(),
-                ))
+                .body(Body::from(serde_json::json!({"goal": goal}).to_string()))
                 .unwrap(),
         )
         .await
@@ -300,7 +307,9 @@ async fn test_run_lifecycle() {
 
     // 2. Verify initial step status
     let run_json = get_run(&app, &run_id).await;
-    let steps = run_json["steps"].as_array().expect("steps should be an array");
+    let steps = run_json["steps"]
+        .as_array()
+        .expect("steps should be an array");
     assert!(!steps.is_empty(), "run should have at least one step");
     eprintln!("run has {} steps", steps.len());
 
@@ -317,7 +326,10 @@ async fn test_run_lifecycle() {
     let (exec_run_id, step_id, attempt_id, lease_gen) =
         wait_for_execute_step(&mut stream, Duration::from_secs(35)).await;
     eprintln!("received ExecuteStep: run={exec_run_id}, step={step_id}");
-    assert_eq!(exec_run_id, run_id, "dispatched step should belong to our run");
+    assert_eq!(
+        exec_run_id, run_id,
+        "dispatched step should belong to our run"
+    );
 
     // 5. Send StepStarted
     let started = WorkerMessage::StepStarted {
@@ -377,9 +389,7 @@ async fn test_run_lifecycle() {
 
     loop {
         // Check for more ExecuteStep messages (handle multi-step runs)
-        if let Ok(result) =
-            timeout(Duration::from_secs(2), stream.next()).await
-        {
+        if let Ok(result) = timeout(Duration::from_secs(2), stream.next()).await {
             if let Some(Ok(WsMessage::Text(text))) = result {
                 let text_str = text.to_string();
                 if let Ok(BrainMessage::ExecuteStep {
@@ -457,14 +467,8 @@ async fn test_run_lifecycle() {
             eprintln!("poll deadline reached. last run JSON: {run_json}");
             // Even if not terminal, verify the steps completed
             if let Some(steps) = run_json["steps"].as_array() {
-                let succeeded_count = steps
-                    .iter()
-                    .filter(|s| s["status"] == "succeeded")
-                    .count();
-                eprintln!(
-                    "{succeeded_count}/{} steps succeeded",
-                    steps.len()
-                );
+                let succeeded_count = steps.iter().filter(|s| s["status"] == "succeeded").count();
+                eprintln!("{succeeded_count}/{} steps succeeded", steps.len());
                 // Accept if at least the first step completed
                 assert!(
                     succeeded_count > 0,
@@ -500,10 +504,7 @@ async fn test_run_step_failure_triggers_heal() {
 
     // 2. Record initial step count
     let run_json = get_run(&app, &run_id).await;
-    let initial_step_count = run_json["steps"]
-        .as_array()
-        .map(|a| a.len())
-        .unwrap_or(0);
+    let initial_step_count = run_json["steps"].as_array().map(|a| a.len()).unwrap_or(0);
     eprintln!("initial step count: {initial_step_count}");
 
     // 3. Connect mock worker
@@ -552,16 +553,11 @@ async fn test_run_step_failure_triggers_heal() {
         }
 
         let run_json = get_run(&app, &run_id).await;
-        let current_steps = run_json["steps"]
-            .as_array()
-            .map(|a| a.len())
-            .unwrap_or(0);
+        let current_steps = run_json["steps"].as_array().map(|a| a.len()).unwrap_or(0);
 
         if current_steps > initial_step_count {
             final_step_count = current_steps;
-            eprintln!(
-                "heal steps created: {initial_step_count} → {final_step_count}"
-            );
+            eprintln!("heal steps created: {initial_step_count} → {final_step_count}");
             break;
         }
 
@@ -605,14 +601,14 @@ async fn test_billing_gate_blocks_over_limit() {
         // Record usage that exceeds the daily step limit (limit is 1 step)
         for _ in 0..5 {
             db.record_usage(
-                "local",  // user_id in dev mode
+                "local", // user_id in dev mode
                 "claude",
                 "execute",
                 "sonnet",
-                None,           // worker_id
-                Some(10_000),   // tokens_in
-                Some(5_000),    // tokens_out
-                Some(60_000),   // duration_ms
+                None,         // worker_id
+                Some(10_000), // tokens_in
+                Some(5_000),  // tokens_out
+                Some(60_000), // duration_ms
             );
         }
     }
@@ -652,7 +648,9 @@ async fn test_billing_gate_blocks_over_limit() {
 
     // 6. Verify the step is still pending
     let run_json = get_run(&app, &run_id).await;
-    let steps = run_json["steps"].as_array().expect("steps should be an array");
+    let steps = run_json["steps"]
+        .as_array()
+        .expect("steps should be an array");
     let all_pending = steps.iter().all(|s| s["status"] == "pending");
 
     if step_dispatched {

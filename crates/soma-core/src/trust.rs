@@ -36,11 +36,7 @@ pub fn vera(interaction: &Interaction, now: u64) -> f64 {
     soma * c * c
 }
 
-pub fn compute_trust(
-    interactions: &[Interaction],
-    capability: &Capability,
-    now: u64,
-) -> f64 {
+pub fn compute_trust(interactions: &[Interaction], capability: &Capability, now: u64) -> f64 {
     interactions
         .iter()
         .filter(|i| i.capability == *capability)
@@ -57,11 +53,7 @@ pub fn compute_trust(
         .sum()
 }
 
-pub fn compute_warmth(
-    interactions: &[Interaction],
-    capability: &Capability,
-    now: u64,
-) -> f64 {
+pub fn compute_warmth(interactions: &[Interaction], capability: &Capability, now: u64) -> f64 {
     interactions
         .iter()
         .filter(|i| i.capability == *capability)
@@ -69,11 +61,7 @@ pub fn compute_warmth(
         .sum()
 }
 
-pub fn is_ignited(
-    interactions: &[Interaction],
-    capability: &Capability,
-    now: u64,
-) -> bool {
+pub fn is_ignited(interactions: &[Interaction], capability: &Capability, now: u64) -> bool {
     let signal = compute_warmth(interactions, capability, now);
     let noise = interactions
         .iter()

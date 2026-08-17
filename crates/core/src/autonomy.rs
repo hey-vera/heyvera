@@ -56,9 +56,10 @@ pub fn decide_autonomy(
         }
         (RiskLevel::Medium, ConfidenceBand::Certain) => AutonomyDecision::ProceedAutonomously,
         (RiskLevel::Low, ConfidenceBand::Low) => AutonomyDecision::ProceedAndFlag,
-        (RiskLevel::Low, ConfidenceBand::Medium | ConfidenceBand::High | ConfidenceBand::Certain) => {
-            AutonomyDecision::ProceedAutonomously
-        }
+        (
+            RiskLevel::Low,
+            ConfidenceBand::Medium | ConfidenceBand::High | ConfidenceBand::Certain,
+        ) => AutonomyDecision::ProceedAutonomously,
         _ => AutonomyDecision::Forbidden,
     }
 }

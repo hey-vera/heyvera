@@ -15,9 +15,21 @@ use crate::state::AppState;
 
 type ApiResponse = (StatusCode, Json<serde_json::Value>);
 
-fn ok(v: serde_json::Value) -> ApiResponse { (StatusCode::OK, Json(v)) }
-fn not_found(msg: &str) -> ApiResponse { (StatusCode::NOT_FOUND, Json(json!({ "error": msg, "code": "NOT_FOUND" }))) }
-fn bad_request(msg: &str) -> ApiResponse { (StatusCode::BAD_REQUEST, Json(json!({ "error": msg, "code": "BAD_REQUEST" }))) }
+fn ok(v: serde_json::Value) -> ApiResponse {
+    (StatusCode::OK, Json(v))
+}
+fn not_found(msg: &str) -> ApiResponse {
+    (
+        StatusCode::NOT_FOUND,
+        Json(json!({ "error": msg, "code": "NOT_FOUND" })),
+    )
+}
+fn bad_request(msg: &str) -> ApiResponse {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(json!({ "error": msg, "code": "BAD_REQUEST" })),
+    )
+}
 fn payment_required(msg: &str) -> ApiResponse {
     (
         StatusCode::PAYMENT_REQUIRED,
@@ -125,9 +137,9 @@ impl PulsePublishError {
     pub fn message(&self) -> String {
         match self {
             Self::NotFound => "Draft not found".into(),
-            Self::Illegal { status } => format!(
-                "Draft must be approved before publishing (status is '{status}')"
-            ),
+            Self::Illegal { status } => {
+                format!("Draft must be approved before publishing (status is '{status}')")
+            }
             Self::InvalidAudience => "Draft has an invalid or unsupported audience".into(),
         }
     }
@@ -159,13 +171,11 @@ pub fn publish_approved_pulse_draft(
     // CAS first so concurrent publish / schedule worker cannot double-post.
     let updated = database
         .pulse_cas_update_draft_status(id, profile_id, &["approved"], "published")
-        .ok_or_else(|| {
-            match database.pulse_get_draft(id, profile_id) {
-                None => PulsePublishError::NotFound,
-                Some(current) => PulsePublishError::Illegal {
-                    status: current["status"].as_str().unwrap_or("").to_string(),
-                },
-            }
+        .ok_or_else(|| match database.pulse_get_draft(id, profile_id) {
+            None => PulsePublishError::NotFound,
+            Some(current) => PulsePublishError::Illegal {
+                status: current["status"].as_str().unwrap_or("").to_string(),
+            },
         })?;
 
     let post = database.social_create_post(
@@ -237,9 +247,9 @@ pub fn meter_pulse_draft_create(
     );
     match decision {
         PulseDraftMeterDecision::AllowFree => Ok(None),
-        PulseDraftMeterDecision::DenyInsufficient { need, have } => Err(format!(
-            "insufficient credits: need {need}, have {have}"
-        )),
+        PulseDraftMeterDecision::DenyInsufficient { need, have } => {
+            Err(format!("insufficient credits: need {need}, have {have}"))
+        }
         PulseDraftMeterDecision::AllowAndCharge { cost, .. } => {
             // Each call really is a new unit of work — neither caller has a
             // retry loop, and a user creating two drafts owes two charges — so
@@ -267,10 +277,7 @@ pub fn meter_pulse_draft_create(
 }
 
 /// Resolve clerk_user_id for metering from profile id (accountId on profile JSON).
-fn clerk_user_id_for_profile(
-    database: &crate::db::Database,
-    profile_id: &str,
-) -> Option<String> {
+fn clerk_user_id_for_profile(database: &crate::db::Database, profile_id: &str) -> Option<String> {
     database
         .social_find_profile_by_id(profile_id)
         .and_then(|p| p["accountId"].as_str().map(|s| s.to_string()))
@@ -367,7 +374,9 @@ pub async fn create_draft(
 
     let visibility = req.visibility.unwrap_or(PostAudience::Public);
     if matches!(visibility, PostAudience::Guild | PostAudience::Circle) {
-        return bad_request("Pulse drafts require public, followers, mutuals, or author-only visibility");
+        return bad_request(
+            "Pulse drafts require public, followers, mutuals, or author-only visibility",
+        );
     }
     let draft = db(&state).pulse_create_draft(
         &profile_id,
@@ -433,7 +442,10 @@ pub async fn reject_draft(
     // pending | approved → rejected (CAS).
     match try_pulse_transition(db(&state), &id, profile_id, "rejected") {
         Ok(draft) => {
-            let details = req.reason.as_deref().map(|r| json!({ "reason": r }).to_string());
+            let details = req
+                .reason
+                .as_deref()
+                .map(|r| json!({ "reason": r }).to_string());
             db(&state).pulse_add_audit(&id, profile_id, "rejected", details.as_deref());
             ok(json!({ "ok": true, "draft": draft }))
         }
@@ -459,7 +471,9 @@ pub async fn publish_draft(
         }
         Err(PulsePublishError::NotFound) => not_found("Draft not found"),
         Err(e @ PulsePublishError::Illegal { .. }) => conflict_transition(&e.message()),
-        Err(PulsePublishError::InvalidAudience) => bad_request("Draft has an invalid or unsupported audience"),
+        Err(PulsePublishError::InvalidAudience) => {
+            bad_request("Draft has an invalid or unsupported audience")
+        }
     }
 }
 
@@ -707,7 +721,8 @@ const TOOLS_V1_HELP: &str = "I'm Pulse draft tools (v1) — keyword matching, no
 I use the same server mutations as the Drafts API. I won't post publicly without approval.\n\
 When ANTHROPIC_API_KEY or OPENAI_API_KEY is set, the server may use tools_v2 (LLM tool JSON).";
 
-const TOOLS_V2_SYSTEM: &str = "You are Pulse, a draft assistant for HeyVera. You do NOT publish posts yourself.\n\
+const TOOLS_V2_SYSTEM: &str =
+    "You are Pulse, a draft assistant for HeyVera. You do NOT publish posts yourself.\n\
 Reply with ONLY JSON (no markdown fences, no prose outside JSON).\n\n\
 Single tool:\n\
 {\"tool\":\"create_draft\",\"args\":{\"body\":\"...\"}}\n\n\
@@ -1405,7 +1420,15 @@ pub async fn pulse_chat(
     let database = db(&state);
 
     if let Some((provider, api_key)) = crate::llm_client::resolve_server_llm() {
-        match try_tools_v2(database, &profile_id, message, &req.history, provider, &api_key).await
+        match try_tools_v2(
+            database,
+            &profile_id,
+            message,
+            &req.history,
+            provider,
+            &api_key,
+        )
+        .await
         {
             Ok(outcome) => return ok(outcome_to_json("tools_v2", outcome)),
             Err(err) => {
@@ -1448,14 +1471,9 @@ async fn try_tools_v2(
         content: message.into(),
     });
 
-    let text = crate::llm_client::chat_completion(
-        &provider,
-        api_key,
-        None,
-        TOOLS_V2_SYSTEM,
-        &messages,
-    )
-    .await?;
+    let text =
+        crate::llm_client::chat_completion(&provider, api_key, None, TOOLS_V2_SYSTEM, &messages)
+            .await?;
 
     let calls = parse_tool_calls_from_llm(&text)?;
     let outcomes: Vec<PulseToolOutcome> = calls
@@ -1503,10 +1521,7 @@ pub async fn schedule_draft(
 }
 
 /// GET /v1/pulse/schedules
-pub async fn list_schedules(
-    user: ClerkUser,
-    State(state): State<Arc<AppState>>,
-) -> ApiResponse {
+pub async fn list_schedules(user: ClerkUser, State(state): State<Arc<AppState>>) -> ApiResponse {
     let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
         Some(p) => p,
         None => return ok(json!({ "schedules": [] })),
@@ -1687,10 +1702,7 @@ pub async fn create_goal(
 }
 
 /// GET /v1/pulse/goals — list goals for the caller's profile.
-pub async fn list_goals(
-    user: ClerkUser,
-    State(state): State<Arc<AppState>>,
-) -> ApiResponse {
+pub async fn list_goals(user: ClerkUser, State(state): State<Arc<AppState>>) -> ApiResponse {
     let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
         Some(p) => p,
         None => return ok(json!({ "goals": [] })),
@@ -1835,10 +1847,7 @@ mod tests {
             },
         );
         assert_eq!(created.tools_used, vec!["create_draft"]);
-        let draft_id = created
-            .draft
-            .as_ref()
-            .unwrap()["id"]
+        let draft_id = created.draft.as_ref().unwrap()["id"]
             .as_str()
             .unwrap()
             .to_string();
@@ -2114,10 +2123,7 @@ mod tests {
             summary.step_count
         );
         assert!(
-            summary
-                .by_provider
-                .iter()
-                .any(|p| p.provider == "pulse"),
+            summary.by_provider.iter().any(|p| p.provider == "pulse"),
             "expected provider=pulse in usage summary"
         );
     }
@@ -2215,7 +2221,11 @@ mod tests {
         assert_eq!(steps[0].args["body"], "Draft about X");
         assert_eq!(steps[0].status, "pending");
         assert_eq!(steps[1].tool, "approve_required");
-        assert!(steps[1].args.as_object().map(|o| o.is_empty()).unwrap_or(false));
+        assert!(steps[1]
+            .args
+            .as_object()
+            .map(|o| o.is_empty())
+            .unwrap_or(false));
         assert_eq!(steps[2].tool, "schedule_optional");
         assert_eq!(steps[2].args["hint"], "when_ready");
     }

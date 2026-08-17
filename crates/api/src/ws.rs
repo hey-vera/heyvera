@@ -1,6 +1,6 @@
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::Arc;
 use std::time::Duration;
 
 use axum::extract::ws::{Message, WebSocket};
@@ -11,13 +11,13 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 use cortex_core::failure::WorkerFailureKind;
-use cortex_core::protocol::{BrainMessage, PROTOCOL_VERSION, StepOutput, WorkerMessage};
+use cortex_core::protocol::{BrainMessage, StepOutput, WorkerMessage, PROTOCOL_VERSION};
 use cortex_core::routing::RiskLevel;
 use cortex_core::task::TaskContract;
 use cortex_engine::captain::SchedulerEvent;
 use cortex_engine::verifier::{
-    CheckEvidence as VerifierCheckEvidence, CheckStatus, StructuredStepEvidence, VerifierInput,
-    VerifierVerdict, VerifierWorkContract, verify_step,
+    verify_step, CheckEvidence as VerifierCheckEvidence, CheckStatus, StructuredStepEvidence,
+    VerifierInput, VerifierVerdict, VerifierWorkContract,
 };
 
 use crate::clerk;
@@ -327,8 +327,8 @@ async fn handle_worker_msg(
                 // worker cannot write a job row.
                 match &execution_job {
                     Some(job) => {
-                        let run_id = resolve_run_id(step_run_cache, state, &step_id)
-                            .unwrap_or_default();
+                        let run_id =
+                            resolve_run_id(step_run_cache, state, &step_id).unwrap_or_default();
                         if !db.record_execution_job(&run_id, job) {
                             // Idempotent on (attempt_id, lease_gen): a
                             // resubmission is the same logical execution.
@@ -1510,13 +1510,24 @@ async fn authenticate_worker(state: &AppState, token: &str) -> Result<String, St
         }
     };
 
-    let keys = clerk::get_or_refresh_jwks_pub(&state.jwks_cache, &state.jwks_stampede, clerk_secret, false).await?;
+    let keys = clerk::get_or_refresh_jwks_pub(
+        &state.jwks_cache,
+        &state.jwks_stampede,
+        clerk_secret,
+        false,
+    )
+    .await?;
 
     match clerk::verify_token_pub(token, &keys) {
         Ok(user_id) => Ok(user_id),
         Err(_) => {
-            let keys =
-                clerk::get_or_refresh_jwks_pub(&state.jwks_cache, &state.jwks_stampede, clerk_secret, true).await?;
+            let keys = clerk::get_or_refresh_jwks_pub(
+                &state.jwks_cache,
+                &state.jwks_stampede,
+                clerk_secret,
+                true,
+            )
+            .await?;
             clerk::verify_token_pub(token, &keys)
         }
     }
@@ -1537,8 +1548,7 @@ mod soma_fence_tests {
         // (see `worker_credential`), but leaving the secret unset here is still
         // the point of this test — the rejection has to come from the format
         // check, not from Clerk being configured.
-        let state =
-            AppState::new(workspace.join(".cortex/ledger.jsonl"), workspace, None).await;
+        let state = AppState::new(workspace.join(".cortex/ledger.jsonl"), workspace, None).await;
         std::mem::forget(temporary);
         state
     }
@@ -1587,7 +1597,10 @@ mod soma_fence_tests {
         std::sync::Arc::get_mut(&mut state)
             .expect("sole owner of the state")
             .allow_anonymous_worker = true;
-        assert_eq!(authenticate_worker(&state, "").await.ok().as_deref(), Some("local"));
+        assert_eq!(
+            authenticate_worker(&state, "").await.ok().as_deref(),
+            Some("local")
+        );
     }
 }
 

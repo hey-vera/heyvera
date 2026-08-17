@@ -75,7 +75,9 @@ pub async fn get_notifications(
     let next_cursor = if notifications.len() as i64 == limit {
         notifications.last().and_then(|n| {
             // Prefer camelCase createdAt (current shape); fall back for safety.
-            let created_at = n["createdAt"].as_str().or_else(|| n["created_at"].as_str())?;
+            let created_at = n["createdAt"]
+                .as_str()
+                .or_else(|| n["created_at"].as_str())?;
             let id = n["id"].as_str()?;
             Some(encode_cursor(created_at, id))
         })
@@ -99,9 +101,7 @@ pub async fn mark_notifications_read(
 ) -> impl IntoResponse {
     let profile = match db(&state).social_find_profile_by_clerk_id(&user.user_id) {
         Some(p) => p,
-        None => {
-            return Json(serde_json::json!({ "ok": true, "updated": 0 }))
-        }
+        None => return Json(serde_json::json!({ "ok": true, "updated": 0 })),
     };
 
     let profile_id = profile["id"].as_str().unwrap_or("");

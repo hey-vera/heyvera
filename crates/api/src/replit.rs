@@ -1,5 +1,5 @@
-use std::sync::Arc;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -46,7 +46,8 @@ impl ReplitClient {
         url: &str,
         body: Option<serde_json::Value>,
     ) -> Result<T, String> {
-        let mut req = self.client
+        let mut req = self
+            .client
             .request(method, url)
             .header("Authorization", format!("Bearer {}", self.api_token))
             .header("Content-Type", "application/json");
@@ -55,7 +56,9 @@ impl ReplitClient {
             req = req.json(&body);
         }
 
-        let resp = req.send().await
+        let resp = req
+            .send()
+            .await
             .map_err(|e| format!("Replit API request failed: {}", e))?;
 
         if !resp.status().is_success() {
@@ -64,11 +67,15 @@ impl ReplitClient {
             return Err(format!("Replit API error {}: {}", status, body));
         }
 
-        resp.json::<T>().await
+        resp.json::<T>()
+            .await
             .map_err(|e| format!("Failed to parse Replit API response: {}", e))
     }
 
-    pub async fn create_workspace(&self, req: &CreateWorkspaceRequest) -> Result<ReplitWorkspace, String> {
+    pub async fn create_workspace(
+        &self,
+        req: &CreateWorkspaceRequest,
+    ) -> Result<ReplitWorkspace, String> {
         let body = serde_json::json!({
             "title": req.title,
             "language": req.language,
@@ -81,7 +88,8 @@ impl ReplitClient {
             reqwest::Method::POST,
             "https://replit.com/data/repls",
             Some(body),
-        ).await
+        )
+        .await
     }
 
     pub async fn get_workspace(&self, repl_id: &str) -> Result<ReplitWorkspace, String> {
@@ -89,27 +97,31 @@ impl ReplitClient {
             reqwest::Method::GET,
             &format!("https://replit.com/data/repls/{}", repl_id),
             None,
-        ).await
+        )
+        .await
     }
 
     pub async fn list_user_workspaces(&self) -> Result<Vec<ReplitWorkspace>, String> {
-        self.make_request(
-            reqwest::Method::GET,
-            "https://replit.com/data/repls",
-            None,
-        ).await
+        self.make_request(reqwest::Method::GET, "https://replit.com/data/repls", None)
+            .await
     }
 
-    pub async fn update_workspace_files(&self, repl_id: &str, files: &HashMap<String, String>) -> Result<(), String> {
+    pub async fn update_workspace_files(
+        &self,
+        repl_id: &str,
+        files: &HashMap<String, String>,
+    ) -> Result<(), String> {
         let body = serde_json::json!({
             "files": files
         });
 
-        let _: serde_json::Value = self.make_request(
-            reqwest::Method::PATCH,
-            &format!("https://replit.com/data/repls/{}/files", repl_id),
-            Some(body),
-        ).await?;
+        let _: serde_json::Value = self
+            .make_request(
+                reqwest::Method::PATCH,
+                &format!("https://replit.com/data/repls/{}/files", repl_id),
+                Some(body),
+            )
+            .await?;
 
         Ok(())
     }
@@ -201,42 +213,57 @@ impl crate::db::Database {
                 &workspace.created_at,
                 &workspace.updated_at,
                 &workspace.status,
-                workspace.metadata.as_ref().map(|m| serde_json::to_string(m).unwrap_or_default()),
+                workspace
+                    .metadata
+                    .as_ref()
+                    .map(|m| serde_json::to_string(m).unwrap_or_default()),
             ],
         );
         result.is_ok()
     }
 
-    pub fn get_project_workspace(&self, user_id: &str, project_id: &str) -> Option<ProjectWorkspace> {
+    pub fn get_project_workspace(
+        &self,
+        user_id: &str,
+        project_id: &str,
+    ) -> Option<ProjectWorkspace> {
         let conn = self.conn();
-        let mut stmt = conn.prepare(
-            "SELECT id, user_id, project_name, workspace_id, workspace_url,
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, user_id, project_name, workspace_id, workspace_url,
                     chat_endpoint, created_at, updated_at, status, metadata
              FROM project_workspaces
-             WHERE user_id = ? AND id = ?"
-        ).ok()?;
+             WHERE user_id = ? AND id = ?",
+            )
+            .ok()?;
 
-        let mut rows = stmt.query_map(rusqlite::params![user_id, project_id], |row: &rusqlite::Row| {
-            let metadata_str: Option<String> = row.get(9)?;
-            let metadata = metadata_str
-                .as_deref()
-                .and_then(|s| serde_json::from_str(s).ok());
+        let mut rows = stmt
+            .query_map(
+                rusqlite::params![user_id, project_id],
+                |row: &rusqlite::Row| {
+                    let metadata_str: Option<String> = row.get(9)?;
+                    let metadata = metadata_str
+                        .as_deref()
+                        .and_then(|s| serde_json::from_str(s).ok());
 
-            Ok(ProjectWorkspace {
-                id: row.get(0)?,
-                user_id: row.get(1)?,
-                project_name: row.get(2)?,
-                workspace_id: row.get(3)?,
-                workspace_url: row.get(4)?,
-                chat_endpoint: row.get(5)?,
-                created_at: row.get(6)?,
-                updated_at: row.get(7)?,
-                status: row.get(8)?,
-                metadata,
-            })
-        }).ok()?;
+                    Ok(ProjectWorkspace {
+                        id: row.get(0)?,
+                        user_id: row.get(1)?,
+                        project_name: row.get(2)?,
+                        workspace_id: row.get(3)?,
+                        workspace_url: row.get(4)?,
+                        chat_endpoint: row.get(5)?,
+                        created_at: row.get(6)?,
+                        updated_at: row.get(7)?,
+                        status: row.get(8)?,
+                        metadata,
+                    })
+                },
+            )
+            .ok()?;
 
-        rows.next().and_then(|row: Result<ProjectWorkspace, _>| row.ok())
+        rows.next()
+            .and_then(|row: Result<ProjectWorkspace, _>| row.ok())
     }
 
     pub fn list_user_project_workspaces(&self, user_id: &str) -> Vec<ProjectWorkspace> {
@@ -246,7 +273,7 @@ impl crate::db::Database {
                     chat_endpoint, created_at, updated_at, status, metadata
              FROM project_workspaces
              WHERE user_id = ?
-             ORDER BY updated_at DESC"
+             ORDER BY updated_at DESC",
         ) {
             Ok(stmt) => stmt,
             Err(_) => return Vec::new(),
@@ -278,7 +305,12 @@ impl crate::db::Database {
         }
     }
 
-    pub fn update_project_workspace_status(&self, user_id: &str, project_id: &str, status: &str) -> bool {
+    pub fn update_project_workspace_status(
+        &self,
+        user_id: &str,
+        project_id: &str,
+        status: &str,
+    ) -> bool {
         let conn = self.conn();
         let now = chrono::Utc::now().to_rfc3339();
         let result = conn.execute(
@@ -306,25 +338,27 @@ pub async fn create_project(
     user: ClerkUser,
     Json(req): Json<CreateWorkspaceRequest>,
 ) -> ApiResult<Json<ProjectWorkspaceResponse>> {
-    let replit_token = std::env::var("REPLIT_API_TOKEN")
-        .map_err(|_| (
+    let replit_token = std::env::var("REPLIT_API_TOKEN").map_err(|_| {
+        (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ErrorResponse {
                 error: "Replit integration not configured".into(),
-            })
-        ))?;
+            }),
+        )
+    })?;
 
     let replit_client = ReplitClient::new(replit_token);
     let db = db_ref(&state)?;
 
     // Create workspace on Replit
-    let workspace = replit_client.create_workspace(&req).await
-        .map_err(|e| (
+    let workspace = replit_client.create_workspace(&req).await.map_err(|e| {
+        (
             StatusCode::BAD_GATEWAY,
             Json(ErrorResponse {
                 error: format!("Failed to create Replit workspace: {}", e),
-            })
-        ))?;
+            }),
+        )
+    })?;
 
     // Generate project ID and chat endpoint
     let project_id = Uuid::new_v4().to_string();
@@ -354,7 +388,7 @@ pub async fn create_project(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
                 error: "Failed to save project workspace".into(),
-            })
+            }),
         ));
     }
 
@@ -372,13 +406,14 @@ pub async fn import_project(
     user: ClerkUser,
     Json(req): Json<ImportProjectRequest>,
 ) -> ApiResult<Json<ProjectWorkspaceResponse>> {
-    let replit_token = std::env::var("REPLIT_API_TOKEN")
-        .map_err(|_| (
+    let replit_token = std::env::var("REPLIT_API_TOKEN").map_err(|_| {
+        (
             StatusCode::SERVICE_UNAVAILABLE,
             Json(ErrorResponse {
                 error: "Replit integration not configured".into(),
-            })
-        ))?;
+            }),
+        )
+    })?;
 
     let replit_client = ReplitClient::new(replit_token);
     let db = db_ref(&state)?;
@@ -400,13 +435,17 @@ pub async fn import_project(
     };
 
     // Create workspace on Replit
-    let workspace = replit_client.create_workspace(&create_req).await
-        .map_err(|e| (
-            StatusCode::BAD_GATEWAY,
-            Json(ErrorResponse {
-                error: format!("Failed to create Replit workspace: {}", e),
-            })
-        ))?;
+    let workspace = replit_client
+        .create_workspace(&create_req)
+        .await
+        .map_err(|e| {
+            (
+                StatusCode::BAD_GATEWAY,
+                Json(ErrorResponse {
+                    error: format!("Failed to create Replit workspace: {}", e),
+                }),
+            )
+        })?;
 
     // If GitHub URL provided, clone it to the workspace
     if let Some(github_url) = &req.source_url {
@@ -443,7 +482,7 @@ pub async fn import_project(
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorResponse {
                 error: "Failed to save project workspace".into(),
-            })
+            }),
         ));
     }
 
@@ -473,13 +512,16 @@ pub async fn get_project(
     Path(project_id): Path<String>,
 ) -> ApiResult<Json<ProjectWorkspace>> {
     let db = db_ref(&state)?;
-    let workspace = db.get_project_workspace(&user.user_id, &project_id)
-        .ok_or_else(|| (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Project not found".into(),
-            })
-        ))?;
+    let workspace = db
+        .get_project_workspace(&user.user_id, &project_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "Project not found".into(),
+                }),
+            )
+        })?;
 
     Ok(Json(workspace))
 }
@@ -497,7 +539,7 @@ pub async fn delete_project(
             StatusCode::NOT_FOUND,
             Json(ErrorResponse {
                 error: "Project not found".into(),
-            })
+            }),
         ));
     }
 
@@ -510,48 +552,64 @@ pub async fn proxy_chat_to_workspace(
     user: ClerkUser,
     Path(project_id): Path<String>,
     Json(chat_req): Json<crate::chat::ChatRequest>,
-) -> Result<axum::response::sse::Sse<impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>>, (StatusCode, Json<ErrorResponse>)> {
+) -> Result<
+    axum::response::sse::Sse<
+        impl futures_core::Stream<Item = Result<axum::response::sse::Event, std::convert::Infallible>>,
+    >,
+    (StatusCode, Json<ErrorResponse>),
+> {
+    use axum::response::sse::{Event, KeepAlive};
+    use std::convert::Infallible;
     use tokio::sync::mpsc;
     use tokio_stream::wrappers::ReceiverStream;
     use tokio_stream::StreamExt;
-    use axum::response::sse::{Event, KeepAlive};
-    use std::convert::Infallible;
 
     let db = db_ref(&state)?;
-    let workspace = db.get_project_workspace(&user.user_id, &project_id)
-        .ok_or_else(|| (
-            StatusCode::NOT_FOUND,
-            Json(ErrorResponse {
-                error: "Project workspace not found".into(),
-            })
-        ))?;
+    let workspace = db
+        .get_project_workspace(&user.user_id, &project_id)
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                Json(ErrorResponse {
+                    error: "Project workspace not found".into(),
+                }),
+            )
+        })?;
 
     let (tx, rx) = mpsc::channel::<crate::state::StepEvent>(64);
     let workspace_clone = workspace.clone();
 
     tokio::spawn(async move {
-        let _ = tx.send(crate::state::StepEvent::Started {
-            step_id: "workspace-chat".into(),
-            provider: "replit".into(),
-            model: "workspace".into(),
-        }).await;
+        let _ = tx
+            .send(crate::state::StepEvent::Started {
+                step_id: "workspace-chat".into(),
+                provider: "replit".into(),
+                model: "workspace".into(),
+            })
+            .await;
 
         match proxy_to_replit_workspace(&workspace_clone, &chat_req).await {
             Ok(response) => {
-                let _ = tx.send(crate::state::StepEvent::Output {
-                    step_id: "workspace-chat".into(),
-                    line: response,
-                }).await;
-                let _ = tx.send(crate::state::StepEvent::Completed {
-                    step_id: "workspace-chat".into(),
-                    exit_code: 0,
-                }).await;
+                let _ = tx
+                    .send(crate::state::StepEvent::Output {
+                        step_id: "workspace-chat".into(),
+                        line: response,
+                    })
+                    .await;
+                let _ = tx
+                    .send(crate::state::StepEvent::Completed {
+                        step_id: "workspace-chat".into(),
+                        exit_code: 0,
+                    })
+                    .await;
             }
             Err(error) => {
-                let _ = tx.send(crate::state::StepEvent::Failed {
-                    step_id: "workspace-chat".into(),
-                    error,
-                }).await;
+                let _ = tx
+                    .send(crate::state::StepEvent::Failed {
+                        step_id: "workspace-chat".into(),
+                        error,
+                    })
+                    .await;
             }
         }
     });
@@ -596,7 +654,9 @@ async fn clone_github_to_workspace(
     let mut files = HashMap::new();
     files.insert("clone.sh".to_string(), clone_script);
 
-    replit_client.update_workspace_files(workspace_id, &files).await
+    replit_client
+        .update_workspace_files(workspace_id, &files)
+        .await
 }
 
 async fn proxy_to_replit_workspace(
@@ -612,8 +672,6 @@ async fn proxy_to_replit_workspace(
          I received your message: \"{}\"\n\n\
          This workspace is running at: {}\n\n\
          *Note: Full workspace execution proxy is being implemented.*",
-        workspace.workspace_id,
-        chat_req.message,
-        workspace.workspace_url
+        workspace.workspace_id, chat_req.message, workspace.workspace_url
     ))
 }

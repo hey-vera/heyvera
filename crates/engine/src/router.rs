@@ -112,12 +112,8 @@ mod tests {
 
     #[test]
     fn prefers_lower_pressure_provider() {
-        let (_, decision) = Router::route(
-            "fix the button",
-            &["src/Button.tsx"],
-            &two_providers(),
-        )
-        .unwrap();
+        let (_, decision) =
+            Router::route("fix the button", &["src/Button.tsx"], &two_providers()).unwrap();
 
         assert_eq!(decision.provider, ProviderId::Claude);
     }

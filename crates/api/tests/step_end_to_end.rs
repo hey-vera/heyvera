@@ -348,7 +348,10 @@ async fn a_dispatched_step_can_reach_its_model_and_is_told_about_the_repository(
             cortex_core::execution_job::CapabilityGrant::ReachProvider { .. }
         )
     });
-    assert!(has_provider, "the job carries no provider grant: {grants:?}");
+    assert!(
+        has_provider,
+        "the job carries no provider grant: {grants:?}"
+    );
 
     // What the model is actually handed.
     let bundle = job
@@ -796,13 +799,19 @@ async fn cortex_completes_one_real_task_end_to_end() {
     // empty execution set would be the same vacuous green this file exists to
     // prevent.
     assert!(
-        receipt.executions.iter().any(|e| e.spec_id == "ecosystem:cargo-test"
-            && e.outcome == cortex_core::verification::CheckOutcome::Passed),
+        receipt
+            .executions
+            .iter()
+            .any(|e| e.spec_id == "ecosystem:cargo-test"
+                && e.outcome == cortex_core::verification::CheckOutcome::Passed),
         "cargo test did not run against the delivered tree: {:?}",
         receipt.executions
     );
     assert!(
-        receipt.executions.iter().all(|e| !e.runner_image.is_empty()),
+        receipt
+            .executions
+            .iter()
+            .all(|e| !e.runner_image.is_empty()),
         "an execution does not record where it ran, so it is not reproducible"
     );
 

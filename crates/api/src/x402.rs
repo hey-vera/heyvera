@@ -180,12 +180,7 @@ pub fn build_status_from_config(cfg: &X402Config) -> X402Status {
 
 /// Back-compat helper used by older tests — maps enabled flag only.
 pub fn build_status_response(enabled: bool) -> X402Status {
-    let cfg = X402Config::from_parts(
-        if enabled { Some("1") } else { None },
-        None,
-        None,
-        None,
-    );
+    let cfg = X402Config::from_parts(if enabled { Some("1") } else { None }, None, None, None);
     build_status_from_config(&cfg)
 }
 
@@ -461,10 +456,7 @@ impl PaidGateOutcome {
 
     /// True when the gated product action may proceed.
     pub fn allows_action(self) -> bool {
-        matches!(
-            self,
-            Self::AllowShapeOnly | Self::AllowFacilitatorVerified
-        )
+        matches!(self, Self::AllowShapeOnly | Self::AllowFacilitatorVerified)
     }
 
     /// True only when facilitator settled the payment.
@@ -982,9 +974,8 @@ async fn call_facilitator_verify(url: &str, body: &Value) -> (bool, ReceiptStatu
             let http_ok = resp.status().is_success();
             let status_code = resp.status().as_u16();
             let text = resp.text().await.unwrap_or_default();
-            let parsed: Value = serde_json::from_str(&text).unwrap_or_else(|_| {
-                json!({ "raw": text.chars().take(2000).collect::<String>() })
-            });
+            let parsed: Value = serde_json::from_str(&text)
+                .unwrap_or_else(|_| json!({ "raw": text.chars().take(2000).collect::<String>() }));
             let (verified, receipt_status) = map_facilitator_body(&parsed, http_ok);
             tracing::info!(
                 target: "x402",
@@ -1295,15 +1286,11 @@ mod tests {
             evaluate_paid_gate(X402Mode::Facilitator, PaidPaymentState::ShapeOk),
             PaidGateOutcome::PaymentRequired
         );
-        let reject =
-            evaluate_paid_gate(X402Mode::Facilitator, PaidPaymentState::FacilitatorFailed);
+        let reject = evaluate_paid_gate(X402Mode::Facilitator, PaidPaymentState::FacilitatorFailed);
         assert_eq!(reject, PaidGateOutcome::FacilitatorRejected);
         assert!(!reject.allows_action());
         assert!(!reject.settled());
-        assert_eq!(
-            paid_gate_http_status(reject),
-            StatusCode::PAYMENT_REQUIRED
-        );
+        assert_eq!(paid_gate_http_status(reject), StatusCode::PAYMENT_REQUIRED);
         let ok = evaluate_paid_gate(X402Mode::Facilitator, PaidPaymentState::FacilitatorOk);
         assert_eq!(ok, PaidGateOutcome::AllowFacilitatorVerified);
         assert!(ok.allows_action());
@@ -1313,10 +1300,7 @@ mod tests {
 
     #[test]
     fn paid_ping_idempotency_prefixes() {
-        assert_eq!(
-            paid_ping_idempotency_key("client-1"),
-            "paid-ping:client-1"
-        );
+        assert_eq!(paid_ping_idempotency_key("client-1"), "paid-ping:client-1");
         assert_eq!(
             paid_ping_idempotency_key("paid-ping:already"),
             "paid-ping:already"

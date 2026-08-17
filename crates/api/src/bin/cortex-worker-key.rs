@@ -59,7 +59,9 @@ fn main() -> ExitCode {
         return ExitCode::FAILURE;
     };
 
-    let db = Database::open(&cortex_db_path(&std::env::current_dir().unwrap_or_default()));
+    let db = Database::open(&cortex_db_path(
+        &std::env::current_dir().unwrap_or_default(),
+    ));
 
     match command {
         "issue" => issue(&db, &args[1..]),
@@ -88,9 +90,7 @@ fn issue(db: &Database, args: &[String]) -> ExitCode {
 
     let expires_at = match flag(args, "--days") {
         Some(days) => match days.parse::<i64>() {
-            Ok(days) if days > 0 => {
-                Some(chrono::Utc::now().timestamp_millis() + days * 86_400_000)
-            }
+            Ok(days) if days > 0 => Some(chrono::Utc::now().timestamp_millis() + days * 86_400_000),
             _ => {
                 eprintln!("issue: --days must be a positive whole number of days");
                 return ExitCode::FAILURE;

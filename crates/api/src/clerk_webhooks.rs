@@ -79,7 +79,10 @@ pub async fn clerk_webhook(
         }
     };
 
-    let svix_timestamp = match headers.get(SVIX_TIMESTAMP_HEADER).and_then(|v| v.to_str().ok()) {
+    let svix_timestamp = match headers
+        .get(SVIX_TIMESTAMP_HEADER)
+        .and_then(|v| v.to_str().ok())
+    {
         Some(ts) => ts.to_string(),
         None => {
             return (
@@ -92,7 +95,10 @@ pub async fn clerk_webhook(
         }
     };
 
-    let svix_signature = match headers.get(SVIX_SIGNATURE_HEADER).and_then(|v| v.to_str().ok()) {
+    let svix_signature = match headers
+        .get(SVIX_SIGNATURE_HEADER)
+        .and_then(|v| v.to_str().ok())
+    {
         Some(sig) => sig.to_string(),
         None => {
             return (
@@ -131,7 +137,13 @@ pub async fn clerk_webhook(
     }
 
     // 4. Verify svix signature
-    if let Err(e) = verify_svix_signature(&webhook_secret, &svix_id, &svix_timestamp, &body, &svix_signature) {
+    if let Err(e) = verify_svix_signature(
+        &webhook_secret,
+        &svix_id,
+        &svix_timestamp,
+        &body,
+        &svix_signature,
+    ) {
         tracing::warn!("clerk webhook signature verification failed: {e}");
         return (
             StatusCode::UNAUTHORIZED,
@@ -198,7 +210,11 @@ pub async fn clerk_webhook(
         Ok(()) => {
             // Record successful processing
             db.record_webhook_event(&svix_id, &event.event_type, timestamp_secs);
-            tracing::info!("clerk webhook: processed {} (id={})", event.event_type, svix_id);
+            tracing::info!(
+                "clerk webhook: processed {} (id={})",
+                event.event_type,
+                svix_id
+            );
             (
                 StatusCode::OK,
                 Json(WebhookResponse {
@@ -324,8 +340,16 @@ fn base64_encode(input: &[u8]) -> String {
 
     for chunk in input.chunks(3) {
         let b0 = chunk[0] as usize;
-        let b1 = if chunk.len() > 1 { chunk[1] as usize } else { 0 };
-        let b2 = if chunk.len() > 2 { chunk[2] as usize } else { 0 };
+        let b1 = if chunk.len() > 1 {
+            chunk[1] as usize
+        } else {
+            0
+        };
+        let b2 = if chunk.len() > 2 {
+            chunk[2] as usize
+        } else {
+            0
+        };
 
         output.push(TABLE[(b0 >> 2)] as char);
         output.push(TABLE[((b0 & 0x03) << 4) | (b1 >> 4)] as char);
@@ -362,7 +386,10 @@ fn handle_user_created(db: &crate::db::Database, data: &serde_json::Value) -> Re
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    let first_name = data.get("first_name").and_then(|v| v.as_str()).unwrap_or("");
+    let first_name = data
+        .get("first_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let last_name = data.get("last_name").and_then(|v| v.as_str()).unwrap_or("");
     let display_name = format!("{first_name} {last_name}").trim().to_string();
 
@@ -385,7 +412,10 @@ fn handle_user_updated(db: &crate::db::Database, data: &serde_json::Value) -> Re
         .and_then(|v| v.as_str())
         .unwrap_or("");
 
-    let first_name = data.get("first_name").and_then(|v| v.as_str()).unwrap_or("");
+    let first_name = data
+        .get("first_name")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
     let last_name = data.get("last_name").and_then(|v| v.as_str()).unwrap_or("");
     let display_name = format!("{first_name} {last_name}").trim().to_string();
 

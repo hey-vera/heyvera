@@ -4,17 +4,17 @@
 //! This is the core gap identified by Opus - currently steps get StepContext::default()
 //! with empty predecessor_summaries. This module fills that gap.
 
+use chrono::{DateTime, Utc};
 use cortex_core::provenance::Provenance;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use serde::{Serialize, Deserialize};
 use uuid::Uuid;
-use chrono::{DateTime, Utc};
 
-use cortex_core::protocol::{StepContext, PredecessorSummary};
 use crate::db::Database;
 use crate::lock::LockRecovering;
+use cortex_core::protocol::{PredecessorSummary, StepContext};
 
 /// Health status for Context-Flow Pipeline monitoring
 #[derive(Debug, Clone, serde::Serialize)]
@@ -136,17 +136,23 @@ impl Default for CircuitBreakerState {
 
 impl CircuitBreakerState {
     fn record_success(&self) {
-        self.failure_count.store(0, std::sync::atomic::Ordering::Relaxed);
-        self.is_open.store(false, std::sync::atomic::Ordering::Relaxed);
+        self.failure_count
+            .store(0, std::sync::atomic::Ordering::Relaxed);
+        self.is_open
+            .store(false, std::sync::atomic::Ordering::Relaxed);
     }
 
     fn record_failure(&self) {
-        let count = self.failure_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed) + 1;
+        let count = self
+            .failure_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+            + 1;
         *self.last_failure.lock_recovering() = Some(Utc::now());
 
         // Open circuit after 5 consecutive failures
         if count >= 5 {
-            self.is_open.store(true, std::sync::atomic::Ordering::Relaxed);
+            self.is_open
+                .store(true, std::sync::atomic::Ordering::Relaxed);
             tracing::error!(
                 "context-flow circuit breaker opened after {} consecutive failures",
                 count
@@ -270,7 +276,7 @@ impl ContextBus {
                         artifact.kind.as_str(),
                         artifact.tokens
                     );
-                },
+                }
                 Err(e) => {
                     tracing::error!(
                         "failed to store context artifact: id={}, step_id={}, run_id={}, error={:?}",
@@ -319,28 +325,32 @@ impl ContextBus {
             };
         }
 
-        match tokio::time::timeout(timeout_duration, self.assemble_context_inner(db, run_id, user_goal, conversation_excerpt.clone())).await {
-            Ok(context_result) => {
-                match context_result {
-                    Ok(context) => {
-                        self.circuit_breaker.record_success();
-                        context
-                    }
-                    Err(e) => {
-                        tracing::error!(
-                            "context assembly failed for run_id={}, falling back to empty context: {}",
-                            run_id, e
-                        );
-                        self.circuit_breaker.record_failure();
-                        StepContext {
-                            predecessor_summaries: Vec::new(),
-                            user_goal: user_goal.to_string(),
-                            conversation_excerpt,
-                            repo_map: None,
-                        }
+        match tokio::time::timeout(
+            timeout_duration,
+            self.assemble_context_inner(db, run_id, user_goal, conversation_excerpt.clone()),
+        )
+        .await
+        {
+            Ok(context_result) => match context_result {
+                Ok(context) => {
+                    self.circuit_breaker.record_success();
+                    context
+                }
+                Err(e) => {
+                    tracing::error!(
+                        "context assembly failed for run_id={}, falling back to empty context: {}",
+                        run_id,
+                        e
+                    );
+                    self.circuit_breaker.record_failure();
+                    StepContext {
+                        predecessor_summaries: Vec::new(),
+                        user_goal: user_goal.to_string(),
+                        conversation_excerpt,
+                        repo_map: None,
                     }
                 }
-            }
+            },
             Err(_) => {
                 tracing::error!(
                     "context assembly timed out after {}s for run_id={}, falling back to empty context",
@@ -378,86 +388,100 @@ impl ContextBus {
 
                     db_artifacts
                         .into_iter()
-                        .filter_map(|(id, producer_step_id, kind, content, summary, files_changed, confidence, tokens, created_at)| {
-                            // Validate artifact data and handle corrupted entries
-                            if content.is_empty() && summary.is_empty() {
-                                tracing::warn!(
-                                    "skipping empty artifact: id={}, step_id={}, run_id={}",
-                                    id, producer_step_id, run_id
-                                );
-                                return None;
-                            }
-
-                            // Validate confidence range
-                            let validated_confidence = if confidence < 0.0 || confidence > 1.0 {
-                                tracing::warn!(
-                                    "artifact has invalid confidence {}, clamping to 0.5: id={}",
-                                    confidence, id
-                                );
-                                0.5
-                            } else {
-                                confidence
-                            };
-
-                            // Validate tokens
-                            let validated_tokens = if tokens == 0 && !content.is_empty() {
-                                // Estimate tokens if missing
-                                (content.len() / 4).max(1) as u32
-                            } else {
-                                tokens
-                            };
-
-                            // Parse artifact kind safely
-                            let artifact_kind = match kind.as_str() {
-                                "answer" => ArtifactKind::Answer,
-                                "code" => ArtifactKind::Code,
-                                "analysis" => ArtifactKind::Analysis,
-                                "plan" => ArtifactKind::Plan,
-                                "review" => ArtifactKind::Review,
-                                "error" => ArtifactKind::Error,
-                                "working" => ArtifactKind::Working,
-                                unknown => {
-                                    tracing::warn!(
-                                        "unknown artifact kind '{}', defaulting to 'answer': id={}",
-                                        unknown, id
-                                    );
-                                    ArtifactKind::Answer
-                                }
-                            };
-
-                            // Parse timestamp safely
-                            let created_at = DateTime::from_timestamp_millis(created_at)
-                                .unwrap_or_else(|| {
-                                    tracing::warn!(
-                                        "invalid timestamp {} for artifact {}, using current time",
-                                        created_at, id
-                                    );
-                                    Utc::now()
-                                });
-
-                            // Reconstructed rather than read: provenance is
-                            // not a stored column, and every persisted artifact
-                            // is a step's own account of its own work. Deriving
-                            // it here keeps the load path from producing an
-                            // artifact that outranks the one that created it.
-                            let provenance = Provenance::AgentOutput {
-                                producer_step_id: producer_step_id.clone(),
-                            };
-                            Some(Artifact {
+                        .filter_map(
+                            |(
                                 id,
                                 producer_step_id,
-                                producer_run_id: run_id.to_string(),
-                                kind: artifact_kind,
+                                kind,
                                 content,
                                 summary,
                                 files_changed,
-                                confidence: validated_confidence,
-                                provenance,
-                                tokens: validated_tokens,
+                                confidence,
+                                tokens,
                                 created_at,
-                                metadata: HashMap::new(),
-                            })
-                        })
+                            )| {
+                                // Validate artifact data and handle corrupted entries
+                                if content.is_empty() && summary.is_empty() {
+                                    tracing::warn!(
+                                        "skipping empty artifact: id={}, step_id={}, run_id={}",
+                                        id,
+                                        producer_step_id,
+                                        run_id
+                                    );
+                                    return None;
+                                }
+
+                                // Validate confidence range
+                                let validated_confidence = if confidence < 0.0 || confidence > 1.0 {
+                                    tracing::warn!(
+                                    "artifact has invalid confidence {}, clamping to 0.5: id={}",
+                                    confidence, id
+                                );
+                                    0.5
+                                } else {
+                                    confidence
+                                };
+
+                                // Validate tokens
+                                let validated_tokens = if tokens == 0 && !content.is_empty() {
+                                    // Estimate tokens if missing
+                                    (content.len() / 4).max(1) as u32
+                                } else {
+                                    tokens
+                                };
+
+                                // Parse artifact kind safely
+                                let artifact_kind = match kind.as_str() {
+                                    "answer" => ArtifactKind::Answer,
+                                    "code" => ArtifactKind::Code,
+                                    "analysis" => ArtifactKind::Analysis,
+                                    "plan" => ArtifactKind::Plan,
+                                    "review" => ArtifactKind::Review,
+                                    "error" => ArtifactKind::Error,
+                                    "working" => ArtifactKind::Working,
+                                    unknown => {
+                                        tracing::warn!(
+                                        "unknown artifact kind '{}', defaulting to 'answer': id={}",
+                                        unknown, id
+                                    );
+                                        ArtifactKind::Answer
+                                    }
+                                };
+
+                                // Parse timestamp safely
+                                let created_at = DateTime::from_timestamp_millis(created_at)
+                                    .unwrap_or_else(|| {
+                                        tracing::warn!(
+                                        "invalid timestamp {} for artifact {}, using current time",
+                                        created_at, id
+                                    );
+                                        Utc::now()
+                                    });
+
+                                // Reconstructed rather than read: provenance is
+                                // not a stored column, and every persisted artifact
+                                // is a step's own account of its own work. Deriving
+                                // it here keeps the load path from producing an
+                                // artifact that outranks the one that created it.
+                                let provenance = Provenance::AgentOutput {
+                                    producer_step_id: producer_step_id.clone(),
+                                };
+                                Some(Artifact {
+                                    id,
+                                    producer_step_id,
+                                    producer_run_id: run_id.to_string(),
+                                    kind: artifact_kind,
+                                    content,
+                                    summary,
+                                    files_changed,
+                                    confidence: validated_confidence,
+                                    provenance,
+                                    tokens: validated_tokens,
+                                    created_at,
+                                    metadata: HashMap::new(),
+                                })
+                            },
+                        )
                         .collect()
                 }
                 Err(e) => {
@@ -468,7 +492,10 @@ impl ContextBus {
                 }
             }
         } else {
-            tracing::debug!("no database available, using empty context for run_id={}", run_id);
+            tracing::debug!(
+                "no database available, using empty context for run_id={}",
+                run_id
+            );
             Vec::new()
         };
 
@@ -481,13 +508,17 @@ impl ContextBus {
                 break;
             }
 
-            let summary_tokens = artifact.tokens.min(self.config.default_transform.target_tokens.unwrap_or(500));
+            let summary_tokens = artifact
+                .tokens
+                .min(self.config.default_transform.target_tokens.unwrap_or(500));
 
             if total_tokens + summary_tokens > self.config.max_total_tokens {
                 break;
             }
 
-            let summary_content = if summary_tokens < artifact.tokens && self.config.default_transform.summarize_code {
+            let summary_content = if summary_tokens < artifact.tokens
+                && self.config.default_transform.summarize_code
+            {
                 // TODO: Implement smart summarization (could use a lightweight model)
                 self.truncate_to_tokens(&artifact.content, summary_tokens)
             } else {
@@ -515,7 +546,11 @@ impl ContextBus {
             "context assembled successfully for run_id={}: {} predecessors, {} total tokens",
             run_id,
             context.predecessor_summaries.len(),
-            context.predecessor_summaries.iter().map(|s| s.summary.len() / 4).sum::<usize>()
+            context
+                .predecessor_summaries
+                .iter()
+                .map(|s| s.summary.len() / 4)
+                .sum::<usize>()
         );
 
         Ok(context)
@@ -573,10 +608,7 @@ impl ContextBus {
                     tracing::debug!("cleaned up artifacts for run_id={}", run_id);
                 }
                 Err(e) => {
-                    tracing::error!(
-                        "failed to cleanup artifacts for run_id={}: {:?}",
-                        run_id, e
-                    );
+                    tracing::error!("failed to cleanup artifacts for run_id={}: {:?}", run_id, e);
                 }
             }
         }
@@ -584,8 +616,14 @@ impl ContextBus {
 
     /// Get health status of the Context-Flow Pipeline
     pub fn get_health_status(&self) -> ContextFlowHealth {
-        let is_circuit_open = self.circuit_breaker.is_open.load(std::sync::atomic::Ordering::Relaxed);
-        let failure_count = self.circuit_breaker.failure_count.load(std::sync::atomic::Ordering::Relaxed);
+        let is_circuit_open = self
+            .circuit_breaker
+            .is_open
+            .load(std::sync::atomic::Ordering::Relaxed);
+        let failure_count = self
+            .circuit_breaker
+            .failure_count
+            .load(std::sync::atomic::Ordering::Relaxed);
         let last_failure = *self.circuit_breaker.last_failure.lock_recovering();
 
         let status = if is_circuit_open {

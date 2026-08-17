@@ -111,7 +111,10 @@ fn cmd_init(args: &[String]) {
         println!("  DID: {}", existing.did);
         println!("  Genome hash: {}", existing.genome.hash);
         println!();
-        println!("To create a NEW root heart, delete {} first.", path.display());
+        println!(
+            "To create a NEW root heart, delete {} first.",
+            path.display()
+        );
         return;
     }
 
@@ -433,7 +436,9 @@ fn cmd_verify(args: &[String]) {
         return;
     }
 
-    eprintln!("ERROR: file is not a recognized Soma artifact (lineage, certificate, or delegation)");
+    eprintln!(
+        "ERROR: file is not a recognized Soma artifact (lineage, certificate, or delegation)"
+    );
     std::process::exit(1);
 }
 

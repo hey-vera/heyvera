@@ -241,7 +241,10 @@ mod tests {
 
     #[test]
     fn a_widely_used_symbol_outranks_a_local_one() {
-        let symbols = vec![symbol("validate_token", "auth.rs", 10), symbol("helper", "auth.rs", 90)];
+        let symbols = vec![
+            symbol("validate_token", "auth.rs", 10),
+            symbol("helper", "auth.rs", 90),
+        ];
         let references = vec![
             reference("validate_token", "api.rs"),
             reference("validate_token", "worker.rs"),

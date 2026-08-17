@@ -689,7 +689,10 @@ mod tests {
         // worker's opinion became the product's truth. A live producer of it
         // must surface as an unparseable status, not as a silent success.
         assert_eq!(StepStatus::from_str("succeeded"), None);
-        assert_eq!(StepStatus::from_str("delivered"), Some(StepStatus::Delivered));
+        assert_eq!(
+            StepStatus::from_str("delivered"),
+            Some(StepStatus::Delivered)
+        );
         assert_eq!(StepStatus::from_str("verified"), Some(StepStatus::Verified));
     }
 

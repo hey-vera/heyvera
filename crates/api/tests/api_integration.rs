@@ -145,7 +145,10 @@ async fn test_route_task() {
     let json = body_json(resp).await;
     if status == StatusCode::OK {
         assert!(json.get("task").is_some(), "response should contain 'task'");
-        assert!(json.get("decision").is_some(), "response should contain 'decision'");
+        assert!(
+            json.get("decision").is_some(),
+            "response should contain 'decision'"
+        );
     } else {
         assert!(json.get("error").is_some(), "400 should contain 'error'");
     }
@@ -161,9 +164,7 @@ async fn test_route_empty_input() {
                 .method("POST")
                 .uri("/api/route")
                 .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::json!({"input": ""}).to_string(),
-                ))
+                .body(Body::from(serde_json::json!({"input": ""}).to_string()))
                 .unwrap(),
         )
         .await
@@ -195,7 +196,10 @@ async fn test_create_run() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let json = body_json(resp).await;
-    assert!(json.get("run_id").is_some(), "response should contain 'run_id'");
+    assert!(
+        json.get("run_id").is_some(),
+        "response should contain 'run_id'"
+    );
     let run_id = json["run_id"].as_str().unwrap();
     assert!(!run_id.is_empty(), "run_id should not be empty");
 }
@@ -240,7 +244,10 @@ async fn test_get_run() {
     let json = body_json(get_resp).await;
     assert_eq!(json["id"], run_id);
     assert_eq!(json["goal"], "explore the codebase");
-    assert!(json.get("steps").is_some(), "response should contain 'steps'");
+    assert!(
+        json.get("steps").is_some(),
+        "response should contain 'steps'"
+    );
 }
 
 #[tokio::test]
@@ -300,7 +307,10 @@ async fn test_admin_workers() {
     assert_eq!(resp.status(), StatusCode::OK);
 
     let json = body_json(resp).await;
-    assert!(json.get("connected").is_some(), "should have 'connected' field");
+    assert!(
+        json.get("connected").is_some(),
+        "should have 'connected' field"
+    );
     assert!(json.get("count").is_some(), "should have 'count' field");
     assert_eq!(json["count"], 0, "no workers connected in test");
 }

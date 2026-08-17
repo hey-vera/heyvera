@@ -174,7 +174,8 @@ async fn event_loop(terminal: &mut Tui, client: Arc<ApiClient>) -> Result<()> {
 
 fn handle_key(app: &mut App, code: KeyCode, mods: KeyModifiers) {
     // Global: Ctrl-C / Ctrl-Q quits from anywhere.
-    if mods.contains(KeyModifiers::CONTROL) && matches!(code, KeyCode::Char('c') | KeyCode::Char('q'))
+    if mods.contains(KeyModifiers::CONTROL)
+        && matches!(code, KeyCode::Char('c') | KeyCode::Char('q'))
     {
         app.should_quit = true;
         return;

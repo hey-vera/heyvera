@@ -1,39 +1,72 @@
 use std::sync::Arc;
 
+use aes_gcm::aead::{Aead, KeyInit};
+use aes_gcm::{Aes256Gcm, Nonce};
 use axum::{
     extract::{Path, Query, State},
-    http::StatusCode,
     http::HeaderMap,
+    http::StatusCode,
     response::IntoResponse,
     Json,
 };
 use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use aes_gcm::aead::{Aead, KeyInit};
-use aes_gcm::{Aes256Gcm, Nonce};
 use serde::Deserialize;
 
 use crate::agent_auth::{generate_agent_api_key, SocialWriteAuth};
 use crate::clerk::ClerkUser;
 use crate::db::SocialFollowOutcome;
+use crate::social_policy::{PolicyDecision, PostAction, PostAudience, ProfileAction};
 use crate::state::AppState;
-use crate::social_policy::{PostAction, PostAudience, PolicyDecision, ProfileAction};
 use rand::Rng;
 use sha2::{Digest, Sha256};
 
 type ApiResponse = (StatusCode, Json<serde_json::Value>);
 
-fn ok(v: serde_json::Value) -> ApiResponse { (StatusCode::OK, Json(v)) }
-fn not_found(msg: &str) -> ApiResponse { (StatusCode::NOT_FOUND, Json(serde_json::json!({ "error": msg, "code": "NOT_FOUND" }))) }
-fn bad_request(msg: &str) -> ApiResponse { (StatusCode::BAD_REQUEST, Json(serde_json::json!({ "error": msg, "code": "BAD_REQUEST" }))) }
-fn conflict(msg: &str) -> ApiResponse { (StatusCode::CONFLICT, Json(serde_json::json!({ "error": msg, "code": "CONFLICT" }))) }
-fn forbidden(msg: &str) -> ApiResponse { (StatusCode::FORBIDDEN, Json(serde_json::json!({ "error": msg, "code": "FORBIDDEN" }))) }
-fn internal_error(msg: &str) -> ApiResponse { (StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({ "error": msg, "code": "INTERNAL_ERROR" }))) }
+fn ok(v: serde_json::Value) -> ApiResponse {
+    (StatusCode::OK, Json(v))
+}
+fn not_found(msg: &str) -> ApiResponse {
+    (
+        StatusCode::NOT_FOUND,
+        Json(serde_json::json!({ "error": msg, "code": "NOT_FOUND" })),
+    )
+}
+fn bad_request(msg: &str) -> ApiResponse {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(serde_json::json!({ "error": msg, "code": "BAD_REQUEST" })),
+    )
+}
+fn conflict(msg: &str) -> ApiResponse {
+    (
+        StatusCode::CONFLICT,
+        Json(serde_json::json!({ "error": msg, "code": "CONFLICT" })),
+    )
+}
+fn forbidden(msg: &str) -> ApiResponse {
+    (
+        StatusCode::FORBIDDEN,
+        Json(serde_json::json!({ "error": msg, "code": "FORBIDDEN" })),
+    )
+}
+fn internal_error(msg: &str) -> ApiResponse {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(serde_json::json!({ "error": msg, "code": "INTERNAL_ERROR" })),
+    )
+}
 
 /// Remove internal identity and secret-adjacent fields from every public DTO.
 fn sanitize_public_json(value: &mut serde_json::Value) {
     match value {
         serde_json::Value::Object(object) => {
-            for key in ["accountId", "clerkUserId", "clerk_user_id", "agentKey", "agentKeyPrefix"] {
+            for key in [
+                "accountId",
+                "clerkUserId",
+                "clerk_user_id",
+                "agentKey",
+                "agentKeyPrefix",
+            ] {
                 object.remove(key);
             }
             for nested in object.values_mut() {
@@ -115,10 +148,7 @@ fn encode_cursor(created_at: &str, id: &str) -> String {
     URL_SAFE_NO_PAD.encode(format!("{created_at}|{id}"))
 }
 
-fn next_cursor_for_authorized_posts(
-    posts: &[serde_json::Value],
-    has_more: bool,
-) -> Option<String> {
+fn next_cursor_for_authorized_posts(posts: &[serde_json::Value], has_more: bool) -> Option<String> {
     if !has_more {
         return None;
     }
@@ -287,11 +317,11 @@ pub fn ensure_linked_agent_allowed(
 }
 
 /// Try to extract a viewer profile_id from the Authorization header (best-effort, no rejection).
-async fn optional_viewer_profile_id(
-    headers: &HeaderMap,
-    state: &Arc<AppState>,
-) -> Option<String> {
-    let user_id = if let Some(auth) = headers.get("authorization").and_then(|value| value.to_str().ok()) {
+async fn optional_viewer_profile_id(headers: &HeaderMap, state: &Arc<AppState>) -> Option<String> {
+    let user_id = if let Some(auth) = headers
+        .get("authorization")
+        .and_then(|value| value.to_str().ok())
+    {
         let token = auth.strip_prefix("Bearer ")?;
         crate::clerk::verify_clerk_jwt(token, state).await.ok()?
     } else if crate::clerk::local_auth_allowed() {
@@ -366,9 +396,7 @@ pub async fn search(
         scan_filtered_offset_page(
             20,
             0,
-            |batch_limit, offset| {
-                db(&state).social_search_profiles(&query, batch_limit, offset)
-            },
+            |batch_limit, offset| db(&state).social_search_profiles(&query, batch_limit, offset),
             |profile| {
                 profile
                     .get("id")
@@ -402,15 +430,20 @@ pub async fn get_featured_profiles(
     match db(&state).social_get_first_profile() {
         Some(mut profile) => {
             let profile_id = profile["id"].as_str().unwrap_or("");
-            if db(&state).social_authorize_profile(profile_id, viewer_pid.as_deref(), ProfileAction::Discover)
-                != PolicyDecision::Allow
+            if db(&state).social_authorize_profile(
+                profile_id,
+                viewer_pid.as_deref(),
+                ProfileAction::Discover,
+            ) != PolicyDecision::Allow
             {
                 return not_found("No featured profile");
             }
             let mut agents = db(&state).social_get_linked_agents(profile_id);
             filter_linked_agents_for_viewer(&mut agents, profile_id, viewer_pid.as_deref());
             sanitize_public_json(&mut profile);
-            for agent in &mut agents { sanitize_public_json(agent); }
+            for agent in &mut agents {
+                sanitize_public_json(agent);
+            }
             ok(serde_json::json!({ "profile": profile, "linkedAgents": agents }))
         }
         None => not_found("No featured profile"),
@@ -493,7 +526,9 @@ pub async fn get_profiles(
         },
     )
     .0;
-    for profile in &mut profiles { sanitize_public_json(profile); }
+    for profile in &mut profiles {
+        sanitize_public_json(profile);
+    }
     ok(serde_json::json!({ "profiles": profiles }))
 }
 
@@ -616,8 +651,7 @@ fn connection_cursor_key() -> Option<[u8; 32]> {
                 .filter(|value| !value.is_empty())
         })
         .or_else(|| {
-            (!crate::is_production_env())
-                .then(|| "heyvera-local-connection-cursor-key".to_string())
+            (!crate::is_production_env()).then(|| "heyvera-local-connection-cursor-key".to_string())
         })?;
     let mut hasher = sha2::Sha256::new();
     hasher.update(b"heyvera-social-connection-cursor:v1:");
@@ -719,13 +753,8 @@ mod authorization_pagination_tests {
         let (created_at, id) = decode_cursor(&cursor).unwrap();
         assert_eq!(id, "p101");
 
-        let (second, has_more) = scan_filtered_keyset_page(
-            2,
-            Some(created_at),
-            Some(id),
-            fetch,
-            filter,
-        );
+        let (second, has_more) =
+            scan_filtered_keyset_page(2, Some(created_at), Some(id), fetch, filter);
         assert_eq!(second.len(), 1);
         assert_eq!(second[0]["id"], "p102");
         assert!(!has_more);
@@ -893,7 +922,10 @@ pub async fn create_profile(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateProfileRequest>,
 ) -> impl IntoResponse {
-    if db(&state).social_find_profile_by_clerk_id(&user.user_id).is_some() {
+    if db(&state)
+        .social_find_profile_by_clerk_id(&user.user_id)
+        .is_some()
+    {
         return conflict("Profile already exists");
     }
 
@@ -1068,12 +1100,22 @@ pub async fn create_post(
     let post_id = post["id"].as_str().unwrap_or("").to_string();
     if let Some(reply_to_id) = &req.reply_to_post_id {
         if let Some(parent_author_id) = db(&state).social_get_post_author_profile_id(reply_to_id) {
-            db(&state).social_create_notification(&parent_author_id, &profile_id, "reply", Some(&post_id));
+            db(&state).social_create_notification(
+                &parent_author_id,
+                &profile_id,
+                "reply",
+                Some(&post_id),
+            );
         }
     }
     if let Some(quoted_id) = &req.quote_post_id {
         if let Some(quoted_author_id) = db(&state).social_get_post_author_profile_id(quoted_id) {
-            db(&state).social_create_notification(&quoted_author_id, &profile_id, "quote", Some(&post_id));
+            db(&state).social_create_notification(
+                &quoted_author_id,
+                &profile_id,
+                "quote",
+                Some(&post_id),
+            );
         }
     }
 
@@ -1185,7 +1227,10 @@ pub async fn like_post(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
     if db(&state).social_authorize_post(&id, Some(&profile_id), PostAction::Like)
         != PolicyDecision::Allow
     {
@@ -1203,7 +1248,10 @@ pub async fn unlike_post(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
     db(&state).social_unlike(&profile_id, &id);
     ok(serde_json::json!({ "ok": true }))
 }
@@ -1213,7 +1261,10 @@ pub async fn repost_post(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
     if db(&state).social_authorize_post(&id, Some(&profile_id), PostAction::Repost)
         != PolicyDecision::Allow
     {
@@ -1231,7 +1282,10 @@ pub async fn unrepost_post(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
     db(&state).social_unrepost(&profile_id, &id);
     ok(serde_json::json!({ "ok": true }))
 }
@@ -1241,7 +1295,10 @@ pub async fn bookmark_post(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
     if db(&state).social_authorize_post(&id, Some(&profile_id), PostAction::Bookmark)
         != PolicyDecision::Allow
     {
@@ -1256,7 +1313,10 @@ pub async fn unbookmark_post(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
     db(&state).social_unbookmark(&profile_id, &id);
     ok(serde_json::json!({ "ok": true }))
 }
@@ -1267,7 +1327,10 @@ pub async fn get_bookmarks(
     Query(params): Query<FeedQuery>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
     let limit = params.limit.unwrap_or(20).min(100);
 
     let (cursor_created_at, cursor_id) = params
@@ -1309,7 +1372,10 @@ pub async fn follow_by_handle(
     Path(handle): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
     let target = match db(&state).social_find_profile_by_handle(&handle) {
         Some(p) => p,
         None => return not_found("User not found"),
@@ -1318,11 +1384,8 @@ pub async fn follow_by_handle(
     if target_id == profile_id {
         return bad_request("Cannot follow yourself");
     }
-    if db(&state).social_authorize_profile(
-        &target_id,
-        Some(&profile_id),
-        ProfileAction::Follow,
-    ) != PolicyDecision::Allow
+    if db(&state).social_authorize_profile(&target_id, Some(&profile_id), ProfileAction::Follow)
+        != PolicyDecision::Allow
     {
         return not_found("User not found");
     }
@@ -1341,12 +1404,7 @@ pub async fn follow_by_handle(
             "state": "following"
         })),
         Ok(SocialFollowOutcome::Pending(request_id)) => {
-            db(&state).social_create_notification(
-                &target_id,
-                &profile_id,
-                "follow_request",
-                None,
-            );
+            db(&state).social_create_notification(&target_id, &profile_id, "follow_request", None);
             ok(serde_json::json!({
                 "ok": true,
                 "requestId": request_id,
@@ -1367,7 +1425,10 @@ pub async fn unfollow_by_handle(
     Path(handle): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
     let target = match db(&state).social_find_profile_by_handle(&handle) {
         Some(p) => p,
         None => return not_found("User not found"),
@@ -1388,8 +1449,11 @@ pub async fn get_user_profile(
     match db(&state).social_get_profile_by_handle_with_viewer(&handle, viewer_pid.as_deref()) {
         Some(mut profile) => {
             let profile_id = profile["id"].as_str().unwrap_or("");
-            if db(&state).social_authorize_profile(profile_id, viewer_pid.as_deref(), ProfileAction::View)
-                != PolicyDecision::Allow
+            if db(&state).social_authorize_profile(
+                profile_id,
+                viewer_pid.as_deref(),
+                ProfileAction::View,
+            ) != PolicyDecision::Allow
             {
                 return not_found("User not found");
             }
@@ -1410,15 +1474,20 @@ pub async fn get_profile_by_handle(
     match db(&state).social_get_profile_by_handle_with_viewer(&handle, viewer_pid.as_deref()) {
         Some(mut profile) => {
             let profile_id = profile["id"].as_str().unwrap_or("");
-            if db(&state).social_authorize_profile(profile_id, viewer_pid.as_deref(), ProfileAction::View)
-                != PolicyDecision::Allow
+            if db(&state).social_authorize_profile(
+                profile_id,
+                viewer_pid.as_deref(),
+                ProfileAction::View,
+            ) != PolicyDecision::Allow
             {
                 return not_found("User not found");
             }
             let mut agents = db(&state).social_get_linked_agents(profile_id);
             filter_linked_agents_for_viewer(&mut agents, profile_id, viewer_pid.as_deref());
             sanitize_public_json(&mut profile);
-            for agent in &mut agents { sanitize_public_json(agent); }
+            for agent in &mut agents {
+                sanitize_public_json(agent);
+            }
             ok(serde_json::json!({ "profile": profile, "linkedAgents": agents }))
         }
         None => not_found("User not found"),
@@ -1444,7 +1513,9 @@ pub async fn get_profile_linked_agents(
     }
     let mut agents = db(&state).social_get_linked_agents(profile_id);
     filter_linked_agents_for_viewer(&mut agents, profile_id, viewer_pid.as_deref());
-    for agent in &mut agents { sanitize_public_json(agent); }
+    for agent in &mut agents {
+        sanitize_public_json(agent);
+    }
     ok(serde_json::json!({ "linkedAgents": agents }))
 }
 
@@ -1671,11 +1742,8 @@ pub async fn get_follow_status(
         None => return not_found("User not found"),
     };
     let target_id = target["id"].as_str().unwrap_or("");
-    if db(&state).social_authorize_profile(
-        target_id,
-        Some(&profile_id),
-        ProfileAction::Follow,
-    ) != PolicyDecision::Allow
+    if db(&state).social_authorize_profile(target_id, Some(&profile_id), ProfileAction::Follow)
+        != PolicyDecision::Allow
     {
         return not_found("User not found");
     }
@@ -1760,8 +1828,11 @@ pub async fn get_user_profile_stats(
         None => return not_found("User not found"),
     };
     let profile_id = profile["id"].as_str().unwrap_or("");
-    if db(&state).social_authorize_profile(profile_id, viewer_pid.as_deref(), ProfileAction::ViewStats)
-        != PolicyDecision::Allow
+    if db(&state).social_authorize_profile(
+        profile_id,
+        viewer_pid.as_deref(),
+        ProfileAction::ViewStats,
+    ) != PolicyDecision::Allow
     {
         return not_found("User not found");
     }
@@ -1782,8 +1853,11 @@ pub async fn get_profile_followers(
         None => return not_found("User not found"),
     };
     let profile_id = profile["id"].as_str().unwrap_or("");
-    if db(&state).social_authorize_profile(profile_id, viewer_pid.as_deref(), ProfileAction::ViewConnections)
-        != PolicyDecision::Allow
+    if db(&state).social_authorize_profile(
+        profile_id,
+        viewer_pid.as_deref(),
+        ProfileAction::ViewConnections,
+    ) != PolicyDecision::Allow
     {
         return not_found("User not found");
     }
@@ -1814,7 +1888,9 @@ pub async fn get_profile_followers(
         },
     );
     sanitize_public_json(&mut profile);
-    for follower in &mut followers { sanitize_public_json(follower); }
+    for follower in &mut followers {
+        sanitize_public_json(follower);
+    }
     let next_cursor = next_offset.and_then(encode_offset_cursor);
     ok(serde_json::json!({
         "profile": profile,
@@ -1837,8 +1913,11 @@ pub async fn get_profile_following(
         None => return not_found("User not found"),
     };
     let profile_id = profile["id"].as_str().unwrap_or("");
-    if db(&state).social_authorize_profile(profile_id, viewer_pid.as_deref(), ProfileAction::ViewConnections)
-        != PolicyDecision::Allow
+    if db(&state).social_authorize_profile(
+        profile_id,
+        viewer_pid.as_deref(),
+        ProfileAction::ViewConnections,
+    ) != PolicyDecision::Allow
     {
         return not_found("User not found");
     }
@@ -1869,7 +1948,9 @@ pub async fn get_profile_following(
         },
     );
     sanitize_public_json(&mut profile);
-    for followed in &mut following { sanitize_public_json(followed); }
+    for followed in &mut following {
+        sanitize_public_json(followed);
+    }
     let next_cursor = next_offset.and_then(encode_offset_cursor);
     ok(serde_json::json!({
         "profile": profile,
@@ -1955,7 +2036,7 @@ pub async fn get_single_post(
                 "repliesTruncated": replies_truncated,
                 "repliesCap": 100,
             }))
-        },
+        }
         None => not_found("Post not found"),
     }
 }
@@ -1992,7 +2073,10 @@ pub async fn get_following_feed(
     Query(params): Query<FeedQuery>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
     let limit = params.limit.unwrap_or(20).min(100);
 
     let (cursor_created_at, cursor_id) = params
@@ -2057,7 +2141,10 @@ pub async fn create_me_profile(
     State(state): State<Arc<AppState>>,
     Json(req): Json<CreateProfileRequest>,
 ) -> impl IntoResponse {
-    if db(&state).social_find_profile_by_clerk_id(&user.user_id).is_some() {
+    if db(&state)
+        .social_find_profile_by_clerk_id(&user.user_id)
+        .is_some()
+    {
         return conflict("Profile already exists");
     }
 
@@ -2106,7 +2193,11 @@ pub async fn update_me_profile(
 pub struct UpdatePrefsRequest {
     #[serde(default, rename = "dmPolicy", alias = "dm_policy")]
     pub dm_policy: Option<String>,
-    #[serde(default, rename = "discoverableByContact", alias = "discoverable_by_contact")]
+    #[serde(
+        default,
+        rename = "discoverableByContact",
+        alias = "discoverable_by_contact"
+    )]
     pub discoverable_by_contact: Option<bool>,
     #[serde(default, rename = "showInSearch", alias = "show_in_search")]
     pub show_in_search: Option<bool>,
@@ -2125,7 +2216,8 @@ fn normalize_dm_policy(raw: &str) -> Option<&'static str> {
         .trim()
         .to_ascii_lowercase()
         .replace(['-', ' '], "_")
-        .as_str() {
+        .as_str()
+    {
         "everyone" | "all" | "open" => Some("everyone"),
         "verified" | "verified_users" => Some("verified"),
         "following" | "people_you_follow" | "followers" => Some("following"),
@@ -2189,7 +2281,9 @@ pub async fn patch_me_prefs(
         Some(s) => match normalize_dm_policy(s) {
             Some(v) => Some(v),
             None => {
-                return bad_request("dmPolicy must be everyone, verified, following, mutuals, or nobody")
+                return bad_request(
+                    "dmPolicy must be everyone, verified, following, mutuals, or nobody",
+                )
             }
         },
     };
@@ -2223,7 +2317,10 @@ pub async fn delete_post(
     Path(id): Path<String>,
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
-    let profile_id = match require_profile(&state, &user) { Ok(p) => p, Err(e) => return e };
+    let profile_id = match require_profile(&state, &user) {
+        Ok(p) => p,
+        Err(e) => return e,
+    };
     match db(&state).social_get_post_author_profile_id(&id) {
         Some(author_id) if author_id == profile_id => {}
         Some(_) => return forbidden("Not the post author"),
@@ -2408,8 +2505,7 @@ pub async fn join_community(
         None => return not_found("Community not found"),
     };
     let visibility = community["visibility"].as_str().unwrap_or("public");
-    if visibility == "private"
-        && !db(&state).social_is_community_member(&community_id, &profile_id)
+    if visibility == "private" && !db(&state).social_is_community_member(&community_id, &profile_id)
     {
         return not_found("Community not found");
     }
@@ -2686,11 +2782,8 @@ pub async fn get_page_by_slug(
     let page_id = brand["id"].as_str().unwrap_or("").to_string();
     let owner_id = brand["ownerProfileId"].as_str().unwrap_or("").to_string();
     let viewer_pid = optional_viewer_profile_id(&headers, &state).await;
-    if db(&state).social_authorize_profile(
-        &owner_id,
-        viewer_pid.as_deref(),
-        ProfileAction::View,
-    ) != PolicyDecision::Allow
+    if db(&state).social_authorize_profile(&owner_id, viewer_pid.as_deref(), ProfileAction::View)
+        != PolicyDecision::Allow
     {
         return not_found("Page not found");
     }
@@ -2854,11 +2947,8 @@ pub async fn follow_page(
         if owner == profile_id {
             return bad_request("Cannot follow your own page");
         }
-        if db(&state).social_authorize_profile(
-            owner,
-            Some(&profile_id),
-            ProfileAction::Follow,
-        ) != PolicyDecision::Allow
+        if db(&state).social_authorize_profile(owner, Some(&profile_id), ProfileAction::Follow)
+            != PolicyDecision::Allow
         {
             return not_found("Page not found");
         }
@@ -2877,11 +2967,8 @@ pub async fn follow_page(
         }
         if agent["linkState"].as_str() != Some("active")
             || agent["visibility"].as_str() != Some("public")
-            || db(&state).social_authorize_profile(
-                &owner,
-                Some(&profile_id),
-                ProfileAction::Follow,
-            ) != PolicyDecision::Allow
+            || db(&state).social_authorize_profile(&owner, Some(&profile_id), ProfileAction::Follow)
+                != PolicyDecision::Allow
         {
             return not_found("Page not found");
         }
@@ -2902,12 +2989,7 @@ pub async fn follow_page(
                 "state": "following"
             })),
             Ok(SocialFollowOutcome::Pending(request_id)) => {
-                db(&state).social_create_notification(
-                    &owner,
-                    &profile_id,
-                    "follow_request",
-                    None,
-                );
+                db(&state).social_create_notification(&owner, &profile_id, "follow_request", None);
                 ok(serde_json::json!({
                     "ok": true,
                     "kind": "agent",
@@ -2931,22 +3013,14 @@ pub async fn follow_page(
         if target_id == profile_id {
             return bad_request("Cannot follow yourself");
         }
-        if db(&state).social_authorize_profile(
-            &target_id,
-            Some(&profile_id),
-            ProfileAction::Follow,
-        ) != PolicyDecision::Allow
+        if db(&state).social_authorize_profile(&target_id, Some(&profile_id), ProfileAction::Follow)
+            != PolicyDecision::Allow
         {
             return not_found("Page not found");
         }
         return match db(&state).social_follow_or_request(&profile_id, &target_id) {
             Ok(SocialFollowOutcome::Following(follow_id)) => {
-                db(&state).social_create_notification(
-                    &target_id,
-                    &profile_id,
-                    "follow",
-                    None,
-                );
+                db(&state).social_create_notification(&target_id, &profile_id, "follow", None);
                 ok(serde_json::json!({
                     "ok": true,
                     "kind": "person",
@@ -3089,18 +3163,24 @@ pub async fn list_live_sessions(
 ) -> impl IntoResponse {
     let limit = params.limit.unwrap_or(20).clamp(1, 100);
     let want_mine = matches!(
-        params.mine.as_deref().map(|s| s.to_ascii_lowercase()).as_deref(),
+        params
+            .mine
+            .as_deref()
+            .map(|s| s.to_ascii_lowercase())
+            .as_deref(),
         Some("1") | Some("true") | Some("yes")
     );
     let viewer = optional_viewer_profile_id(&headers, &state).await;
     let include_mine = want_mine && viewer.is_some();
-    let mut sessions =
-        db(&state).social_list_live_sessions(limit, viewer.as_deref(), include_mine);
+    let mut sessions = db(&state).social_list_live_sessions(limit, viewer.as_deref(), include_mine);
     sessions.retain(|session| {
         let owner_id = session["ownerProfileId"].as_str().unwrap_or("");
         viewer.as_deref() == Some(owner_id)
-            || db(&state).social_authorize_profile(owner_id, viewer.as_deref(), ProfileAction::Discover)
-                == PolicyDecision::Allow
+            || db(&state).social_authorize_profile(
+                owner_id,
+                viewer.as_deref(),
+                ProfileAction::Discover,
+            ) == PolicyDecision::Allow
     });
     for session in &mut sessions {
         if viewer.as_deref() != session["ownerProfileId"].as_str() {
