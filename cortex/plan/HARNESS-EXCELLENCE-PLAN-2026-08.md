@@ -321,6 +321,15 @@ more capable or less.
     from that developer's recorded outcomes in that subsystem — never from a
     self-assessment, a tier, or a mode.
 
+The last comes from the sixth round, which attacked the *evidence* the earlier
+rounds leaned on rather than opening a new axis (Phase 30.2a).
+
+34. **An evaluation environment is sealed, and the seal is recorded with the
+    result.** No network egress beyond the provider allowlist; the evaluation
+    checkout is truncated at the merge base so the reference solution is
+    unreachable from git history; every suite run reports a retrieval-leak probe.
+    An unsealed run may not be compared to a sealed one.
+
 ---
 
 # Track A - Truth and safety
@@ -4696,6 +4705,32 @@ already paying for N samples; the current plan extracts one bit from them and
 discards the rest. Cross-attempt agreement is the one signal in this document
 that costs nothing and measures the thing that matters.
 
+**And the measured ordering says where the engineering effort goes.** Three
+results, which together settle a design argument that would otherwise be decided
+by taste:
+
+1. **Execution-grounded selection beats output-pattern voting by 19–52 points.**
+   Choosing among candidates by *running* them against discriminating inputs
+   dominates choosing among them by how similar their outputs look. This is the
+   quantitative form of invariant 26 and of Phase 12.10's "aggregation is
+   execution, not voting" — those rules are not conservatism, they are the
+   measured winner by a wide margin.
+2. **The aggregation rule barely matters.** Variants of the voting or scoring
+   scheme land within **±0.79pp of each other, p > 0.05**. Time spent designing
+   a cleverer selection rule buys approximately nothing.
+3. **Input generation quality dominates.** Sketch-based input construction beats
+   random fuzzing by **11.3pp** — an order of magnitude more than the
+   aggregation-rule spread.
+
+> **Effort goes into discriminating inputs, not into clever voting math.** The
+> question a selector must answer is *what input separates these candidates*, and
+> everything downstream of that question is close to a rounding error.
+
+This lands directly on PR AM and on Phase 27.5's controls: the differential
+control is the same idea stated as a requirement (a check that discriminates base
+from delivered), and the same machinery that constructs a discriminating check
+constructs a discriminating input for selection. One capability, used twice.
+
 The generalisation, and the twenty-fourth invariant:
 
 > **Selection pressure against a check battery is bounded by that battery's
@@ -4836,6 +4871,33 @@ without raising precision is the Phase 27.4 failure — more delivery, more of i
 wrong, concentrated in the hard tail. **Verifier precision is the binding
 constraint on Cortex's capability ceiling, which is why Phase 27 comes first.**
 
+**And `1 − (1 − a)^N` assumes the attempts are independent, which they are not.**
+The formula is therefore an **upper bound Cortex will not reach**, and it should
+be written down as one everywhere it appears — on the Plan Receipt, in the
+estimator, and in anything a customer sees. How far short it falls is the subject
+of 28.2c, and the answer is: further than this document previously assumed.
+
+**And the existence proof, because this is the one place the thesis stops being
+an argument.** CodeMonkeys ([arXiv:2501.14723](https://arxiv.org/abs/2501.14723))
+pooled candidate edits across five different agent systems and then selected
+among them. Ensemble selection resolved **66.2%** against **62.8%** for the best
+individual member — *combining models beat the best model*, which is the Phase 28
+claim, demonstrated rather than asserted.
+
+The third number is the one that matters commercially, and it is the product
+thesis stated as arithmetic: **pooled coverage was 80.8%.** The correct answer
+was generated, was sitting in the pool, and was thrown away, for roughly
+**fourteen points** of resolvable instances, because the selector could not tell
+which candidate it was. That gap is not a modelling problem and no amount of
+provider spend closes it.
+
+> **The pool is cheap; the selector is the moat.** Anyone can buy N samples.
+> Cortex is building the only executable selector in the market, and the ~14
+> points between coverage and selection is the size of the prize it is aimed at.
+
+This also sets the priority order between Phase 27 and Phase 28 beyond argument.
+Raising N moves coverage. Only precision converts coverage into delivery.
+
 **(b) Decomposition below the coherence horizon — real, and it has a crossover
 this document should compute rather than assume.** A model's success probability
 falls as scope grows. Decomposing into `n` leaves and integrating gives roughly
@@ -4859,22 +4921,105 @@ fail a plan that decomposed itself past its own crossover.
 which the current design forecloses.** Repeated sampling works in proportion to
 how *independent* the samples are. N samples from one model at temperature are
 strongly correlated: they fail the same way, on the same reasoning, for the same
-reason. N samples from different providers, prompted with different methods
-(Phase 8.4's Engineering Method Library), correlate far less, so the union of
-what they can solve is much larger than any one of them.
+reason. Sampling across vendors decorrelates **measurably more** than temperature
+sampling from a single model, so the union of what the set can solve is larger
+than any one member's.
 
-The current design cannot express this. The router picks *one* model and then
-Phase 6.7 races that model against itself, which is the weakest possible version
-of the technique. **Racing should be a portfolio decision, not a repetition.**
-The race set is chosen to maximise expected marginal coverage per credit — which
-is exactly the complementarity machinery Phase 12.10 already built for expert
-panels, applied to generators instead of reviewers. That code should be written
-once and used twice.
+**How much larger is bounded, and the earlier draft of this section overstated
+it.** *Correlated Errors in Large Language Models* (ICML 2025,
+[arXiv:2506.07962](https://arxiv.org/abs/2506.07962)), across more than 350
+models, finds that frontier models show **high** error correlation across
+providers *and* across architectures, and — the part that matters most for a
+product betting on this — that **correlation rises with capability**. Two of the
+best available models agree on the wrong answer roughly **60%** of the time when
+both are wrong. The mechanism Cortex depends on therefore gets *weaker* as the
+models it routes to get better.
+
+Three consequences, all of which the plan must carry rather than discover:
+
+1. **`1 − (1 − a)^N` is an upper bound Cortex will not reach**, and the receipt
+   and the estimator both say so. The independence assumption is false by
+   measurement, not by suspicion.
+2. **Cross-vendor diversity is still worth buying** — decorrelation is real and
+   measurable — but it is a modest gain over a large one, and the plan may not
+   size it from the formula.
+3. **Model identity is the weakest of the diversity axes**, which is why the
+   generator arm is defined below over three axes rather than one.
+
+**The generator arm is a tuple, not a model.** A race arm is
+`(model_ref, method_ref, context_rendering_ref)`:
+
+| Axis | What varies | Where it comes from |
+|---|---|---|
+| `model_ref` | provider, family, size, effort | Phase 5 routing |
+| `method_ref` | the engineering approach taken | Phase 8.4's Engineering Method Library |
+| `context_rendering_ref` | what the model was shown and how it was assembled | Phase 29's context layer |
+
+The Phase 12.10 complementarity matrix is measured **over the tuple**, never over
+`model_ref`. That is the correction that makes the machinery mean something:
+complementarity between two arms that differ only in vendor is measuring the one
+axis the ICML result says is weakest.
+
+> **A race that varies only `model_ref` is recorded as `single_axis_diversity`
+> and may not claim pass@N above single-arm.** It is a legal race — it is still
+> better than racing one model against itself — but its receipt says what it was,
+> and nothing downstream may price it as portfolio diversity.
+
+**At `ultra`, at least one arm re-derives its context from the `TaskFrame`**
+rather than inheriting the rendering the other arms share. Every arm in a
+conventional race is anchored to the same context, so every arm inherits the same
+framing errors, the same omissions, and the same misread of the repository — the
+**shared-anchor term** in the correlation, and the one term N samples of the same
+rendering can never estimate. One re-deriving arm is the only sample of it Cortex
+will ever get, and it costs one arm.
+
+**Context diversity is unmeasured in the literature for code.** The correlation
+work varies models; the ensemble work varies scaffolds; nobody has isolated
+*what the model was shown* as the diversity axis on a code benchmark. Cortex is
+the only party positioned to measure it, because it holds the `TaskFrame`, the
+renderings, and an executable verifier over the outcome — which makes this
+**Cortex's cheapest original result**: a Phase 30 suite configuration rather than
+a research programme.
+
+The current design cannot express any of this. The router picks *one* model and
+then Phase 6.7 races that model against itself, which is the weakest possible
+version of the technique. **Racing should be a portfolio decision, not a
+repetition.** The race set is chosen to maximise expected marginal coverage per
+credit — which is exactly the complementarity machinery Phase 12.10 already built
+for expert panels, applied to generators instead of reviewers. That code should
+be written once and used twice.
 
 This is the concrete engineering content of "multi-engine vehicle", and it is a
 genuine structural moat: a single-vendor coding product cannot race its model
 against a competitor's, and would not want to. Cortex can, because it sells the
 outcome rather than the inference.
+
+**Why the published negative result does not apply.** The strongest evidence
+against model diversity is that mixed-model Mixture-of-Agents **underperforms
+self-MoA by 6.6%** ([arXiv:2502.00674](https://arxiv.org/abs/2502.00674)): mixing
+in weaker models costs more in quality than it gains in diversity. Taken at face
+value that is a direct refutation of 28.2c, and it should be recorded as such
+rather than ignored.
+
+It does not bind, for one structural reason:
+
+| | MoA | Cortex |
+|---|---|---|
+| How candidates combine | **synthesis** — an aggregator model reads all candidates and writes one answer | **execution** — every candidate faces the frozen battery |
+| What a weak candidate does | contaminates the synthesised output | fails its checks and is discarded |
+| What the quality–diversity tradeoff acts on | the aggregate, continuously | nothing — selection is a filter, not a blend |
+
+Under synthesis a weak candidate is an *input* to the answer, so its quality is
+load-bearing and the tradeoff binds. Under execution a weak candidate is a
+*proposal*, and a proposal that fails is free. **The quality–diversity tradeoff
+does not bind on a selector.**
+
+This is why Phase 12.10's rule that **aggregation is execution, not voting** is
+load-bearing rather than stylistic: it is the single property that makes a
+published negative result inapplicable to Cortex's design. If aggregation ever
+drifts toward synthesis — a model summarising the candidates, a model merging two
+diffs, a model picking the "best-looking" one — the 6.6% result starts applying
+in full, and this section becomes wrong.
 
 **(d) Compounding across runs.** The fourth mechanism — a repository-specific
 corpus that makes attempt `k+1` better than attempt `1` — is Phase 29.
@@ -4965,6 +5110,31 @@ Cortex at `ultra` does not beat the best single model run at maximum effort on
 the held-out suite, at any price, the capability claim is false and must not be
 made.** That test should exist before the claim does.
 
+**The comparison has to be constructed carefully or it proves nothing**, and the
+naive version — Cortex against a vendor's published score — is invalid:
+
+- **The baseline is each single model dropped into *Cortex's own scaffold*.** The
+  same model family shows a roughly **17-point spread** between its vendor's
+  bespoke scaffold and a standardised harness, which is larger than any effect
+  Cortex is trying to demonstrate. A published number measures a model *and* the
+  scaffold its vendor built around it, and Cortex is not competing with the
+  latter. Holding the scaffold fixed and varying only the model is the only
+  comparison that isolates the thing being claimed.
+- **Cost-matched.** Cortex at `ultra` against a single call is a spend comparison
+  wearing a capability label. Equal budget, both arms.
+- **Sealed**, per the invariant in Phase 30 — both arms, with the seal recorded.
+  An unsealed baseline is a retrieval score.
+- **Post-cutoff**, per 30.2, which closes training contamination and nothing else.
+
+**And a human-acceptance arm, because passing tests is not the claim.** METR
+(March 2026) found automated grading overstates merge-worthiness by **24.2
+points** — roughly half of test-passing pull requests were rejected by
+maintainers. A capability result reported only against a battery is therefore
+reporting a number that overstates the deliverable by a known, large, measured
+margin. The falsification test carries a maintainer-acceptance rate alongside the
+resolution rate, and where the two diverge, **the acceptance number is the one
+that goes in front of a customer.**
+
 **Phase 28 exit gate:** the router's objective is a function of the effort dial
 and the receipt records which objective was in force; `ultra` maximises
 P(verified) under the cap rather than minimising cost; the race set is selected
@@ -4973,9 +5143,16 @@ than repeating one model; weak verifiers rank within the passing set and are
 mechanically incapable of creating a pass; predicted `Π aᵢ` versus `a_whole` is
 computed at plan time and plan lint fails an over-decomposed plan; verified check
 results are reused by content-addressed triple, gated on the determinism record,
-never across tenants; and the held-out suite reports Cortex-at-`ultra` against
-the best single model at maximum effort, with the capability claim withheld until
-that comparison is won.
+never across tenants; and the race arm is a
+`(model_ref, method_ref, context_rendering_ref)` tuple and complementarity is
+measured over the tuple, with a race varying only `model_ref` recorded as
+`single_axis_diversity` and barred from claiming pass@N above single-arm; at
+`ultra` at least one arm re-derives its context from the `TaskFrame`; the
+independence bound `1 − (1 − a)^N` is recorded as an upper bound rather than an
+estimate; and the held-out suite reports Cortex-at-`ultra` against each single
+model in Cortex's own scaffold, cost-matched, sealed, post-cutoff, with a
+maintainer-acceptance arm alongside the resolution rate, and the capability claim
+withheld until that comparison is won.
 
 ## Phase 29 - Repository comprehension, and the corpus only Cortex can own
 
@@ -5208,13 +5385,69 @@ executable ground truth.** The description is the request, the merge base is the
 starting tree, the tests at merge time are the exam, and the merged diff is a
 reference solution nobody had to write. Harvesting these gives a suite that is:
 
-- **uncontaminated by construction**, if restricted to PRs merged after both the
-  model's training cutoff and the harness release under test;
+- **uncontaminated *by training*, if restricted to PRs merged after both the
+  model's training cutoff and the harness release under test — and this closes
+  only half of the problem** (see the seal, below);
 - **domain-matched** — it measures Cortex on the customer's languages, frameworks,
   and conventions rather than on Python issue-resolution;
 - **continuously refreshing**, so it cannot be overfitted the way a static suite
   can, and it never needs re-labelling;
 - **unlimited in size**, bounded only by consent.
+
+#### 30.2a The seal, because a post-cutoff date closes the wrong channel
+
+The post-cutoff restriction above closes **training** contamination. It does
+nothing about **retrieval** contamination, and 30.2's own construction makes
+retrieval contamination worse than for any public suite: **the tasks *are* merged
+pull requests, so the reference solution is sitting in the repository's own git
+history, one `git log` away from the agent being evaluated.** A harness with a
+shell and a network does not need the answer in its weights.
+
+This is measured, not hypothetical. Cursor's June 2026 sealed-evaluation report
+found, on sealing an environment that had previously been open:
+
+| | Unsealed | Sealed |
+|---|---|---|
+| Suite A | **87.1%** | **73.0%** |
+| Suite B | **74.7%** | **54.0%** |
+
+with **57%** of runs performing an upstream lookup, **9%** mining git history
+directly, and **63% of resolutions retrieved rather than derived.** A twenty-point
+swing is larger than every capability effect this document proposes to measure.
+An unsealed evaluation is not a noisy capability measurement; it is a measurement
+of a different quantity.
+
+The invariant is numbered 34 rather than 30-something because the numbering runs
+by review round, not by phase position — it is the sixth round's only new one.
+
+> **Invariant 34.** **An evaluation environment is sealed, and the seal is
+> recorded with the result.** No network egress beyond the provider allowlist;
+> the evaluation checkout is truncated at the merge base so the reference
+> solution is unreachable from git history; and every suite run reports a
+> retrieval-leak probe. **An unsealed run may not be compared to a sealed one**,
+> in either direction, internally or externally.
+
+Three notes on building it.
+
+**Truncation is the part that is easy to get wrong.** Removing the merge commit
+is not enough — the solution survives in reflogs, in remote refs, in packed
+objects, in tags, and in any sibling branch. The checkout handed to the harness is
+constructed *at* the merge base and has no path to anything after it.
+
+**The retrieval-leak probe is a check, not an audit.** Every run reports whether
+it attempted egress outside the allowlist, whether it read git objects outside
+the truncated range, and whether the delivered diff is suspiciously close to the
+reference. The last is a signal rather than a verdict — it feeds Phase 27.2's
+disclosure list, where a model-produced signal is allowed to live.
+
+**Cortex already owns the hard half of this, and has never claimed it.** PR C2's
+egress allowlist is derived at plan time and enforced at the sandbox boundary,
+which is exactly the web-lookup channel — the 57% row — closed already, in shipped
+code. It was built for tenancy and safety reasons and is an **existing, unclaimed
+evaluation asset**: the sealing work remaining is git truncation and the probe,
+not network isolation. It is also the reason Cortex can credibly publish a sealed
+number when most of the market cannot, which belongs in 30.5 alongside the
+receipts.
 
 Consent is the gate and it is a real one: this is customer source code, and it
 requires explicit, revocable, per-repository opt-in with a stated purpose,
@@ -5290,7 +5523,11 @@ sells against.
 
 **Phase 30 exit gate:** four suites exist and run on every harness-affecting
 artifact; the capability suite is harvested from post-cutoff merged pull requests
-under explicit per-repository consent; the honesty suite scores declining,
+under explicit per-repository consent; every evaluation environment is sealed —
+egress restricted to the provider allowlist, the checkout truncated at the merge
+base so git history cannot reach the reference solution, and a retrieval-leak
+probe reported with every run — with the seal recorded on the result and an
+unsealed run mechanically barred from comparison against a sealed one; the honesty suite scores declining,
 questioning, degrading, and `UNVERIFIED` as the correct outcomes and is rotated;
 no suite data reaches the router, the professional corpus, the estimator, or the
 experience layer; a published shared artifact that regresses the suite cannot
@@ -5387,6 +5624,35 @@ Three operating numbers that do not exist today:
 | **Loss ratio** | refunded credits ÷ gross credits committed, per task class, per repo, per org | The single health metric of an outcome-priced business; drift in it precedes every other symptom |
 | **Outstanding obligation** | credits sold and dispatched but not yet resolved | Cortex's exposure at any instant, and the input to whether a new large run may be accepted |
 | **Class break-even** | measured `E[C]/R` per task class | Which classes are actually profitable, which are loss leaders, and which must be repriced or declined |
+
+**Seed the loss-ratio prior from measured false-accept rates, because the
+alternative is seeding it from optimism.** Cortex has no history, but the
+industry has measurements of exactly the quantity that drives the loss ratio —
+how often a patch passes a frozen battery and is nonetheless wrong:
+
+| Measurement | Rate | Source |
+|---|---|---|
+| Patches passing SWE-bench Verified that were erroneous under augmented tests | **15.7%** | UTBoost ([arXiv:2506.09289](https://arxiv.org/abs/2506.09289)) |
+| Instances retaining at least one surviving mutant after a passing patch | **77%** | [arXiv:2603.00520](https://arxiv.org/abs/2603.00520) |
+| Test-passing pull requests rejected by maintainers | **~50%** | METR, March 2026 |
+
+The three measure different things and should not be averaged. The first is a
+false-accept rate against a *strengthened* battery — the closest available proxy
+for what Cortex will refund on. The second is a statement about **battery
+power**, and it is the more alarming number: on more than three quarters of
+instances the exam could not detect a deliberate defect, which is Phase 27.3's
+`battery_power` measured on someone else's corpus and coming back weak. The third
+is the acceptance gap from 28.5, and it prices a different obligation — a
+customer who rejects a change Cortex verified is a refund conversation whatever
+the battery said.
+
+> **Cortex's own false-accept rate is its gross margin**, not a quality metric.
+> A guarantee priced without it is priced on a number nobody has measured, and
+> **it must be measured before a guarantee is priced** — per task class, on the
+> Phase 30 suites, using Phase 27.5's differential control and blast-radius
+> mutation as the instruments. The numbers above are the **prior**; they set the
+> initial reserve and the initial graduation threshold, and they are replaced by
+> Cortex's own measurement as it accumulates.
 
 The uncomfortable structural fact: outcome-based pricing succeeds overwhelmingly
 at vendors with **years of outcome data** behind the estimate. Cortex has none. It
@@ -5493,7 +5759,9 @@ Two metrics belong on the operations dashboard and are currently nowhere:
 
 **Phase 31 exit gate:** loss ratio, outstanding obligation, and per-class
 break-even are computed from existing ledger and forecast data and alert on
-drift; `E[C]` is measured conditioned on outcome rather than assumed symmetric;
+drift; the loss-ratio prior is seeded from published false-accept rates on frozen
+batteries and Cortex's own false-accept rate is measured per task class before any
+guarantee is priced; `E[C]` is measured conditioned on outcome rather than assumed symmetric;
 the quote is a function of predicted `p` and intake can decline on odds while
 naming the on-ramp; realised versus forecast `p` is tracked per organisation and
 repository; the guarantee graduates per task class on the same evidence gate as
@@ -7310,7 +7578,12 @@ immediately, in parallel with Wave 1. Surface work follows the APIs it renders.
 - **PR AM · Bounded selection (Phase 27.4, 28.4).** Racing gated on `strong` and
   on measured battery power, retained race attempts with recorded agreement, and
   content-addressed reuse of verified check results keyed on the Phase 24.1
-  triple and gated on the determinism record. **Needs AG and AL.** The reuse half
+  triple and gated on the determinism record. **Its engineering budget goes to
+  discriminating input generation, not to the aggregation rule** — execution-
+  grounded selection beats output-pattern voting by 19–52 points, aggregation
+  variants sit within ±0.79pp of each other (p > 0.05), and sketch-based input
+  construction beats random fuzzing by 11.3pp. A PR that ships a clever voting
+  scheme and a weak input generator has spent its budget on the flat axis. **Needs AG and AL.** The reuse half
   is a large cost reduction on its own and is a *prerequisite* for invariant 16
   at trunk scale (Phase 33.2b), not an optimisation.
 - **PR AN · The capability objective (Phase 28).** Router objective as a function
@@ -7437,6 +7710,7 @@ ledger, state-machine, and pricing changes.
 | Scale mechanics | A write set overlapping an open human pull request is surfaced before approval, with the pushed-only boundary stated; Cortex submits to a merge queue and never merges directly, and a queue rejection registers as a failed integration; a multi-step change delivers as a reviewable stack; the per-repository WIP limit blocks a new dispatch and says why; a five-person team completes setup with no identity provider. |
 | Simplicity | A first-time solo user completes a task without encountering a control they must understand, and every decision Cortex made for them is visible in one line; intake asks no mechanism questions; every mechanism introduced in this plan carries a declared disclosure tier and nothing above *always* is required reading. |
 | Teaching | A teaching artifact built from an `UNVERIFIED` verdict, a `none` battery, a degraded map, an `inconclusive` verdict, or a quarantined check states what was not established and contains no correctness explanation; every teaching artifact traces to the decision-record fields it derived from, and one built from no record cannot be produced at all; no model is invoked in the rendering path; no artifact is emitted while a task is in flight; guidance level is computed from executed outcomes per developer per subsystem and cannot be set by a request parameter; a developer with high recorded competence in a subsystem receives no scaffolding; a cross-language mapping that is not anchored to a diff, or that carries fewer than two analogies, or whose break point is not executable, does not render; a retrieval item that asks whether a check passed rather than why it failed does not render, and no retrieval surface appears for a developer with no history; a teaching corpus query is architecturally incapable of crossing an organisation; and the comprehension delta is computed from real usage before any teaching claim is published. |
+| Evaluation integrity | Every suite run records its seal; an evaluation checkout has no reachable git object after the merge base, and a probe that reaches one fails the run; a run that attempts egress outside the provider allowlist is recorded as leaked; a comparison between a sealed and an unsealed result is refused rather than rendered with a caveat; and a capability report carries a maintainer-acceptance rate alongside the resolution rate. |
 
 ## Deliberately deferred
 
