@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-16 (wave 6 / task 2 - the two Phase 35 drafts are one, and round 6 graded the evidence Phases 27-31 lean on)
+**Last updated:** 2026-08-17 (wave 6 / task 9 — VPS disk reclaimed 80%→37%; CI capacity decided; monorepo prune)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -49,6 +49,7 @@ re-deriving anything.
 | 26 | Task 4 - Phase 35 (teaching layer) written | **done** - written only, per the brief. PR AU added to the delivery list. |
 | **Wave 6** | | |
 | 27 | Task 2 - reconcile the two Phase 35 drafts; round 6 amendments | **done** - branch `docs/round6-amendments`. Docs only. `docs/round5-teaching` merged by hand and deleted. |
+| 28 | Task 9 - VPS disk hygiene + monorepo prune | **done, nothing merged** - branches `docs/vps-capacity-and-deploy-disk-gate` and `chore/monorepo-prune`. VPS 80%->37%. CI capacity decided below. Two host items need Josh. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -2225,6 +2226,57 @@ fences it: **PR C must not introduce lifecycle states — those are PR A's.**
 
 Reconciled, not deferred. No plan change needed.
 
+## Wave 6 / Task 9 — CI capacity: not runners, not a CI box, not yet
+
+**Settled. Do not re-litigate.** Two proposals were on the table for the CI
+bill; both are declined, and this section records why so the next session does
+not reopen them.
+
+### Self-hosted runners on the production VPS — NO
+
+Phase 1 measured it. The box has **2 cores**, so a self-hosted runner runs at
+effective **N=1**. PR feedback goes from **6m34s to roughly 17 minutes** — the
+jobs that currently run in parallel on GitHub's fleet would serialise.
+
+The disk argument is the harder one. At the time of measurement the host had
+**2.9 GB free**. A Rust link step needs more than that, so the outcomes are
+either swapping *on the box that serves production* or an OOM kill. Trading a
+production outage for CI minutes is not a trade.
+
+The original formula behind the runner proposal was wrong; the reading against
+the actual hardware was right.
+
+### A dedicated CI box — NOT YET
+
+[#548](https://github.com/hey-vera/heyvera/pull/548) removes the duplicate
+post-merge run. That halves the burn, and the halved figure probably fits
+inside the **2,000-minute free tier**.
+
+So the sequence is: **land #548, measure one full month, then decide.** Buying
+capacity before that month of data is buying a number nobody has measured.
+
+### What was actually done instead
+
+The 80%-full condition was reclaimed without spending anything — see
+"Disk reclamation" in `docs/operations/deploy-runbook.md`. Pruning the Docker
+**build cache only** (no images, no containers removed) took the root
+filesystem from **80% used / 16 GB free** to **37% used / 49 GB free**.
+
+That is the point: the capacity problem was a hygiene problem. It should be
+re-measured before it is re-diagnosed as a hardware problem.
+
+### Open, not done
+
+- **journald is uncapped** and holds 2.8 GB. `SystemMaxUse=500M` needs a write
+  to `/etc/systemd/journald.conf.d/`, which is **not** in `guardian`'s NOPASSWD
+  allowlist. Needs Josh. See the runbook.
+- **`claw-net-node.service` is crash-looping** on `EADDRINUSE` for port 3402 —
+  about **1,094 restarts per hour**. An orphaned `node` process (pid 828341,
+  outside systemd) already holds the port, so the API is served while the unit
+  never stops failing. This crash loop is the likely author of the 2.8 GB of
+  journal. **Capping journald would hide this rather than fix it** — fix the
+  orphan first.
+
 ## Rules in force
 
 - Never push to `main`; never bypass a required check.
@@ -2232,7 +2284,11 @@ Reconciled, not deferred. No plan change needed.
 - Rust: `cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --all-targets`.
   **`--all-targets`, never `--lib`** - the integration tests are where every
   cross-crate finding in waves 4 and 5 lived, and `--lib` cannot see them.
-  **Never run `cargo fmt` on this repo.**
+  **`cargo fmt` is now required, not forbidden.** The old "never run it" rule
+  died when the workspace was formatted once mechanically (recorded in
+  `.git-blame-ignore-revs`) and `ci.yml` gained a `fmt` job running
+  `cargo fmt --all --check` on a pinned 1.97.1 toolchain. `rustfmt.toml` pins
+  only stable options. Run `cargo fmt --all` and commit the result.
 - `jq` is not installed on this machine and MSYS mangles slashes. Use `gh`'s
   built-in `--jq`. A monitor that reports `unknown` is a loop failing silently,
   not an unknowable answer.
