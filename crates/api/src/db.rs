@@ -611,6 +611,75 @@ fn apply_migrations(conn: &Connection) {
     if current < 66 {
         migrate_v66(conn);
     }
+    if current < 67 {
+        migrate_v67(conn);
+    }
+}
+
+fn migrate_v67(conn: &Connection) {
+    // The worker service credential (F11).
+    //
+    // Until this table there was no way for a worker to prove who it was. The
+    // only credentials `authenticate_worker` understood were a Clerk *user*
+    // JWT — which a long-lived headless daemon has no way to obtain or renew —
+    // and the empty string, which was accepted whenever `CLERK_SECRET_KEY` was
+    // unset. So the deployed configuration was: no worker could authenticate
+    // legitimately, and any client at all could authenticate anonymously.
+    //
+    // A worker key is a service credential, not a user session. It belongs to a
+    // user (`owner_user_id`, so the work it dispatches is still billed and
+    // attributed to somebody), carries a coarse `scope`, and can be expired or
+    // revoked without touching the owner's account.
+    //
+    // `key_hash` is the SHA-256 hex of the full `cwk_`-prefixed secret and is
+    // UNIQUE: two rows can never resolve the same presented token, and an
+    // issuance that would collide fails loudly at INSERT instead of silently
+    // creating an ambiguous credential.
+    //
+    // **On the plain digest.** The secret is `cwk_` plus 32 bytes from the OS
+    // CSPRNG — a high-entropy token, not a password. Nobody chooses it, nobody
+    // reuses it, and there is no dictionary to run against the hash column, so
+    // a password KDF (bcrypt/argon2) would add per-frame latency and buy
+    // exactly nothing; inverting SHA-256 over 256 uniform bits is the attack.
+    // A plain digest is the correct primitive *here* and would not be if this
+    // column ever held something a human picked. See `key_material`.
+    //
+    // The plaintext is never stored. `key_prefix` is a truncated display form
+    // so an operator can tell two keys apart in a listing; it is not a secret
+    // and is not sufficient to authenticate.
+    //
+    // Revocation and expiry are two separate columns on purpose. `revoked_at`
+    // is an operator act with a time, and keeping it (rather than deleting the
+    // row) means a revoked key stays visible in an audit and can never be
+    // re-issued as itself, since `key_hash` remains taken.
+    //
+    // Numbered v67: the maximum on main at rebase time was v66 (PR I).
+    // `schema_version` is one counter shared with the HeyVera Socials product —
+    // re-check the maximum before claiming a number, because whichever branch
+    // merges second has its migration silently skipped.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS worker_keys (
+            id             TEXT PRIMARY KEY,
+            key_hash       TEXT NOT NULL UNIQUE,
+            key_prefix     TEXT NOT NULL,
+            owner_user_id  TEXT NOT NULL,
+            scope          TEXT NOT NULL,
+            created_at     INTEGER NOT NULL,
+            expires_at     INTEGER,
+            revoked_at     INTEGER,
+            last_used_at   INTEGER
+        );
+
+        -- Authentication looks up by hash on every worker connect.
+        CREATE INDEX IF NOT EXISTS idx_worker_keys_hash ON worker_keys(key_hash);
+        -- Listing and revocation are per-owner.
+        CREATE INDEX IF NOT EXISTS idx_worker_keys_owner ON worker_keys(owner_user_id);
+
+        UPDATE schema_version SET version = 67;",
+    )
+    .expect("migration v67 failed creating worker_keys");
+
+    tracing::info!("applied migration v67: worker_keys (worker service credential)");
 }
 
 fn migrate_v1(conn: &Connection) {
@@ -28866,6 +28935,144 @@ fn read_verification_job(conn: &Connection, job_id: &str) -> Option<Verification
         },
     )
     .ok()
+}
+
+/// Worker service credentials (`cwk_` keys).
+///
+/// A worker is a long-lived headless daemon, not a browser session, so it
+/// cannot hold a Clerk user JWT. These are the rows that let one prove who it
+/// is. Issuance is deliberately absent from the HTTP surface — see the
+/// `cortex-worker-key` binary.
+impl Database {
+    /// Record a newly issued worker key.
+    ///
+    /// Takes the **hash**, never the plaintext: the caller shows the secret to
+    /// its owner once and drops it, and nothing in this process writes it down.
+    /// A duplicate `key_hash` is an error rather than an overwrite — see the
+    /// UNIQUE constraint in migration v67.
+    ///
+    /// `expires_at` is epoch milliseconds, or `None` for a key that only ends
+    /// by revocation.
+    pub fn create_worker_key(
+        &self,
+        id: &str,
+        key_hash: &str,
+        key_prefix: &str,
+        owner_user_id: &str,
+        scope: &str,
+        expires_at: Option<i64>,
+    ) -> Result<(), String> {
+        let conn = self.conn();
+        conn.execute(
+            "INSERT INTO worker_keys
+                (id, key_hash, key_prefix, owner_user_id, scope, created_at, expires_at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![
+                id,
+                key_hash,
+                key_prefix,
+                owner_user_id,
+                scope,
+                Utc::now().timestamp_millis(),
+                expires_at
+            ],
+        )
+        .map_err(|e| format!("failed to create worker key: {e}"))?;
+        Ok(())
+    }
+
+    /// Resolve a presented worker key hash to its owner, and stamp usage.
+    ///
+    /// Returns `None` — never a reason — when the key is unknown, revoked, or
+    /// expired. The caller is an authentication boundary and must not tell a
+    /// client which of those it was.
+    ///
+    /// Revocation and expiry are filtered **in the SQL**, not in Rust after the
+    /// fetch, so there is no shape of this function in which a caller forgets
+    /// the check. `now_ms` is passed in rather than read here so a test can
+    /// place a key in the past or the future without sleeping.
+    ///
+    /// `last_used_at` is stamped only on a successful resolution, and its
+    /// failure is not fatal: an audit timestamp is not worth refusing a
+    /// worker that legitimately authenticated.
+    pub fn authenticate_worker_key(&self, key_hash: &str, now_ms: i64) -> Option<String> {
+        let conn = self.conn();
+        let owner: String = conn
+            .query_row(
+                "SELECT owner_user_id
+                 FROM worker_keys
+                 WHERE key_hash = ?1
+                   AND revoked_at IS NULL
+                   AND (expires_at IS NULL OR expires_at > ?2)
+                 LIMIT 1",
+                params![key_hash, now_ms],
+                |row| row.get(0),
+            )
+            .ok()?;
+
+        if let Err(e) = conn.execute(
+            "UPDATE worker_keys SET last_used_at = ?1 WHERE key_hash = ?2",
+            params![now_ms, key_hash],
+        ) {
+            tracing::warn!("could not stamp worker key last_used_at: {e}");
+        }
+
+        Some(owner)
+    }
+
+    /// Revoke a worker key by its display prefix or id. Returns rows affected.
+    ///
+    /// Idempotent: `revoked_at IS NULL` in the WHERE means re-revoking an
+    /// already-revoked key reports 0 rather than moving the timestamp, so an
+    /// audit keeps the moment revocation actually happened.
+    pub fn revoke_worker_key(&self, id_or_prefix: &str) -> usize {
+        let conn = self.conn();
+        conn.execute(
+            "UPDATE worker_keys
+             SET revoked_at = ?1
+             WHERE (id = ?2 OR key_prefix = ?2) AND revoked_at IS NULL",
+            params![Utc::now().timestamp_millis(), id_or_prefix],
+        )
+        .unwrap_or(0)
+    }
+
+    /// List worker keys for an operator view. Never includes key material
+    /// beyond the non-secret display prefix.
+    pub fn list_worker_keys(&self, owner_user_id: Option<&str>) -> Vec<serde_json::Value> {
+        let conn = self.conn();
+        let mut stmt = match conn.prepare(
+            "SELECT id, key_prefix, owner_user_id, scope, created_at,
+                    expires_at, revoked_at, last_used_at
+             FROM worker_keys
+             WHERE ?1 IS NULL OR owner_user_id = ?1
+             ORDER BY created_at DESC",
+        ) {
+            Ok(stmt) => stmt,
+            Err(e) => {
+                tracing::warn!("could not list worker keys: {e}");
+                return Vec::new();
+            }
+        };
+        let rows = stmt.query_map(params![owner_user_id], |row| {
+            Ok(serde_json::json!({
+                "id": row.get::<_, String>(0)?,
+                "keyPrefix": row.get::<_, String>(1)?,
+                "ownerUserId": row.get::<_, String>(2)?,
+                "scope": row.get::<_, String>(3)?,
+                "createdAt": row.get::<_, i64>(4)?,
+                "expiresAt": row.get::<_, Option<i64>>(5)?,
+                "revokedAt": row.get::<_, Option<i64>>(6)?,
+                "lastUsedAt": row.get::<_, Option<i64>>(7)?,
+            }))
+        });
+        match rows {
+            Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
+            Err(e) => {
+                tracing::warn!("could not list worker keys: {e}");
+                Vec::new()
+            }
+        }
+    }
 }
 
 /// The durable verifier queue: a delivery's verification survives the process

@@ -13,11 +13,9 @@ use axum::extract::{FromRef, FromRequestParts};
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::Json;
-use base64::{engine::general_purpose::URL_SAFE_NO_PAD, Engine};
-use rand::Rng;
-use sha2::{Digest, Sha256};
 
 use crate::clerk::ClerkUser;
+use crate::key_material;
 use crate::routes::ErrorResponse;
 use crate::state::AppState;
 
@@ -56,28 +54,29 @@ impl SocialWriteAuth {
     }
 }
 
+/// Scheme tag for HeyVera Socials linked-agent keys.
+pub const AGENT_KEY_PREFIX: &str = "hvak_";
+
 /// Generate a new agent API key: `hvak_` + 32 CSPRNG bytes (base64url).
 /// Returns `(plaintext_secret, display_prefix, sha256_hex_hash)`.
+///
+/// The key material itself is product-neutral and lives in
+/// [`crate::key_material`]; what is specific to Socials is the `hvak_` tag and
+/// the fact that the hash resolves against `social_linked_agents`. The tuple
+/// shape is kept so the Socials call sites in `social.rs` are unchanged.
 pub fn generate_agent_api_key() -> (String, String, String) {
-    let mut bytes = [0u8; 32];
-    rand::rng().fill_bytes(&mut bytes);
-    let secret = format!("hvak_{}", URL_SAFE_NO_PAD.encode(bytes));
-    let prefix = agent_key_prefix(&secret);
-    let hash = hash_agent_api_key(&secret);
-    (secret, prefix, hash)
+    let key = key_material::generate_api_key(AGENT_KEY_PREFIX);
+    (key.secret, key.display_prefix, key.hash)
 }
 
 /// Display prefix: first 12 characters + ellipsis.
 pub fn agent_key_prefix(secret: &str) -> String {
-    let take = secret.len().min(12);
-    format!("{}…", &secret[..take])
+    key_material::display_prefix(secret)
 }
 
 /// SHA-256 hex of the full secret (including `hvak_` prefix).
 pub fn hash_agent_api_key(secret: &str) -> String {
-    let mut hasher = Sha256::new();
-    hasher.update(secret.as_bytes());
-    hex::encode(hasher.finalize())
+    key_material::hash_api_key(secret)
 }
 
 /// Extract an agent key from Authorization if present.
@@ -91,7 +90,7 @@ pub fn extract_agent_token(raw_auth: Option<&str>) -> Option<&str> {
     } else {
         return None;
     };
-    if token.starts_with("hvak_") {
+    if token.starts_with(AGENT_KEY_PREFIX) {
         Some(token)
     } else {
         None

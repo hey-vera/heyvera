@@ -129,6 +129,15 @@ pub struct AppState {
     /// by the persistent incremental index in C2.
     pub repo_map_cache: cortex_context::cache::RepoMapCache,
     pub clerk_secret_key: Option<String>,
+    /// Whether a worker with no credential may connect as `local`.
+    ///
+    /// Read once from `CORTEX_ALLOW_ANONYMOUS_WORKER` at construction and
+    /// stored, rather than consulted per frame, so one connection cannot see
+    /// two different answers and so a test can set it without mutating
+    /// process-global environment. Default **off**: an unset
+    /// `CLERK_SECRET_KEY` used to be enough to authenticate any worker, and it
+    /// is no longer. See [`crate::worker_key`].
+    pub allow_anonymous_worker: bool,
     pub jwks_cache: RwLock<JwksCache>,
     pub jwks_stampede: JwksStampedeGuard,
     pub db: Option<Database>,
@@ -221,6 +230,18 @@ impl AppState {
         let db_path = cortex_db_path(&workspace_dir);
         let db = Database::open(&db_path);
         tracing::info!("database opened at {}", db_path.display());
+
+        // The anonymous worker path is off unless explicitly opened. Note it is
+        // NOT tied to `CORTEX_AUTH_DISABLED`: losing a Clerk secret is an
+        // accident, and this has to be a decision.
+        let allow_anonymous_worker = crate::worker_key::anonymous_worker_allowed_from_env();
+        if allow_anonymous_worker {
+            tracing::warn!(
+                "{}=1: workers may connect with no credential as `{}` - development only",
+                crate::worker_key::ALLOW_ANONYMOUS_WORKER_ENV,
+                crate::worker_key::ANONYMOUS_WORKER_USER,
+            );
+        }
 
         // Billing enforcement: default true, unless CORTEX_AUTH_DISABLED is set
         let auth_disabled = std::env::var("CORTEX_AUTH_DISABLED")
@@ -372,6 +393,7 @@ impl AppState {
             workspace_dir,
             repo_map_cache: cortex_context::cache::RepoMapCache::new(),
             clerk_secret_key,
+            allow_anonymous_worker,
             jwks_cache: RwLock::new(JwksCache::empty()),
             jwks_stampede: JwksStampedeGuard::new(),
             db: Some(db),
