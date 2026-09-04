@@ -136,11 +136,27 @@ pub const SCRATCH_TMPFS_OPTIONS: &str = "rw,exec,nosuid,nodev,size=2147483648,mo
 ///
 /// The mount point always exists, is mode 1777, and dies with the container, so
 /// pointing everything at it needs nothing to have gone right beforehand.
+///
+/// The build-tool variables below are the deliberate exception to the paragraph
+/// above, and they can be because cargo and npm both create their own
+/// directories with the equivalent of `mkdir -p`. They are separate paths
+/// rather than the bare mount point because a build tree and a package cache
+/// sharing one directory is how you get a cache that a `cargo clean` deletes.
+///
+/// They exist for F15. Without them the required checks run `cargo test` with
+/// its target directory defaulting to `target/` **inside the worktree**, and
+/// the auto-commit then sweeps hundreds of build artifacts into the customer's
+/// delivery — into the diff, into the git evidence, and into what the frozen
+/// checks grade. The verifier's own runner has had the same three variables
+/// since F9 for the same reason.
 pub const SCRATCH_ENV: &[&str] = &[
     "HOME=/scratch",
     "TMPDIR=/scratch",
     "XDG_CACHE_HOME=/scratch",
     "XDG_CONFIG_HOME=/scratch",
+    "CARGO_TARGET_DIR=/scratch/target",
+    "CARGO_HOME=/scratch/cargo",
+    "npm_config_cache=/scratch/npm",
 ];
 
 /// The rule, with the environment lookup passed in.
