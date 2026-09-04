@@ -27,6 +27,17 @@ pub enum WorkerFailureKind {
     NetworkError,
     PermissionDenied,
     OutputEmpty,
+    /// The provider exited cleanly and the tree is unchanged, so an
+    /// execute-tier step produced nothing to deliver.
+    ///
+    /// Distinct from [`OutputEmpty`], which is about the CLI saying nothing.
+    /// This is about the CLI saying something and changing nothing.
+    ///
+    /// It exists because non-delivery used to be reported as success with
+    /// `base_commit == head_commit` and a `tracing::warn!` on the worker,
+    /// invisible to the brain, the receipt and the customer (F16). A caller
+    /// could only detect it by comparing the two commits itself.
+    NothingDelivered,
     Unknown,
 }
 
@@ -194,6 +205,12 @@ pub fn classify_failure(
         WorkerFailureKind::NetworkError => TaskFailureKind::ProviderServiceDown,
         WorkerFailureKind::PermissionDenied => TaskFailureKind::PermissionDenied,
         WorkerFailureKind::OutputEmpty => TaskFailureKind::OutputEmpty,
+        // Both are "the step produced nothing usable", which is a fact about
+        // the task rather than about Cortex, so both land on the same
+        // `FailureScope::Task` and the same retry policy. The worker-side
+        // distinction is kept because the two are diagnosed differently: an
+        // empty stdout is a CLI problem, an unchanged tree is not.
+        WorkerFailureKind::NothingDelivered => TaskFailureKind::OutputEmpty,
         WorkerFailureKind::Unknown => {
             if let Some(ref stderr) = report.stderr_excerpt {
                 classify_from_stderr(stderr)

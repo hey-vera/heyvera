@@ -466,6 +466,44 @@ impl Executor {
                 }
             }
 
+            // An execute-tier step that ran cleanly and changed nothing has
+            // not succeeded, whatever its exit code says (F16). It used to
+            // report `Completed` with `head_commit == base_commit`, so the
+            // only way to notice was to compare the two yourself -- and the
+            // step went on to be marked for verification against a tree
+            // nobody had touched.
+            //
+            // Scoped to the execute tier deliberately: search and think steps
+            // are supposed to leave the tree alone, and failing them for that
+            // would be failing them for working correctly.
+            if task.tier == cortex_core::provider::Tier::Execute && !has_changes {
+                tracing::warn!(
+                    step_id = %step.step_id,
+                    base_commit = %base_commit.as_deref().unwrap_or("?"),
+                    "execute-tier step delivered nothing"
+                );
+                let event = WorkerEvent::Failed {
+                    step_id: step.step_id.clone(),
+                    attempt_id: step.attempt_id.clone(),
+                    lease_gen: step.lease_gen,
+                    failure: WorkerFailureReport {
+                        kind: cortex_core::failure::WorkerFailureKind::NothingDelivered,
+                        exit_code: Some(code),
+                        // A clean exit leaves nothing in stderr, so the reason
+                        // has to be stated rather than quoted, or the report
+                        // says only that something went wrong and not what.
+                        stderr_excerpt: Some(format!(
+                            "the provider exited 0 and the tree is unchanged at {}: \
+                             an execute-tier step delivered nothing",
+                            base_commit.as_deref().unwrap_or("an unknown commit")
+                        )),
+                        tool: Some(decision.provider.cli_name().to_string()),
+                    },
+                };
+                tx.send(event).await.ok();
+                return Ok(code);
+            }
+
             let git_evidence = effective_dir.and_then(|dir| {
                 worktree::collect_git_evidence(
                     dir,

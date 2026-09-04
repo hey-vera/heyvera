@@ -2426,6 +2426,24 @@ itself, which is exactly the check the test had to add to find it. Whatever is
 decided for F14, the non-delivery needs to be a typed outcome rather than a log
 line.
 
+**RESOLVED 2026-09-04.** An execute-tier step that exits 0 and leaves the tree
+unchanged now emits `WorkerEvent::Failed` with the new
+`WorkerFailureKind::NothingDelivered`, instead of `Completed` with
+`head_commit == base_commit`. The reason is stated in `stderr_excerpt` rather
+than quoted from it, because a clean exit leaves stderr empty and a report that
+says only "something went wrong" is not much better than the log line it
+replaced.
+
+Scoped to the execute tier deliberately: search and think steps are supposed to
+leave the tree alone, and failing them for that would be failing them for
+working correctly.
+
+`NothingDelivered` classifies to `TaskFailureKind::OutputEmpty` — same
+`FailureScope::Task`, same retry policy, since both mean "the step produced
+nothing usable" and that is a fact about the task rather than about Cortex. The
+worker-side distinction is kept because the two are diagnosed differently: an
+empty stdout is a CLI problem, an unchanged tree is not.
+
 ### F17. `ExecutionJob.run_id` is empty
 
 Observed on every dispatch:
