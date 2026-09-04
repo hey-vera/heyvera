@@ -81,13 +81,21 @@ impl Executor {
     /// never invoked. That is the behavioural change: isolation used to be
     /// best-effort, and a failure to isolate silently became execution in the
     /// caller's directory with the worker's full environment.
-    pub async fn execute<R: SandboxRunner>(
+    ///
+    /// `runner` executes the agent; `checks_runner` executes the required
+    /// checks afterwards. They are separate because the two need different
+    /// images -- the agent's carries the provider CLIs and no toolchain, and
+    /// the checks need the reverse (F13). A caller that genuinely wants one
+    /// runner for both may pass the same one twice; the container path does
+    /// not, and that is the point.
+    pub async fn execute<R: SandboxRunner, C: SandboxRunner>(
         task: &TaskContract,
         decision: &RoutingDecision,
         step: &StepExecution,
         tx: mpsc::Sender<WorkerEvent>,
         working_dir: &std::path::Path,
         runner: &R,
+        checks_runner: &C,
     ) -> Result<i32, CortexError> {
         let invocation = build_command(decision)?;
 
@@ -129,6 +137,7 @@ impl Executor {
 
         let result = Self::run_sandboxed(
             runner,
+            checks_runner,
             &job,
             &request,
             step,
@@ -166,7 +175,22 @@ impl Executor {
             Ok(runner) => runner,
             Err(blocked) => return Self::block(step, &tx, blocked).await,
         };
-        Self::execute(task, decision, step, tx, working_dir, &runner).await
+        // A second sandbox, on the image that can actually build and test the
+        // tree. See `check_runner_image` and F13.
+        let checks_runner = match crate::sandbox::ContainerSandbox::new(check_runner_image()) {
+            Ok(runner) => runner,
+            Err(blocked) => return Self::block(step, &tx, blocked).await,
+        };
+        Self::execute(
+            task,
+            decision,
+            step,
+            tx,
+            working_dir,
+            &runner,
+            &checks_runner,
+        )
+        .await
     }
 
     /// Emit a typed refusal and return without invoking anything.
@@ -198,8 +222,9 @@ impl Executor {
     /// Factored out so that workspace teardown in `execute()` runs
     /// unconditionally after this returns.
     #[allow(clippy::too_many_arguments)]
-    async fn run_sandboxed<R: SandboxRunner>(
+    async fn run_sandboxed<R: SandboxRunner, C: SandboxRunner>(
         runner: &R,
+        checks_runner: &C,
         job: &ExecutionJob,
         request: &SandboxRequest,
         step: &StepExecution,
@@ -340,7 +365,7 @@ impl Executor {
             };
 
             let check_evidence = if let Some(dir) = effective_dir {
-                run_required_checks(task, dir, runner, job).await
+                run_required_checks(task, dir, checks_runner, job).await
             } else {
                 Vec::new()
             };
@@ -796,6 +821,23 @@ pub fn runner_image() -> String {
     std::env::var("CORTEX_SANDBOX_IMAGE").unwrap_or_else(|_| "cortex/sandbox:dev".to_string())
 }
 
+/// The image the worker's own required checks run in.
+///
+/// Deliberately *not* [`runner_image`]. That one carries the provider CLIs and
+/// no toolchain, so running `cargo test` in it exits 127 with
+/// `cargo: not found`. Every required check failing that way was F13, and
+/// while the auto-commit was still gated on those checks it meant nothing was
+/// ever delivered at all.
+///
+/// This is the same variable the verification driver reads, because it wants
+/// the same thing: an image that can build and test the customer's tree. The
+/// two are read independently rather than shared through a constant, so a
+/// deployment can point them at different images without either one silently
+/// following the other.
+pub fn check_runner_image() -> String {
+    std::env::var("CORTEX_RUNNER_IMAGE").unwrap_or_else(|_| "cortex/runner:phase-a".to_string())
+}
+
 /// The prompt the model receives: the contract, plus the assembled context,
 /// rendered by `cortex_core::provenance` and by nothing else.
 ///
@@ -1200,9 +1242,20 @@ async fn run_required_checks<R: SandboxRunner>(
 
         // A fresh sandbox per check, bounded by the check timeout rather than
         // by the attempt's budget.
+        //
+        // The job is stripped of everything the agent needed and a check does
+        // not. It runs in the check runner's image rather than the agent's
+        // (F13), with no network and no capability grants -- which, through
+        // `policy::sanctioned_env`, is also what keeps the provider credential
+        // out of it: the key is derived from the grant, so removing the grant
+        // removes the key. A check that could reach the network could fetch a
+        // passing result, and a check has no reason to hold an API key.
         let mut check_job = job.clone();
         check_job.job_id = uuid::Uuid::new_v4().to_string();
         check_job.budgets.wall_clock = std::time::Duration::from_secs(REQUIRED_CHECK_TIMEOUT_SECS);
+        check_job.image_ref = check_runner_image();
+        check_job.network_policy = cortex_core::execution_job::NetworkPolicy::Deny;
+        check_job.capability_grants = Vec::new();
 
         let request = SandboxRequest::new(
             working_dir,
@@ -1833,6 +1886,7 @@ mod tests {
             &step,
             tx,
             &dir,
+            &runner,
             &runner,
         )
         .await;
