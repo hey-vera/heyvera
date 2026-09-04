@@ -2442,6 +2442,16 @@ an empty string, which is the same problem wearing the right shape.
 
 Small, and worth fixing while the surrounding code is open.
 
+**RESOLVED 2026-09-04.** Pure plumbing, as suspected: `BrainMessage::ExecuteStep`
+has always carried `run_id`, and the worker binary destructured it into `..` and
+then wrote `String::new()` onto the job. `StepExecution` now carries it and
+`build_job` reads it.
+
+The `sse.rs` path plans no run, so it mints one for the single step it
+dispatches rather than passing an empty string — a run of one is the truth
+there. A unit test pins the value on the built job, because the failure mode
+was a field that looked set to anything checking only its shape.
+
 ### F18. The same input produced two different verdicts *(observed, not root-caused)*
 
 Two consecutive runs of the identical test against identical images:
