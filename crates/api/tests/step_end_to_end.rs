@@ -1094,11 +1094,9 @@ async fn drive_one_stubbed_task(scenario: &str) -> StubbedRun {
         saw_completion,
         "scenario {scenario}: the stub process never reported completion; the sandbox did not run it to a clean exit."
     );
-    // NOT asserted here: that a commit exists. Whether one does is
-    // scenario-dependent and is the finding (F14) rather than a precondition --
-    // the worker suppresses the commit for any work that fails its own copy of
-    // the required checks, so the failing scenario legitimately delivers
-    // nothing. The caller asserts what it expects for its direction.
+    // NOT asserted here: that a commit exists, or how many. Both directions
+    // now deliver, but what each one should produce is the caller's claim to
+    // make, so the caller asserts it for its own direction.
 
     // A delivery that never happened is never graded, so polling for a receipt
     // would burn the full ten-minute deadline to rediscover something already
@@ -1241,37 +1239,51 @@ async fn a_stubbed_provider_drives_one_task_to_a_verdict_in_both_directions() {
 
     // --- The diff the exam should reject ----------------------------------
     //
-    // THIS ASSERTION DOCUMENTS A DEFECT (F14). It is written against what the
-    // system does, not against what it should do, and it must be inverted when
-    // F14 is fixed.
+    // This is the half that F14 made unreachable, and it is the half the
+    // product is sold on: work that fails is delivered anyway, graded by the
+    // independent verifier, and recorded as `Verdict::Failed` -- the verdict
+    // the refund path exists to serve.
     //
-    // What it should do: deliver the bad diff, let the frozen exam execute
-    // against it, and record `Verdict::Failed` -- which is the verdict the
-    // refund path exists to serve.
-    //
-    // What it does: the worker runs its own copy of the required checks inside
-    // the sandbox, sees them fail, and suppresses the auto-commit. head_commit
-    // stays equal to base_commit, nothing is delivered, nothing is graded, and
-    // the step still reports Completed with exit_code 0.
-    //
-    // The consequence is the reason this test exists at all: **the verifier can
-    // only ever grade work that already passed the same checks**, so
-    // `Verdict::Failed` is unreachable from this path and the independent
-    // verification is tautological. A pipeline that can only produce green has
-    // not been tested, and this is why it could only produce green.
+    // The worker no longer discards a diff that fails its own checks. Its
+    // checks are evidence, not a gate, so the verifier grades a tree it did
+    // not pre-approve and the red direction can actually occur.
     let fail = drive_one_stubbed_task("FAIL").await;
 
     assert!(
         fail.saw_completion,
-        "FAIL scenario: the stub never ran to completion, so the finding below          would be about the wrong thing"
-    );
-    assert_eq!(
-        fail.commits, 1,
-        "F14 may be FIXED: the failing diff produced a commit, so the worker no          longer suppresses delivery of work that fails its own checks. If so,          invert this block to assert Verdict::Failed and a Failed          ecosystem:cargo-test execution, and close F14."
+        "FAIL scenario: the stub never ran to completion, so the assertions \
+         below would be about the wrong thing"
     );
     assert!(
-        fail.receipt.is_none(),
-        "F14 may be FIXED: a receipt exists for the failing scenario, so the bad          diff reached the verifier after all. Invert this block."
+        fail.commits >= 2,
+        "FAIL scenario: the failing diff produced no commit beyond the base, \
+         so the worker suppressed delivery of work that fails its own checks. \
+         That is F14, and it makes Verdict::Failed unreachable."
+    );
+    let fail_receipt = fail
+        .receipt
+        .as_ref()
+        .expect("FAIL scenario delivered, so it must have been graded");
+    assert_eq!(
+        fail_receipt.gate.verdict,
+        cortex_core::verification::Verdict::Failed,
+        "FAIL scenario did not earn a Failed verdict, so the refund path still \
+         cannot fire: {:?}",
+        fail_receipt
+            .executions
+            .iter()
+            .map(|e| (&e.spec_id, e.outcome, e.exit_code))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        fail_receipt
+            .executions
+            .iter()
+            .any(|e| e.spec_id == "ecosystem:cargo-test"
+                && e.outcome == cortex_core::verification::CheckOutcome::Failed),
+        "FAIL scenario: the exam did not run and fail against the delivered \
+         tree, so the verdict is not evidence of anything: {:?}",
+        fail_receipt.executions
     );
 
     // The two directions genuinely differ. Without this, both halves could be
@@ -1280,9 +1292,10 @@ async fn a_stubbed_provider_drives_one_task_to_a_verdict_in_both_directions() {
         pass.step_id, fail.step_id,
         "both scenarios graded the same step"
     );
-    assert!(
-        pass.commits > fail.commits,
-        "the passing scenario did not deliver more than the failing one"
+    assert_ne!(
+        pass_receipt.gate.verdict, fail_receipt.gate.verdict,
+        "both scenarios earned the same verdict, so the pipeline is not \
+         distinguishing work that passes from work that fails"
     );
 
     // --- The evidence -----------------------------------------------------
@@ -1294,7 +1307,7 @@ async fn a_stubbed_provider_drives_one_task_to_a_verdict_in_both_directions() {
         let Some(base) = run.receipt_json.clone() else {
             println!(
                 "
-STUBBED RECEIPT ({label}) — NONE. Nothing was delivered, so                  nothing was graded. See F14.
+STUBBED RECEIPT ({label}) — NONE. Nothing was delivered, so nothing was graded.
 "
             );
             continue;

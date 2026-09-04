@@ -368,14 +368,24 @@ impl Executor {
                         &task.allowed_paths,
                         &task.forbidden_paths,
                     );
-                    let checks_passed = required_checks_allow_commit(&check_evidence);
-
-                    if policy_violation || !checks_passed {
+                    // The required checks deliberately do not gate this
+                    // commit. Their results travel on as evidence, but a
+                    // worker's own report is a diagnostic, not a transition
+                    // guard: ADR-0001, and invariant 6 -- the independent
+                    // verdict is the sole truth. Gating here made the verifier
+                    // tautological, because it could then only ever grade work
+                    // that had already passed the same checks, and it made
+                    // `Verdict::Failed` -- and so the refund the product
+                    // promises -- unreachable. See F14.
+                    //
+                    // The path policy still gates, because that is the
+                    // contract about where the work may touch rather than a
+                    // judgement about whether the work is any good.
+                    if policy_violation {
                         tracing::warn!(
                             step_id = %step.step_id,
                             policy_violation,
-                            checks_passed,
-                            "skipping auto-commit for work that cannot satisfy the dispatch contract"
+                            "skipping auto-commit for work that leaves the paths the contract allows"
                         );
                     } else {
                         let commit_msg = format!("cortex: {}", task.objective);
@@ -1087,13 +1097,6 @@ fn completion_files_changed(
     }
 }
 
-fn required_checks_allow_commit(checks: &[CheckEvidence]) -> bool {
-    checks
-        .iter()
-        .filter(|check| check.required)
-        .all(|check| !check.timed_out && check.exit_code == Some(0))
-}
-
 fn changed_files_have_policy_violation(
     changed_files: &[String],
     allowed_paths: &[String],
@@ -1667,38 +1670,6 @@ mod tests {
     }
 
     #[test]
-    fn required_checks_block_commit_when_required_check_fails() {
-        let checks = vec![CheckEvidence {
-            name: "build".into(),
-            command: "npm run build".into(),
-            required: true,
-            exit_code: Some(1),
-            stdout_excerpt: None,
-            stderr_excerpt: Some("failed".into()),
-            timed_out: false,
-            duration_ms: 10,
-        }];
-
-        assert!(!required_checks_allow_commit(&checks));
-    }
-
-    #[test]
-    fn optional_failed_checks_do_not_block_commit() {
-        let checks = vec![CheckEvidence {
-            name: "optional".into(),
-            command: "npm run lint".into(),
-            required: false,
-            exit_code: Some(1),
-            stdout_excerpt: None,
-            stderr_excerpt: Some("failed".into()),
-            timed_out: false,
-            duration_ms: 10,
-        }];
-
-        assert!(required_checks_allow_commit(&checks));
-    }
-
-    #[test]
     fn changed_files_outside_allowed_paths_block_commit() {
         let changed = vec!["src/main.rs".to_string(), "docs/readme.md".to_string()];
         let allowed = vec!["src".to_string()];
@@ -2209,22 +2180,5 @@ mod tests {
         // Unquoted, but never unbounded.
         assert!(job.budgets.is_unquoted());
         assert_eq!(job.budgets.wall_clock, Budgets::DEFAULT_WALL_CLOCK);
-    }
-
-    #[test]
-    fn a_check_that_could_not_run_is_not_a_check_that_passed() {
-        // A blocked check records no exit code, so nothing downstream can read
-        // it as success and auto-commit on the strength of it.
-        let blocked_check = CheckEvidence {
-            name: "cargo:test".to_string(),
-            command: "cargo test".to_string(),
-            required: true,
-            exit_code: None,
-            stdout_excerpt: None,
-            stderr_excerpt: Some("blocked (sandbox_unavailable): no runtime".to_string()),
-            timed_out: false,
-            duration_ms: 0,
-        };
-        assert!(!required_checks_allow_commit(&[blocked_check]));
     }
 }
