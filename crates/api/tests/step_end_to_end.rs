@@ -318,6 +318,7 @@ async fn a_dispatched_step_can_reach_its_model_and_is_told_about_the_repository(
     // about what the API sent; this is about what the worker does with it, and
     // the gap between those two was where both findings lived.
     let step = cortex_worker::executor::StepExecution {
+        run_id: "run-e2e".to_string(),
         step_id: "step-e2e".to_string(),
         attempt_id: "attempt-e2e".to_string(),
         lease_gen: 1,
@@ -694,6 +695,7 @@ async fn cortex_completes_one_real_task_end_to_end() {
     // the real key. `execute_sandboxed` is the entry point the worker binary
     // uses; there is no test double anywhere below this line.
     let step = cortex_worker::executor::StepExecution {
+        run_id: run_id.clone(),
         step_id: step_id.clone(),
         attempt_id: attempt_id.clone(),
         lease_gen,
@@ -1023,6 +1025,7 @@ async fn drive_one_stubbed_task(scenario: &str) -> StubbedRun {
     );
 
     let step = cortex_worker::executor::StepExecution {
+        run_id: run_id.clone(),
         step_id: step_id.clone(),
         attempt_id: attempt_id.clone(),
         lease_gen,

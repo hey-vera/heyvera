@@ -144,7 +144,7 @@ async fn connect_and_run(
                                 tracing::info!("session: {session_id}, worker: {worker_id}, protocol: v{protocol_version}");
                             }
                             BrainMessage::ExecuteStep {
-                                step_id, attempt_id, lease_gen,
+                                run_id, step_id, attempt_id, lease_gen,
                                 task, decision, delegation, egress,
                                 provider_egress, context, ..
                             } => {
@@ -223,6 +223,11 @@ async fn connect_and_run(
                                 let out = out_tx.clone();
                                 let dir = PathBuf::from(&ws_dir);
                                 let step_exec = StepExecution {
+                                    // Straight from the frame. The brain has
+                                    // always sent it; the worker used to drop
+                                    // it into `..` and then write an empty
+                                    // string onto the job (F17).
+                                    run_id,
                                     step_id: step_id.clone(),
                                     attempt_id,
                                     lease_gen,

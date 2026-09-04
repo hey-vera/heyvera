@@ -22,6 +22,13 @@ use crate::worktree;
 const REQUIRED_CHECK_TIMEOUT_SECS: u64 = 120;
 
 pub struct StepExecution {
+    /// The run this step belongs to, carried onto the job.
+    ///
+    /// The job is the record of what ran, so it has to be able to name the run
+    /// it was part of. `ExecuteStep` has always carried this; the worker used
+    /// to discard it and write an empty string onto every job it built, which
+    /// is a field present in the right shape and saying nothing (F17).
+    pub run_id: String,
     pub step_id: String,
     pub attempt_id: String,
     pub lease_gen: i64,
@@ -696,7 +703,7 @@ fn build_job<R: SandboxRunner>(
     let mut job = ExecutionJob {
         job_id: uuid::Uuid::new_v4().to_string(),
         job_version: EXECUTION_JOB_VERSION,
-        run_id: String::new(),
+        run_id: step.run_id.clone(),
         step_id: step.step_id.clone(),
         attempt_id: step.attempt_id.clone(),
         lease_gen: step.lease_gen,
@@ -1837,6 +1844,7 @@ mod tests {
 
     fn spy_step() -> StepExecution {
         StepExecution {
+            run_id: "run-1".to_string(),
             step_id: format!("step-{}", uuid::Uuid::new_v4()),
             attempt_id: "attempt-1".to_string(),
             lease_gen: 3,
@@ -2230,6 +2238,13 @@ mod tests {
         assert_eq!(job.plan_receipt_id, None);
         assert_eq!(job.isolation_class, IsolationClass::Container);
         assert!(!job.image_ref.is_empty());
+        // F17: the job could not name the run it belonged to. The field was
+        // there and always held an empty string, which reads as "set" to
+        // anything that only checks the shape.
+        assert_eq!(
+            job.run_id, "run-1",
+            "the job does not carry the run it belongs to"
+        );
         assert!(!job.resource_profile.profile_version.is_empty());
         // Unquoted, but never unbounded.
         assert!(job.budgets.is_unquoted());
