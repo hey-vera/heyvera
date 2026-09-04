@@ -33,33 +33,24 @@ COPY testing/stub-provider/claude /usr/local/bin/claude
 RUN chmod 0755 /usr/local/bin/claude
 
 # ---------------------------------------------------------------------------
-# A Rust toolchain, present ONLY because of finding F13.
+# NO Rust toolchain here, and its absence is now load-bearing.
 #
-# This is the one place this image deliberately differs from
-# `Dockerfile.sandbox-provider` by more than the stub, and it is not a
-# convenience -- without it the chain downstream of the provider cannot be
-# exercised at all.
+# This image used to install cargo, solely to get past F13: the worker read
+# CORTEX_SANDBOX_IMAGE for its own required checks, so they ran inside this
+# sandbox image, found no toolchain, exited 127, and -- while the auto-commit
+# was still gated on them -- suppressed delivery entirely.
 #
-# `runner_image()` in crates/worker/src/executor.rs reads CORTEX_SANDBOX_IMAGE,
-# so the worker's own required checks run **inside this sandbox image**, not in
-# the check-runner image. Neither published sandbox image carries a toolchain
-# (the provider image adds node, not rust), so `cargo` exits 127, and
-# `required_checks_allow_commit` -- which demands exit_code == Some(0) from
-# every required check -- then suppresses the auto-commit. The diff is written
-# but never committed, head_commit == base_commit, and nothing is ever
-# delivered to verification.
+# Both halves of that are fixed. The worker now runs its required checks in the
+# check-runner image (`check_runner_image()`, CORTEX_RUNNER_IMAGE) which is
+# built from `Dockerfile.runner` and does carry a toolchain, and the checks no
+# longer gate the commit at all (F14).
 #
-# So a stub image without cargo can only ever reproduce F13. It could never
-# reach a verdict or a receipt, which is what this exercise is for. Cargo is
-# installed here to get PAST F13 and exercise the rest of the chain. F13 itself
-# is reported, not worked around in production code.
-#
-# Debian's cargo rather than rustup: the subject crate has no dependencies and
-# a two-stanza lock file, so the toolchain only needs to be new enough for
-# edition 2021, and a rustup install would put a network fetch inside an image
-# built for a test that asserts nothing is fetched.
-USER root
-RUN apt-get update && apt-get install -y --no-install-recommends cargo     && rm -rf /var/lib/apt/lists/*
+# So this image is once again the exact peer of `Dockerfile.sandbox-provider`,
+# differing only in which executable answers to the name `claude`, which is the
+# symmetry the header claims. It is also the assertion: if the stubbed run
+# still reaches a verdict and a receipt from an image with no cargo in it, the
+# checks demonstrably ran somewhere else, which is precisely what F13's fix
+# claims. Re-adding cargo here would silently retire that proof.
 
 # Same scratch mount point as the provider image, for the same reason: the
 # rootfs is read-only at runtime and HOME/TMPDIR/XDG_* all point at /scratch

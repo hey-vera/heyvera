@@ -2284,6 +2284,23 @@ the chain could be exercised. That is the one place it deliberately differs from
 the provider image by more than the stub, and it is commented as such at the
 point of installation.
 
+**RESOLVED 2026-09-04.** The worker now builds a *second* sandbox for its own
+required checks, from `check_runner_image()` — `CORTEX_RUNNER_IMAGE`, the same
+variable the verification driver reads, whose image is built from
+`Dockerfile.runner` and does carry a toolchain. The agent still runs in
+`CORTEX_SANDBOX_IMAGE`, which still carries the provider CLIs and no toolchain.
+Both workflows already build both images, so nothing in CI changed.
+
+The check job is stripped rather than inherited: `NetworkPolicy::Deny` and no
+capability grants. Because `policy::sanctioned_env` derives the provider key
+*from* the grant, removing the grant removes the key — so a check runs with no
+network and no credential. A check that could reach the network could fetch a
+passing result.
+
+`Dockerfile.sandbox-stub` no longer installs cargo, and its absence is now the
+assertion: a stubbed run that still reaches a verdict from an image with no
+cargo in it proves the checks ran somewhere else.
+
 ### F14. The worker refuses to deliver work that fails its own checks, so `Verdict::Failed` is unreachable
 
 **The finding this task was for**, and it is not a variant of F13 — it survives
@@ -2372,6 +2389,23 @@ the worker's own checks do.
 F13 currently masks this: with no cargo, nothing builds and nothing is
 committed. **Fixing F13 without fixing F15 turns every delivery into a diff
 containing a build directory.**
+
+**RESOLVED 2026-09-04, in the same change as F13** — which is the only safe
+order, per the warning above.
+
+`SCRATCH_ENV` in `crates/worker/src/sandbox/policy.rs` gains
+`CARGO_TARGET_DIR=/scratch/target`, `CARGO_HOME=/scratch/cargo` and
+`npm_config_cache=/scratch/npm`, so build output lands on the scratch tmpfs
+that already existed and dies with the container, rather than in the worktree.
+The verifier's own runner has had the same three variables since F9; this is
+the worker catching up to it.
+
+These are the deliberate exception to the "every value is the mount point
+itself" rule documented above them, and they can be: cargo and npm both create
+their own directories, unlike the provider CLI that forced that rule.
+
+The npm gap named above is unchanged — `ecosystem:npm-ci` still installs into
+`node_modules/` inside the tree, and a cache directory does not rescue it.
 
 ### F16. A step that delivered nothing reports success
 
