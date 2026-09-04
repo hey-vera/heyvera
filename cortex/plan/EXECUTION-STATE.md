@@ -2301,6 +2301,37 @@ passing result.
 assertion: a stubbed run that still reaches a verdict from an image with no
 cargo in it proves the checks ran somewhere else.
 
+**F13 had a second half, and the first fix did not clear it.** A stubbed run
+against the change above still produced:
+
+```
+CheckEvidence { name: "ecosystem:cargo-check", exit_code: Some(127),
+                stderr_excerpt: Some("sh: 1: cargo: not found") }
+```
+
+— in an image built `FROM rust:1.97.1-slim-bookworm`, which plainly contains
+cargo. The cause is `sh -lc`. A **login** shell sources `/etc/profile`, which on
+Debian *overwrites* PATH with a fixed list that does not include
+`/usr/local/cargo/bin`, so the toolchain is present and unreachable. It is now
+`sh -c`, which inherits the environment Docker composed: the image's own PATH,
+plus `SCRATCH_ENV`.
+
+The verifier never hit this because a `CheckSpec` is argv and never goes
+through a shell at all — `Dockerfile.runner` says exactly that at the point
+where it declines to set an `ENTRYPOINT`. Two components running "the same
+checks" differed in a way neither's tests could see.
+
+**What that run also exposed, still open.** With the commit gate gone (F14) the
+diff was committed and delivered correctly — and the brain then logged
+`scheduler: step failed` for a step the worker had reported `Completed`,
+inserted a heal chain, and never dispatched verification, so no receipt was
+ever minted. The 127s are the obvious cause and the shell fix should remove it,
+but *whether the brain fails a step on worker-reported check evidence* is worth
+confirming directly: if it does, that is F14's shape a second time, on the
+other side of the wire, where ADR-0001 says a worker's report is a diagnostic
+and not a transition guard. Confirm against a green run before assuming it is
+gone.
+
 ### F14. The worker refuses to deliver work that fails its own checks, so `Verdict::Failed` is unreachable
 
 **The finding this task was for**, and it is not a variant of F13 — it survives
