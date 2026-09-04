@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-16 (wave 6 / task 2 - the two Phase 35 drafts are one, and round 6 graded the evidence Phases 27-31 lean on)
+**Last updated:** 2026-08-17 (wave 6 / task 4 — stubbed provider drove one task end to end; findings F13-F18)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -49,6 +49,7 @@ re-deriving anything.
 | 26 | Task 4 - Phase 35 (teaching layer) written | **done** - written only, per the brief. PR AU added to the delivery list. |
 | **Wave 6** | | |
 | 27 | Task 2 - reconcile the two Phase 35 drafts; round 6 amendments | **done** - branch `docs/round6-amendments`. Docs only. `docs/round5-teaching` merged by hand and deleted. |
+| 28 | Task 4 - one task end to end with a stubbed provider | **done, nothing merged** - branch `feat/stub-provider-e2e`. Green path proven at zero API cost. **Six findings, F13-F18.** F14 is the one that matters: a failing diff is never delivered, so `Verdict::Failed` is unreachable. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -2224,6 +2225,233 @@ without any lifecycle-state change. PR C's brief states this explicitly and
 fences it: **PR C must not introduce lifecycle states — those are PR A's.**
 
 Reconciled, not deferred. No plan change needed.
+
+## Wave 6 / Task 4 — one task end to end, with a stubbed provider
+
+Branch `feat/stub-provider-e2e`. Zero API cost: no model was consulted, and the
+stub refuses to run unless `ANTHROPIC_API_KEY` is exactly a sentinel non-key, so
+it can never stand in front of a spendable credential.
+
+The premise held. Every finding below is in the wiring, none is in the model
+call, and all five were found by *running* the chain rather than by reading it.
+The stub itself worked first time.
+
+**What is now proven, at zero cost:** a task dispatched, leased, sandboxed,
+handed to a real executable through the real argv, its stdout parsed by the real
+extractors, its diff committed, delivered, graded by the frozen exam in the
+runner image, and the receipt read back over HTTP — verdict `Verified`, with
+`ecosystem:cargo-test` recorded as `Passed` against the delivered tree.
+
+**What is now proven not to work:** the other direction. See F14.
+
+### F13. Neither published sandbox image can execute a required check, and that silently suppresses delivery
+
+`runner_image()` (`crates/worker/src/executor.rs:785`) reads
+`CORTEX_SANDBOX_IMAGE`, so the worker's own required checks run **inside the
+sandbox image** — the same image the provider CLI runs in, not the check-runner
+image.
+
+Neither published sandbox image carries a toolchain. `Dockerfile.sandbox` is
+debian + git + curl + netcat; `Dockerfile.sandbox-provider` adds node, because
+the Claude CLI is distributed on npm. Nothing adds rust. So against a Rust
+repository, every required check exits **127**:
+
+```
+CheckEvidence { name: "ecosystem:cargo-check", exit_code: Some(127),
+                stderr_excerpt: Some("sh: 1: cargo: not found") }
+CheckEvidence { name: "ecosystem:cargo-test",  exit_code: Some(127),
+                stderr_excerpt: Some("sh: 1: cargo: not found") }
+```
+
+That is not merely useless evidence. `required_checks_allow_commit`
+(`executor.rs:1090`) requires `exit_code == Some(0)` from every required check,
+and the auto-commit is skipped when it returns false. So the chain is:
+
+> no toolchain in the image → every required check 127 → commit suppressed →
+> `head_commit == base_commit` → nothing delivered → nothing graded → no receipt
+
+Measured directly: the first stubbed run produced a correct diff
+(`- a - b` / `+ a + b` in the git evidence, `status_porcelain: " M src/lib.rs"`)
+and committed nothing at all.
+
+**This applies to the live path unchanged.** `live-model.yml` builds
+`Dockerfile.sandbox-provider`, which has no cargo either. A real model producing
+a perfect diff would hit exactly this. The live test has never been run to a
+pass, and this is what it would find.
+
+`Dockerfile.sandbox-stub` installs cargo purely to get past F13 so the rest of
+the chain could be exercised. That is the one place it deliberately differs from
+the provider image by more than the stub, and it is commented as such at the
+point of installation.
+
+### F14. The worker refuses to deliver work that fails its own checks, so `Verdict::Failed` is unreachable
+
+**The finding this task was for**, and it is not a variant of F13 — it survives
+fixing F13 and gets worse.
+
+With a toolchain present the checks execute properly, and the commit gate then
+does what it was written to do: it suppresses the commit for any work that fails
+them. Run with a diff the exam genuinely rejects (`a * b`, which satisfies
+`add(2,2)==4` and fails `add(10,5)==15`):
+
+```
+[stub FAIL] Completed { exit_code: 0,
+    base_commit: Some("1cff1e4f…"), head_commit: Some("1cff1e4f…") }
+```
+
+Identical commits. The bad diff was written, judged, and discarded **inside the
+worker**. It was never delivered, so the verification dispatcher never saw it,
+so no receipt exists and no verdict was ever minted.
+
+The consequences are structural, not cosmetic:
+
+1. **The independent verification is tautological.** The verifier can only ever
+   grade trees that already passed the same checks in the sandbox. It re-runs an
+   exam whose passing was a precondition of delivery.
+2. **`Verdict::Failed` cannot be reached from this path.** Its documented
+   purpose is "a required check executed and failed. No charge; refund if
+   charged" — and the refund path added in V3 cannot fire from a worker
+   delivery, because a delivery that would fail never arrives.
+3. **This is why every end-to-end assertion in the repository has only ever
+   asserted green.** Not because nobody wrote the red case, but because the red
+   case cannot occur. A pipeline that can only produce green has not been
+   tested.
+
+The stubbed test now asserts this behaviour explicitly and says, in the
+assertion message, that it must be inverted when F14 is fixed:
+
+```rust
+assert_eq!(fail.commits, 1,
+    "F14 may be FIXED: the failing diff produced a commit …");
+assert!(fail.receipt.is_none(),
+    "F14 may be FIXED: a receipt exists for the failing scenario …");
+```
+
+**The design question this raises is a product decision, not a bug fix.** Either
+the worker stops gating delivery on its own checks and lets the verifier be the
+judge (which is what an independent verifier is *for*), or the frozen exam is
+acknowledged as a pre-delivery filter and the refund promise is re-scoped
+accordingly. Both are defensible; the current state is the one that is not,
+because it ships the refund promise and the machinery that makes it unreachable.
+
+**RESOLVED 2026-09-04 (D2, PR #560, in this branch).** Josh took the first
+option: the verifier alone judges. `required_checks_allow_commit` is gone and
+the worker's checks are evidence rather than a gate, so a failing diff is
+delivered, graded, and recorded as `Verdict::Failed`. The path policy still
+gates the commit, because that is a contract about where work may touch rather
+than a judgement about whether it is good. The end-to-end test's FAIL half is
+inverted and now asserts the red direction it was written to pin.
+
+Note what this does *not* fix: the checks whose results are now reported as
+feedback still run in an image with no toolchain, so they still exit 127 and
+the feedback is still worthless. That is F13, and it is still open.
+
+### F15. The worker's own checks build into the customer's tree, and the artifacts are committed
+
+Once cargo exists in the sandbox, the required checks run `cargo test --locked
+--workspace` **in the worktree**, and the auto-commit then sweeps up everything
+they produced. The delivered diff from a one-line source change:
+
+```
+files_changed: ["src/lib.rs", "target/.rustc_info.json", "target/CACHEDIR.TAG",
+  "target/debug/.cargo-lock", "target/debug/.fingerprint/subject-…/…",
+  "target/debug/deps/libsubject-….rlib", "target/debug/incremental/…", …]
+```
+
+Hundreds of build artifacts, committed as the customer's delivery.
+
+This is a solved problem *elsewhere in the same run*: the frozen-check runner
+executes with its target directory on the scratch tmpfs
+(`/scratch/target/debug/deps/subject-…` appears in the receipt's `output_tail`),
+so the authoritative checks leave the graded tree clean. The worker-side checks
+do not. `Dockerfile.sandbox-provider` already warns in prose about a tool
+writing "into the tree it was asked to change — where they land in the diff, in
+the git evidence, and in what the frozen checks grade". That is precisely what
+the worker's own checks do.
+
+F13 currently masks this: with no cargo, nothing builds and nothing is
+committed. **Fixing F13 without fixing F15 turns every delivery into a diff
+containing a build directory.**
+
+### F16. A step that delivered nothing reports success
+
+In both F13 and F14 the worker emits:
+
+```
+Completed { exit_code: 0, base_commit: Some(X), head_commit: Some(X) }
+```
+
+`execute_sandboxed` returns `Ok(0)`. Nothing in the protocol distinguishes "the
+provider succeeded and delivered a diff" from "the provider succeeded and the
+worker then threw the work away". The suppression is recorded only as a
+`tracing::warn!` on the worker — invisible to the brain, to the receipt, and to
+the customer.
+
+A caller cannot detect this without comparing `base_commit` to `head_commit`
+itself, which is exactly the check the test had to add to find it. Whatever is
+decided for F14, the non-delivery needs to be a typed outcome rather than a log
+line.
+
+### F17. `ExecutionJob.run_id` is empty
+
+Observed on every dispatch:
+
+```
+ExecutionJob { job_id: "77dd8960-…", job_version: 1, run_id: "", step_id: "…" }
+```
+
+The job is the record of what ran, and it cannot name the run it belongs to. The
+comment on `build_job` says every field is set "including the ones nothing
+populates yet, because the job is the record of what ran and a field added later
+cannot describe work that already happened" — the field is present and carries
+an empty string, which is the same problem wearing the right shape.
+
+Small, and worth fixing while the surrounding code is open.
+
+### F18. The same input produced two different verdicts *(observed, not root-caused)*
+
+Two consecutive runs of the identical test against identical images:
+
+| Run | PASS scenario verdict |
+|---|---|
+| 3 | `Inconclusive`, `executions: []` |
+| 4 | `Verified`, `required_passed=2` |
+
+`Inconclusive` with an empty execution set has exactly one source in
+`verify_delivery`: `TreeCheckout::create` failed and returned before any check
+ran. That is `git worktree add --detach <path> <head_commit>` against the
+workspace.
+
+The obvious suspect — the worker's cleanup deleting the step branch
+(`git branch -D`) before the dispatcher checks the commit out — was tested
+directly and **is not it**: `git worktree add --detach` resolves a bare SHA
+fine after the branch is gone. Run 4's log shows the cleanup taking the
+`keeping branch alive for PR creation` path instead, so the two runs did not
+even take the same cleanup branch.
+
+Reported rather than diagnosed. It is a race between worker cleanup and the
+verification dispatcher over the delivered commit, it is non-deterministic, and
+`Inconclusive` is the fail-safe direction (no charge, no refund) — but a verdict
+that varies with timing on identical input is not a verdict. The tracing
+subscriber added to the test in this branch is what makes the next occurrence
+diagnosable; it was invisible before because integration tests install no
+subscriber and the driver's `tracing::error!` went nowhere.
+
+### What this branch does not claim
+
+No model was consulted. Nothing here is evidence that Cortex completed a task —
+that claim belongs to `live-model.yml` and to nothing else. The receipt is
+printed with the disclaimer inside the JSON rather than beside it, the image tag
+is `cortex/sandbox:STUBBED`, the workflow artifact is named
+`STUBBED-NOT-EVIDENCE-of-task-completion`, and the workflow refuses to run at
+all if a real provider credential is in scope.
+
+One gap worth naming: **the `Receipt` struct has no field for provider identity,
+so the receipt cannot record that the provider was stubbed** in a
+machine-readable way. `Receipt` lives in `db.rs`, which this task was scoped out
+of, so the disclaimer is injected into the printed JSON by the test instead.
+That is sufficient for a log a human reads and insufficient for a receipt a
+program trusts. Worth closing when `db.rs` is next open.
 
 ## Rules in force
 

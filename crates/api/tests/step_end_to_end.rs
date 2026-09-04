@@ -868,3 +868,461 @@ async fn cortex_completes_one_real_task_end_to_end() {
         serde_json::to_string_pretty(&json).unwrap()
     );
 }
+
+// ===========================================================================
+// The same chain, with a scripted provider standing in for the model.
+//
+// This lives beside the live test on purpose. It reuses every helper above --
+// the same repository, the same app, the same `cwk_` credential, the same
+// `first_execute_step`, the same `execute_sandboxed`. A reader comparing the
+// two should find exactly one difference: which executable answers to the name
+// `claude`. Anything else that differed would be a second variable in an
+// experiment that already has one.
+//
+// WHY NOT `ScriptedRunner`
+//
+// `ScriptedRunner` is a Rust double swapped in at a trait boundary, and every
+// wiring finding to date -- F0, F9, F10, F11, F12 -- lived *below* that
+// boundary: argv construction, the container, the unprivileged user, a
+// writable HOME, the worktree mount, stdout framing, the auto-commit, diff
+// extraction. A double replaces precisely the region the bugs were in. So the
+// stub here is a real executable in a real image, and nothing between the
+// scheduler and the process is replaced.
+// ===========================================================================
+
+/// The non-key the stub demands. It authenticates nothing, anywhere.
+const STUB_SENTINEL_KEY: &str = "STUB-PROVIDER-NOT-A-REAL-KEY";
+
+/// Gate for the stubbed chain, shaped like [`live_model_gate`].
+///
+/// Stricter in one direction than the live gate, and deliberately so: this test
+/// must be impossible to point at a real provider. A sandbox image that is not
+/// visibly stubbed, or a credential that is not the sentinel, is a hard failure
+/// rather than a skip -- both would mean the run could spend money while
+/// reporting under a name that says it did not.
+fn stub_provider_gate() -> Option<String> {
+    if std::env::var("CORTEX_STUB_PROVIDER_IT").as_deref() != Ok("1") {
+        return Some("CORTEX_STUB_PROVIDER_IT is not 1".to_string());
+    }
+
+    for required in [
+        "CORTEX_SANDBOX_IMAGE",
+        "CORTEX_EGRESS_IMAGE",
+        "CORTEX_RUNNER_IMAGE",
+    ] {
+        assert!(
+            std::env::var(required).is_ok_and(|v| !v.trim().is_empty()),
+            "CORTEX_STUB_PROVIDER_IT=1 but {required} is unset."
+        );
+    }
+
+    // The image must announce itself. `cortex/sandbox:STUBBED` is the tag
+    // `Dockerfile.sandbox-stub` builds; anything else here could be the real
+    // provider image, and this test's assertions would then be describing a
+    // model run under a name that says "stub".
+    let image = std::env::var("CORTEX_SANDBOX_IMAGE").unwrap();
+    assert!(
+        image.to_ascii_uppercase().contains("STUB"),
+        "CORTEX_SANDBOX_IMAGE is {image:?}, which does not identify itself as a \
+         stub. This test may only run against a sandbox image that cannot be \
+         mistaken for a provider."
+    );
+
+    // And the credential must be the sentinel. If a real key is present the
+    // correct action is to stop: not because this stub would spend it -- it is
+    // a shell script and refuses -- but because a run holding a live key while
+    // claiming zero cost is a claim nobody should have to verify by reading a
+    // Dockerfile.
+    match std::env::var("ANTHROPIC_API_KEY") {
+        Ok(k) if k == STUB_SENTINEL_KEY => {}
+        Ok(_) => panic!(
+            "ANTHROPIC_API_KEY is set to something other than the sentinel \
+             non-key. Refusing: this test asserts zero API cost and will not \
+             run beside a live credential."
+        ),
+        Err(_) => std::env::set_var("ANTHROPIC_API_KEY", STUB_SENTINEL_KEY),
+    }
+
+    None
+}
+
+/// What one stubbed run produced. Everything the assertions need, collected in
+/// one place so the two scenarios are compared rather than re-derived.
+struct StubbedRun {
+    step_id: String,
+    receipt: Option<cortex_api::db::Receipt>,
+    step_status: Option<String>,
+    commits: usize,
+    blocked_detail: Option<String>,
+    saw_completion: bool,
+    receipt_json: Option<serde_json::Value>,
+}
+
+/// Drive one task through the whole chain with the stub standing in.
+///
+/// `scenario` is `"PASS"` or `"FAIL"` and travels **in the goal**, which is the
+/// point: the stub reads it back out of the rendered prompt. If the context
+/// never reached the model the sentinel is absent, the stub exits 66 rather
+/// than inventing a diff, and this returns a failed run instead of a green one.
+/// That is F8 wired as a live tripwire rather than as a comment.
+async fn drive_one_stubbed_task(scenario: &str) -> StubbedRun {
+    let repo = a_repository_with_one_failing_test();
+
+    // Ground truth first, exactly as the live test does: if the subject's test
+    // already passed, a `Verified` at the end would be a statement about cargo.
+    let baseline = std::process::Command::new("cargo")
+        .args(["test", "--locked"])
+        .current_dir(repo.path())
+        .output()
+        .expect("cargo is on PATH");
+    assert!(
+        !baseline.status.success(),
+        "the subject repository already passes; neither scenario would mean anything"
+    );
+
+    let (app, state) = test_app(repo.path()).await;
+    cortex_api::verification_dispatcher::assert_single_node()
+        .expect("CORTEX_SINGLE_NODE is set by the caller");
+    cortex_api::verification_dispatcher::spawn(state.clone());
+
+    let base_url = serve_app(app.clone()).await;
+    let (mut sink, mut stream) = connect_worker(&base_url, issue_worker_key(&state)).await;
+
+    let goal =
+        format!("fix the bug in src/lib.rs so that cargo test passes. STUB-SCENARIO: {scenario}");
+    let run_id = create_run(&app, &goal).await;
+
+    let frame = first_execute_step(&mut stream).await;
+    let BrainMessage::ExecuteStep {
+        step_id,
+        attempt_id,
+        lease_gen,
+        task,
+        decision,
+        context,
+        egress,
+        provider_egress,
+        ..
+    } = frame
+    else {
+        unreachable!("first_execute_step only returns ExecuteStep")
+    };
+
+    // The exam is frozen before the stub sees the task, and it must contain a
+    // check that can actually fail -- otherwise the FAIL scenario cannot be
+    // distinguished from the PASS one and the whole exercise is decorative.
+    let required: Vec<&str> = task
+        .required_checks
+        .iter()
+        .filter(|c| c.required)
+        .map(|c| c.name.as_str())
+        .collect();
+    assert!(
+        required.contains(&"ecosystem:cargo-test"),
+        "the frozen exam has no executable ground truth: {required:?}"
+    );
+
+    let step = cortex_worker::executor::StepExecution {
+        step_id: step_id.clone(),
+        attempt_id: attempt_id.clone(),
+        lease_gen,
+        egress,
+        provider_egress,
+        context,
+    };
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<cortex_worker::stream::WorkerEvent>(64);
+    let workspace = repo.path().to_path_buf();
+    let task_for_exec = task.clone();
+    let decision_for_exec = decision.clone();
+    let exec = tokio::spawn(async move {
+        cortex_worker::executor::Executor::execute_sandboxed(
+            &task_for_exec,
+            &decision_for_exec,
+            &step,
+            tx,
+            workspace.as_path(),
+        )
+        .await
+    });
+
+    let mut saw_completion = false;
+    let mut blocked_detail: Option<String> = None;
+    while let Some(event) = rx.recv().await {
+        // Every event, printed. This is the only diagnostic channel the test
+        // has: the crates use `tracing`, and an integration test installs no
+        // subscriber, so RUST_LOG produces nothing at all here. Without this a
+        // failure downstream can only report that a receipt never arrived.
+        eprintln!("[stub {scenario}] worker event: {event:?}");
+        if let cortex_worker::stream::WorkerEvent::Blocked { blocked, .. } = &event {
+            blocked_detail = Some(format!("{}: {}", blocked.reason.as_str(), blocked.detail));
+        }
+        if matches!(event, cortex_worker::stream::WorkerEvent::Completed { .. }) {
+            saw_completion = true;
+        }
+        let message = cortex_worker::report::worker_event_to_message(event);
+        sink.send(WsMessage::Text(
+            serde_json::to_string(&message).unwrap().into(),
+        ))
+        .await
+        .expect("worker frame sent");
+    }
+    let exit = exec.await.expect("executor task joins");
+    eprintln!("[stub {scenario}] execute_sandboxed returned: {exit:?}");
+
+    let log = std::process::Command::new("git")
+        .args(["log", "--all", "--format=%H", "-n", "20"])
+        .current_dir(repo.path())
+        .output()
+        .expect("git log runs");
+    let commits = String::from_utf8_lossy(&log.stdout).lines().count();
+
+    // Diagnose BEFORE polling for a receipt.
+    //
+    // The first version of this helper polled first, so a step that never
+    // executed at all timed out after ten minutes reporting only "no receipt"
+    // -- which names the symptom furthest from the cause and throws away the
+    // evidence already in hand. If the provider was blocked, or never
+    // completed, or produced no commit, THAT is the finding; a missing receipt
+    // is downstream of it and says nothing on its own.
+    assert!(
+        blocked_detail.is_none(),
+        "scenario {scenario}: the step was BLOCKED before or during the provider invocation, so nothing could be graded: {}",
+        blocked_detail.clone().unwrap_or_default()
+    );
+    assert!(
+        saw_completion,
+        "scenario {scenario}: the stub process never reported completion; the sandbox did not run it to a clean exit."
+    );
+    // NOT asserted here: that a commit exists, or how many. Both directions
+    // now deliver, but what each one should produce is the caller's claim to
+    // make, so the caller asserts it for its own direction.
+
+    // A delivery that never happened is never graded, so polling for a receipt
+    // would burn the full ten-minute deadline to rediscover something already
+    // visible: head_commit == base_commit. Short-circuit instead, and let the
+    // caller decide whether that is the expected outcome for its direction.
+    let delivered = commits >= 2;
+
+    let (receipt, receipt_json) = if !delivered {
+        (None, None)
+    } else {
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(600);
+        let receipt = loop {
+            if let Some(db) = state.db.as_ref() {
+                if let Some(receipt) = db.get_receipt(&run_id, &step_id) {
+                    break receipt;
+                }
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "scenario {scenario}: the provider ran, committed a diff, and the worker reported completion -- but no receipt exists for step {step_id} after 10 minutes. Delivery reached the brain and the verification dispatcher never graded it."
+            );
+            tokio::time::sleep(Duration::from_secs(2)).await;
+        };
+
+        let resp = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("GET")
+                    .uri(format!("/api/runs/{run_id}/steps/{step_id}/receipt"))
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            resp.status(),
+            StatusCode::OK,
+            "the receipt is not readable over the API (scenario {scenario})"
+        );
+        let bytes = resp.into_body().collect().await.unwrap().to_bytes();
+        let json: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        (Some(receipt), Some(json))
+    };
+
+    let step_status = state
+        .db
+        .as_ref()
+        .and_then(|db| db.get_step_status(&step_id));
+
+    StubbedRun {
+        step_id,
+        receipt,
+        step_status,
+        commits,
+        blocked_detail,
+        saw_completion,
+        receipt_json,
+    }
+}
+
+/// One task, end to end, twice: a diff the frozen exam passes and a diff it
+/// fails.
+///
+/// Both directions in one test, sequentially, for two reasons. The env the
+/// sandbox reads is process-global, so two parallel tests would race over it.
+/// And the claim being made is comparative -- "this pipeline can produce red as
+/// well as green" is not two facts, it is one, and splitting it lets half of it
+/// pass alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stubbed_provider_drives_one_task_to_a_verdict_in_both_directions() {
+    if let Some(reason) = stub_provider_gate() {
+        eprintln!(
+            "\n\
+             ==========================================================================\n\
+             SKIPPED: a_stubbed_provider_drives_one_task_to_a_verdict_in_both_directions\n\
+             REASON:  {reason}\n\
+             \n\
+             This test proves the WIRING either side of a provider call, at zero\n\
+             API cost. It proves nothing whatsoever about a model.\n\
+             ==========================================================================\n"
+        );
+        return;
+    }
+
+    // Without this the driver's own `tracing::error!` -- the line that says
+    // WHY a verdict was Inconclusive -- is discarded, and the test can only
+    // report that the verdict was wrong.
+    let _ = tracing_subscriber::fmt()
+        .with_env_filter(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "cortex_api=debug,cortex_worker=debug".into()),
+        )
+        .with_test_writer()
+        .try_init();
+
+    std::env::set_var("CORTEX_SINGLE_NODE", "1");
+
+    // --- The diff the exam accepts: a full green path ------------------
+    let pass = drive_one_stubbed_task("PASS").await;
+
+    assert!(
+        pass.commits >= 2,
+        "PASS scenario: no commit beyond the base, so nothing was delivered"
+    );
+    let pass_receipt = pass
+        .receipt
+        .as_ref()
+        .expect("PASS scenario delivered, so it must have been graded");
+    assert_eq!(
+        pass_receipt.gate.verdict,
+        cortex_core::verification::Verdict::Verified,
+        "PASS scenario did not earn a Verified verdict: {:?}",
+        pass_receipt
+            .executions
+            .iter()
+            .map(|e| (&e.spec_id, e.outcome, e.exit_code))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        pass_receipt
+            .executions
+            .iter()
+            .any(|e| e.spec_id == "ecosystem:cargo-test"
+                && e.outcome == cortex_core::verification::CheckOutcome::Passed),
+        "PASS scenario: cargo test did not run against the delivered tree: {:?}",
+        pass_receipt.executions
+    );
+    assert!(
+        pass_receipt
+            .executions
+            .iter()
+            .all(|e| !e.runner_image.is_empty()),
+        "PASS scenario: an execution does not record where it ran"
+    );
+    assert!(
+        pass.step_status.is_some(),
+        "PASS scenario: the step never reached a recorded state"
+    );
+
+    // --- The diff the exam should reject ----------------------------------
+    //
+    // This is the half that F14 made unreachable, and it is the half the
+    // product is sold on: work that fails is delivered anyway, graded by the
+    // independent verifier, and recorded as `Verdict::Failed` -- the verdict
+    // the refund path exists to serve.
+    //
+    // The worker no longer discards a diff that fails its own checks. Its
+    // checks are evidence, not a gate, so the verifier grades a tree it did
+    // not pre-approve and the red direction can actually occur.
+    let fail = drive_one_stubbed_task("FAIL").await;
+
+    assert!(
+        fail.saw_completion,
+        "FAIL scenario: the stub never ran to completion, so the assertions \
+         below would be about the wrong thing"
+    );
+    assert!(
+        fail.commits >= 2,
+        "FAIL scenario: the failing diff produced no commit beyond the base, \
+         so the worker suppressed delivery of work that fails its own checks. \
+         That is F14, and it makes Verdict::Failed unreachable."
+    );
+    let fail_receipt = fail
+        .receipt
+        .as_ref()
+        .expect("FAIL scenario delivered, so it must have been graded");
+    assert_eq!(
+        fail_receipt.gate.verdict,
+        cortex_core::verification::Verdict::Failed,
+        "FAIL scenario did not earn a Failed verdict, so the refund path still \
+         cannot fire: {:?}",
+        fail_receipt
+            .executions
+            .iter()
+            .map(|e| (&e.spec_id, e.outcome, e.exit_code))
+            .collect::<Vec<_>>()
+    );
+    assert!(
+        fail_receipt
+            .executions
+            .iter()
+            .any(|e| e.spec_id == "ecosystem:cargo-test"
+                && e.outcome == cortex_core::verification::CheckOutcome::Failed),
+        "FAIL scenario: the exam did not run and fail against the delivered \
+         tree, so the verdict is not evidence of anything: {:?}",
+        fail_receipt.executions
+    );
+
+    // The two directions genuinely differ. Without this, both halves could be
+    // describing the same run.
+    assert_ne!(
+        pass.step_id, fail.step_id,
+        "both scenarios graded the same step"
+    );
+    assert_ne!(
+        pass_receipt.gate.verdict, fail_receipt.gate.verdict,
+        "both scenarios earned the same verdict, so the pipeline is not \
+         distinguishing work that passes from work that fails"
+    );
+
+    // --- The evidence -----------------------------------------------------
+    //
+    // Printed with the disclaimer attached to the receipt itself, not beside
+    // it. A receipt quoted out of a log loses its surroundings, so the words
+    // that stop it being cited as a completed task travel inside the JSON.
+    for (label, run) in [("PASS", &pass), ("FAIL", &fail)] {
+        let Some(base) = run.receipt_json.clone() else {
+            println!(
+                "
+STUBBED RECEIPT ({label}) — NONE. Nothing was delivered, so nothing was graded.
+"
+            );
+            continue;
+        };
+        let mut json = base;
+        json["STUBBED"] = serde_json::json!({
+            "provider": "STUB — no model was consulted",
+            "sandbox_image": std::env::var("CORTEX_SANDBOX_IMAGE").unwrap_or_default(),
+            "evidence_value": "NONE. This receipt must never be cited as \
+                               evidence that Cortex completed a task. It \
+                               demonstrates wiring only.",
+        });
+        println!(
+            "\nSTUBBED RECEIPT ({label}) — NOT EVIDENCE OF A COMPLETED TASK\n{}\n",
+            serde_json::to_string_pretty(&json).unwrap()
+        );
+    }
+}
