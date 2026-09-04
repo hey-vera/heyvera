@@ -2530,6 +2530,57 @@ subscriber added to the test in this branch is what makes the next occurrence
 diagnosable; it was invisible before because integration tests install no
 subscriber and the driver's `tracing::error!` went nowhere.
 
+### F19. The brain rejects a delivery on the worker's own check evidence, so `Verdict::Failed` was still unreachable
+
+F14 a second time, one hop further on, and it survived fixing F14.
+
+Found by running the stubbed chain after the commit gate was removed. The
+worker did its part correctly — auto-committed the diff, `head_commit !=
+base_commit`, `Completed` — and then:
+
+```
+cortex_api::scheduler: scheduler: step failed a9cc3300-… in run 6c2f9722-…
+cortex_api::scheduler: inserted heal chain for step a9cc3300-…
+```
+
+No receipt was ever minted, and the test failed on the PASS scenario with *"no
+receipt exists … Delivery reached the brain and the verification dispatcher
+never graded it."*
+
+The path: `ws.rs` calls `verify_worker_completion`, which builds a
+`VerifierInput` whose evidence is **the worker's own report** — its check
+outcomes, its command outcomes — and runs `verify_step` on it.
+`decide_verdict` (`crates/engine/src/verifier.rs:437`) returns
+`VerifierVerdict::Failed` when `!required_check_summary.failed.is_empty()`.
+That becomes `verified_success = false`, which calls
+`db.fail_step(…, "VerifierRejected")` instead of `db.deliver_step(…)`. A step
+that is never delivered never reaches `status = 'verifying'`, so the
+verification dispatcher never sees it.
+
+So the independent verifier could still only ever grade work that had already
+passed the worker's own checks — the exact property F14 was raised to remove —
+and `Verdict::Failed`, with the refund behind it, was still unreachable.
+
+Note the asymmetry that hid this: the *real* verification path
+(`verify_from_executions`) already treats worker evidence correctly. It decides
+from `compute_verdict(specs, executions)` and keeps the worker's account in a
+field called `worker_hints`, with a test named
+`worker_evidence_survives_as_a_hint` asserting it is "demonstrably not
+load-bearing". Only the pre-screen in `ws.rs` gave it authority.
+
+**RESOLVED 2026-09-04.** `passed` in `verify_worker_completion` is now
+`!matches!(report.verdict, VerifierVerdict::Blocked)`. What that boolean
+decides is whether the step is delivered *for grading*, not whether it is any
+good, so it turns on contract violations only — edits outside the allowed
+paths, or a stale base. That is the same line the worker's own auto-commit
+draws: where the work was permitted to touch is a contract, whether it is
+correct is the verifier's call.
+
+`decide_verdict` is deliberately **unchanged**. It is also what produces
+`worker_hints` on the real path, and it is telling the truth — by the worker's
+own account the checks failed. The report is still recorded verbatim. It simply
+no longer decides a transition.
+
 ### What this branch does not claim
 
 No model was consulted. Nothing here is evidence that Cortex completed a task —

@@ -1115,7 +1115,28 @@ fn verify_worker_completion(
     let report = verify_step(input.clone());
     let status = verifier_status(report.verdict).to_string();
     let verdict = verifier_verdict(report.verdict).to_string();
-    let passed = report.verdict.is_success();
+
+    // What this boolean decides is whether the step is *delivered for
+    // independent verification*, not whether it is any good. So it turns on
+    // contract violations only.
+    //
+    // `report` is built from the worker's own account of itself, and every
+    // input to it -- the check outcomes, the command outcomes, the evidence
+    // floor -- is worker-reported. Rejecting a step here on that basis is
+    // F14's mistake one hop further on: the work never reaches the dispatcher,
+    // never earns a verdict, and `Verdict::Failed` and the refund behind it
+    // stay unreachable. ADR-0001 and invariant 6 both say a worker's report is
+    // a diagnostic and not a transition guard. See F19.
+    //
+    // `Blocked` is the exception and stays a gate, because it means the
+    // *contract* was broken -- edits outside the allowed paths, or a base that
+    // no longer matches. That is a fact about what the work was permitted to
+    // touch rather than a judgement about whether it is correct, which is the
+    // same line the worker's own auto-commit draws.
+    //
+    // The report itself is unchanged and still recorded verbatim below, so the
+    // diagnosis survives even though it no longer decides anything.
+    let passed = !matches!(report.verdict, VerifierVerdict::Blocked);
     let diagnostic = verifier_diagnostic(&status, &verdict, &report);
     let evidence_json = serde_json::json!({
         "source": "engine_verifier",
