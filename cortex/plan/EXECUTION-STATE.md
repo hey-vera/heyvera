@@ -2334,6 +2334,18 @@ acknowledged as a pre-delivery filter and the refund promise is re-scoped
 accordingly. Both are defensible; the current state is the one that is not,
 because it ships the refund promise and the machinery that makes it unreachable.
 
+**RESOLVED 2026-09-04 (D2, PR #560, in this branch).** Josh took the first
+option: the verifier alone judges. `required_checks_allow_commit` is gone and
+the worker's checks are evidence rather than a gate, so a failing diff is
+delivered, graded, and recorded as `Verdict::Failed`. The path policy still
+gates the commit, because that is a contract about where work may touch rather
+than a judgement about whether it is good. The end-to-end test's FAIL half is
+inverted and now asserts the red direction it was written to pin.
+
+Note what this does *not* fix: the checks whose results are now reported as
+feedback still run in an image with no toolchain, so they still exit 127 and
+the feedback is still worthless. That is F13, and it is still open.
+
 ### F15. The worker's own checks build into the customer's tree, and the artifacts are committed
 
 Once cargo exists in the sandbox, the required checks run `cargo test --locked
