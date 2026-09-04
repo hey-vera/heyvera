@@ -763,7 +763,7 @@ dependencies = [
  "anyhow",
  "async-stream",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "bollard",
  "chrono",
  "cortex-context",
@@ -1578,7 +1578,7 @@ dependencies = [
  "aes-gcm",
  "anyhow",
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "hex",
  "hmac",
@@ -3754,7 +3754,7 @@ dependencies = [
 name = "soma"
 version = "0.1.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "dirs-next",
  "ed25519-dalek",
