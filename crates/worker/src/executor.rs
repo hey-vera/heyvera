@@ -1302,10 +1302,24 @@ async fn run_required_checks<R: SandboxRunner>(
         check_job.network_policy = cortex_core::execution_job::NetworkPolicy::Deny;
         check_job.capability_grants = Vec::new();
 
+        // `-c`, deliberately not `-lc`. A login shell sources `/etc/profile`,
+        // which on Debian *overwrites* PATH with a fixed list that does not
+        // include `/usr/local/cargo/bin` -- so `cargo` is unfindable in an
+        // image that plainly contains it, and the check exits 127 saying
+        // `cargo: not found`.
+        //
+        // That is the second half of F13, and it survived pointing the checks
+        // at the runner image: the toolchain was there and the login shell hid
+        // it. The verifier never hit this because a `CheckSpec` is argv and
+        // never goes through a shell at all (`Dockerfile.runner`).
+        //
+        // A non-login shell inherits the container's environment as Docker
+        // composed it -- the image's own PATH, plus `SCRATCH_ENV` -- which is
+        // exactly what a check should see.
         let request = SandboxRequest::new(
             working_dir,
             "sh",
-            vec!["-lc".to_string(), check.command.clone()],
+            vec!["-c".to_string(), check.command.clone()],
         );
 
         let session = match runner.submit(&check_job, &request).await {
