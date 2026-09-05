@@ -306,6 +306,20 @@ impl CheckRunner for ContainerCheckRunner {
 
         let exit_code = match waited {
             Some(Ok(response)) => response.status_code,
+            // A check that ran and failed. Bollard reports a non-zero exit from
+            // `wait_container` as an *error* carrying the code, not as an `Ok`
+            // response, so without this arm every genuinely failing check was
+            // absorbed by the one below as "we could not run it" — and
+            // `CheckOutcome::Failed` was unreachable from the container runner.
+            //
+            // That was F20, and it is the last place the same mistake lived:
+            // the verifier could execute a check, watch it fail, and record
+            // that it had not been executed. A `Verdict::Failed` cannot be
+            // reached if no check can be recorded as failing, so the refund
+            // path stayed unreachable even after F14 and F19.
+            Some(Err(ref e)) if exit_code_from_wait_error(e).is_some() => {
+                exit_code_from_wait_error(e).expect("guarded by the arm above")
+            }
             // The container vanished, or Docker failed mid-wait. We genuinely
             // do not know what happened to the check, so this is ours to
             // absorb — INCONCLUSIVE, never a charge and never a refund.
@@ -339,6 +353,31 @@ impl CheckRunner for ContainerCheckRunner {
 
     fn runner_image(&self) -> &str {
         &self.image
+    }
+}
+
+/// The exit code hiding inside a `wait_container` error, if that is what it is.
+///
+/// Bollard does not report a non-zero container exit as an `Ok` response. It
+/// reports it as `Error::DockerContainerWaitError`, carrying the code. So the
+/// obvious reading of the wait stream — `Ok` is an exit, `Err` is a failure of
+/// ours — classifies **every check that runs and fails** as a check that could
+/// not be run.
+///
+/// That was F20. Its consequence was that `CheckOutcome::Failed` was
+/// unreachable from the container runner: the verifier could start a check,
+/// watch it fail, and record `NotExecuted`. A verdict of `Failed` needs a check
+/// recorded as failed, so the refund path stayed unreachable even after the
+/// worker (F14) and the brain (F19) stopped discarding failing work.
+///
+/// Split out from the wait so it can be tested without a Docker daemon. The
+/// reason F20 survived is that nothing in this file's tests ever reached the
+/// container path — the same shape as F9, which its own comment warns about
+/// twenty lines up.
+fn exit_code_from_wait_error(e: &bollard::errors::Error) -> Option<i64> {
+    match e {
+        bollard::errors::Error::DockerContainerWaitError { code, .. } => Some(*code),
+        _ => None,
     }
 }
 
@@ -538,5 +577,41 @@ mod tests {
         // The point of the test: this must not panic on a byte-index slice,
         // and the result must be valid UTF-8 by construction.
         assert!(tail.chars().count() > 0);
+    }
+
+    #[test]
+    fn a_check_that_ran_and_failed_is_not_a_check_that_could_not_run() {
+        // F20. Bollard reports a non-zero container exit from `wait_container`
+        // as an error carrying the code, so reading `Err` as "our failure"
+        // makes every failing check `NotExecuted` — and `Verdict::Failed`
+        // unreachable from the container runner, which is the verdict the
+        // refund path exists to serve.
+        let failed = bollard::errors::Error::DockerContainerWaitError {
+            error: "test failed, to rerun pass `--lib`".to_string(),
+            code: 101,
+        };
+        assert_eq!(
+            exit_code_from_wait_error(&failed),
+            Some(101),
+            "a non-zero exit must be read as an exit, not as a runner failure"
+        );
+    }
+
+    #[test]
+    fn a_genuine_docker_failure_stays_inconclusive() {
+        // The other direction, and the reason the arm is narrow: if Docker
+        // itself fails we do not know what happened to the check, and that
+        // must stay ours to absorb — no charge, no refund. Widening this to
+        // "any wait error means the check failed" would charge a customer for
+        // our outage.
+        let broken = bollard::errors::Error::DockerResponseServerError {
+            status_code: 500,
+            message: "server error".to_string(),
+        };
+        assert_eq!(
+            exit_code_from_wait_error(&broken),
+            None,
+            "a Docker failure must not be reported as the customer's check failing"
+        );
     }
 }

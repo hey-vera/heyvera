@@ -2530,6 +2530,40 @@ subscriber added to the test in this branch is what makes the next occurrence
 diagnosable; it was invisible before because integration tests install no
 subscriber and the driver's `tracing::error!` went nowhere.
 
+**ROOT-CAUSED AND RESOLVED 2026-09-04. It was not a race over the commit.**
+
+`Database::get_receipt` does not read a stored receipt — it *assembles* one,
+recomputing the gate with `compute_verdict(&specs, &executions)` from whatever
+`verification_checks` rows exist **at read time**. The `verification_runs` row
+is created when the dispatcher *claims* the job, so from that instant a receipt
+exists, and its verdict changes underneath the reader as checks land:
+`Inconclusive` with `executions: []`, then whatever the executions say.
+
+Anything polling for "a receipt exists" gets whichever state it happens to hit.
+That is the whole of F18: not two verdicts for one input, but one verdict read
+too early. The suspected worker-cleanup race was correctly ruled out and was
+never involved.
+
+It was caught by running the chain with F19 fixed: the FAIL scenario reached the
+verifier, the dispatcher logged `claimed a verification job` at `00:10:53.232`,
+and the test read the receipt at `00:10:53.645` — 413 ms later, finding
+`Inconclusive` with only `ecosystem:cargo-check` recorded, while
+`ecosystem:cargo-test` had not finished.
+
+The fix is one clause: `get_receipt` selects only rows with
+`finished_at IS NOT NULL`. Until `finish_verification` seals it there is no
+receipt, and the API returns 404 rather than a preview. Reading the verdict
+from the stored column instead would not have fixed it — that column says
+`pending` until the same moment.
+
+Recomputing the gate rather than storing it is still right, and the comment on
+`get_receipt` explaining why still stands; it was the *unsealed* read that was
+wrong, not the derivation.
+
+A unit test pins all three states — claimed, partially executed, sealed —
+because the failure mode was timing-dependent and therefore invisible to any
+test that did not construct the intermediate state deliberately.
+
 ### F19. The brain rejects a delivery on the worker's own check evidence, so `Verdict::Failed` was still unreachable
 
 F14 a second time, one hop further on, and it survived fixing F14.
@@ -2614,3 +2648,46 @@ program trusts. Worth closing when `db.rs` is next open.
   failure. It **passed** on this machine during PR A (316/316 on the api lib).
   Treat any failure of it as suspect rather than expected.
 - If a brief and the plan disagree, the plan wins and the brief is fixed.
+
+### F20. A check that ran and failed was recorded as a check that could not run
+
+The last place the same mistake lived, and the one that kept `Verdict::Failed`
+unreachable after both F14 and F19 were fixed.
+
+Found by running the chain with F18 and F19 fixed. The FAIL scenario reached
+the independent verifier, the verifier ran the exam, and:
+
+```
+WARN  check runner failed; retrying  spec_id=ecosystem:cargo-test attempt=0
+      error=runner failed while executing: wait failed for check
+            ecosystem:cargo-test: Docker container wait error
+ERROR check could not be executed after retries; verdict will be inconclusive
+INFO  verification complete verdict=Inconclusive required_passed=1 required_total=2
+```
+
+Three retries, all identical, and only ever for the one check that exits
+non-zero. The PASS tree's `cargo test` exits 0 and completes normally.
+
+**Bollard does not report a non-zero container exit as an `Ok` response.** It
+reports it as `Error::DockerContainerWaitError`, carrying the code. So
+`check_runner.rs`'s wait — which read `Ok` as an exit and `Err` as a failure of
+ours — classified every check that ran and failed as a check that could not be
+run: `CheckOutcome::NotExecuted`, and `Inconclusive` as the fail-safe.
+
+`CheckOutcome::Failed` was therefore unreachable from the container runner. A
+`Verdict::Failed` needs a check recorded as failed, so the refund path stayed
+unreachable even after the worker stopped discarding failing work (F14) and the
+brain stopped rejecting it (F19).
+
+**RESOLVED 2026-09-04.** The wait error is inspected for the exit code it
+carries and treated as an exit; anything else stays `Inconclusive`, because a
+Docker failure is genuinely ours to absorb and charging a customer for our
+outage would be worse than the bug. The mapping is split into a pure function
+and tested in both directions without a daemon.
+
+Why it survived: nothing in `check_runner.rs`'s tests ever reached the
+container path — they all exercise `container_config`, which is pure. That is
+the same shape as F9, whose own comment in this file warns about exactly this
+("every test of the driver uses a `ScriptedRunner` … the one place a spec
+becomes a running process had no test at all"). The warning was written and the
+gap it named was still there one layer down.
