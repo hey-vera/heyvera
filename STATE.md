@@ -1,0 +1,84 @@
+# State
+
+What is true now, and who each open thing is waiting on. Updated 2026-09-04.
+
+For *how* to work here, read [AGENTS.md](AGENTS.md) then
+[CONTRIBUTING.md](CONTRIBUTING.md). For why a thing is the way it is, read
+`cortex/plan/EXECUTION-STATE.md` — this file is the summary, that one is the
+record.
+
+## The one that matters
+
+**Cortex grades both directions of a task, end to end.** As of 2026-09-04 the
+stubbed chain reaches:
+
+```
+verdict=Verified  required_passed=2 required_total=2   sealed "succeeded"
+verdict=Failed    required_passed=1 required_total=2   sealed "failed"
+```
+
+`Verdict::Failed` had never been reachable before. Eight findings stood between
+delivery and a failing verdict, and every one of them made the refund the
+product is sold on undeliverable. They are written up as F13–F20 in
+`EXECUTION-STATE.md`.
+
+**What that does not mean.** No model has been consulted. The provider was a
+scripted stub, at zero API cost. Nothing here is evidence that Cortex has
+completed a task; that claim belongs to `live-model.yml` and to nothing else.
+
+## Blocked on Josh
+
+1. **`ANTHROPIC_API_KEY` as a repository secret**, scoped per
+   `docs/adr/ADR-0004-provider-credential.md` — shortest-lived key, narrowest
+   scope, hard spend cap. Then run the `live model` workflow from the Actions
+   tab. That run would be the first time Cortex completes a real task. Nothing
+   else blocks it.
+2. **A worker key on the host.** `cortex-worker-key` mints it;
+   `/etc/cortex/worker.env` holds it as `CORTEX_TOKEN`. Production is at v66,
+   healthy, and cannot execute without it.
+3. **The repo split** (`hey-vera/cortex`, public) — see
+   `docs/proposals/cortex-socials-split-inventory.md`, which corrects the
+   assumption it was going to be planned around.
+
+## Blocked on nobody, not yet started
+
+- **F18's sibling risk is closed but the npm gap is not.**
+  `ecosystem:npm-ci` installs into `node_modules/` inside the graded tree, so
+  the scratch mount does not rescue it. Recorded in F15 rather than papered
+  over.
+- **F16 has no end-to-end coverage.** Both stub scenarios produce a real diff,
+  so neither exercises "delivered nothing". A third `NOOP` scenario in
+  `testing/stub-provider/claude` is the obvious follow-up.
+- **Phases 27–30** — the capability mechanism, and the falsification test that
+  has to exist before any "better than a single model" claim does. Nothing is
+  built.
+
+## Gates
+
+Every required check is unconditional and cannot pass vacuously. As of
+2026-09-04 the two that could not fail now can:
+
+- `clippy` runs with `-D warnings`. The allow list is in
+  `[workspace.lints.clippy]` in the root `Cargo.toml`, with a reason per entry,
+  so a local run sees what CI sees.
+- `eslint` blocks on errors. Warnings are still permitted.
+- The frontend has a **test floor** — the count is asserted and may only go up,
+  the same shape as the `sandbox` job.
+
+`stub-provider-e2e` and `live-model` are `workflow_dispatch` only. The first is
+cheap and safe to run on a branch; the second spends money and is the only
+thing that may be cited as task completion.
+
+## Traps that have bitten more than once
+
+- **Auto-merge is armed on every PR** and re-armed on every push. A stacked PR
+  merges into its base the moment that base goes green, which collapses stacks
+  without asking. Open a draft if a PR must wait — disabling auto-merge does not
+  survive the next push.
+- **The migration counter is shared with Socials.** Read the maximum at *rebase*
+  time, not design time.
+- **`cargo clippy --fix` is not feature-aware.** It fixes what it compiled. A
+  variable unused by default and read under `#[cfg(feature = "soma")]` gets
+  renamed, and the soma build breaks.
+- **`vitest` does not typecheck.** A green frontend test says nothing about
+  whether it compiles; `npm run build` is the typecheck gate.
