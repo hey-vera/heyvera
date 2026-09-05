@@ -6216,6 +6216,47 @@ The remediation, and none of it is large:
   `credit_transactions` than for `media.rs`, and it should be measured that way
   rather than in aggregate.
 
+  **MEASURED 2026-09-04, and the instrument is wrong.** Per-module density says
+  the opposite of the truth here, so building a gate on it would have made the
+  codebase worse.
+
+  | module | tests | lines | 1 test per |
+  |---|---:|---:|---:|
+  | `verification_dispatcher.rs` | 2 | 401 | 200 |
+  | `verification_driver.rs` | 7 | 656 | 93 |
+  | `check_runner.rs` | 10 | 617 | 61 |
+  | `pricing.rs` | 11 | 663 | 60 |
+  | `billing.rs` | 8 | 1,434 | 179 |
+  | `social.rs` *(not money)* | 9 | 3,268 | 363 |
+  | `integrations.rs` *(not money)* | 15 | 2,808 | 187 |
+
+  By that table `verification_dispatcher.rs` is the weakest money module. It is
+  among the strongest. Its three documented defences are covered by **seven**
+  property tests — `crash_after_enqueue_recovers`, `at_most_one_job_under_replay`,
+  `a_claim_is_exclusive`, `a_heartbeat_from_the_wrong_dispatcher_does_nothing`,
+  `crash_after_claim_reclaims_and_counts`, `exhausted_attempts_reach_dead_not_retry`,
+  `runner_unavailable_is_retry_wait_not_lost` — which live in `db.rs`, beside the
+  SQL that implements them rather than beside the loop that calls it.
+
+  The refund path is the same shape: `refund_mirrors_the_charge_and_replays_as_a_no_op`,
+  `refund_without_a_matching_charge_moves_no_money`, and in
+  `cortex_core::billing_binding`, `a_failure_after_a_charge_refunds`,
+  `a_refund_can_never_precede_a_charge`, `a_refunded_verification_is_terminal`,
+  `charge_and_refund_keys_never_collide`.
+
+  Those are properties — idempotent replay, no money without a matching charge,
+  ordering, terminality. Counting them per file rewards moving a test away from
+  the mechanism it proves and towards the file that reads thin, which is the
+  opposite of what anyone wants.
+
+  **So: measured, reported, and no gate built.** The exit-gate line below asks
+  for density to be "measured and reported separately for the money path"; this
+  is that, and the finding is that the money path is the best-tested part of the
+  codebase and that the ratio is not the thing to watch. If a gate is wanted
+  later it should assert named properties, not counts — the same ladder the
+  sandbox job uses, where the floor is a count of *tests that ran* rather than a
+  ratio against lines.
+
 One further item, observed directly while pushing this work: **the repository
 currently reports seven open dependency vulnerabilities on its default branch,
 three of them high.** A product whose thesis includes supply-chain-trustworthy
