@@ -73,6 +73,10 @@ pub async fn execute_task(
 
     tokio::spawn(async move {
         let step = StepExecution {
+            // This path plans no run, so it mints one for the single step it
+            // dispatches. A run of one is the truth here; an empty string
+            // would be a field that cannot say what it is for (F17).
+            run_id: Uuid::new_v4().to_string(),
             step_id: Uuid::new_v4().to_string(),
             attempt_id: Uuid::new_v4().to_string(),
             lease_gen: 1,

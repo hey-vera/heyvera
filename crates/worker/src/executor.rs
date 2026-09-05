@@ -22,6 +22,13 @@ use crate::worktree;
 const REQUIRED_CHECK_TIMEOUT_SECS: u64 = 120;
 
 pub struct StepExecution {
+    /// The run this step belongs to, carried onto the job.
+    ///
+    /// The job is the record of what ran, so it has to be able to name the run
+    /// it was part of. `ExecuteStep` has always carried this; the worker used
+    /// to discard it and write an empty string onto every job it built, which
+    /// is a field present in the right shape and saying nothing (F17).
+    pub run_id: String,
     pub step_id: String,
     pub attempt_id: String,
     pub lease_gen: i64,
@@ -81,13 +88,21 @@ impl Executor {
     /// never invoked. That is the behavioural change: isolation used to be
     /// best-effort, and a failure to isolate silently became execution in the
     /// caller's directory with the worker's full environment.
-    pub async fn execute<R: SandboxRunner>(
+    ///
+    /// `runner` executes the agent; `checks_runner` executes the required
+    /// checks afterwards. They are separate because the two need different
+    /// images -- the agent's carries the provider CLIs and no toolchain, and
+    /// the checks need the reverse (F13). A caller that genuinely wants one
+    /// runner for both may pass the same one twice; the container path does
+    /// not, and that is the point.
+    pub async fn execute<R: SandboxRunner, C: SandboxRunner>(
         task: &TaskContract,
         decision: &RoutingDecision,
         step: &StepExecution,
         tx: mpsc::Sender<WorkerEvent>,
         working_dir: &std::path::Path,
         runner: &R,
+        checks_runner: &C,
     ) -> Result<i32, CortexError> {
         let invocation = build_command(decision)?;
 
@@ -129,6 +144,7 @@ impl Executor {
 
         let result = Self::run_sandboxed(
             runner,
+            checks_runner,
             &job,
             &request,
             step,
@@ -166,7 +182,22 @@ impl Executor {
             Ok(runner) => runner,
             Err(blocked) => return Self::block(step, &tx, blocked).await,
         };
-        Self::execute(task, decision, step, tx, working_dir, &runner).await
+        // A second sandbox, on the image that can actually build and test the
+        // tree. See `check_runner_image` and F13.
+        let checks_runner = match crate::sandbox::ContainerSandbox::new(check_runner_image()) {
+            Ok(runner) => runner,
+            Err(blocked) => return Self::block(step, &tx, blocked).await,
+        };
+        Self::execute(
+            task,
+            decision,
+            step,
+            tx,
+            working_dir,
+            &runner,
+            &checks_runner,
+        )
+        .await
     }
 
     /// Emit a typed refusal and return without invoking anything.
@@ -198,8 +229,9 @@ impl Executor {
     /// Factored out so that workspace teardown in `execute()` runs
     /// unconditionally after this returns.
     #[allow(clippy::too_many_arguments)]
-    async fn run_sandboxed<R: SandboxRunner>(
+    async fn run_sandboxed<R: SandboxRunner, C: SandboxRunner>(
         runner: &R,
+        checks_runner: &C,
         job: &ExecutionJob,
         request: &SandboxRequest,
         step: &StepExecution,
@@ -340,7 +372,7 @@ impl Executor {
             };
 
             let check_evidence = if let Some(dir) = effective_dir {
-                run_required_checks(task, dir, runner, job).await
+                run_required_checks(task, dir, checks_runner, job).await
             } else {
                 Vec::new()
             };
@@ -432,6 +464,44 @@ impl Executor {
                         "branch preserved for PR creation"
                     );
                 }
+            }
+
+            // An execute-tier step that ran cleanly and changed nothing has
+            // not succeeded, whatever its exit code says (F16). It used to
+            // report `Completed` with `head_commit == base_commit`, so the
+            // only way to notice was to compare the two yourself -- and the
+            // step went on to be marked for verification against a tree
+            // nobody had touched.
+            //
+            // Scoped to the execute tier deliberately: search and think steps
+            // are supposed to leave the tree alone, and failing them for that
+            // would be failing them for working correctly.
+            if task.tier == cortex_core::provider::Tier::Execute && !has_changes {
+                tracing::warn!(
+                    step_id = %step.step_id,
+                    base_commit = %base_commit.as_deref().unwrap_or("?"),
+                    "execute-tier step delivered nothing"
+                );
+                let event = WorkerEvent::Failed {
+                    step_id: step.step_id.clone(),
+                    attempt_id: step.attempt_id.clone(),
+                    lease_gen: step.lease_gen,
+                    failure: WorkerFailureReport {
+                        kind: cortex_core::failure::WorkerFailureKind::NothingDelivered,
+                        exit_code: Some(code),
+                        // A clean exit leaves nothing in stderr, so the reason
+                        // has to be stated rather than quoted, or the report
+                        // says only that something went wrong and not what.
+                        stderr_excerpt: Some(format!(
+                            "the provider exited 0 and the tree is unchanged at {}: \
+                             an execute-tier step delivered nothing",
+                            base_commit.as_deref().unwrap_or("an unknown commit")
+                        )),
+                        tool: Some(decision.provider.cli_name().to_string()),
+                    },
+                };
+                tx.send(event).await.ok();
+                return Ok(code);
             }
 
             let git_evidence = effective_dir.and_then(|dir| {
@@ -671,7 +741,7 @@ fn build_job<R: SandboxRunner>(
     let mut job = ExecutionJob {
         job_id: uuid::Uuid::new_v4().to_string(),
         job_version: EXECUTION_JOB_VERSION,
-        run_id: String::new(),
+        run_id: step.run_id.clone(),
         step_id: step.step_id.clone(),
         attempt_id: step.attempt_id.clone(),
         lease_gen: step.lease_gen,
@@ -794,6 +864,23 @@ pub fn build_prompt_for_test(task: &TaskContract, context: &StepContext) -> Stri
 /// either way.
 pub fn runner_image() -> String {
     std::env::var("CORTEX_SANDBOX_IMAGE").unwrap_or_else(|_| "cortex/sandbox:dev".to_string())
+}
+
+/// The image the worker's own required checks run in.
+///
+/// Deliberately *not* [`runner_image`]. That one carries the provider CLIs and
+/// no toolchain, so running `cargo test` in it exits 127 with
+/// `cargo: not found`. Every required check failing that way was F13, and
+/// while the auto-commit was still gated on those checks it meant nothing was
+/// ever delivered at all.
+///
+/// This is the same variable the verification driver reads, because it wants
+/// the same thing: an image that can build and test the customer's tree. The
+/// two are read independently rather than shared through a constant, so a
+/// deployment can point them at different images without either one silently
+/// following the other.
+pub fn check_runner_image() -> String {
+    std::env::var("CORTEX_RUNNER_IMAGE").unwrap_or_else(|_| "cortex/runner:phase-a".to_string())
 }
 
 /// The prompt the model receives: the contract, plus the assembled context,
@@ -1200,14 +1287,39 @@ async fn run_required_checks<R: SandboxRunner>(
 
         // A fresh sandbox per check, bounded by the check timeout rather than
         // by the attempt's budget.
+        //
+        // The job is stripped of everything the agent needed and a check does
+        // not. It runs in the check runner's image rather than the agent's
+        // (F13), with no network and no capability grants -- which, through
+        // `policy::sanctioned_env`, is also what keeps the provider credential
+        // out of it: the key is derived from the grant, so removing the grant
+        // removes the key. A check that could reach the network could fetch a
+        // passing result, and a check has no reason to hold an API key.
         let mut check_job = job.clone();
         check_job.job_id = uuid::Uuid::new_v4().to_string();
         check_job.budgets.wall_clock = std::time::Duration::from_secs(REQUIRED_CHECK_TIMEOUT_SECS);
+        check_job.image_ref = check_runner_image();
+        check_job.network_policy = cortex_core::execution_job::NetworkPolicy::Deny;
+        check_job.capability_grants = Vec::new();
 
+        // `-c`, deliberately not `-lc`. A login shell sources `/etc/profile`,
+        // which on Debian *overwrites* PATH with a fixed list that does not
+        // include `/usr/local/cargo/bin` -- so `cargo` is unfindable in an
+        // image that plainly contains it, and the check exits 127 saying
+        // `cargo: not found`.
+        //
+        // That is the second half of F13, and it survived pointing the checks
+        // at the runner image: the toolchain was there and the login shell hid
+        // it. The verifier never hit this because a `CheckSpec` is argv and
+        // never goes through a shell at all (`Dockerfile.runner`).
+        //
+        // A non-login shell inherits the container's environment as Docker
+        // composed it -- the image's own PATH, plus `SCRATCH_ENV` -- which is
+        // exactly what a check should see.
         let request = SandboxRequest::new(
             working_dir,
             "sh",
-            vec!["-lc".to_string(), check.command.clone()],
+            vec!["-c".to_string(), check.command.clone()],
         );
 
         let session = match runner.submit(&check_job, &request).await {
@@ -1784,6 +1896,7 @@ mod tests {
 
     fn spy_step() -> StepExecution {
         StepExecution {
+            run_id: "run-1".to_string(),
             step_id: format!("step-{}", uuid::Uuid::new_v4()),
             attempt_id: "attempt-1".to_string(),
             lease_gen: 3,
@@ -1833,6 +1946,7 @@ mod tests {
             &step,
             tx,
             &dir,
+            &runner,
             &runner,
         )
         .await;
@@ -2176,6 +2290,13 @@ mod tests {
         assert_eq!(job.plan_receipt_id, None);
         assert_eq!(job.isolation_class, IsolationClass::Container);
         assert!(!job.image_ref.is_empty());
+        // F17: the job could not name the run it belonged to. The field was
+        // there and always held an empty string, which reads as "set" to
+        // anything that only checks the shape.
+        assert_eq!(
+            job.run_id, "run-1",
+            "the job does not carry the run it belongs to"
+        );
         assert!(!job.resource_profile.profile_version.is_empty());
         // Unquoted, but never unbounded.
         assert!(job.budgets.is_unquoted());

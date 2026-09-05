@@ -2284,6 +2284,54 @@ the chain could be exercised. That is the one place it deliberately differs from
 the provider image by more than the stub, and it is commented as such at the
 point of installation.
 
+**RESOLVED 2026-09-04.** The worker now builds a *second* sandbox for its own
+required checks, from `check_runner_image()` — `CORTEX_RUNNER_IMAGE`, the same
+variable the verification driver reads, whose image is built from
+`Dockerfile.runner` and does carry a toolchain. The agent still runs in
+`CORTEX_SANDBOX_IMAGE`, which still carries the provider CLIs and no toolchain.
+Both workflows already build both images, so nothing in CI changed.
+
+The check job is stripped rather than inherited: `NetworkPolicy::Deny` and no
+capability grants. Because `policy::sanctioned_env` derives the provider key
+*from* the grant, removing the grant removes the key — so a check runs with no
+network and no credential. A check that could reach the network could fetch a
+passing result.
+
+`Dockerfile.sandbox-stub` no longer installs cargo, and its absence is now the
+assertion: a stubbed run that still reaches a verdict from an image with no
+cargo in it proves the checks ran somewhere else.
+
+**F13 had a second half, and the first fix did not clear it.** A stubbed run
+against the change above still produced:
+
+```
+CheckEvidence { name: "ecosystem:cargo-check", exit_code: Some(127),
+                stderr_excerpt: Some("sh: 1: cargo: not found") }
+```
+
+— in an image built `FROM rust:1.97.1-slim-bookworm`, which plainly contains
+cargo. The cause is `sh -lc`. A **login** shell sources `/etc/profile`, which on
+Debian *overwrites* PATH with a fixed list that does not include
+`/usr/local/cargo/bin`, so the toolchain is present and unreachable. It is now
+`sh -c`, which inherits the environment Docker composed: the image's own PATH,
+plus `SCRATCH_ENV`.
+
+The verifier never hit this because a `CheckSpec` is argv and never goes
+through a shell at all — `Dockerfile.runner` says exactly that at the point
+where it declines to set an `ENTRYPOINT`. Two components running "the same
+checks" differed in a way neither's tests could see.
+
+**What that run also exposed, still open.** With the commit gate gone (F14) the
+diff was committed and delivered correctly — and the brain then logged
+`scheduler: step failed` for a step the worker had reported `Completed`,
+inserted a heal chain, and never dispatched verification, so no receipt was
+ever minted. The 127s are the obvious cause and the shell fix should remove it,
+but *whether the brain fails a step on worker-reported check evidence* is worth
+confirming directly: if it does, that is F14's shape a second time, on the
+other side of the wire, where ADR-0001 says a worker's report is a diagnostic
+and not a transition guard. Confirm against a green run before assuming it is
+gone.
+
 ### F14. The worker refuses to deliver work that fails its own checks, so `Verdict::Failed` is unreachable
 
 **The finding this task was for**, and it is not a variant of F13 — it survives
@@ -2373,6 +2421,23 @@ F13 currently masks this: with no cargo, nothing builds and nothing is
 committed. **Fixing F13 without fixing F15 turns every delivery into a diff
 containing a build directory.**
 
+**RESOLVED 2026-09-04, in the same change as F13** — which is the only safe
+order, per the warning above.
+
+`SCRATCH_ENV` in `crates/worker/src/sandbox/policy.rs` gains
+`CARGO_TARGET_DIR=/scratch/target`, `CARGO_HOME=/scratch/cargo` and
+`npm_config_cache=/scratch/npm`, so build output lands on the scratch tmpfs
+that already existed and dies with the container, rather than in the worktree.
+The verifier's own runner has had the same three variables since F9; this is
+the worker catching up to it.
+
+These are the deliberate exception to the "every value is the mount point
+itself" rule documented above them, and they can be: cargo and npm both create
+their own directories, unlike the provider CLI that forced that rule.
+
+The npm gap named above is unchanged — `ecosystem:npm-ci` still installs into
+`node_modules/` inside the tree, and a cache directory does not rescue it.
+
 ### F16. A step that delivered nothing reports success
 
 In both F13 and F14 the worker emits:
@@ -2392,6 +2457,24 @@ itself, which is exactly the check the test had to add to find it. Whatever is
 decided for F14, the non-delivery needs to be a typed outcome rather than a log
 line.
 
+**RESOLVED 2026-09-04.** An execute-tier step that exits 0 and leaves the tree
+unchanged now emits `WorkerEvent::Failed` with the new
+`WorkerFailureKind::NothingDelivered`, instead of `Completed` with
+`head_commit == base_commit`. The reason is stated in `stderr_excerpt` rather
+than quoted from it, because a clean exit leaves stderr empty and a report that
+says only "something went wrong" is not much better than the log line it
+replaced.
+
+Scoped to the execute tier deliberately: search and think steps are supposed to
+leave the tree alone, and failing them for that would be failing them for
+working correctly.
+
+`NothingDelivered` classifies to `TaskFailureKind::OutputEmpty` — same
+`FailureScope::Task`, same retry policy, since both mean "the step produced
+nothing usable" and that is a fact about the task rather than about Cortex. The
+worker-side distinction is kept because the two are diagnosed differently: an
+empty stdout is a CLI problem, an unchanged tree is not.
+
 ### F17. `ExecutionJob.run_id` is empty
 
 Observed on every dispatch:
@@ -2407,6 +2490,16 @@ cannot describe work that already happened" — the field is present and carries
 an empty string, which is the same problem wearing the right shape.
 
 Small, and worth fixing while the surrounding code is open.
+
+**RESOLVED 2026-09-04.** Pure plumbing, as suspected: `BrainMessage::ExecuteStep`
+has always carried `run_id`, and the worker binary destructured it into `..` and
+then wrote `String::new()` onto the job. `StepExecution` now carries it and
+`build_job` reads it.
+
+The `sse.rs` path plans no run, so it mints one for the single step it
+dispatches rather than passing an empty string — a run of one is the truth
+there. A unit test pins the value on the built job, because the failure mode
+was a field that looked set to anything checking only its shape.
 
 ### F18. The same input produced two different verdicts *(observed, not root-caused)*
 
@@ -2436,6 +2529,57 @@ that varies with timing on identical input is not a verdict. The tracing
 subscriber added to the test in this branch is what makes the next occurrence
 diagnosable; it was invisible before because integration tests install no
 subscriber and the driver's `tracing::error!` went nowhere.
+
+### F19. The brain rejects a delivery on the worker's own check evidence, so `Verdict::Failed` was still unreachable
+
+F14 a second time, one hop further on, and it survived fixing F14.
+
+Found by running the stubbed chain after the commit gate was removed. The
+worker did its part correctly — auto-committed the diff, `head_commit !=
+base_commit`, `Completed` — and then:
+
+```
+cortex_api::scheduler: scheduler: step failed a9cc3300-… in run 6c2f9722-…
+cortex_api::scheduler: inserted heal chain for step a9cc3300-…
+```
+
+No receipt was ever minted, and the test failed on the PASS scenario with *"no
+receipt exists … Delivery reached the brain and the verification dispatcher
+never graded it."*
+
+The path: `ws.rs` calls `verify_worker_completion`, which builds a
+`VerifierInput` whose evidence is **the worker's own report** — its check
+outcomes, its command outcomes — and runs `verify_step` on it.
+`decide_verdict` (`crates/engine/src/verifier.rs:437`) returns
+`VerifierVerdict::Failed` when `!required_check_summary.failed.is_empty()`.
+That becomes `verified_success = false`, which calls
+`db.fail_step(…, "VerifierRejected")` instead of `db.deliver_step(…)`. A step
+that is never delivered never reaches `status = 'verifying'`, so the
+verification dispatcher never sees it.
+
+So the independent verifier could still only ever grade work that had already
+passed the worker's own checks — the exact property F14 was raised to remove —
+and `Verdict::Failed`, with the refund behind it, was still unreachable.
+
+Note the asymmetry that hid this: the *real* verification path
+(`verify_from_executions`) already treats worker evidence correctly. It decides
+from `compute_verdict(specs, executions)` and keeps the worker's account in a
+field called `worker_hints`, with a test named
+`worker_evidence_survives_as_a_hint` asserting it is "demonstrably not
+load-bearing". Only the pre-screen in `ws.rs` gave it authority.
+
+**RESOLVED 2026-09-04.** `passed` in `verify_worker_completion` is now
+`!matches!(report.verdict, VerifierVerdict::Blocked)`. What that boolean
+decides is whether the step is delivered *for grading*, not whether it is any
+good, so it turns on contract violations only — edits outside the allowed
+paths, or a stale base. That is the same line the worker's own auto-commit
+draws: where the work was permitted to touch is a contract, whether it is
+correct is the verifier's call.
+
+`decide_verdict` is deliberately **unchanged**. It is also what produces
+`worker_hints` on the real path, and it is telling the truth — by the worker's
+own account the checks failed. The report is still recorded verbatim. It simply
+no longer decides a transition.
 
 ### What this branch does not claim
 
