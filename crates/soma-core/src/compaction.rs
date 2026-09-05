@@ -322,7 +322,7 @@ pub fn recursive_distill(
         }
         current_level = current_level
             .chunks(window)
-            .map(|chunk| distill_compacted(chunk))
+            .map(distill_compacted)
             .collect();
     }
 

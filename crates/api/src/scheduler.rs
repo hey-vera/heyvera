@@ -1220,7 +1220,7 @@ async fn update_bandit_from_outcome(
     db: &Database,
     step_id: &str,
     success: bool,
-    cost_estimate: Option<f64>,
+    _cost_estimate: Option<f64>,
 ) {
     use cortex_engine::bandit::{ArmKey, TaskFamily};
 

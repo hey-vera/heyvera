@@ -24,7 +24,7 @@ pub fn spawn_token_refresh_job(state: Arc<AppState>) {
             tracing::info!(count = expiring.len(), "found expiring credentials");
 
             for (cred, _encrypted_data) in &expiring {
-                if cred.token_expires_at.map_or(false, |t| t < now) {
+                if cred.token_expires_at.is_some_and(|t| t < now) {
                     // Already expired — mark it
                     db.update_credential_status(&cred.id, "expired");
                     tracing::warn!(

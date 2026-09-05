@@ -436,7 +436,7 @@ mod tests {
         .unwrap();
         assert_eq!(builder.steps().len(), 2);
         assert!(
-            builder.edges().len() >= 1,
+            !builder.edges().is_empty(),
             "and then should create sequential edge"
         );
     }
@@ -476,7 +476,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!(builder.steps().len(), 2);
-        assert!(builder.edges().len() >= 1);
+        assert!(!builder.edges().is_empty());
     }
 
     #[test]
@@ -579,7 +579,7 @@ mod tests {
 
         // "and then" should create sequential dependency
         // and the comma-verb split should also work
-        assert!(builder.edges().len() >= 1);
+        assert!(!builder.edges().is_empty());
     }
 
     #[test]
@@ -605,6 +605,6 @@ mod tests {
         .unwrap();
         assert_eq!(builder.steps().len(), 2);
         // execute → test should be inferred
-        assert!(builder.edges().len() >= 1);
+        assert!(!builder.edges().is_empty());
     }
 }

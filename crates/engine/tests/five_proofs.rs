@@ -64,7 +64,7 @@ fn proof_1_pressure_scorer_beats_static() {
             };
             let stats = scorer.arms.get(&claude_arm);
             assert!(
-                stats.map_or(false, |s| s.trials >= 5),
+                stats.is_some_and(|s| s.trials >= 5),
                 "UCB should have explored Claude by trial 50"
             );
         }
@@ -217,7 +217,7 @@ fn proof_3_cold_start_converges_within_50() {
         };
         let stats = scorer.arms.get(&arm);
         assert!(
-            stats.map_or(false, |s| s.trials >= 1),
+            stats.is_some_and(|s| s.trials >= 1),
             "Provider {:?} should have been explored at least once",
             prov
         );

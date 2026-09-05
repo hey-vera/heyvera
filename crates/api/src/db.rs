@@ -5316,8 +5316,7 @@ fn upsert_verification_state(
         return Ok(());
     }
 
-    let placeholders = std::iter::repeat("?")
-        .take(from.len())
+    let placeholders = std::iter::repeat_n("?", from.len())
         .collect::<Vec<_>>()
         .join(", ");
     let sql = format!(
@@ -6689,7 +6688,7 @@ impl Database {
         requested_by: &str,
     ) -> Option<CortexApprovalRequest> {
         let conn = self.conn();
-        if let Some((id, group_id)) = conn
+        if let Ok((id, group_id)) = conn
             .query_row(
                 "SELECT id, group_id FROM cortex_approval_requests
              WHERE user_id = ?1 AND step_id = ?2 AND ask_type = ?3 AND status = 'pending'
@@ -6698,7 +6697,6 @@ impl Database {
                 params![user_id, step_id, ask_type],
                 |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
             )
-            .ok()
         {
             return self.approval_request_from_row(&conn, user_id, &group_id, &id);
         }
@@ -9821,8 +9819,7 @@ impl Database {
             }
         };
 
-        let placeholders = std::iter::repeat("?")
-            .take(from.len())
+        let placeholders = std::iter::repeat_n("?", from.len())
             .collect::<Vec<_>>()
             .join(", ");
         let sql = format!(
@@ -13884,7 +13881,7 @@ impl Database {
             )
             .unwrap();
 
-        stmt.query_map([limit], |row| Ok(row.get::<_, String>(0)?))
+        stmt.query_map([limit], |row| row.get::<_, String>(0))
             .unwrap()
             .filter_map(|r| r.ok())
             .collect()
@@ -16817,7 +16814,7 @@ impl Database {
             return self.social_find_profile_by_clerk_id_via_id(profile_id);
         }
 
-        sets.push(format!("updated_at = datetime('now')"));
+        sets.push("updated_at = datetime('now')".to_string());
         let sql = format!(
             "UPDATE social_profiles SET {} WHERE id = ?{}",
             sets.join(", "),
@@ -17146,7 +17143,7 @@ impl Database {
 
         // Nest quoted post when present (same shape as feed enrich `quotePost`).
         if let Some(qid) = visible_quote_id {
-            let quote_map = Self::social_load_quote_posts_by_ids(&conn, &[qid.clone()]);
+            let quote_map = Self::social_load_quote_posts_by_ids(&conn, std::slice::from_ref(&qid));
             if let Some(quoted) = quote_map.get(&qid) {
                 if let Some(m) = post.as_object_mut() {
                     m.insert("quotePost".into(), quoted.clone());
@@ -18206,11 +18203,11 @@ impl Database {
 
     pub fn social_mark_notifications_read(&self, profile_id: &str) -> i64 {
         let conn = self.conn();
-        let updated = conn.execute(
+        
+        conn.execute(
             "UPDATE social_notifications SET read = 1 WHERE recipient_profile_id = ?1 AND read = 0",
             [profile_id],
-        ).unwrap_or(0) as i64;
-        updated
+        ).unwrap_or(0) as i64
     }
 
     pub fn social_get_community_feed(
@@ -26087,7 +26084,7 @@ mod tests {
         let bob_id = bob["id"].as_str().expect("bob id");
 
         db.social_like(bob_id, &post_id);
-        assert!(db.social_get_follow_status(bob_id, profile_id) == false);
+        assert!(!db.social_get_follow_status(bob_id, profile_id));
         db.social_follow(bob_id, profile_id);
         assert!(db.social_get_follow_status(bob_id, profile_id));
 

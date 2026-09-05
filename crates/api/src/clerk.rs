@@ -231,6 +231,12 @@ pub struct JwksStampedeGuard {
     pub notify: Notify,
 }
 
+impl Default for JwksStampedeGuard {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl JwksStampedeGuard {
     pub fn new() -> Self {
         Self {

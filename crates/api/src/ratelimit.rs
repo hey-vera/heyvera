@@ -373,7 +373,7 @@ fn general_base64_decode(input: &str) -> Option<Vec<u8>> {
     static TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
     let bytes = input.as_bytes();
-    if bytes.len() % 4 != 0 {
+    if !bytes.len().is_multiple_of(4) {
         return None;
     }
 
@@ -386,10 +386,9 @@ fn general_base64_decode(input: &str) -> Option<Vec<u8>> {
             if b == b'=' {
                 buf[i] = 0;
                 pad += 1;
-            } else if let Some(pos) = TABLE.iter().position(|&c| c == b) {
-                buf[i] = pos as u8;
             } else {
-                return None;
+                let pos = TABLE.iter().position(|&c| c == b)?;
+                buf[i] = pos as u8;
             }
         }
 

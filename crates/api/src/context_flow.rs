@@ -9,7 +9,6 @@ use cortex_core::provenance::Provenance;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 use uuid::Uuid;
 
 use crate::db::Database;
@@ -412,7 +411,7 @@ impl ContextBus {
                                 }
 
                                 // Validate confidence range
-                                let validated_confidence = if confidence < 0.0 || confidence > 1.0 {
+                                let validated_confidence = if !(0.0..=1.0).contains(&confidence) {
                                     tracing::warn!(
                                     "artifact has invalid confidence {}, clamping to 0.5: id={}",
                                     confidence, id

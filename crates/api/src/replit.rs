@@ -420,7 +420,7 @@ pub async fn import_project(
 
     // Determine language from source
     let language = match req.source_type.as_str() {
-        "github" => detect_language_from_github(&req.source_url.as_deref().unwrap_or("")),
+        "github" => detect_language_from_github(req.source_url.as_deref().unwrap_or("")),
         _ => "javascript".to_string(), // Default fallback
     };
 

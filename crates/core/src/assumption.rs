@@ -268,7 +268,7 @@ mod tests {
                 path: "config.toml".into(),
             },
         );
-        assert!(!evaluate_all(&[a.clone()], &facts(&["config.toml"])).may_proceed());
+        assert!(!evaluate_all(std::slice::from_ref(&a), &facts(&["config.toml"])).may_proceed());
         assert!(evaluate_all(&[a], &facts(&["other.toml"])).may_proceed());
     }
 

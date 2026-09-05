@@ -70,7 +70,7 @@ pub async fn resolve_admin(
 }
 
 /// Checks if user has admin privileges - returns bool (for sync use cases)
-pub fn is_admin(state: &AppState, user_id: &str) -> bool {
+pub fn is_admin(_state: &AppState, user_id: &str) -> bool {
     let admins = admin_set();
     if admins.is_empty() {
         // If no admin list is configured but we're not in production

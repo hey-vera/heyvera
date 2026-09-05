@@ -85,10 +85,9 @@ pub fn extract_agent_token(raw_auth: Option<&str>) -> Option<&str> {
     let header = raw_auth?;
     let token = if let Some(t) = header.strip_prefix("Bearer ") {
         t.trim()
-    } else if let Some(t) = header.strip_prefix("Agent ") {
-        t.trim()
     } else {
-        return None;
+        let t = header.strip_prefix("Agent ")?;
+        t.trim()
     };
     if token.starts_with(AGENT_KEY_PREFIX) {
         Some(token)

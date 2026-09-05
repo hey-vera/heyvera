@@ -269,6 +269,7 @@ pub struct CheckEvidence {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct StepContext {
     pub predecessor_summaries: Vec<PredecessorSummary>,
     pub user_goal: String,
@@ -293,13 +294,3 @@ pub struct PredecessorSummary {
     pub files_changed: Vec<String>,
 }
 
-impl Default for StepContext {
-    fn default() -> Self {
-        Self {
-            predecessor_summaries: Vec::new(),
-            user_goal: String::new(),
-            conversation_excerpt: None,
-            repo_map: None,
-        }
-    }
-}

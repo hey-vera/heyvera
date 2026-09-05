@@ -306,7 +306,7 @@ pub fn effective_endpoints(job: &ExecutionJob) -> Vec<Endpoint> {
         .allowed_hosts()
         .iter()
         .filter_map(|entry| Endpoint::parse(entry))
-        .filter(|endpoint| granted.iter().any(|host| *host == endpoint.host))
+        .filter(|endpoint| granted.contains(&endpoint.host))
         .collect();
     endpoints.sort();
     endpoints.dedup();
@@ -333,7 +333,7 @@ pub fn ungranted_hosts(job: &ExecutionJob) -> Vec<String> {
         .allowed_hosts()
         .iter()
         .filter(|entry| match Endpoint::parse(entry) {
-            Some(endpoint) => !granted.iter().any(|host| *host == endpoint.host),
+            Some(endpoint) => !granted.contains(&endpoint.host),
             // An unparseable entry justifies nothing and is worth reporting.
             None => true,
         })

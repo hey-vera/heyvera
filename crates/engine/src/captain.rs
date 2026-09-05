@@ -317,6 +317,12 @@ pub struct SchedulerState {
     enqueued_step_ids: HashSet<String>,
 }
 
+impl Default for SchedulerState {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SchedulerState {
     pub fn new() -> Self {
         Self {

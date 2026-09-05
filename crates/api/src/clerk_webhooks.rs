@@ -297,7 +297,7 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
 
     let mut s = input.to_string();
     // Add padding if needed
-    while s.len() % 4 != 0 {
+    while !s.len().is_multiple_of(4) {
         s.push('=');
     }
 
@@ -336,7 +336,7 @@ fn base64_decode(input: &str) -> Result<Vec<u8>, String> {
 fn base64_encode(input: &[u8]) -> String {
     static TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
-    let mut output = String::with_capacity((input.len() + 2) / 3 * 4);
+    let mut output = String::with_capacity(input.len().div_ceil(3) * 4);
 
     for chunk in input.chunks(3) {
         let b0 = chunk[0] as usize;
@@ -351,7 +351,7 @@ fn base64_encode(input: &[u8]) -> String {
             0
         };
 
-        output.push(TABLE[(b0 >> 2)] as char);
+        output.push(TABLE[b0 >> 2] as char);
         output.push(TABLE[((b0 & 0x03) << 4) | (b1 >> 4)] as char);
 
         if chunk.len() > 1 {
