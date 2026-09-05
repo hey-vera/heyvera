@@ -952,6 +952,10 @@ fn stub_provider_gate() -> Option<String> {
 /// one place so the two scenarios are compared rather than re-derived.
 struct StubbedRun {
     step_id: String,
+    /// Set when the worker reported `Failed` rather than `Completed`. The NOOP
+    /// direction ends here on purpose: an execute-tier step that changed
+    /// nothing is a failure, and *which* failure it is, is the claim.
+    failure_kind: Option<cortex_core::failure::WorkerFailureKind>,
     receipt: Option<cortex_api::db::Receipt>,
     step_status: Option<String>,
     commits: usize,
@@ -1049,6 +1053,7 @@ async fn drive_one_stubbed_task(scenario: &str) -> StubbedRun {
     });
 
     let mut saw_completion = false;
+    let mut failure_kind: Option<cortex_core::failure::WorkerFailureKind> = None;
     let mut blocked_detail: Option<String> = None;
     while let Some(event) = rx.recv().await {
         // Every event, printed. This is the only diagnostic channel the test
@@ -1061,6 +1066,9 @@ async fn drive_one_stubbed_task(scenario: &str) -> StubbedRun {
         }
         if matches!(event, cortex_worker::stream::WorkerEvent::Completed { .. }) {
             saw_completion = true;
+        }
+        if let cortex_worker::stream::WorkerEvent::Failed { failure, .. } = &event {
+            failure_kind = Some(failure.kind);
         }
         let message = cortex_worker::report::worker_event_to_message(event);
         sink.send(WsMessage::Text(
@@ -1092,9 +1100,15 @@ async fn drive_one_stubbed_task(scenario: &str) -> StubbedRun {
         "scenario {scenario}: the step was BLOCKED before or during the provider invocation, so nothing could be graded: {}",
         blocked_detail.clone().unwrap_or_default()
     );
+    // `NothingDelivered` is itself proof the provider ran to a clean exit: the
+    // worker only reaches it after an exit code of 0. So it satisfies this
+    // assertion the same way `Completed` does, and the caller checks which of
+    // the two it got.
+    let ran_cleanly = saw_completion
+        || failure_kind == Some(cortex_core::failure::WorkerFailureKind::NothingDelivered);
     assert!(
-        saw_completion,
-        "scenario {scenario}: the stub process never reported completion; the sandbox did not run it to a clean exit."
+        ran_cleanly,
+        "scenario {scenario}: the stub process never ran to a clean exit;          the worker reported {failure_kind:?}"
     );
     // NOT asserted here: that a commit exists, or how many. Both directions
     // now deliver, but what each one should produce is the caller's claim to
@@ -1151,6 +1165,7 @@ async fn drive_one_stubbed_task(scenario: &str) -> StubbedRun {
 
     StubbedRun {
         step_id,
+        failure_kind,
         receipt,
         step_status,
         commits,
@@ -1299,12 +1314,47 @@ async fn a_stubbed_provider_drives_one_task_to_a_verdict_in_both_directions() {
          distinguishing work that passes from work that fails"
     );
 
+    // --- The diff that never arrives --------------------------------------
+    //
+    // F16. The provider exits 0, says something, and changes nothing. Neither
+    // direction above can reach this, because both of them deliver -- which is
+    // exactly why this was reported as untested rather than assumed covered.
+    //
+    // A step that delivered nothing has not succeeded, whatever its exit code
+    // says. It used to report `Completed` with `head_commit == base_commit`,
+    // so the only way to notice was to compare the two yourself, and the step
+    // went on to be marked for verification against a tree nobody had touched.
+    let noop = drive_one_stubbed_task("NOOP").await;
+
+    assert_eq!(
+        noop.commits, 1,
+        "NOOP scenario: something was committed, so the stub did not leave the \
+         tree alone and this is no longer a test of the no-delivery path"
+    );
+    assert!(
+        !noop.saw_completion,
+        "NOOP scenario: the worker reported Completed for a step that delivered \
+         nothing, which is F16"
+    );
+    assert_eq!(
+        noop.failure_kind,
+        Some(cortex_core::failure::WorkerFailureKind::NothingDelivered),
+        "NOOP scenario: an execute-tier step that changed nothing must be \
+         reported as NothingDelivered, not as some other failure and not as a \
+         success"
+    );
+    assert!(
+        noop.receipt.is_none(),
+        "NOOP scenario: nothing was delivered, so there is nothing to grade and \
+         no receipt should exist"
+    );
+
     // --- The evidence -----------------------------------------------------
     //
     // Printed with the disclaimer attached to the receipt itself, not beside
     // it. A receipt quoted out of a log loses its surroundings, so the words
     // that stop it being cited as a completed task travel inside the JSON.
-    for (label, run) in [("PASS", &pass), ("FAIL", &fail)] {
+    for (label, run) in [("PASS", &pass), ("FAIL", &fail), ("NOOP", &noop)] {
         let Some(base) = run.receipt_json.clone() else {
             println!(
                 "

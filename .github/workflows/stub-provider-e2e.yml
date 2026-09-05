@@ -149,7 +149,20 @@ jobs:
               exit 1
             fi
           done
-          echo "both a passing and a failing diff were graded by the frozen exam"
+          # The third direction asserts the opposite, so it is checked for the
+          # opposite: NOOP delivers nothing, and a receipt for it would mean the
+          # verifier graded a tree the worker never delivered.
+          #
+          # Two fixed strings rather than one pattern spanning them: the line
+          # between them carries an em dash, and a `.` wildcard matches one byte
+          # of a three-byte character.
+          if ! grep -qF "STUBBED RECEIPT (NOOP)" stub-provider.log ||
+             ! grep -qF "Nothing was delivered" stub-provider.log; then
+            echo "::error::the NOOP direction did not report an absent receipt."
+            echo "A step that delivered nothing must not be graded."
+            exit 1
+          fi
+          echo "a passing and a failing diff were graded; a no-op diff was not"
 
       # Say it in the job summary too. The log is where this gets quoted from,
       # and the artifact name is where it gets filed under.

@@ -91,6 +91,8 @@ if printf '%s' "$PROMPT" | grep -q 'STUB-SCENARIO: PASS'; then
     SCENARIO=pass
 elif printf '%s' "$PROMPT" | grep -q 'STUB-SCENARIO: FAIL'; then
     SCENARIO=fail
+elif printf '%s' "$PROMPT" | grep -q 'STUB-SCENARIO: NOOP'; then
+    SCENARIO=noop
 else
     echo "STUB PROVIDER: no scenario sentinel in the rendered prompt." >&2
     echo "The context did not reach the model. That is the F8 shape." >&2
@@ -112,14 +114,24 @@ TARGET="src/lib.rs"
 # The failing variant is a real edit, not a no-op. A stub that "fails" by doing
 # nothing would prove only that an empty tree fails, which is not the same
 # claim as "a bad diff is caught".
+#
+#   noop -> no edit at all. A separate claim again: the provider ran cleanly,
+#           said something, and changed nothing. That is F16, and it is the one
+#           direction the other two cannot reach, because both of them deliver.
 # ---------------------------------------------------------------------------
 if [ "$SCENARIO" = pass ]; then
     sed -i 's/    a - b/    a + b/' "$TARGET"
-else
+elif [ "$SCENARIO" = fail ]; then
     sed -i 's/    a - b/    a * b/' "$TARGET"
 fi
 
-grep -q '    a - b' "$TARGET" && { echo "STUB PROVIDER: edit did not apply." >&2; exit 68; }
+# The noop scenario deliberately leaves the tree alone, so the edit check below
+# would be asserting the opposite of what it wants.
+if [ "$SCENARIO" != noop ]; then
+    grep -q '    a - b' "$TARGET" && { echo "STUB PROVIDER: edit did not apply." >&2; exit 68; }
+else
+    grep -q '    a - b' "$TARGET" || { echo "STUB PROVIDER: noop scenario changed the tree." >&2; exit 69; }
+fi
 
 # ---------------------------------------------------------------------------
 # stream-json on stdout, in the shape the real parsers expect.
