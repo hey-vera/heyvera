@@ -208,7 +208,10 @@ export function streamChat(
     controls: ChatSessionControls;
     run_profile: RunProfile;
     sovereignty: SovereigntyLoopState;
-    routing_preferences?: any;
+    // Forwarded verbatim into the request body; nothing here reads its
+    // fields, and the only producer currently passes `undefined`. Structural
+    // rather than `any` so it cannot silently absorb a mistake.
+    routing_preferences?: Record<string, unknown>;
   } | null,
   onEvent: (event: WorkerEvent) => void,
   onDone: () => void,

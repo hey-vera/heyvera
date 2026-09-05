@@ -69,12 +69,17 @@ jobs:
       - name: Build Cortex
         run: npm run build
 
-      # Advisory only: `eslint .` currently reports 12 errors and 3 warnings on
-      # main. Making it blocking today would wedge every PR in the repo, and a
-      # check that always fails gets switched off. Clean those up, then delete
-      # continue-on-error and this comment.
-      - name: Lint Cortex (advisory)
-        continue-on-error: true
+      # Blocking, as of the run that cleaned it. It was advisory because
+      # `eslint .` reported errors on main and a check that always fails gets
+      # switched off. The errors are gone: three unused catch bindings became
+      # optional catches, a dropped `cause` is preserved on the rethrow, an
+      # `any` became structural, two helpers that nothing imported stopped
+      # being exported, and one lucide icon lookup carries an explicit
+      # disable with its reasoning.
+      #
+      # Warnings are still permitted -- three `react-hooks/exhaustive-deps`
+      # remain and each needs a judgement about intent, not a lint fix.
+      - name: Lint Cortex
         run: npm run lint
 
   heyvera:

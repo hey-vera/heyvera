@@ -175,6 +175,10 @@ function GraphNodeButton({
         top: position.y,
       }}
     >
+      {/* eslint-disable-next-line react-hooks/static-components -- `nodeIcon`
+          returns one of the lucide components imported at module scope. It
+          creates nothing, so the identity is stable across renders and the
+          state reset this rule guards against cannot happen. */}
       <Icon className="h-4 w-4 shrink-0" />
       <span className="min-w-0">
         <span className="block truncate text-[11px] font-semibold capitalize">{node.type.replaceAll('_', ' ')}</span>

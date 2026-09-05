@@ -841,7 +841,9 @@ export default function SettingsPanel({
       const usage = await getCurrentUsage();
       setBudgetUsage(usage);
     } catch (err) {
-      throw new Error(err instanceof Error ? err.message : 'Failed to save budget settings');
+      throw new Error(err instanceof Error ? err.message : 'Failed to save budget settings', {
+        cause: err,
+      });
     }
   }, []);
 

@@ -201,7 +201,7 @@ export default function BudgetSettings({
     try {
       await onSave(formSettings);
       setHasChanges(false);
-    } catch (err) {
+    } catch {
       // Error handling is done by parent component
     } finally {
       setIsSaving(false);

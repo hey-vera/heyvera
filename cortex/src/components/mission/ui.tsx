@@ -14,13 +14,13 @@ import { AlertCircle, CheckCircle2, Circle, HelpCircle, Loader2, MinusCircle, Re
 /* Status vocabulary                                                   */
 /* ------------------------------------------------------------------ */
 
-export type StatusTone = 'ok' | 'err' | 'warn' | 'busy' | 'idle';
+type StatusTone = 'ok' | 'err' | 'warn' | 'busy' | 'idle';
 
 /**
  * One mapping from backend status words to a visual tone. Runs, steps,
  * verifier verdicts, and check outcomes all funnel through here.
  */
-export function toneForStatus(status: string | null | undefined): StatusTone {
+function toneForStatus(status: string | null | undefined): StatusTone {
   switch ((status ?? '').toLowerCase()) {
     // `succeeded` is deliberately absent. A step never reaches it; a run still
     // can, and `completed` covers that.
