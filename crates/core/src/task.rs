@@ -26,6 +26,15 @@ pub struct TaskContract {
     pub forbidden_paths: Vec<String>,
     #[serde(default)]
     pub expected_base_commit: Option<String>,
+    /// What kind of claim a verdict over this task may be, declared here --
+    /// at plan time, before approval -- so that delivery cannot choose it
+    /// after the fact.
+    ///
+    /// Defaults to `Authored`, the weaker claim. A contract written before
+    /// this field existed promised nothing about the exam, and defaulting to
+    /// `Strong` would retroactively put words in its mouth.
+    #[serde(default)]
+    pub verdict_class: crate::diff_surface::VerdictClass,
     #[serde(default)]
     pub autonomy: Option<String>,
     #[serde(default)]
@@ -200,6 +209,9 @@ impl TaskContract {
             allowed_paths: Vec::new(),
             forbidden_paths: Vec::new(),
             expected_base_commit: None,
+            // The weaker claim until a planner declares otherwise: a task
+            // constructed here has promised nothing about the exam.
+            verdict_class: crate::diff_surface::VerdictClass::Authored,
             autonomy: None,
             approval: None,
             budget_limit: None,
