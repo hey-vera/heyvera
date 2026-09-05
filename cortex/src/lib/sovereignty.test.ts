@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { recommendRoute } from './sovereignty';
-import type { ChatSessionControls } from './cortexApi';
+import type { ChatSessionControls } from '../types';
 
 /**
  * `recommendRoute` decides, among other things, whether the worker may proceed
@@ -13,13 +13,12 @@ import type { ChatSessionControls } from './cortexApi';
  * a `try`, so without a browser it falls back to zeroed bias — which is what
  * these assertions are written against.
  */
-const controls = (over: Partial<ChatSessionControls> = {}): ChatSessionControls =>
-  ({
-    autonomy: 'smart_auto',
-    intelligence: 'balanced',
-    speed: 'balanced',
-    ...over,
-  }) as ChatSessionControls;
+const controls = (over: Partial<ChatSessionControls> = {}): ChatSessionControls => ({
+  autonomy: 'smart_auto',
+  intelligence: 'balanced',
+  speed: 'balanced',
+  ...over,
+});
 
 describe('recommendRoute', () => {
   it('requires a human when the prompt touches a credentialed boundary', () => {
@@ -33,18 +32,18 @@ describe('recommendRoute', () => {
       'patch the auth middleware',
       'adjust the soma ledger',
     ]) {
-      expect(recommendRoute(risky, controls(), 'adaptive').mode).toBe('manual');
+      expect(recommendRoute(risky, controls(), 'balanced').mode).toBe('manual');
     }
   });
 
   it('requires a human when autonomy is set to manual, whatever the prompt', () => {
     expect(
-      recommendRoute('rename a local variable', controls({ autonomy: 'manual' }), 'adaptive').mode,
+      recommendRoute('rename a local variable', controls({ autonomy: 'manual' }), 'balanced').mode,
     ).toBe('manual');
   });
 
   it('lets the worker proceed on ordinary work under auto', () => {
-    const rec = recommendRoute('rename a local variable', controls(), 'adaptive');
+    const rec = recommendRoute('rename a local variable', controls(), 'balanced');
     expect(rec.mode).toBe('auto');
   });
 
@@ -70,7 +69,7 @@ describe('recommendRoute', () => {
   });
 
   it('always says why, and offers a way out', () => {
-    const rec = recommendRoute('implement the parser', controls(), 'adaptive');
+    const rec = recommendRoute('implement the parser', controls(), 'balanced');
     expect(rec.rationale.length).toBeGreaterThan(0);
     expect(rec.alternatives.length).toBeGreaterThan(0);
     expect(rec.tradeoffs.length).toBeGreaterThan(0);
