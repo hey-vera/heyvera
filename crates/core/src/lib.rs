@@ -22,4 +22,5 @@ pub mod task_class;
 pub mod usage;
 pub mod vera;
 pub mod verification;
+pub mod weak_verifier;
 pub mod write_set;
