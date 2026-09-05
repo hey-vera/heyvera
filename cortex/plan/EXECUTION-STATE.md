@@ -2530,6 +2530,40 @@ subscriber added to the test in this branch is what makes the next occurrence
 diagnosable; it was invisible before because integration tests install no
 subscriber and the driver's `tracing::error!` went nowhere.
 
+**ROOT-CAUSED AND RESOLVED 2026-09-04. It was not a race over the commit.**
+
+`Database::get_receipt` does not read a stored receipt — it *assembles* one,
+recomputing the gate with `compute_verdict(&specs, &executions)` from whatever
+`verification_checks` rows exist **at read time**. The `verification_runs` row
+is created when the dispatcher *claims* the job, so from that instant a receipt
+exists, and its verdict changes underneath the reader as checks land:
+`Inconclusive` with `executions: []`, then whatever the executions say.
+
+Anything polling for "a receipt exists" gets whichever state it happens to hit.
+That is the whole of F18: not two verdicts for one input, but one verdict read
+too early. The suspected worker-cleanup race was correctly ruled out and was
+never involved.
+
+It was caught by running the chain with F19 fixed: the FAIL scenario reached the
+verifier, the dispatcher logged `claimed a verification job` at `00:10:53.232`,
+and the test read the receipt at `00:10:53.645` — 413 ms later, finding
+`Inconclusive` with only `ecosystem:cargo-check` recorded, while
+`ecosystem:cargo-test` had not finished.
+
+The fix is one clause: `get_receipt` selects only rows with
+`finished_at IS NOT NULL`. Until `finish_verification` seals it there is no
+receipt, and the API returns 404 rather than a preview. Reading the verdict
+from the stored column instead would not have fixed it — that column says
+`pending` until the same moment.
+
+Recomputing the gate rather than storing it is still right, and the comment on
+`get_receipt` explaining why still stands; it was the *unsealed* read that was
+wrong, not the derivation.
+
+A unit test pins all three states — claimed, partially executed, sealed —
+because the failure mode was timing-dependent and therefore invisible to any
+test that did not construct the intermediate state deliberately.
+
 ### F19. The brain rejects a delivery on the worker's own check evidence, so `Verdict::Failed` was still unreachable
 
 F14 a second time, one hop further on, and it survived fixing F14.
