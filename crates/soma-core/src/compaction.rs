@@ -14,7 +14,6 @@ use crate::trust::{self, Interaction};
 ///
 /// Same mechanism at every level. Same quality. Different scale.
 /// One atom of truth or a billion — same soul.
-
 /// A compacted observation at any level. The representation that
 /// survived the Information Bottleneck — the signal that passed
 /// through the narrowest point and proved it carries meaning.

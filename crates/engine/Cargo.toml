@@ -17,3 +17,6 @@ uuid.workspace = true
 tracing.workspace = true
 anyhow.workspace = true
 rusqlite.workspace = true
+
+[lints]
+workspace = true

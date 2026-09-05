@@ -167,7 +167,6 @@ pub enum NetworkPolicy {
     Allowlist { hosts: Vec<String> },
 }
 
-
 impl NetworkPolicy {
     pub fn is_deny(&self) -> bool {
         matches!(self, Self::Deny)

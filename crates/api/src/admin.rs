@@ -69,24 +69,6 @@ pub async fn resolve_admin(
     authorize_admin(state, user).await
 }
 
-/// Checks if user has admin privileges - returns bool (for sync use cases)
-pub fn is_admin(_state: &AppState, user_id: &str) -> bool {
-    let admins = admin_set();
-    if admins.is_empty() {
-        // If no admin list is configured but we're not in production
-        return std::env::var("CLERK_SECRET_KEY").is_err();
-    }
-
-    // Check by user_id first
-    if admins.contains(&user_id.to_lowercase()) {
-        return true;
-    }
-
-    // For email lookup, we'd need async capability which this function doesn't have
-    // This is a simplified version - in practice, caller should use resolve_admin for full checks
-    false
-}
-
 pub async fn require_admin_middleware(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,

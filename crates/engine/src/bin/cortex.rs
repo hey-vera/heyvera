@@ -483,12 +483,12 @@ fn print_ledger_entry(palette: &Palette, entry: &LedgerEntry) {
             ..
         } => {
             println!(
-                "- [{}] routing_decision task={} provider={} tier={} risk={} score={:.2} model={}",
+                "- [{}] routing_decision task={} provider={} tier={} risk={:?} score={:.2} model={}",
                 ts,
                 task_id,
                 provider,
                 tier,
-                format!("{risk:?}"),
+                risk,
                 score,
                 model.as_deref().unwrap_or("-")
             );

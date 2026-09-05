@@ -54,7 +54,7 @@ pub async fn list_conversations(
         return Ok(Json(serde_json::json!({ "conversations": [], "total": 0 })));
     }
     let db = db_ref(&state)?;
-    let limit = params.limit.unwrap_or(50).min(100).max(1);
+    let limit = params.limit.unwrap_or(50).clamp(1, 100);
     let offset = params.offset.unwrap_or(0).max(0);
     let (conversations, total) = db.list_conversations(&user.user_id, limit, offset);
     let value = serde_json::json!({

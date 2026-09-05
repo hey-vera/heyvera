@@ -268,8 +268,7 @@ pub struct CheckEvidence {
     pub duration_ms: u64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct StepContext {
     pub predecessor_summaries: Vec<PredecessorSummary>,
     pub user_goal: String,
@@ -293,4 +292,3 @@ pub struct PredecessorSummary {
     pub summary: String,
     pub files_changed: Vec<String>,
 }
-

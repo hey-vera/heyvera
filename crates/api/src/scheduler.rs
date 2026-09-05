@@ -243,12 +243,7 @@ async fn apply_event(state: &AppState, sched: &mut SchedulerState, event: &Sched
 }
 
 async fn schedule_until_blocked(state: &AppState, sched: &mut SchedulerState) {
-    loop {
-        let step = match sched.next_assignable() {
-            Some(s) => s,
-            None => break,
-        };
-
+    while let Some(step) = sched.next_assignable() {
         match dispatch_step(state, &step).await {
             DispatchOutcome::Dispatched => {}
             DispatchOutcome::RetryLater => {
@@ -940,6 +935,13 @@ fn as_required_check(spec: &cortex_core::verification::CheckSpec) -> RequiredChe
     }
 }
 
+/// The `RequiredCheck` shape of the derived specs.
+///
+/// `#[cfg(test)]` because only tests call it: production derives
+/// `CheckSpec`s and freezes those, and converting them back to
+/// `RequiredCheck` is something only the assertions want. It was plain dead
+/// code to `cargo clippy` on a non-test build, which is a different claim.
+#[cfg(test)]
 fn infer_required_checks(
     kind: StepKind,
     risk: RiskLevel,

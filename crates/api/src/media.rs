@@ -772,11 +772,13 @@ fn generate_s3_presigned_get(
         .trim_start_matches("https://")
         .trim_start_matches("http://")
         .trim_end_matches('/');
-    let mut params = [("X-Amz-Algorithm", "AWS4-HMAC-SHA256".to_string()),
+    let mut params = [
+        ("X-Amz-Algorithm", "AWS4-HMAC-SHA256".to_string()),
         ("X-Amz-Credential", credential),
         ("X-Amz-Date", amz_date.clone()),
         ("X-Amz-Expires", expires_in.to_string()),
-        ("X-Amz-SignedHeaders", "host".to_string())];
+        ("X-Amz-SignedHeaders", "host".to_string()),
+    ];
     params.sort_by(|a, b| a.0.cmp(b.0));
     let canonical_query: String = params
         .iter()
@@ -837,11 +839,13 @@ fn generate_s3_presigned_put(
         .trim_end_matches('/');
 
     // Build the canonical query string (parameters must be sorted)
-    let mut params = [("X-Amz-Algorithm", "AWS4-HMAC-SHA256".to_string()),
+    let mut params = [
+        ("X-Amz-Algorithm", "AWS4-HMAC-SHA256".to_string()),
         ("X-Amz-Credential", credential.clone()),
         ("X-Amz-Date", amz_date.clone()),
         ("X-Amz-Expires", expires_in.to_string()),
-        ("X-Amz-SignedHeaders", "content-type;host".to_string())];
+        ("X-Amz-SignedHeaders", "content-type;host".to_string()),
+    ];
     params.sort_by(|a, b| a.0.cmp(b.0));
 
     let canonical_querystring: String = params

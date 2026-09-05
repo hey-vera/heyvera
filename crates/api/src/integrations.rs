@@ -680,6 +680,10 @@ pub struct AuthorityScopeMemberRequest {
     pub role: String,
 }
 
+/// Deserialised from the request body. The fields are never read in Rust yet
+/// -- the handler that will consume them is not written -- but the shape is the
+/// wire contract, so it stays and says so.
+#[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct UpdateAuthorityScopeRequest {
     pub name: Option<String>,

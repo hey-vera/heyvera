@@ -381,9 +381,6 @@ pub struct CodeRedemption {
     pub redeemed_at: String,
 }
 
-// --- Schema version ---
-
-const SCHEMA_VERSION: i64 = 59;
 const RUN_RESOURCE_LEASE_TTL_MS: i64 = 24 * 60 * 60 * 1000;
 
 fn apply_migrations(conn: &Connection) {
@@ -6688,16 +6685,14 @@ impl Database {
         requested_by: &str,
     ) -> Option<CortexApprovalRequest> {
         let conn = self.conn();
-        if let Ok((id, group_id)) = conn
-            .query_row(
-                "SELECT id, group_id FROM cortex_approval_requests
+        if let Ok((id, group_id)) = conn.query_row(
+            "SELECT id, group_id FROM cortex_approval_requests
              WHERE user_id = ?1 AND step_id = ?2 AND ask_type = ?3 AND status = 'pending'
              ORDER BY updated_at DESC, id DESC
              LIMIT 1",
-                params![user_id, step_id, ask_type],
-                |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
-            )
-        {
+            params![user_id, step_id, ask_type],
+            |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)),
+        ) {
             return self.approval_request_from_row(&conn, user_id, &group_id, &id);
         }
 
@@ -17246,9 +17241,7 @@ impl Database {
             )
             .ok();
 
-        let Some((_id, author_id, body, _visibility)) = source else {
-            return None;
-        };
+        let (_id, author_id, body, _visibility) = source?;
 
         let source_tags = Self::social_extract_hashtags(&body);
 
@@ -18203,11 +18196,12 @@ impl Database {
 
     pub fn social_mark_notifications_read(&self, profile_id: &str) -> i64 {
         let conn = self.conn();
-        
+
         conn.execute(
             "UPDATE social_notifications SET read = 1 WHERE recipient_profile_id = ?1 AND read = 0",
             [profile_id],
-        ).unwrap_or(0) as i64
+        )
+        .unwrap_or(0) as i64
     }
 
     pub fn social_get_community_feed(

@@ -955,7 +955,6 @@ struct StubbedRun {
     receipt: Option<cortex_api::db::Receipt>,
     step_status: Option<String>,
     commits: usize,
-    blocked_detail: Option<String>,
     saw_completion: bool,
     receipt_json: Option<serde_json::Value>,
 }
@@ -1155,7 +1154,6 @@ async fn drive_one_stubbed_task(scenario: &str) -> StubbedRun {
         receipt,
         step_status,
         commits,
-        blocked_detail,
         saw_completion,
         receipt_json,
     }

@@ -318,14 +318,18 @@ jobs:
       - name: Check the Soma feature still compiles
         run: cargo check -p cortex-api -p cortex-worker --features cortex-api/soma,cortex-worker/soma --locked
 
-      # Advisory until someone reads the output. clippy has never run against
-      # this workspace, so its warning count is unknown and could not be
-      # measured before opening this PR (no working linker on the authoring
-      # machine). Making it blocking sight-unseen would wedge every PR, which is
-      # how the `web` job and the midnight flake trained people to ignore CI.
-      # Read the first run, fix or allow, then drop continue-on-error.
-      - name: Clippy (advisory)
-        continue-on-error: true
+      # Blocking, as of the run that finally read it. It was advisory because
+      # nobody had seen the output and wedging every PR sight-unseen is how the
+      # `web` job trained people to ignore CI. The first run reported 142
+      # warnings: the mechanical ones were fixed, six categories were allowed
+      # with reasons in `[workspace.lints.clippy]`, and the rest were real
+      # enough to be worth the diff -- a dead fail-open `is_admin`, a stale
+      # `SCHEMA_VERSION = 59` against a schema at v67, a `classify_failure`
+      # parameter whose only reader was a branch with two identical arms.
+      #
+      # The allow list is in the root `Cargo.toml` rather than in flags here,
+      # so a local `cargo clippy` sees exactly what CI sees.
+      - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
 

@@ -10,7 +10,6 @@ use uuid::Uuid;
 /// Resolve the CLI binary path from an env var, falling back to a default name.
 /// Logs a warning on first use if the binary cannot be found on $PATH.
 fn resolve_cli_path(env_var: &str, default: &str) -> String {
-    
     std::env::var(env_var).unwrap_or_else(|_| default.to_string())
 }
 
@@ -579,10 +578,10 @@ pub async fn stream_chat_via_container(
                     while let Some(chunk) = raw_rx.recv().await {
                         for line in chunk.lines() {
                             let trimmed = line.trim();
-                            if !trimmed.is_empty()
-                                && tx.send(format!("{trimmed}\n")).await.is_err() {
-                                    return;
-                                }
+                            if !trimmed.is_empty() && tx.send(format!("{trimmed}\n")).await.is_err()
+                            {
+                                return;
+                            }
                         }
                     }
                 }
@@ -693,10 +692,9 @@ async fn spawn_and_stream_codex(
 
         while let Ok(Some(line)) = lines.next_line().await {
             let trimmed = line.trim();
-            if !trimmed.is_empty()
-                && tx.send(format!("{trimmed}\n")).await.is_err() {
-                    break;
-                }
+            if !trimmed.is_empty() && tx.send(format!("{trimmed}\n")).await.is_err() {
+                break;
+            }
         }
         Ok::<(), String>(())
     };
@@ -894,10 +892,9 @@ async fn stream_codex_cli(
 
         while let Ok(Some(line)) = lines.next_line().await {
             let trimmed = line.trim();
-            if !trimmed.is_empty()
-                && tx.send(format!("{trimmed}\n")).await.is_err() {
-                    break;
-                }
+            if !trimmed.is_empty() && tx.send(format!("{trimmed}\n")).await.is_err() {
+                break;
+            }
         }
         Ok::<(), String>(())
     };

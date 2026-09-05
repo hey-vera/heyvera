@@ -20,3 +20,6 @@ futures-util.workspace = true
 dirs-next = "2"
 ratatui = "0.29"
 crossterm = { version = "0.28", features = ["event-stream"] }
+
+[lints]
+workspace = true

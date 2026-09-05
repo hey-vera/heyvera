@@ -17,3 +17,6 @@ path = "src/main.rs"
 # serialization (its configuration is argv).
 [dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "time"] }
+
+[lints]
+workspace = true

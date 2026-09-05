@@ -1,7 +1,5 @@
 use serde::{Deserialize, Serialize};
 
-use crate::provider::ProviderId;
-
 // --- Worker-reported failure (raw evidence) ---
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -167,9 +165,16 @@ impl TaskFailureKind {
 
 // --- Classification: Worker report → Brain classification ---
 
+/// Classify a worker's failure report into the brain's vocabulary.
+///
+/// This used to take the routed provider. The only thing that read it was a
+/// branch whose arms were identical, so the parameter informed nothing while
+/// reading as though the classification depended on it. Removed with that
+/// branch: a signature that implies an input matters is a claim, and this one
+/// was not true. If provider-specific classification is wanted later, it comes
+/// back with a caller that uses it.
 pub fn classify_failure(
     report: &WorkerFailureReport,
-    provider: Option<ProviderId>,
     worker_disconnected: bool,
 ) -> (TaskFailureKind, FailureScope) {
     if worker_disconnected {
@@ -178,13 +183,11 @@ pub fn classify_failure(
 
     let kind = match report.kind {
         WorkerFailureKind::CliNotFound => TaskFailureKind::CliNotInstalled,
-        WorkerFailureKind::CliNotAuthenticated => {
-            if provider.is_some() {
-                TaskFailureKind::CliNotAuthenticated
-            } else {
-                TaskFailureKind::CliNotAuthenticated
-            }
-        }
+        // Both arms of the `provider.is_some()` test that used to be here
+        // returned the same value, so the branch decided nothing. Whatever it
+        // was meant to distinguish was never written; a conditional that reads
+        // as though it discriminates and does not is worse than the constant.
+        WorkerFailureKind::CliNotAuthenticated => TaskFailureKind::CliNotAuthenticated,
         WorkerFailureKind::CliAuthExpired => TaskFailureKind::ProviderAuthExpired,
         WorkerFailureKind::CliRateLimited => TaskFailureKind::ProviderRateLimited,
         WorkerFailureKind::CliModelUnavailable => TaskFailureKind::ProviderModelUnavailable,
@@ -286,7 +289,7 @@ mod tests {
             stderr_excerpt: None,
             tool: Some("claude".into()),
         };
-        let (kind, scope) = classify_failure(&report, Some(ProviderId::Claude), false);
+        let (kind, scope) = classify_failure(&report, false);
         assert_eq!(kind, TaskFailureKind::ProviderRateLimited);
         assert_eq!(scope, FailureScope::ProviderModel);
     }
@@ -299,7 +302,7 @@ mod tests {
             stderr_excerpt: None,
             tool: None,
         };
-        let (kind, _) = classify_failure(&report, None, true);
+        let (kind, _) = classify_failure(&report, true);
         assert_eq!(kind, TaskFailureKind::WorkerDisconnected);
     }
 
@@ -311,7 +314,7 @@ mod tests {
             stderr_excerpt: Some("Error: rate limit exceeded (429)".into()),
             tool: Some("codex".into()),
         };
-        let (kind, _) = classify_failure(&report, Some(ProviderId::Openai), false);
+        let (kind, _) = classify_failure(&report, false);
         assert_eq!(kind, TaskFailureKind::ProviderRateLimited);
     }
 
@@ -323,7 +326,7 @@ mod tests {
             stderr_excerpt: Some("out of memory".into()),
             tool: Some("claude".into()),
         };
-        let (kind, _) = classify_failure(&report, Some(ProviderId::Claude), false);
+        let (kind, _) = classify_failure(&report, false);
         assert_eq!(kind, TaskFailureKind::WorkerResourceExhausted);
     }
 }
