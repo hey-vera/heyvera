@@ -71,14 +71,14 @@ async fn main() {
     // can be wired in. The guard must live for the entire duration of main.
     #[cfg(feature = "sentry-tracking")]
     let _sentry_guard = if let Ok(dsn) = std::env::var("SENTRY_DSN") {
-        let guard = sentry::init((
-            dsn,
-            sentry::ClientOptions {
-                release: Some(env!("CARGO_PKG_VERSION").into()),
-                traces_sample_rate: 0.1,
-                ..Default::default()
-            },
-        ));
+        // sentry 0.49 made `ClientOptions` `#[non_exhaustive]`, so it can no
+        // longer be built with struct-literal syntax, and `traces_sample_rate`
+        // is no longer a field: it is a builder method that sets the
+        // `traces_sampling_strategy` field.
+        let options = sentry::ClientOptions::default()
+            .release(env!("CARGO_PKG_VERSION"))
+            .traces_sample_rate(0.1);
+        let guard = sentry::init((dsn, options));
         Some(guard)
     } else {
         None
