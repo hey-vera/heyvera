@@ -405,6 +405,64 @@ async fn finish_and_bill(
     }
 }
 
+/// The exam paths a `strong` delivery touched, if it touched any.
+///
+/// `None` when the contract is unreachable, when it declared `authored`, or
+/// when the diff is clean of the exam surface. Unreachable is deliberately
+/// permissive: a contract we cannot read has not declared `strong`, and
+/// refusing to grade on that basis would take a customer's work and give them
+/// nothing back for a storage problem of ours.
+fn exam_contract_violation(db: &Database, facts: &DeliveryFacts) -> Option<Vec<String>> {
+    let contract = db.get_step_work_contract(&facts.step_id, facts.attempt)?;
+    if contract.verdict_class != VerdictClass::Strong {
+        return None;
+    }
+
+    let base = contract.expected_base_commit.as_deref()?;
+    let changed = changed_paths(&facts.workspace_dir, base, &facts.head_commit)?;
+    let partition = diff_surface::partition(&changed, &ecosystem_facts_for(&facts.workspace_dir));
+
+    match diff_surface::resolve_class(VerdictClass::Strong, &partition) {
+        ClassOutcome::StrongContractBroken { exam_paths } => Some(exam_paths),
+        ClassOutcome::Honoured(_) => None,
+    }
+}
+
+/// `git diff --name-only base..head`, against the workspace.
+///
+/// `None` on any failure, which routes to "no violation found". A diff we could
+/// not compute is not evidence of tampering, and treating it as such would turn
+/// a git hiccup into an unpaid step.
+fn changed_paths(workspace_dir: &Path, base: &str, head: &str) -> Option<Vec<String>> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(workspace_dir)
+        .arg("diff")
+        .arg("--name-only")
+        .arg(format!("{base}..{head}"))
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect(),
+    )
+}
+
+/// What ecosystems the workspace root declares, for path classification.
+fn ecosystem_facts_for(workspace_dir: &Path) -> EcosystemFacts {
+    EcosystemFacts {
+        has_cargo_manifest: workspace_dir.join("Cargo.toml").exists(),
+        has_package_json: workspace_dir.join("package.json").exists(),
+        npm_scripts: Vec::new(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -680,62 +738,182 @@ mod tests {
         );
         assert_eq!(receipt.executions.len(), 1, "and must not add executions");
     }
-}
 
-/// The exam paths a `strong` delivery touched, if it touched any.
-///
-/// `None` when the contract is unreachable, when it declared `authored`, or
-/// when the diff is clean of the exam surface. Unreachable is deliberately
-/// permissive: a contract we cannot read has not declared `strong`, and
-/// refusing to grade on that basis would take a customer's work and give them
-/// nothing back for a storage problem of ours.
-fn exam_contract_violation(db: &Database, facts: &DeliveryFacts) -> Option<Vec<String>> {
-    let contract = db.get_step_work_contract(&facts.step_id, facts.attempt)?;
-    if contract.verdict_class != VerdictClass::Strong {
-        return None;
+    /// A repo with a base commit and a delivered commit editing `paths`.
+    fn repo_with_base_and_delivery(paths: &[&str]) -> (std::path::PathBuf, String, String) {
+        let dir = tempfile::tempdir().unwrap().keep();
+        let git = |args: &[&str]| {
+            let out = std::process::Command::new("git")
+                .args(args)
+                .current_dir(&dir)
+                .output()
+                .expect("git runs");
+            assert!(
+                out.status.success(),
+                "git {args:?} failed: {}",
+                String::from_utf8_lossy(&out.stderr)
+            );
+            String::from_utf8_lossy(&out.stdout).trim().to_string()
+        };
+        git(&["init", "--initial-branch=main"]);
+        git(&["config", "user.email", "test@example.com"]);
+        git(&["config", "user.name", "Test"]);
+        std::fs::write(
+            dir.join("Cargo.toml"),
+            "[package]
+",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("src/lib.rs"),
+            "pub fn a() {}
+",
+        )
+        .unwrap();
+        std::fs::create_dir_all(dir.join("tests")).unwrap();
+        std::fs::write(
+            dir.join("tests/e2e.rs"),
+            "#[test] fn t() {}
+",
+        )
+        .unwrap();
+        git(&["add", "."]);
+        git(&["commit", "-m", "base"]);
+        let base = git(&["rev-parse", "HEAD"]);
+
+        for p in paths {
+            std::fs::write(
+                dir.join(p),
+                "// delivered edit
+",
+            )
+            .unwrap();
+        }
+        git(&["add", "."]);
+        git(&["commit", "-m", "delivered"]);
+        let head = git(&["rev-parse", "HEAD"]);
+        (dir, base, head)
     }
 
-    let base = contract.expected_base_commit.as_deref()?;
-    let changed = changed_paths(&facts.workspace_dir, base, &facts.head_commit)?;
-    let partition = diff_surface::partition(&changed, &ecosystem_facts_for(&facts.workspace_dir));
-
-    match diff_surface::resolve_class(VerdictClass::Strong, &partition) {
-        ClassOutcome::StrongContractBroken { exam_paths } => Some(exam_paths),
-        ClassOutcome::Honoured(_) => None,
+    /// Seed a real run and step, because `step_work_contracts` has foreign
+    /// keys to both. Returns the generated run id.
+    fn seed_run_and_step(db: &Database, step_id: &str) -> String {
+        db.create_run_with_steps(
+            "user-1",
+            "do the thing",
+            "balanced",
+            &[],
+            None,
+            None,
+            None,
+            &[(
+                step_id.to_string(),
+                "execute".to_string(),
+                "modify".to_string(),
+                None,
+                "execute".to_string(),
+                "low".to_string(),
+                "do the thing".to_string(),
+                0,
+            )],
+            &[],
+        )
     }
-}
 
-/// `git diff --name-only base..head`, against the workspace.
-///
-/// `None` on any failure, which routes to "no violation found". A diff we could
-/// not compute is not evidence of tampering, and treating it as such would turn
-/// a git hiccup into an unpaid step.
-fn changed_paths(workspace_dir: &Path, base: &str, head: &str) -> Option<Vec<String>> {
-    let out = std::process::Command::new("git")
-        .arg("-C")
-        .arg(workspace_dir)
-        .arg("diff")
-        .arg("--name-only")
-        .arg(format!("{base}..{head}"))
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
+    fn facts_for(dir: &std::path::Path, head: &str, run_id: &str, step_id: &str) -> DeliveryFacts {
+        DeliveryFacts {
+            run_id: run_id.to_string(),
+            step_id: step_id.to_string(),
+            attempt_id: "attempt-1".to_string(),
+            attempt: 1,
+            workspace_dir: dir.to_path_buf(),
+            head_commit: head.to_string(),
+            quoted_credits: None,
+        }
     }
-    Some(
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .map(|l| l.trim().to_string())
-            .filter(|l| !l.is_empty())
-            .collect(),
-    )
-}
 
-/// What ecosystems the workspace root declares, for path classification.
-fn ecosystem_facts_for(workspace_dir: &Path) -> EcosystemFacts {
-    EcosystemFacts {
-        has_cargo_manifest: workspace_dir.join("Cargo.toml").exists(),
-        has_package_json: workspace_dir.join("package.json").exists(),
-        npm_scripts: Vec::new(),
+    fn contract_declaring(class: VerdictClass, base: &str) -> cortex_core::task::TaskContract {
+        let mut c = cortex_core::task::TaskContract::new(
+            "do the thing".to_string(),
+            cortex_core::provider::Tier::Execute,
+            cortex_core::routing::RiskLevel::Low,
+        );
+        c.verdict_class = class;
+        c.expected_base_commit = Some(base.to_string());
+        c
+    }
+
+    #[test]
+    fn a_strong_declaration_that_edits_the_exam_is_a_contract_violation() {
+        // The case Phase 27.2 exists for. Dispatch promised the battery would
+        // be the customer's own; delivery rewrote it. Downgrading to
+        // `authored` here would make `strong` mean "strong unless it was
+        // inconvenient", so it is refused instead.
+        let db = test_db();
+        let (dir, base, head) = repo_with_base_and_delivery(&["src/lib.rs", "tests/e2e.rs"]);
+        let run_id = seed_run_and_step(&db, "step-1");
+        assert!(db.record_step_work_contract(
+            "step-1",
+            &run_id,
+            1,
+            &contract_declaring(VerdictClass::Strong, &base),
+        ));
+
+        let violation = exam_contract_violation(&db, &facts_for(&dir, &head, &run_id, "step-1"))
+            .expect("the guard must fire");
+        assert_eq!(
+            violation,
+            vec!["tests/e2e.rs".to_string()],
+            "the exam path is named, and only the exam path"
+        );
+    }
+
+    #[test]
+    fn a_strong_declaration_that_leaves_the_exam_alone_is_graded() {
+        let db = test_db();
+        let (dir, base, head) = repo_with_base_and_delivery(&["src/lib.rs"]);
+        let run_id = seed_run_and_step(&db, "step-1");
+        assert!(db.record_step_work_contract(
+            "step-1",
+            &run_id,
+            1,
+            &contract_declaring(VerdictClass::Strong, &base),
+        ));
+
+        assert!(
+            exam_contract_violation(&db, &facts_for(&dir, &head, &run_id, "step-1")).is_none(),
+            "subject-only work under a strong declaration is what strong means"
+        );
+    }
+
+    #[test]
+    fn authored_work_may_edit_the_exam() {
+        // Characterization testing and TDD both write the exam. If this ever
+        // fires, Phase 24.2's brownfield on-ramp is broken.
+        let db = test_db();
+        let (dir, base, head) = repo_with_base_and_delivery(&["src/lib.rs", "tests/e2e.rs"]);
+        let run_id = seed_run_and_step(&db, "step-1");
+        assert!(db.record_step_work_contract(
+            "step-1",
+            &run_id,
+            1,
+            &contract_declaring(VerdictClass::Authored, &base),
+        ));
+
+        assert!(
+            exam_contract_violation(&db, &facts_for(&dir, &head, &run_id, "step-1")).is_none(),
+            "an authored verdict is allowed to have written the exam"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_contract_does_not_fail_the_step() {
+        // No contract stored. That is our storage problem, not evidence of
+        // tampering, and refusing to grade on it would take the customer's
+        // work and give them nothing.
+        let db = test_db();
+        let (dir, _base, head) = repo_with_base_and_delivery(&["tests/e2e.rs"]);
+        assert!(exam_contract_violation(&db, &facts(&dir, &head)).is_none());
     }
 }
