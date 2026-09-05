@@ -25,6 +25,8 @@
 use std::path::{Path, PathBuf};
 
 use cortex_core::billing_binding::{self, BillingEffect, BillingState};
+use cortex_core::check_derivation::EcosystemFacts;
+use cortex_core::diff_surface::{self, ClassOutcome, VerdictClass};
 use cortex_core::verification::{
     CheckExecution, CheckOutcome, CheckRunner, CheckSpec, TreeSnapshot, Verdict,
 };
@@ -154,6 +156,31 @@ pub async fn verify_delivery<R: CheckRunner>(
         &facts.head_commit,
         runner.runner_image(),
     )?;
+
+    // Phase 27.2. Freezing the specs stopped a task rewriting its own *argv*.
+    // It never stopped it rewriting what that argv reads, and the checkout
+    // below is a clean checkout of the delivered commit -- the very commit
+    // whose test files the agent controls.
+    //
+    // So ask what the delivery touched before grading it. A plan that declared
+    // `strong` and then edited the exam has contradicted its own contract.
+    // That is not a verdict, and the run does not get to choose the weaker
+    // class after the fact.
+    if let Some(exam_paths) = exam_contract_violation(db, facts) {
+        tracing::error!(
+            run_id = %facts.run_id,
+            step_id = %facts.step_id,
+            exam_paths = ?exam_paths,
+            "declared verdict_class=strong and then edited the exam; inconclusive"
+        );
+        let detail = format!(
+            "declared verdict_class=strong but the delivered diff edits the exam surface: {}",
+            exam_paths.join(", ")
+        );
+        let _ = db.finish_verification(&verification_id, Verdict::Inconclusive);
+        project_verdict(db, facts, Verdict::Inconclusive, Some(&detail));
+        return Some(Verdict::Inconclusive);
+    }
 
     let checkout = match TreeCheckout::create(&facts.workspace_dir, &facts.head_commit) {
         Ok(c) => c,
@@ -652,5 +679,63 @@ mod tests {
             "the duplicate must not overwrite the first verdict"
         );
         assert_eq!(receipt.executions.len(), 1, "and must not add executions");
+    }
+}
+
+/// The exam paths a `strong` delivery touched, if it touched any.
+///
+/// `None` when the contract is unreachable, when it declared `authored`, or
+/// when the diff is clean of the exam surface. Unreachable is deliberately
+/// permissive: a contract we cannot read has not declared `strong`, and
+/// refusing to grade on that basis would take a customer's work and give them
+/// nothing back for a storage problem of ours.
+fn exam_contract_violation(db: &Database, facts: &DeliveryFacts) -> Option<Vec<String>> {
+    let contract = db.get_step_work_contract(&facts.step_id, facts.attempt)?;
+    if contract.verdict_class != VerdictClass::Strong {
+        return None;
+    }
+
+    let base = contract.expected_base_commit.as_deref()?;
+    let changed = changed_paths(&facts.workspace_dir, base, &facts.head_commit)?;
+    let partition = diff_surface::partition(&changed, &ecosystem_facts_for(&facts.workspace_dir));
+
+    match diff_surface::resolve_class(VerdictClass::Strong, &partition) {
+        ClassOutcome::StrongContractBroken { exam_paths } => Some(exam_paths),
+        ClassOutcome::Honoured(_) => None,
+    }
+}
+
+/// `git diff --name-only base..head`, against the workspace.
+///
+/// `None` on any failure, which routes to "no violation found". A diff we could
+/// not compute is not evidence of tampering, and treating it as such would turn
+/// a git hiccup into an unpaid step.
+fn changed_paths(workspace_dir: &Path, base: &str, head: &str) -> Option<Vec<String>> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(workspace_dir)
+        .arg("diff")
+        .arg("--name-only")
+        .arg(format!("{base}..{head}"))
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    Some(
+        String::from_utf8_lossy(&out.stdout)
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect(),
+    )
+}
+
+/// What ecosystems the workspace root declares, for path classification.
+fn ecosystem_facts_for(workspace_dir: &Path) -> EcosystemFacts {
+    EcosystemFacts {
+        has_cargo_manifest: workspace_dir.join("Cargo.toml").exists(),
+        has_package_json: workspace_dir.join("package.json").exists(),
+        npm_scripts: Vec::new(),
     }
 }
