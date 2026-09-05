@@ -60,7 +60,7 @@ rand.workspace = true
 futures-util.workspace = true
 which = "8"
 bollard = "0.18"
-socket2 = "0.5"
+socket2 = "0.6"
 prometheus.workspace = true
 once_cell.workspace = true
 sentry = { version = "0.49", features = ["tracing"], optional = true }
