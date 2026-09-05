@@ -3,6 +3,7 @@ pub mod autonomy;
 pub mod battery_power;
 pub mod billing_binding;
 pub mod capability;
+pub mod check_cache;
 pub mod check_derivation;
 pub mod contamination;
 pub mod diff_surface;
