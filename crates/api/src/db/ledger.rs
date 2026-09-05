@@ -70,8 +70,9 @@ impl Database {
         clerk_user_id: &str,
         amount: i64,
         description: &str,
-        idempotency_key: &str,
+        key: &cortex_core::billing_binding::ChargeKey,
     ) -> Result<CreditBalanceRecord, String> {
+        let idempotency_key = key.as_str();
         if amount < 0 {
             return Err("credit amount must be non-negative".into());
         }
@@ -226,13 +227,21 @@ impl Database {
     ///
     /// Append-only: a refund is a positive row with reason
     /// `task_failed_refund`, never an UPDATE of the spend row.
+    /// Return credits taken under `charge`.
+    ///
+    /// The two keys are different types on purpose. They used to be two bare
+    /// `&str` in a row, so passing them the wrong way round compiled: the
+    /// refund would look for a charge under its own key, find none, and move
+    /// no money while reporting success. Now that is a compile error.
     pub fn refund_credits(
         &self,
         clerk_user_id: &str,
-        charge_idempotency_key: &str,
-        refund_idempotency_key: &str,
+        charge: &cortex_core::billing_binding::ChargeKey,
+        refund: &cortex_core::billing_binding::RefundKey,
         description: &str,
     ) -> Result<CreditBalanceRecord, String> {
+        let charge_idempotency_key = charge.as_str();
+        let refund_idempotency_key = refund.as_str();
         if charge_idempotency_key.trim().is_empty() || refund_idempotency_key.trim().is_empty() {
             return Err("both charge and refund idempotency keys are required".into());
         }
