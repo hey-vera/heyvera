@@ -6210,6 +6210,39 @@ The remediation, and none of it is large:
   in a module that the rest of the system reaches only through a narrow interface.
   The claim Cortex sells is ledger correctness; nothing currently prevents
   unrelated code from writing to it.
+
+  **Half done 2026-09-05, and the other half is not a refactor.**
+
+  The ownership split landed: `db.rs` is now `db/mod.rs` (27,890 lines) with
+  `db/ledger.rs` (1,035) and `db/verification_queue.rs` (757). A move, not a
+  redesign — byte-identical functions, no call-site churn, 399 tests before and
+  after.
+
+  **The narrow interface cannot be built yet, and the reason is worth stating
+  plainly: `credit_transactions` and `credit_balances` are shared by both
+  products.** `pulse.rs` charges them for a Pulse draft — a Socials action, with
+  no verification behind it, minting its own `pulse-draft:{uuid}` key — while
+  `verification_driver.rs` charges them for a verified step. Both call the same
+  `deduct_credits`.
+
+  So "nothing prevents unrelated code from writing to it" is not describing a
+  missing type. It is describing the other product, writing to the ledger on
+  purpose. A `ChargeKey` newtype derived from a verification id — the obvious
+  narrowing, and the one drafted first — would not compile against `pulse.rs`,
+  and weakening it to accept any derivation gives up the property that made it
+  worth having.
+
+  **This item therefore belongs to the repo split, not before it.** The ledger
+  cannot be narrowed to Cortex while Socials legitimately charges it. Sequence:
+  extract the products, then narrow the Cortex ledger against a caller set that
+  is actually Cortex's.
+
+  One narrowing *is* available today and is much smaller than it sounds:
+  `refund_credits(user, charge_key, refund_key, reason)` takes four bare
+  strings, so the types permit passing the refund key as the charge key. A
+  `LedgerKey` newtype with several constructors would make that a compile error
+  without breaking either product. It prevents argument-order confusion, not
+  unauthorised charging, and it should be described as the former.
 - **Raise test density on the money path specifically.** 295 test functions in
   `crates/api/src` against 65,407 lines is thin, and Phase 30's suites measure the
   harness rather than the ledger. The ratio matters far more for

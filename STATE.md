@@ -46,12 +46,28 @@ completed a task; that claim belongs to `live-model.yml` and to nothing else.
   `ecosystem:npm-ci` installs into `node_modules/` inside the graded tree, so
   the scratch mount does not rescue it. Recorded in F15 rather than papered
   over.
-- **F16 has no end-to-end coverage.** Both stub scenarios produce a real diff,
-  so neither exercises "delivered nothing". A third `NOOP` scenario in
-  `testing/stub-provider/claude` is the obvious follow-up.
+- ~~**F16 has no end-to-end coverage.**~~ Done — a third `NOOP` scenario in
+  `testing/stub-provider/claude` drives the direction that delivers nothing, and
+  asserts `NothingDelivered` with no receipt.
 - **Phases 27–30** — the capability mechanism, and the falsification test that
   has to exist before any "better than a single model" claim does. Nothing is
   built.
+
+## Blocked on the repo split, which was not obvious
+
+**The credit ledger belongs to both products.** `credit_transactions` and
+`credit_balances` are written by `pulse.rs` (a Socials action, no verification
+behind it) and by `verification_driver.rs` (a verified step), through the same
+`deduct_credits`.
+
+That makes Phase 34's "ledger behind a narrow interface" part of the product
+split rather than a refactor that can precede it: the ledger cannot be narrowed
+to Cortex while Socials legitimately charges it. A `ChargeKey` newtype derived
+from a verification id — the obvious design — does not compile against
+`pulse.rs`.
+
+The ownership split itself is done (`db/ledger.rs`, `db/verification_queue.rs`).
+It is the *interface* half that waits.
 
 ## Gates
 
