@@ -17,6 +17,7 @@ pub mod protocol;
 pub mod provenance;
 pub mod provider;
 pub mod race_policy;
+pub mod repo_understanding;
 pub mod routing;
 pub mod task;
 pub mod task_class;
