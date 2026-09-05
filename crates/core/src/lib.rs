@@ -1,5 +1,6 @@
 pub mod assumption;
 pub mod autonomy;
+pub mod battery_power;
 pub mod billing_binding;
 pub mod check_derivation;
 pub mod contamination;
