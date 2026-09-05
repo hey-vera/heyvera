@@ -114,65 +114,6 @@ async fn test_deployment_events_include_status_inspection() {
     assert!(json["events"][0]["payload"]["backend"].is_object());
 }
 
-// ─── Route Task ──────────────────────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_route_task() {
-    let (app, _tmp) = test_app().await;
-
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/route")
-                .header("content-type", "application/json")
-                .body(Body::from(
-                    serde_json::json!({"input": "fix the auth bug"}).to_string(),
-                ))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    // Route returns 200 when providers are available, 400 when none can handle it.
-    // In the test environment, provider availability depends on installed CLIs.
-    let status = resp.status();
-    assert!(
-        status == StatusCode::OK || status == StatusCode::BAD_REQUEST,
-        "expected 200 or 400, got {status}",
-    );
-
-    let json = body_json(resp).await;
-    if status == StatusCode::OK {
-        assert!(json.get("task").is_some(), "response should contain 'task'");
-        assert!(
-            json.get("decision").is_some(),
-            "response should contain 'decision'"
-        );
-    } else {
-        assert!(json.get("error").is_some(), "400 should contain 'error'");
-    }
-}
-
-#[tokio::test]
-async fn test_route_empty_input() {
-    let (app, _tmp) = test_app().await;
-
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .method("POST")
-                .uri("/api/route")
-                .header("content-type", "application/json")
-                .body(Body::from(serde_json::json!({"input": ""}).to_string()))
-                .unwrap(),
-        )
-        .await
-        .unwrap();
-
-    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
-}
-
 // ─── Runs ────────────────────────────────────────────────────────────────────
 
 #[tokio::test]
@@ -357,6 +298,11 @@ async fn test_rate_limit() {
 
     // The rate limiter allows 60 requests burst for "anonymous" user.
     // Send 61 requests to a rate-limited endpoint and verify the last one is 429.
+    //
+    // `/api/runs/estimate` rather than `/api/route`: the latter was the dead
+    // router and is gone. This test is about the limiter, not about whichever
+    // handler sits behind it, so it wants any live route in the rate-limited
+    // group that does not create state -- an estimate does not.
     let mut last_status = StatusCode::OK;
     for i in 0..=60 {
         let resp = app
@@ -364,10 +310,10 @@ async fn test_rate_limit() {
             .oneshot(
                 Request::builder()
                     .method("POST")
-                    .uri("/api/route")
+                    .uri("/api/runs/estimate")
                     .header("content-type", "application/json")
                     .body(Body::from(
-                        serde_json::json!({"input": "fix something"}).to_string(),
+                        serde_json::json!({"goal": "fix something"}).to_string(),
                     ))
                     .unwrap(),
             )

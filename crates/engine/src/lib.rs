@@ -7,8 +7,6 @@ pub mod ledger;
 pub mod models;
 pub mod pipeline;
 pub mod risk;
-pub mod router;
-pub mod scorer;
 pub mod store;
 pub mod templates;
 pub mod verifier;

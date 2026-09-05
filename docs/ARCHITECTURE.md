@@ -38,13 +38,24 @@ something the implementation does not do — trust the note, not the section.
 
 **Two implementation facts this spec does not capture:**
 
-1. **There are two routers.** `crates/engine/src/scorer.rs:55` —
-   `compute_score(provider, _tier, _risk)` — discards tier and risk entirely and
-   returns `100 + (1 - pressure) * 50`. That is the source of the constant `150.0`
-   and the unconditional `best_available_for_tier` rationale in old ledger files.
-   It is **dead**: `state.providers` is initialised empty (`state.rs:135`) and
-   never written, so `/api/route` and `/api/execute` return 400 unconditionally.
-   The live path is §11's evaluator. Delete the dead one.
+1. ~~**There are two routers.**~~ **DONE 2026-09-04 — there is one.**
+   `crates/engine/src/scorer.rs` and `router.rs` are deleted, with
+   `/api/route`, `/api/execute` and their handlers. They were dead exactly as
+   described: `state.providers` is initialised empty and only ever read, so
+   `score_providers` returned `None` and both endpoints answered 400
+   unconditionally. Nothing called them — no frontend, no script, no other
+   crate. The live path is §11's evaluator, and it is now the only one.
+
+   `classify_intent`, `classify_risk` and `resolve_model` stayed; they are used
+   by the live path. `effective_tier` was private to the deleted router and
+   went with it.
+
+   **Still true, and not the same thing:** `state.providers` itself remains
+   inert. It is initialised empty, never written, and still read by
+   `chat.rs`'s suggestions and by the mission-control payload — so both have
+   always reported "no providers" and always will. That is a live surface with
+   a dead input, which is a different repair from deleting a dead one, and it
+   is not done here.
 2. **§2's decomposition is thinner than it reads.** The DAG is built by splitting
    the user's sentence on `" and then "` / `" also "`, capped at 5 segments.
    "Fix the login bug" produces one node. The orchestration machinery is real;
