@@ -150,7 +150,7 @@ pub fn extract_file(path: &Path, relative: &str, source: &str, extraction: &mut 
         let mut name: Option<(&str, usize)> = None;
         let mut role: Option<&str> = None;
 
-        for capture in matched.captures {
+        for capture in matched.captures() {
             let capture_name = capture_names[capture.index as usize];
             if capture_name == "name" {
                 if let Ok(text) = capture.node.utf8_text(source.as_bytes()) {
