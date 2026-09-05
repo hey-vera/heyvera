@@ -2614,3 +2614,46 @@ program trusts. Worth closing when `db.rs` is next open.
   failure. It **passed** on this machine during PR A (316/316 on the api lib).
   Treat any failure of it as suspect rather than expected.
 - If a brief and the plan disagree, the plan wins and the brief is fixed.
+
+### F20. A check that ran and failed was recorded as a check that could not run
+
+The last place the same mistake lived, and the one that kept `Verdict::Failed`
+unreachable after both F14 and F19 were fixed.
+
+Found by running the chain with F18 and F19 fixed. The FAIL scenario reached
+the independent verifier, the verifier ran the exam, and:
+
+```
+WARN  check runner failed; retrying  spec_id=ecosystem:cargo-test attempt=0
+      error=runner failed while executing: wait failed for check
+            ecosystem:cargo-test: Docker container wait error
+ERROR check could not be executed after retries; verdict will be inconclusive
+INFO  verification complete verdict=Inconclusive required_passed=1 required_total=2
+```
+
+Three retries, all identical, and only ever for the one check that exits
+non-zero. The PASS tree's `cargo test` exits 0 and completes normally.
+
+**Bollard does not report a non-zero container exit as an `Ok` response.** It
+reports it as `Error::DockerContainerWaitError`, carrying the code. So
+`check_runner.rs`'s wait — which read `Ok` as an exit and `Err` as a failure of
+ours — classified every check that ran and failed as a check that could not be
+run: `CheckOutcome::NotExecuted`, and `Inconclusive` as the fail-safe.
+
+`CheckOutcome::Failed` was therefore unreachable from the container runner. A
+`Verdict::Failed` needs a check recorded as failed, so the refund path stayed
+unreachable even after the worker stopped discarding failing work (F14) and the
+brain stopped rejecting it (F19).
+
+**RESOLVED 2026-09-04.** The wait error is inspected for the exit code it
+carries and treated as an exit; anything else stays `Inconclusive`, because a
+Docker failure is genuinely ours to absorb and charging a customer for our
+outage would be worse than the bug. The mapping is split into a pure function
+and tested in both directions without a daemon.
+
+Why it survived: nothing in `check_runner.rs`'s tests ever reached the
+container path — they all exercise `container_config`, which is pure. That is
+the same shape as F9, whose own comment in this file warns about exactly this
+("every test of the driver uses a `ScriptedRunner` … the one place a spec
+becomes a running process had no test at all"). The warning was written and the
+gap it named was still there one layer down.
