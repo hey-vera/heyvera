@@ -2638,7 +2638,9 @@ program trusts. Worth closing when `db.rs` is next open.
 - Rust: `cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --all-targets`.
   **`--all-targets`, never `--lib`** - the integration tests are where every
   cross-crate finding in waves 4 and 5 lived, and `--lib` cannot see them.
-  **Never run `cargo fmt` on this repo.**
+  `cargo fmt --all` is **required**: `fmt` is a required check and runs
+  `cargo fmt --all --check`. Run it before pushing. Locally `--check` alone
+  reports CRLF noise on this machine, so trust the CI job over a local run.
 - `jq` is not installed on this machine and MSYS mangles slashes. Use `gh`'s
   built-in `--jq`. A monitor that reports `unknown` is a loop failing silently,
   not an unknowable answer.
