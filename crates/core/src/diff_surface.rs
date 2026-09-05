@@ -59,6 +59,7 @@ pub enum DiffSurface {
 /// delivery cannot choose it after the fact.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum VerdictClass {
     /// The exam surface is byte-identical between base and delivered tree. The
     /// battery that graded the work is the battery the customer had before
@@ -74,6 +75,7 @@ pub enum VerdictClass {
     /// the distinction.
     ///
     /// [`Strong`]: VerdictClass::Strong
+    #[default]
     Authored,
 }
 
