@@ -315,14 +315,14 @@ async fn finish_and_bill(
         return;
     };
 
-    let charge_key = billing_binding::charge_key(verification_id);
-    let refund_key = billing_binding::refund_key(verification_id);
+    let charge_key = billing_binding::ChargeKey::for_verification(verification_id);
+    let refund_key = billing_binding::RefundKey::for_verification(verification_id);
 
     // Derive the billing state from the ledger, not from a status column. The
     // ledger is where the money actually is, so it cannot disagree with itself.
-    let state = if db.ledger_has_key(&refund_key) {
+    let state = if db.ledger_has_key(refund_key.as_str()) {
         BillingState::Refunded
-    } else if db.ledger_has_key(&charge_key) {
+    } else if db.ledger_has_key(charge_key.as_str()) {
         BillingState::Charged
     } else {
         BillingState::Unbilled

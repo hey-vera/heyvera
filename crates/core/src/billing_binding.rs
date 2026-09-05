@@ -24,10 +24,10 @@ use crate::verification::Verdict;
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BillingEffect {
     /// Charge the task's price. Key makes it exactly-once.
-    Charge { idempotency_key: String },
+    Charge { idempotency_key: ChargeKey },
     /// Return credits already taken. Only ever reached from a state that
     /// charged, so a refund can never precede a charge.
-    Refund { idempotency_key: String },
+    Refund { idempotency_key: RefundKey },
     /// Touch nothing. Distinct from a zero-value charge: the ledger stays
     /// append-only and silent, so nothing has to be explained later.
     None,
@@ -55,18 +55,64 @@ pub mod reason {
     pub const TASK_UNVERIFIED: &str = "task_unverified";
 }
 
-/// The charge key for a verification. Derived, never generated: replaying a
-/// transition after a crash between verdict and ledger write must re-derive
-/// the same key, so the ledger's `UNIQUE` constraint turns the retry into a
-/// no-op instead of a second charge.
-pub fn charge_key(verification_id: &str) -> String {
-    format!("verify:{verification_id}")
+/// The key a charge is written under.
+///
+/// A type rather than a `String` because the ledger's refund takes both keys
+/// and they used to be two bare `&str` in a row: nothing stopped a caller
+/// passing them the wrong way round, which would look for a charge under the
+/// refund's key, find none, and move no money while reporting success.
+///
+/// The field is private, so a `ChargeKey` can only come from one of the
+/// constructors below. That is the whole enforcement — not that the key is
+/// *correct*, but that it was derived somewhere that had to think about it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ChargeKey(String);
+
+/// The key a refund is written under. A separate type from [`ChargeKey`] for
+/// the reason above; a separate *namespace* so a refund cannot collide with
+/// the charge it reverses and be silently dropped.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefundKey(String);
+
+impl ChargeKey {
+    /// The charge for a verification. Derived, never generated: replaying a
+    /// transition after a crash between verdict and ledger write must
+    /// re-derive the same key, so the ledger's `UNIQUE` constraint turns the
+    /// retry into a no-op instead of a second charge.
+    pub fn for_verification(verification_id: &str) -> Self {
+        Self(format!("verify:{verification_id}"))
+    }
+
+    /// A charge for one unit of work that is not a verification.
+    ///
+    /// The credit ledger is shared with HeyVera Socials, which bills actions
+    /// that no verdict stands behind — a Pulse draft, for one. Those are real
+    /// charges and they need real keys; what they cannot have is a verification
+    /// id, because there is no verification. The caller supplies a label that
+    /// is unique per unit of work.
+    ///
+    /// This is the constructor that stops the type being a Cortex-only
+    /// guarantee, and it is why the guarantee is "derived deliberately"
+    /// rather than "tied to a verdict". Narrowing further waits on the
+    /// product split.
+    pub fn per_unit(label: impl Into<String>) -> Self {
+        Self(label.into())
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
-/// The refund key. Separate namespace from the charge, so a refund cannot
-/// collide with the charge it reverses and be silently dropped.
-pub fn refund_key(verification_id: &str) -> String {
-    format!("refund:{verification_id}")
+impl RefundKey {
+    /// The refund for a verification.
+    pub fn for_verification(verification_id: &str) -> Self {
+        Self(format!("refund:{verification_id}"))
+    }
+
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
 }
 
 /// Decide what this verdict does to the ledger, given what has already
@@ -102,15 +148,15 @@ pub fn billing_effect(
         (Verdict::Inconclusive, _) => BillingEffect::None,
 
         (Verdict::Verified, BillingState::Unbilled) => BillingEffect::Charge {
-            idempotency_key: charge_key(verification_id),
+            idempotency_key: ChargeKey::for_verification(verification_id),
         },
         (Verdict::Unverified, BillingState::Unbilled) => BillingEffect::Charge {
-            idempotency_key: charge_key(verification_id),
+            idempotency_key: ChargeKey::for_verification(verification_id),
         },
         (Verdict::Verified | Verdict::Unverified, BillingState::Charged) => BillingEffect::None,
 
         (Verdict::Failed, BillingState::Charged) => BillingEffect::Refund {
-            idempotency_key: refund_key(verification_id),
+            idempotency_key: RefundKey::for_verification(verification_id),
         },
         (Verdict::Failed, BillingState::Unbilled) => BillingEffect::None,
     }
@@ -137,7 +183,7 @@ mod tests {
         assert_eq!(
             billing_effect(Verdict::Verified, BillingState::Unbilled, VID),
             BillingEffect::Charge {
-                idempotency_key: "verify:ver_9f2c".into()
+                idempotency_key: ChargeKey::for_verification(VID)
             }
         );
     }
@@ -155,15 +201,44 @@ mod tests {
 
     #[test]
     fn keys_are_derived_so_a_replay_reproduces_them() {
-        assert_eq!(charge_key(VID), charge_key(VID));
-        assert_eq!(refund_key(VID), refund_key(VID));
+        assert_eq!(
+            ChargeKey::for_verification(VID),
+            ChargeKey::for_verification(VID)
+        );
+        assert_eq!(
+            RefundKey::for_verification(VID),
+            RefundKey::for_verification(VID)
+        );
     }
 
     #[test]
     fn charge_and_refund_keys_never_collide() {
         // Sharing a namespace would let a refund be swallowed as a duplicate
         // of the charge it reverses.
-        assert_ne!(charge_key(VID), refund_key(VID));
+        //
+        // Compared as strings because the types no longer permit comparing
+        // them directly -- which is the stronger half of the same guarantee,
+        // and is checked by the compiler rather than by this assertion.
+        assert_ne!(
+            ChargeKey::for_verification(VID).as_str(),
+            RefundKey::for_verification(VID).as_str()
+        );
+    }
+
+    #[test]
+    fn a_charge_key_cannot_be_conjured_from_a_string() {
+        // The property this type exists for, stated where a reader will look
+        // for it. Both of these are compile errors, which is why they are
+        // written down rather than asserted:
+        //
+        //     let k: ChargeKey = "verify:anything".into();
+        //     let k = ChargeKey("verify:anything".to_string());
+        //
+        // The field is private and there is no `From<&str>`, so every key in
+        // the ledger came from a constructor that had to name what it was for.
+        let unit = ChargeKey::per_unit("pulse-draft:abc");
+        assert_eq!(unit.as_str(), "pulse-draft:abc");
+        assert_ne!(unit, ChargeKey::for_verification(VID));
     }
 
     #[test]
@@ -171,7 +246,7 @@ mod tests {
         assert_eq!(
             billing_effect(Verdict::Failed, BillingState::Charged, VID),
             BillingEffect::Refund {
-                idempotency_key: "refund:ver_9f2c".into()
+                idempotency_key: RefundKey::for_verification(VID)
             }
         );
     }

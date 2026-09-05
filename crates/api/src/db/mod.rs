@@ -26469,18 +26469,22 @@ mod tests {
         );
     }
 
+    use cortex_core::billing_binding::{ChargeKey, RefundKey};
+
     #[test]
     fn refund_mirrors_the_charge_and_replays_as_a_no_op() {
         let db = test_db();
         db.init_credit_balance("user-1", 100).expect("balance");
 
-        db.deduct_credits("user-1", 30, "verified task", "verify:v-1")
+        let charge = ChargeKey::for_verification("v-1");
+        let refund = RefundKey::for_verification("v-1");
+        db.deduct_credits("user-1", 30, "verified task", &charge)
             .expect("charge");
         let after_charge = db.credit_ledger_totals("user-1");
         assert_eq!(after_charge.0, -30, "subscription bucket drew 30");
 
         let refunded = db
-            .refund_credits("user-1", "verify:v-1", "refund:v-1", "failed verdict")
+            .refund_credits("user-1", &charge, &refund, "failed verdict")
             .expect("refund");
         assert_eq!(
             refunded.subscription_remaining, 100,
@@ -26494,7 +26498,7 @@ mod tests {
 
         // Replay: the process died between verdict and refund and retried.
         let replay = db
-            .refund_credits("user-1", "verify:v-1", "refund:v-1", "failed verdict")
+            .refund_credits("user-1", &charge, &refund, "failed verdict")
             .expect("replay is not an error");
         assert_eq!(replay.subscription_remaining, 100, "replay changes nothing");
         assert_eq!(db.credit_ledger_totals("user-1").0, 0);
@@ -26506,7 +26510,12 @@ mod tests {
         db.init_credit_balance("user-1", 50).expect("balance");
 
         let out = db
-            .refund_credits("user-1", "verify:never-charged", "refund:x", "no charge")
+            .refund_credits(
+                "user-1",
+                &ChargeKey::for_verification("never-charged"),
+                &RefundKey::for_verification("x"),
+                "no charge",
+            )
             .expect("not an error");
         assert_eq!(out.subscription_remaining, 50);
         assert_eq!(db.credit_ledger_totals("user-1"), (0, 0));

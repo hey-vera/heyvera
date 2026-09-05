@@ -257,7 +257,10 @@ pub fn meter_pulse_draft_create(
             // key is for the orchestrator's `run_id:step_id:attempt_id` path;
             // this key exists to satisfy the ledger's exactly-once contract,
             // not to fake one here.
-            let unit_key = format!("pulse-draft:{}", uuid::Uuid::new_v4());
+            let unit_key = cortex_core::billing_binding::ChargeKey::per_unit(format!(
+                "pulse-draft:{}",
+                uuid::Uuid::new_v4()
+            ));
             let bal =
                 database.deduct_credits(clerk_user_id, cost, "pulse draft create", &unit_key)?;
             // Record activity so Premium usage windows show Pulse drafts (tokens can be 0).
