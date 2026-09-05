@@ -13241,12 +13241,26 @@ impl Database {
         Ok(())
     }
 
-    /// The receipt for a step's most recent verification attempt.
+    /// The receipt for a step's most recent **sealed** verification attempt.
     ///
     /// The gate is recomputed from the frozen specs and the stored executions
     /// rather than read from a column. Storing a `VerdictReport` would create a
     /// second source of truth that could drift from the evidence beneath it;
     /// `compute_verdict` is pure, so deriving it costs nothing and cannot lie.
+    ///
+    /// `finished_at IS NOT NULL` is what makes that safe, and it is load-bearing
+    /// (F18). Recomputing from the executions *recorded so far* means an
+    /// unsealed verification yields a receipt whose verdict changes as checks
+    /// land: `Inconclusive` with no executions the moment the run row is
+    /// created, then `Failed`, then `Verified`. A caller polling for "a receipt
+    /// exists" catches whichever it happens to hit, which is how the same input
+    /// produced two different verdicts on consecutive runs. Reading the
+    /// verdict from the column instead would not have fixed it — the row says
+    /// `pending` until the same moment.
+    ///
+    /// A receipt is the record of a verification that finished. Until
+    /// `finish_verification` seals it, there is no receipt, and this returns
+    /// `None` rather than a preview of one.
     pub fn get_receipt(&self, run_id: &str, step_id: &str) -> Option<Receipt> {
         let specs = self.load_check_specs(run_id, step_id);
         let conn = self.conn();
@@ -13254,7 +13268,7 @@ impl Database {
         let (verification_id, attempt, tree_hash) = conn
             .query_row(
                 "SELECT id, attempt, tree_hash FROM verification_runs
-                 WHERE run_id = ?1 AND step_id = ?2
+                 WHERE run_id = ?1 AND step_id = ?2 AND finished_at IS NOT NULL
                  ORDER BY attempt DESC LIMIT 1",
                 params![run_id, step_id],
                 |r| {
@@ -27874,6 +27888,51 @@ mod tests {
         // 2000 + 5000; the in-flight attempt contributes no duration rather
         // than being counted as zero-length.
         assert_eq!(chain.total_duration_ms, 7_000);
+    }
+
+    #[test]
+    fn an_unsealed_verification_has_no_receipt() {
+        // F18: the same input produced two different verdicts on consecutive
+        // runs. This is why. The gate is recomputed from the executions
+        // recorded *so far*, so an in-flight verification yields a receipt
+        // whose verdict changes underneath a caller as checks land --
+        // `Inconclusive` with nothing executed, then something else. Anything
+        // polling for "a receipt exists" caught whichever it happened to hit.
+        //
+        // A receipt is the record of a verification that finished.
+        let db = test_db();
+        let specs = vec![spec("check-pass", true), spec("check-fail", true)];
+        db.save_check_specs("run-9", "step-9", &specs)
+            .expect("freeze");
+
+        let vid = db
+            .claim_verification("run-9", "step-9", 1, "tree-xyz", "img@sha256:9")
+            .expect("claim");
+
+        assert!(
+            db.get_receipt("run-9", "step-9").is_none(),
+            "a claimed but unfinished verification must not serve a receipt"
+        );
+
+        db.record_check_execution(
+            &vid,
+            &specs[0],
+            &execution("check-pass", CheckOutcome::Passed, Some(0)),
+        )
+        .expect("record execution");
+
+        assert!(
+            db.get_receipt("run-9", "step-9").is_none(),
+            "a partially executed verification must not serve a receipt either -- \
+             this is the state that produced the varying verdict"
+        );
+
+        db.finish_verification(&vid, Verdict::Failed).expect("seal");
+
+        assert!(
+            db.get_receipt("run-9", "step-9").is_some(),
+            "a sealed verification must serve its receipt"
+        );
     }
 
     #[test]
