@@ -1,6 +1,5 @@
 use std::sync::Arc;
 
-use axum::extract::{FromRequestParts, State};
 use axum::http::request::Parts;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
@@ -444,16 +443,14 @@ pub async fn extract_identity(
 
     // 1. Check for Soma delegation token
     if let Some(header) = auth_header {
-        if header.starts_with(SOMA_AUTH_PREFIX) {
-            let token = &header[SOMA_AUTH_PREFIX.len()..];
+        if let Some(token) = header.strip_prefix(SOMA_AUTH_PREFIX) {
             return verify_soma_token(token, parts, state).await;
         }
     }
 
     // 2. Check for Clerk JWT (Bearer token)
     if let Some(header) = auth_header {
-        if header.starts_with("Bearer ") {
-            let token = &header[7..];
+        if let Some(token) = header.strip_prefix("Bearer ") {
             return verify_clerk_token(token, state).await;
         }
     }

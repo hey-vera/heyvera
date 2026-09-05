@@ -1217,12 +1217,18 @@ fn route_step(
     (decision, evidence)
 }
 
+// `cost_estimate` is read only under `#[cfg(feature = "soma")]`, so a
+// default-features build sees it as unused. Naming it `_cost_estimate` to
+// silence that -- which is what `cargo clippy --fix` did here -- breaks the
+// soma build, because clippy fixes what it compiled and it did not compile
+// that feature. Keep the name; allow the warning only where it applies.
+#[cfg_attr(not(feature = "soma"), allow(unused_variables))]
 async fn update_bandit_from_outcome(
     state: &AppState,
     db: &Database,
     step_id: &str,
     success: bool,
-    _cost_estimate: Option<f64>,
+    cost_estimate: Option<f64>,
 ) {
     use cortex_engine::bandit::{ArmKey, TaskFamily};
 

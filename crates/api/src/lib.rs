@@ -146,7 +146,7 @@ async fn soma_identity(
             let capabilities = heart
                 .lineage
                 .as_ref()
-                .map(|l| ::soma::lineage::effective_capabilities(l))
+                .map(::soma::lineage::effective_capabilities)
                 .unwrap_or_else(|| vec!["*".into()]);
             axum::Json(serde_json::json!({
                 "did": heart.did(),

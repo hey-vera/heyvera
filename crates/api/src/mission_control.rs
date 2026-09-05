@@ -336,7 +336,7 @@ pub async fn mc_snapshot(
         let capabilities = h
             .lineage
             .as_ref()
-            .map(|l| soma::lineage::effective_capabilities(l))
+            .map(soma::lineage::effective_capabilities)
             .unwrap_or_else(|| vec!["*".into()]);
         McHeartState {
             did: h.did().to_string(),
