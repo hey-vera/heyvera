@@ -3,6 +3,7 @@ pub mod autonomy;
 pub mod billing_binding;
 pub mod check_derivation;
 pub mod contamination;
+pub mod diff_surface;
 pub mod egress;
 pub mod error;
 pub mod evaluator;
