@@ -54,6 +54,14 @@ pub fn generate_key() -> [u8; KEY_LEN] {
 
 #[cfg(test)]
 mod tests {
+    /// Path to a committed vector, resolved from the manifest rather than the
+    /// working directory.
+    fn vector_path(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("test-vectors")
+            .join(name)
+    }
+
     use super::*;
 
     #[test]
@@ -108,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn export_test_vectors() {
+    fn committed_vectors_still_match_the_code() {
         let key = [0x42u8; KEY_LEN];
         let nonce = [0x07u8; NONCE_LEN];
         let plaintext = b"soma aead test vector";
@@ -126,7 +134,32 @@ mod tests {
             }],
         });
         let json = serde_json::to_string_pretty(&vectors).unwrap();
-        std::fs::create_dir_all("test-vectors").ok();
-        std::fs::write("test-vectors/aead.json", json).unwrap();
+        // Assert against the committed vector; do not rewrite it.
+        //
+        // These inputs are fixed, so this JSON is byte-identical on every run —
+        // which is exactly why the old `std::fs::write` looked harmless. It was
+        // not: a vector the test overwrites can never disagree with the code,
+        // so it proves nothing, and the identical pattern in `composite.rs`
+        // (random keypair) left a clean checkout dirty on every `cargo test`.
+        // Same fix everywhere, so the directory means one thing. This is F4.
+        //
+        // To change a vector deliberately, edit the committed file and let this
+        // assertion confirm the code agrees with it.
+        let path = vector_path("aead.json");
+        let committed = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("committed vector {} is unreadable: {e}", path.display()));
+
+        // Compared as parsed JSON, not as text: whitespace and line endings are
+        // not part of the vector, and this checkout normalizes newlines.
+        let committed: serde_json::Value =
+            serde_json::from_str(&committed).expect("committed vector is valid JSON");
+        let generated: serde_json::Value =
+            serde_json::from_str(&json).expect("generated vector is valid JSON");
+
+        assert_eq!(
+            generated, committed,
+            "generated vectors no longer match {} — if this change is intended, update the committed file in its own commit",
+            path.display()
+        );
     }
 }

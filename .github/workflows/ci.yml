@@ -1,10 +1,32 @@
 name: CI
 
+# Pull requests only, plus a manual button.
+#
+# `main` is protected with `required_status_checks.strict: true`, which means a
+# pull request cannot merge until it has been tested *against the current tip of
+# main*. The commit that lands is therefore the same tree the PR run already
+# built and tested, and the post-merge `push` run re-ran all six jobs on it —
+# measured at roughly 18 minutes of runner time per merge, duplicating work that
+# had just finished.
+#
+# Removing `push` costs one thing, stated plainly rather than discovered later:
+# a workflow run can restore caches created on its own branch or on the default
+# branch, and nothing else. With no run on `main`, no *new* default-branch cache
+# is created, so after a Cargo.lock change every PR restores a partial cache
+# until it saves its own. If PR wall-clock regresses, the fix is a single
+# `cache-warm` job gated on `push: branches: [main]` with a `shared-key`, not
+# the return of the whole matrix.
+#
+# `supply-chain.yml` already runs on `pull_request` + `schedule` with no `push`
+# trigger, so this is the pattern this repository already uses.
+#
+# Deliberately NOT added: `paths` filters or change detection. See the note on
+# the deleted `web` job below — a skipped job reports success, and every job
+# here is a required status check.
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -229,11 +251,62 @@ jobs:
       - name: Test Rust workspace
         run: cargo test --workspace --locked
 
+      # The boundary check for F4.
+      #
+      # Four `export_test_vectors` "tests" in soma-crypto wrote their own
+      # fixtures with `std::fs::write` instead of asserting against them. Three
+      # had fixed inputs so they rewrote identical bytes and looked harmless;
+      # the fourth generated a random keypair, so `cargo test` left a clean
+      # checkout dirty and the committed "golden" vector was only ever a record
+      # of the last run. A fixture the test overwrites can never disagree with
+      # the code.
+      #
+      # Nothing caught it because every assertion was *near* the boundary and
+      # not *at* it: the suite asserted on values it had just produced, and no
+      # check ever asked whether running the suite changed the repository. This
+      # step asks exactly that, and it is the one that would have caught it.
+      #
+      # It is deliberately not scoped to test-vectors/. Any test that writes
+      # into the working tree is the same defect, wherever it appears.
+      - name: The test run must not modify the working tree
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::running the test suite modified tracked files (listed above). A test that rewrites its own fixture cannot fail. Assert against the committed file instead of writing it."
+            exit 1
+          fi
+          # Tracked files are covered above; an untracked file dropped into the
+          # tree by a test is the same problem wearing a different hat.
+          untracked=$(git ls-files --others --exclude-standard)
+          if [ -n "$untracked" ]; then
+            echo "::error::the test run created untracked files:"
+            echo "$untracked"
+            exit 1
+          fi
+
       # Optional features are invisible to `--workspace`, and `otel` had rotted
       # to the point of not compiling at all while still pinning a dependency
       # with an open advisory. Check the feature so it cannot rot again.
+      # `otel` is here because it rotted to the point of not compiling while
+      # still pinning a dependency with an open advisory. `sentry-tracking` was
+      # the third optional feature and was never checked at all — which is how
+      # dependabot #540 (sentry 0.35 -> 0.49) reported every required check
+      # green while `cargo check -p cortex-api --features sentry-tracking`
+      # failed with two hard errors: `ClientOptions` became non-exhaustive and
+      # `traces_sample_rate` moved off it.
+      #
+      # A green check on a bump to a crate the build never compiles is not
+      # evidence about that crate. Every optional feature in this manifest is
+      # now checked, so the next such bump fails where it should.
+      #
+      # `--all-targets`, not `--bins`: `--bins` compiles only the binaries, so
+      # a break in a test, example, or bench behind one of these features stays
+      # invisible to this job. That is the same blind spot the job exists to
+      # close, one level down -- the feature was checked, but only in the
+      # configuration least likely to be where the break is.
       - name: Check optional features
-        run: cargo check -p cortex-api --features otel --bins --locked
+        run: |
+          cargo check -p cortex-api --features otel --all-targets --locked
+          cargo check -p cortex-api --features sentry-tracking --all-targets --locked
 
       # The `soma` feature is off by default, so `--workspace` above compiles
       # the fenced-out configuration and never the fenced-in one. Check the

@@ -245,32 +245,147 @@ mod tests {
         assert_eq!(bytes.len(), 1 + 64 + MLDSA65_SIG_LEN);
     }
 
+    /// Path to a committed vector, resolved from the manifest rather than the
+    /// working directory, so the test does not depend on where cargo was run.
+    fn vector_path(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("test-vectors")
+            .join(name)
+    }
+
+    /// The committed vector must still verify under today's code.
+    ///
+    /// This test used to be `export_test_vectors`. It generated a fresh random
+    /// keypair on every run and *overwrote* `test-vectors/composite.json`, so
+    /// `cargo test` left a clean checkout dirty and the "golden" vector was
+    /// only ever a record of the last run. A vector the test rewrites cannot
+    /// fail, and a check that cannot fail is not a check — the same defect
+    /// shape as the deleted `web` job. This is F4.
+    ///
+    /// Reading the committed file is what makes it a golden vector: it catches
+    /// a change to the wire format, the suite id, the heart-id binding, or
+    /// either signature algorithm. `cs1_sign_verify_roundtrip` cannot catch any
+    /// of those, because it regenerates both sides of the comparison — if the
+    /// format changed, it would change on both sides and still pass.
     #[test]
-    fn export_test_vectors() {
+    fn committed_composite_vector_still_verifies() {
+        let path = vector_path("composite.json");
+        let raw = std::fs::read_to_string(&path)
+            .unwrap_or_else(|e| panic!("committed vector {} is unreadable: {e}", path.display()));
+        let doc: serde_json::Value = serde_json::from_str(&raw).expect("vector is valid JSON");
+
+        let cases = doc["composite_signature"]
+            .as_array()
+            .expect("composite_signature is an array");
+        assert!(!cases.is_empty(), "the vector file has no cases");
+
+        for case in cases {
+            let hex_field = |k: &str| -> Vec<u8> {
+                hex::decode(case[k].as_str().unwrap_or_else(|| panic!("missing {k}")))
+                    .unwrap_or_else(|e| panic!("{k} is not hex: {e}"))
+            };
+
+            let ed_pk_bytes: [u8; 32] = hex_field("ed25519_pk_hex")
+                .try_into()
+                .expect("ed25519 public key is 32 bytes");
+            let ed25519_pk = ed25519_dalek::VerifyingKey::from_bytes(&ed_pk_bytes)
+                .expect("ed25519 public key is on the curve");
+
+            let pq_pk_bytes: [u8; MLDSA65_PK_LEN] = hex_field("mldsa65_pk_hex")
+                .try_into()
+                .expect("ML-DSA-65 public key is PK_LEN bytes");
+            let mldsa65_pk =
+                ml_dsa_65::PublicKey::try_from_bytes(pq_pk_bytes).expect("ML-DSA-65 public key");
+
+            let ed_sig_bytes: [u8; 64] = hex_field("ed25519_sig_hex")
+                .try_into()
+                .expect("ed25519 signature is 64 bytes");
+            let mldsa65_sig: [u8; MLDSA65_SIG_LEN] = hex_field("mldsa65_sig_hex")
+                .try_into()
+                .expect("ML-DSA-65 signature is SIG_LEN bytes");
+
+            let sig = CompositeSignature {
+                suite_id: case["suite_id"].as_u64().expect("suite_id") as u8,
+                ed25519_sig: ed25519_dalek::Signature::from_bytes(&ed_sig_bytes),
+                mldsa65_sig,
+            };
+
+            let pk = CompositePublicKey {
+                ed25519_pk,
+                mldsa65_pk,
+            };
+            let message = hex_field("message_hex");
+
+            assert_eq!(
+                sig.suite_id, GENESIS_SUITE,
+                "the committed vector was produced under a different suite"
+            );
+            assert!(
+                pk.verify(&message, &sig),
+                "the committed composite vector no longer verifies: {}",
+                case["description"].as_str().unwrap_or("(no description)")
+            );
+
+            // The serialized forms must also still round-trip to the same
+            // bytes, or the vector would keep verifying while the wire format
+            // silently moved underneath it.
+            assert_eq!(
+                hex::encode(pk.to_bytes()),
+                case["composite_pk_hex"].as_str().unwrap(),
+                "composite public key serialization changed"
+            );
+            assert_eq!(
+                hex::encode(sig.to_bytes()),
+                case["signature_hex"].as_str().unwrap(),
+                "composite signature serialization changed"
+            );
+            assert_eq!(
+                hex::encode(pk.heart_id()),
+                case["heart_id_hex"].as_str().unwrap(),
+                "heart id derivation changed"
+            );
+        }
+    }
+
+    /// Regenerating the composite vector is a deliberate act, never a side
+    /// effect of running the suite.
+    ///
+    /// `#[ignore]` here is not the "an ignored test never runs" trap: this is a
+    /// tool, not an assertion. Run it on purpose, and only when the format is
+    /// meant to change:
+    ///
+    /// ```text
+    /// cargo test -p soma-crypto -- --ignored regenerate_composite_vector
+    /// ```
+    ///
+    /// Then commit the result in its own commit, so a reviewer sees that the
+    /// golden vector moved rather than finding it inside an unrelated diff.
+    #[test]
+    #[ignore = "writes a committed file; run deliberately, see the doc comment"]
+    fn regenerate_composite_vector() {
         let kp = CompositeKeypair::generate().unwrap();
         let msg = b"soma protocol composite signature test vector";
         let sig = kp.sign(msg).unwrap();
-
-        let pk_bytes = kp.public_key().to_bytes();
-        let sig_bytes = sig.to_bytes();
 
         let vectors = serde_json::json!({
             "composite_signature": [{
                 "description": "Valid composite signature over test message",
                 "ed25519_pk_hex": hex::encode(kp.ed25519_pk.as_bytes()),
                 "mldsa65_pk_hex": hex::encode(kp.mldsa65_pk.clone().into_bytes()),
-                "composite_pk_hex": hex::encode(&pk_bytes),
+                "composite_pk_hex": hex::encode(kp.public_key().to_bytes()),
                 "heart_id_hex": hex::encode(kp.heart_id()),
                 "message_hex": hex::encode(msg),
                 "suite_id": GENESIS_SUITE,
-                "signature_hex": hex::encode(&sig_bytes),
+                "signature_hex": hex::encode(sig.to_bytes()),
                 "ed25519_sig_hex": hex::encode(sig.ed25519_sig.to_bytes()),
                 "mldsa65_sig_hex": hex::encode(sig.mldsa65_sig),
                 "valid": true,
             }],
         });
-        let json = serde_json::to_string_pretty(&vectors).unwrap();
-        std::fs::create_dir_all("test-vectors").ok();
-        std::fs::write("test-vectors/composite.json", json).unwrap();
+
+        let path = vector_path("composite.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, serde_json::to_string_pretty(&vectors).unwrap()).unwrap();
+        eprintln!("rewrote {}", path.display());
     }
 }
