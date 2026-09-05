@@ -6,12 +6,10 @@ use axum::response::IntoResponse;
 use axum::Json;
 use serde::{Deserialize, Serialize};
 
-use cortex_core::ledger::{LedgerEntry, LedgerEvent};
 use cortex_core::routing::RoutingDecision;
 use cortex_core::task::TaskContract;
 use cortex_core::usage::{estimate_cost_by_provider, CostProjection, StepCostEstimate};
 use cortex_engine::decomposer::decompose_goal;
-use cortex_engine::router::Router;
 
 use crate::billing::PremiumUser;
 use crate::clerk::ClerkUser;
@@ -156,48 +154,6 @@ pub async fn deploy_info() -> impl IntoResponse {
         "version": env!("CARGO_PKG_VERSION"),
         "commit": option_env!("GITHUB_SHA"),
     }))
-}
-
-pub async fn route_task(
-    State(state): State<Arc<AppState>>,
-    _user: PremiumUser,
-    Json(req): Json<RouteRequest>,
-) -> Result<Json<RouteResponse>, (StatusCode, Json<ErrorResponse>)> {
-    if req.input.len() > 32_768 {
-        return Err((
-            StatusCode::PAYLOAD_TOO_LARGE,
-            Json(ErrorResponse {
-                error: "input exceeds 32KB".into(),
-            }),
-        ));
-    }
-    let file_paths = crate::validate::sanitize_file_paths(&req.file_paths)
-        .map_err(|e| (StatusCode::BAD_REQUEST, Json(ErrorResponse { error: e })))?;
-    let providers = state.providers.read().await;
-    let path_refs: Vec<&str> = file_paths.iter().map(|s| s.as_str()).collect();
-
-    let (task, decision) = Router::route(&req.input, &path_refs, &providers).map_err(|e| {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(ErrorResponse {
-                error: e.to_string(),
-            }),
-        )
-    })?;
-
-    let entry = LedgerEntry::new(LedgerEvent::RoutingDecision {
-        task_id: task.id,
-        provider: decision.provider,
-        tier: decision.tier,
-        risk: task.risk,
-        rationale: decision.rationale.clone(),
-        score: decision.score,
-        model: Some(decision.model_id.clone()),
-        alternatives_considered: decision.alternatives_considered.clone(),
-    });
-    let _ = state.ledger.append(&entry);
-
-    Ok(Json(RouteResponse { task, decision }))
 }
 
 pub async fn get_providers(

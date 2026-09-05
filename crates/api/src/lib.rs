@@ -53,7 +53,6 @@ pub mod soma;
 #[cfg(feature = "soma")]
 mod soma_bridge;
 pub mod soma_fence;
-mod sse;
 pub mod state;
 pub mod storage;
 pub mod stripe_client;
@@ -438,8 +437,6 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         ServeDir::new(&cortex_static_dir).not_found_service(tower::service_fn(spa_fallback_cortex));
 
     let rate_limited = Router::new()
-        .route("/api/route", post(routes::route_task))
-        .route("/api/execute", post(sse::execute_task))
         .route("/api/chat", post(chat::chat))
         .route("/api/runs", get(routes::list_runs).post(routes::create_run))
         .route("/api/runs/estimate", post(routes::estimate_run))
@@ -988,8 +985,6 @@ pub fn build_router(state: Arc<AppState>) -> Router {
         ServeDir::new(&cortex_static_dir).not_found_service(tower::service_fn(spa_fallback));
     // Rate-limited routes (expensive endpoints)
     let rate_limited = Router::new()
-        .route("/api/route", post(routes::route_task))
-        .route("/api/execute", post(sse::execute_task))
         .route("/api/chat", post(chat::chat))
         .route("/api/runs", get(routes::list_runs).post(routes::create_run))
         .route("/api/runs/estimate", post(routes::estimate_run))
