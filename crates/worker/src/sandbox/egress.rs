@@ -228,7 +228,7 @@ pub async fn provision(
     };
     let container_id = created.id;
 
-    let mut egress = Egress {
+    let egress = Egress {
         network_id,
         network_name,
         container_id,

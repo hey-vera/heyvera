@@ -609,7 +609,7 @@ pub(crate) fn extract_draft_id(message: &str, verbs: &[&str]) -> Option<String> 
 
 fn is_plausible_id(id: &str) -> bool {
     let len = id.len();
-    if len < 8 || len > 64 {
+    if !(8..=64).contains(&len) {
         return false;
     }
     id.chars()

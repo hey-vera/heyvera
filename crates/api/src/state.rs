@@ -3,7 +3,7 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
-use cortex_core::protocol::{BrainMessage, StepContext};
+use cortex_core::protocol::BrainMessage;
 use cortex_core::provider::{ProviderId, ProviderStatus};
 use cortex_core::routing::RoutingDecision;
 use cortex_core::task::TaskContract;

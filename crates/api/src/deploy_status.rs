@@ -985,13 +985,7 @@ fn parse_optional_i64(value: &str) -> Option<i64> {
 }
 
 fn non_empty_string(value: Option<String>) -> Option<String> {
-    value.and_then(|value| {
-        if value.trim().is_empty() {
-            None
-        } else {
-            Some(value)
-        }
-    })
+    value.filter(|value| !value.trim().is_empty())
 }
 
 async fn fetch_live_assets(public_url: &str) -> Result<FrontendAssets, String> {
@@ -1105,7 +1099,7 @@ mod tests {
             &run,
         );
 
-        assert_eq!(status.configured, true);
+        assert!(status.configured);
         assert_eq!(status.workflow_id, Some(259523968));
         assert_eq!(status.workflow_name.as_deref(), Some("Deploy Production"));
         assert_eq!(
@@ -1174,7 +1168,7 @@ mod tests {
             &deploy_meta,
         );
 
-        assert_eq!(status.configured, false);
+        assert!(!status.configured);
         assert_eq!(status.source, "deploy_meta");
         assert_eq!(status.owner, "hey-vera");
         assert_eq!(status.repo, "heyvera");

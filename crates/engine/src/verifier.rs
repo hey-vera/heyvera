@@ -1021,13 +1021,15 @@ mod executed_tests {
     /// The whole point of V5: a worker claiming success cannot produce one.
     #[test]
     fn a_lying_worker_cannot_manufacture_a_pass() {
-        let mut evidence = StructuredStepEvidence::default();
-        evidence.exit_code = Some(0);
-        evidence.checks = vec![CheckEvidence {
-            name: "cargo:test".into(),
-            status: CheckStatus::Passed,
-            summary: Some("all green, honest".into()),
-        }];
+        let evidence = StructuredStepEvidence {
+            exit_code: Some(0),
+            checks: vec![CheckEvidence {
+                name: "cargo:test".into(),
+                status: CheckStatus::Passed,
+                summary: Some("all green, honest".into()),
+            }],
+            ..Default::default()
+        };
 
         let result = verify_from_executions(
             &contract(),
@@ -1075,12 +1077,14 @@ mod executed_tests {
 
     #[test]
     fn worker_evidence_survives_as_a_hint() {
-        let mut evidence = StructuredStepEvidence::default();
-        evidence.commands = vec![CommandEvidence {
-            command: "cargo test".into(),
-            exit_code: Some(0),
-            summary: None,
-        }];
+        let evidence = StructuredStepEvidence {
+            commands: vec![CommandEvidence {
+                command: "cargo test".into(),
+                exit_code: Some(0),
+                summary: None,
+            }],
+            ..Default::default()
+        };
 
         let result = verify_from_executions(
             &contract(),

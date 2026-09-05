@@ -385,9 +385,7 @@ pub fn is_premium(state: &AppState, user_id: &str) -> bool {
 /// Quick check: can this user send chat messages?
 /// Returns None if allowed, Some(AccessState) if blocked.
 pub fn check_chat_access(state: &AppState, user_id: &str) -> Option<AccessState> {
-    if state.clerk_secret_key.is_none() {
-        return None;
-    }
+    state.clerk_secret_key.as_ref()?;
     let db = state.db.as_ref()?;
     let sub = db.get_subscription(user_id);
     match sub {

@@ -1,5 +1,5 @@
-use crate::cost_estimator::{CostEstimator, RequestCostBreakdown};
-use crate::db::{CostSession, CostWarning, Database, UserBudget};
+use crate::cost_estimator::CostEstimator;
+use crate::db::{CostSession, CostWarning, Database};
 use chrono::{Datelike, Utc};
 
 /// Budget enforcer for tracking and limiting user costs.

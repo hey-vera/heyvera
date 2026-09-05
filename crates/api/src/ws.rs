@@ -436,7 +436,9 @@ async fn handle_worker_msg(
             };
             let mut completion_accepted = false;
             let mut completion_error = "step failed before verification".to_string();
-            let mut step_transitioned = false;
+            // As above: assigned on every path that reads it, so an initialiser
+            // here would only be a value nothing can observe.
+            let step_transitioned;
             if let Some(db) = &state.db {
                 // Record usage for pressure tracking
                 record_step_usage(
@@ -449,7 +451,11 @@ async fn handle_worker_msg(
                 );
 
                 let resolved_run_id = resolve_run_id(step_run_cache, state, &step_id);
-                let mut verified_success = exit_code == 0;
+                // No initialiser: every path below assigns this, and the one
+                // that used to be here (`exit_code == 0`) was both dead and
+                // misleading — a clean exit has never been what decides
+                // whether a delivery is accepted.
+                let verified_success;
                 let mut verifier_failure = String::new();
 
                 if let Some(run_id) = resolved_run_id.as_deref() {

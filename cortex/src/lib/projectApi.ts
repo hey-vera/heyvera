@@ -92,7 +92,7 @@ export async function validateProjectName(name: string): Promise<ProjectValidati
     }
 
     return await response.json();
-  } catch (error) {
+  } catch {
     return {
       valid: false,
       error: 'Unable to validate project name'
@@ -278,7 +278,7 @@ export async function getProjectTemplates(): Promise<ProjectTemplate[]> {
     }
 
     return await response.json();
-  } catch (error) {
+  } catch {
     // Return default templates as fallback
     return getDefaultTemplates();
   }

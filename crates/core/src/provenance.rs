@@ -624,7 +624,7 @@ mod tests {
             render(&item).len() > item.raw_unframed().len(),
             "framing must cost bytes, or this test proves nothing"
         );
-        let kept = compact(&[item.clone()], render(&item).len() - 1);
+        let kept = compact(std::slice::from_ref(&item), render(&item).len() - 1);
         assert!(
             kept.is_empty(),
             "an item that does not fit rendered is dropped"

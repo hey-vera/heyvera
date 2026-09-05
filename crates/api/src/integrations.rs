@@ -680,6 +680,10 @@ pub struct AuthorityScopeMemberRequest {
     pub role: String,
 }
 
+/// Deserialised from the request body. The fields are never read in Rust yet
+/// -- the handler that will consume them is not written -- but the shape is the
+/// wire contract, so it stays and says so.
+#[allow(dead_code)]
 #[derive(Deserialize)]
 pub struct UpdateAuthorityScopeRequest {
     pub name: Option<String>,
@@ -799,7 +803,7 @@ pub async fn update_authority_scope(
     State(state): State<Arc<AppState>>,
     user: ClerkUser,
     Path(scope_id): Path<String>,
-    Json(req): Json<UpdateAuthorityScopeRequest>,
+    Json(_req): Json<UpdateAuthorityScopeRequest>,
 ) -> ApiResult<Json<serde_json::Value>> {
     let db = db_ref(&state)?;
 
@@ -906,7 +910,7 @@ pub async fn revoke_authority_delegation(
     user: ClerkUser,
     Path(delegation_id): Path<String>,
 ) -> ApiResult<Json<serde_json::Value>> {
-    let db = db_ref(&state)?;
+    let _db = db_ref(&state)?;
 
     tracing::info!(
         delegation_id = %delegation_id,
@@ -921,7 +925,7 @@ pub async fn revoke_authority_delegation(
 
 pub async fn list_authority_delegations(
     State(state): State<Arc<AppState>>,
-    user: ClerkUser,
+    _user: ClerkUser,
 ) -> ApiResult<Json<serde_json::Value>> {
     let _db = db_ref(&state)?;
 

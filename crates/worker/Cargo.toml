@@ -32,3 +32,6 @@ default = []
 # Verify the per-step Soma delegation before executing a step. See the note on
 # the `soma` dependency: this must match `cortex-api`'s `soma` feature.
 soma = ["dep:soma"]
+
+[lints]
+workspace = true

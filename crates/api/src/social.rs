@@ -2621,12 +2621,12 @@ pub async fn create_community_invite(
     }
 
     if let Some(max) = req.max_uses {
-        if max < 1 || max > 10_000 {
+        if !(1..=10_000).contains(&max) {
             return bad_request("maxUses must be between 1 and 10000");
         }
     }
     if let Some(hours) = req.expires_in_hours {
-        if hours < 1 || hours > 24 * 365 {
+        if !(1..=24 * 365).contains(&hours) {
             return bad_request("expiresInHours must be between 1 and 8760");
         }
     }

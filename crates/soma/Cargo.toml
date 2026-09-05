@@ -26,3 +26,6 @@ path = "src/bin/ceremony.rs"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

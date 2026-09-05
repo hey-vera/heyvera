@@ -356,7 +356,7 @@ async fn test_repost_and_unrepost() {
         .oneshot(
             Request::builder()
                 .method("DELETE")
-                .uri(&format!("/v1/social/posts/{}/repost", post_id))
+                .uri(format!("/v1/social/posts/{}/repost", post_id))
                 .body(Body::empty())
                 .unwrap(),
         )

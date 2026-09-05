@@ -52,11 +52,7 @@ pub async fn stream_run(
         let mut last_snapshot = String::new();
         let mut tick = 0u64;
 
-        loop {
-            let db = match &state_clone.db {
-                Some(db) => db,
-                None => break,
-            };
+        while let Some(db) = &state_clone.db {
 
             let steps = build_run_step_payloads(db, &run_id_clone);
             let graph = build_run_graph_payload(db, &run_id_clone, &steps);

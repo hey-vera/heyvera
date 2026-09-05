@@ -69,12 +69,37 @@ jobs:
       - name: Build Cortex
         run: npm run build
 
-      # Advisory only: `eslint .` currently reports 12 errors and 3 warnings on
-      # main. Making it blocking today would wedge every PR in the repo, and a
-      # check that always fails gets switched off. Clean those up, then delete
-      # continue-on-error and this comment.
-      - name: Lint Cortex (advisory)
-        continue-on-error: true
+      # Blocking, as of the run that cleaned it. It was advisory because
+      # `eslint .` reported errors on main and a check that always fails gets
+      # switched off. The errors are gone: three unused catch bindings became
+      # optional catches, a dropped `cause` is preserved on the rethrow, an
+      # `any` became structural, two helpers that nothing imported stopped
+      # being exported, and one lucide icon lookup carries an explicit
+      # disable with its reasoning.
+      #
+      # Warnings are still permitted -- three `react-hooks/exhaustive-deps`
+      # remain and each needs a judgement about intent, not a lint fix.
+      # The frontend had no tests at all: 25k lines of TSX and nothing that
+      # could fail. This is the floor, in the same shape as the `sandbox` job
+      # -- run them, count them, and refuse a count that went down. A suite
+      # that silently stops running reads exactly like a suite that passes.
+      #
+      # Raise the number when you add tests. That is the point of it.
+      - name: Test Cortex
+        run: |
+          set -euo pipefail
+          # NO_COLOR so the summary carries no escape codes between "Tests"
+          # and the count. Stripping them afterwards is the same job done worse.
+          output=$(NO_COLOR=1 npm test 2>&1)
+          echo "$output"
+          passed=$(echo "$output" | grep -oE "Tests +[0-9]+ passed" | grep -oE "[0-9]+" | tail -1)
+          echo "cortex tests passed: ${passed:-0}"
+          if [ "${passed:-0}" -lt 13 ]; then
+            echo "::error::expected at least 13 Cortex tests to run, saw ${passed:-0}"
+            exit 1
+          fi
+
+      - name: Lint Cortex
         run: npm run lint
 
   heyvera:
@@ -318,14 +343,18 @@ jobs:
       - name: Check the Soma feature still compiles
         run: cargo check -p cortex-api -p cortex-worker --features cortex-api/soma,cortex-worker/soma --locked
 
-      # Advisory until someone reads the output. clippy has never run against
-      # this workspace, so its warning count is unknown and could not be
-      # measured before opening this PR (no working linker on the authoring
-      # machine). Making it blocking sight-unseen would wedge every PR, which is
-      # how the `web` job and the midnight flake trained people to ignore CI.
-      # Read the first run, fix or allow, then drop continue-on-error.
-      - name: Clippy (advisory)
-        continue-on-error: true
+      # Blocking, as of the run that finally read it. It was advisory because
+      # nobody had seen the output and wedging every PR sight-unseen is how the
+      # `web` job trained people to ignore CI. The first run reported 142
+      # warnings: the mechanical ones were fixed, six categories were allowed
+      # with reasons in `[workspace.lints.clippy]`, and the rest were real
+      # enough to be worth the diff -- a dead fail-open `is_admin`, a stale
+      # `SCHEMA_VERSION = 59` against a schema at v67, a `classify_failure`
+      # parameter whose only reader was a branch with two identical arms.
+      #
+      # The allow list is in the root `Cargo.toml` rather than in flags here,
+      # so a local `cargo clippy` sees exactly what CI sees.
+      - name: Clippy
         run: cargo clippy --workspace --all-targets --locked -- -D warnings
 
 

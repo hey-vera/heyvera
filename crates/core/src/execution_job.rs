@@ -157,18 +157,14 @@ impl EffortApplication {
 /// policy.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case", tag = "mode")]
+#[derive(Default)]
 pub enum NetworkPolicy {
     /// No egress at all.
+    #[default]
     Deny,
     /// Egress to exactly these hosts, and nothing else. A dependency
     /// resolution grant names a package registry, and exactly a registry.
     Allowlist { hosts: Vec<String> },
-}
-
-impl Default for NetworkPolicy {
-    fn default() -> Self {
-        Self::Deny
-    }
 }
 
 impl NetworkPolicy {

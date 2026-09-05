@@ -11,9 +11,7 @@ use tokio::sync::mpsc;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
-use cortex_core::ledger::{LedgerEntry, LedgerEvent};
 use cortex_engine::classifier::classify_intent;
-use cortex_engine::router::Router;
 
 use crate::clerk::ClerkUser;
 use crate::llm_client::{self, ChatMessage, Provider};
@@ -125,8 +123,7 @@ async fn resolve_provider(
 ) -> ProviderPath {
     // TODO: check credential_assignments when project context is available
     // 0. Workspace request (workspace:{workspace_id})
-    if user_id.starts_with("workspace:") {
-        let workspace_id = &user_id[10..];
+    if let Some(workspace_id) = user_id.strip_prefix("workspace:") {
         return ProviderPath::Workspace {
             workspace_id: workspace_id.to_string(),
         };
@@ -268,7 +265,7 @@ pub async fn chat(
             let system_prompt = system_prompt_for_intent(intent).to_string();
             let user_message = req.message.clone();
             let state_clone = state.clone();
-            let user_id = user.user_id.clone();
+            let _user_id = user.user_id.clone();
             let conv_id = req.conversation_id.clone();
 
             state.vera_tracker.record_conversation(&user.user_id);
@@ -603,7 +600,7 @@ pub async fn chat(
                         .await;
                 }
 
-                let success = match stream_handle.await {
+                let _success = match stream_handle.await {
                     Ok(Ok(())) => {
                         let _ = tx_clone
                             .send(StepEvent::Completed {
@@ -849,7 +846,7 @@ fn extract_options_from_response(message: &str) -> Vec<ChatOption> {
 // --- Workspace Routing ---
 
 async fn route_to_workspace(
-    state: &Arc<AppState>,
+    _state: &Arc<AppState>,
     workspace_id: &str,
     system_prompt: &str,
     user_message: &str,

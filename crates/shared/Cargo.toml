@@ -31,3 +31,6 @@ aes-gcm.workspace = true
 rand.workspace = true
 prometheus.workspace = true
 once_cell.workspace = true
+
+[lints]
+workspace = true
