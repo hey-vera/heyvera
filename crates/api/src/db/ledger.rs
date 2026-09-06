@@ -1042,3 +1042,207 @@ impl Database {
         .collect()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::tests::test_db;
+    use super::*;
+    use cortex_core::billing_binding::{ChargeKey, RefundKey};
+
+    /// A user with a monthly allotment and no purchased pack.
+    fn subscriber(db: &Database, subscription: i64) -> &'static str {
+        db.init_credit_balance("user-1", subscription)
+            .expect("balance row");
+        "user-1"
+    }
+
+    #[test]
+    fn a_deduction_never_invents_a_balance() {
+        // "UPDATE only -- a deduction must never create an account." An
+        // unmetered user is not a user with zero credits; charging one would
+        // mint an account nobody bought and start a relationship on a row we
+        // made up.
+        let db = test_db();
+        let err = db
+            .deduct_credits("nobody", 10, "work", &ChargeKey::for_verification("v-1"))
+            .expect_err("an unmetered user cannot be charged");
+        assert!(err.contains("unmetered"), "{err}");
+        assert_eq!(db.credit_ledger_totals("nobody"), (0, 0));
+    }
+
+    #[test]
+    fn the_expiring_bucket_is_spent_before_the_permanent_one() {
+        // The monthly allotment expires and purchased packs do not, so drawing
+        // from packs first would silently destroy credits the customer paid
+        // cash for while the free ones lapsed unused.
+        let db = test_db();
+        db.init_credit_balance("user-1", 100).expect("balance");
+        db.add_pack_credits("user-1", 50).expect("pack");
+
+        let after = db
+            .deduct_credits("user-1", 30, "work", &ChargeKey::for_verification("v-1"))
+            .expect("charge");
+        assert_eq!(after.subscription_remaining, 70);
+        assert_eq!(
+            after.pack_remaining, 50,
+            "packs are untouched while the allotment holds"
+        );
+    }
+
+    #[test]
+    fn a_charge_larger_than_the_allotment_spills_into_the_pack() {
+        let db = test_db();
+        db.init_credit_balance("user-1", 100).expect("balance");
+        db.add_pack_credits("user-1", 50).expect("pack");
+
+        let after = db
+            .deduct_credits("user-1", 120, "work", &ChargeKey::for_verification("v-1"))
+            .expect("charge");
+        assert_eq!(after.subscription_remaining, 0);
+        assert_eq!(
+            after.pack_remaining, 30,
+            "the overflow came out of the pack"
+        );
+        assert_eq!(db.credit_ledger_totals("user-1"), (-100, -20));
+    }
+
+    #[test]
+    fn a_refund_mirrors_the_split_rather_than_the_amount() {
+        // The argument in `refund_credits`' own doc comment, which had no test.
+        // Only the spend rows know how a charge fell across the two buckets.
+        // Refunding the total to one bucket would move 20 credits from a
+        // permanent pack into an allotment that expires at the end of the
+        // month -- the customer is made whole this week and short next.
+        let db = test_db();
+        db.init_credit_balance("user-1", 100).expect("balance");
+        db.add_pack_credits("user-1", 50).expect("pack");
+
+        let charge = ChargeKey::for_verification("v-1");
+        db.deduct_credits("user-1", 120, "work", &charge)
+            .expect("charge");
+
+        let refunded = db
+            .refund_credits(
+                "user-1",
+                &charge,
+                &RefundKey::for_verification("v-1"),
+                "failed",
+            )
+            .expect("refund");
+        assert_eq!(refunded.subscription_remaining, 100);
+        assert_eq!(refunded.pack_remaining, 50);
+        assert_eq!(
+            db.credit_ledger_totals("user-1"),
+            (0, 0),
+            "each bucket's append-only log nets to zero on its own"
+        );
+    }
+
+    #[test]
+    fn a_charge_that_cannot_be_afforded_moves_nothing() {
+        // Not a partial charge, and not a negative balance. The append-only log
+        // must show that nothing happened, because a half-charged customer with
+        // no delivered work is the worst of both.
+        let db = test_db();
+        let user = subscriber(&db, 10);
+
+        let err = db
+            .deduct_credits(user, 50, "work", &ChargeKey::for_verification("v-1"))
+            .expect_err("insufficient");
+        assert!(err.contains("insufficient"), "{err}");
+        assert_eq!(db.get_credit_balance(user).subscription_remaining, 10);
+        assert_eq!(db.credit_ledger_totals(user), (0, 0));
+    }
+
+    #[test]
+    fn a_zero_charge_is_free_rather_than_an_error() {
+        // A step that cost nothing still resolves. Erroring would turn a
+        // successful free task into a failed one.
+        let db = test_db();
+        let user = subscriber(&db, 10);
+
+        let after = db
+            .deduct_credits(user, 0, "free work", &ChargeKey::for_verification("v-1"))
+            .expect("zero is not an error");
+        assert_eq!(after.subscription_remaining, 10);
+        assert_eq!(db.credit_ledger_totals(user), (0, 0), "no row for no money");
+    }
+
+    #[test]
+    fn a_negative_charge_is_refused_rather_than_treated_as_a_credit() {
+        // A deduction is the only thing this function does. A negative amount
+        // reaching it is a caller bug, and quietly adding credits would be the
+        // most expensive possible interpretation of one.
+        let db = test_db();
+        let user = subscriber(&db, 10);
+
+        assert!(db
+            .deduct_credits(user, -50, "work", &ChargeKey::for_verification("v-1"))
+            .is_err());
+        assert_eq!(db.credit_ledger_totals(user), (0, 0));
+    }
+
+    #[test]
+    fn a_replayed_charge_takes_the_money_once() {
+        // The worker retried after the process died between charging and
+        // recording. The second call must report the same balance without
+        // taking anything.
+        let db = test_db();
+        let user = subscriber(&db, 100);
+        let charge = ChargeKey::for_verification("v-1");
+
+        let first = db
+            .deduct_credits(user, 30, "work", &charge)
+            .expect("charge");
+        let replay = db
+            .deduct_credits(user, 30, "work", &charge)
+            .expect("replay");
+        assert_eq!(first.subscription_remaining, 70);
+        assert_eq!(replay.subscription_remaining, 70);
+        assert_eq!(db.credit_ledger_totals(user), (-30, 0));
+    }
+
+    #[test]
+    fn the_ledger_answers_whether_a_key_was_charged() {
+        // `BillingState` is derived from the money rather than from a status
+        // column, so this is the question that keeps the two from drifting.
+        let db = test_db();
+        let user = subscriber(&db, 100);
+        let charge = ChargeKey::for_verification("v-1");
+
+        assert!(!db.ledger_has_key(charge.as_str()));
+        db.deduct_credits(user, 30, "work", &charge)
+            .expect("charge");
+        assert!(db.ledger_has_key(charge.as_str()));
+        assert!(!db.ledger_has_key("v-2"), "an unrelated key is not charged");
+    }
+
+    #[test]
+    fn a_key_charged_only_against_the_pack_is_still_found() {
+        // The key is suffixed per bucket, so a lookup that only checked
+        // `:subscription` would miss a charge that fell entirely on a pack and
+        // report an unbilled step that was in fact billed.
+        let db = test_db();
+        db.init_credit_balance("user-1", 0).expect("balance");
+        db.add_pack_credits("user-1", 50).expect("pack");
+
+        let charge = ChargeKey::for_verification("v-1");
+        db.deduct_credits("user-1", 20, "work", &charge)
+            .expect("charge");
+        assert_eq!(db.credit_ledger_totals("user-1"), (0, -20));
+        assert!(db.ledger_has_key(charge.as_str()));
+    }
+
+    #[test]
+    fn an_empty_idempotency_key_is_refused() {
+        // Without a key there is no replay protection, so a retry would charge
+        // twice. Refusing is the only safe reading.
+        let db = test_db();
+        let user = subscriber(&db, 100);
+
+        assert!(db
+            .deduct_credits(user, 10, "work", &ChargeKey::per_unit("   "))
+            .is_err());
+        assert_eq!(db.credit_ledger_totals(user), (0, 0));
+    }
+}
