@@ -239,3 +239,93 @@ tables: two call sites where one product asks the other to do something.
 
 Neither is a refactor. Both are decisions, which is why this stayed an inventory
 rather than becoming a plan.
+## The Cortex HTTP surface, route by route — a proposal, 2026-09-06
+
+The survey above says the route-by-route identification is the long pole and
+that it is not a mechanical step. It is not, but it is also not a research
+project: it took an afternoon, and what it needs from a human is **approval, not
+authorship**. This section is the proposal.
+
+Measured against `main`: 162 distinct routes in `build_cortex_router`
+(`crates/api/src/lib.rs:417-760`), plus 34 more in `build_heyvera_router`. Every
+route below is classified by what its handler actually reads and writes, checked
+against the `Database` methods it calls — not by its path prefix, which is
+misleading in both directions.
+
+| Owner | Routes |
+|---|---|
+| **Socials** | 88 |
+| **Cortex** | 53 |
+| **Shared — duplicate into both** | 21 |
+
+### Cortex — 53
+
+| Group | Count | Why |
+|---|---|---|
+| `/api/runs*` | 6 | the harness itself: create, estimate, get, events, PR, stream |
+| `/api/groups/*` | 9 | `cortex_groups`, `cortex_tasks` — moved out of `integrations.rs` |
+| `/api/authority/*` | 4 | `cortex_authority_scopes`, `cortex_authority_delegations` |
+| `/api/admin/{runs,runs/{},workers,containers,containers/stats,decisions,pressure}` | 7 | operator views of harness state |
+| `/api/auth/*` | 6 | provider credential auth — Claude, OpenAI, Codex subscriptions |
+| `/api/credentials/*` | 3 | assigning those credentials to runs |
+| `/api/chat*` | 3 | calls `list_active_runs`, `touch_container_activity` |
+| `/api/context/*` | 3 | the comprehension layer |
+| `/api/github/*` | 3 | repo import; calls `touch_container_activity` |
+| `/api/user/{github/status,repos/select,routing}` | 3 | which repo a run targets, and how it routes |
+| `/api/mc*` | 2 | mission control |
+| `/api/ws` | 1 | the worker websocket |
+| `/api/ledger` | 1 | the credit ledger Cortex's guarantee rests on |
+| `/api/operations/summary` | 1 | personal operations view |
+| `/api/providers` | 1 | provider catalogue |
+
+### Socials — 88
+
+`/v1/social/*` (70), `/api/integrations/slack/*` (6), `/api/integrations/replit/*`
+(2), `/api/integrations/status`, `/api/projects/import`, `/api/conversations*`
+(2), `/api/deploy-*` and `/api/deployment/*` (6).
+
+Two of these are the seam identified above: `/api/integrations/slack/command` and
+`/api/integrations/replit/import` create Cortex work. They stay Socials-owned and
+call across the boundary.
+
+### Shared — 21, and the recommendation is to duplicate
+
+| Group | Count | Recommendation |
+|---|---|---|
+| `/api/billing/*` | 6 | Socials keeps Stripe today; Cortex gets its own when it sells |
+| `/api/admin/{stats,usage,usage/users,audit-log,redemptions}` | 5 | Socials keeps; Cortex grows its own operator surface |
+| `/api/health`, `/v1/health`, `/v1/ready`, `/metrics` | 4 | duplicate — every service needs its own |
+| `/api/usage*` | 2 | duplicate |
+| `/api/stripe/webhook`, `/api/clerk/webhooks` | 2 | Socials keeps both |
+| `/api/user/profile` | 1 | identity — duplicate against a shared Clerk |
+| `/api/keys` | 1 | duplicate |
+
+**Duplicating rather than extracting a third crate is the recommendation**, for
+the reason the section above gives: it is faster and defensible while Cortex has
+no customers, and it avoids designing a shared-platform interface around a
+product whose shape is not settled. Revisit when Cortex has paying users.
+
+### What this does not settle
+
+Whether Socials keeps charging Cortex's ledger. That is the one genuine product
+decision left in the extraction, and it is unaffected by any of the above:
+`pulse.rs` calls `deduct_credits` for a Pulse draft, with no verification behind
+it. After the `integrations.rs` split it is the **only** cross-product runtime
+coupling remaining.
+
+### How to check this
+
+Every classification above is re-derivable:
+
+```sh
+# every route in the Cortex router, with its handler
+awk 'NR>=417 && NR<=760' crates/api/src/lib.rs \
+  | grep -oE '\.route\("[^"]+", *[a-z]+\([a-z_]+::[a-z_]+\)'
+
+# what a given handler module actually touches
+grep -oE 'db\.[a-z_]+\(' crates/api/src/<module>.rs | sort -u
+```
+
+The second command is what decides the disagreements. `/api/chat` looks like a
+Socials feature and reads Cortex run state; `/api/auth/*` looks like user login
+and is provider-credential plumbing. Path prefixes are not evidence.
