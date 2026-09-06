@@ -337,6 +337,7 @@ pub struct SubscriptionRecord {
 }
 
 /// Whole credits. Never floating point — see cortex/plan/CREDITS.md.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct CreditBalanceRecord {
     pub subscription_remaining: i64,
     pub subscription_total: i64,
