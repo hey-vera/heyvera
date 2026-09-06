@@ -147,3 +147,95 @@ Frontend (`cortex/` 25,708 lines of TS/TSX, `heyvera/` separate) beyond
 confirming they are separate npm projects with separate CI jobs. `crates/shared`
 ownership. Which of the 42 shared tables carry rows that matter. None of these
 block writing the extraction PR description; all of them block executing it.
+
+## Follow-up survey, 2026-09-05: the seam is two functions and one ledger call
+
+The section above says the shared middle is real and each shared module needs a
+decision. That is true of the *modules*. It is not true of the **running
+coupling**, and the difference decides how the extraction is sequenced.
+
+Measured on `main` at `5708f1b7`: for every `Database` method, which product's
+modules call it.
+
+```sh
+# Socials-owned modules, per the classification above
+socials="social.rs integrations.rs pulse.rs messaging.rs deploy_status.rs \
+media.rs social_policy.rs vera.rs replit.rs moderation.rs conversations.rs \
+notifications.rs x402.rs agent_auth.rs"
+# Cortex-owned modules
+cortex="scheduler.rs ws.rs verification_driver.rs verification_dispatcher.rs \
+check_runner.rs run_payload.rs run_stream.rs context_flow.rs context_api.rs \
+worker_key.rs mission_control.rs cost_estimator.rs budget_enforcer.rs pricing.rs"
+```
+
+Of the 429 `pub fn` on `Database`, the methods reached from **both** sides are:
+
+| method | called from Socials by | why |
+|---|---|---|
+| `deduct_credits` | `pulse.rs` | the shared credit ledger |
+| `record_usage` | `pulse.rs` | the same charge's usage row |
+| `lease_step` | `integrations.rs` | — |
+| `deliver_step` | `integrations.rs` | — |
+| `begin_verifying_step` | `integrations.rs` | — |
+| `register_worker` | `integrations.rs` | — |
+| `update_run_status` | `integrations.rs` | — |
+| `record_verification_outcome` | `integrations.rs` | — |
+
+That is the whole list. Two callers, and the second one is a misclassification.
+
+### `integrations.rs` is not a Socials module
+
+The classification above put its 2,808 lines under Socials because of the Slack
+and Replit OAuth. Splitting its functions by what they touch:
+
+**Cortex** (15 functions, `cortex_groups`, `cortex_tasks`,
+`cortex_authority_scopes`, `cortex_authority_delegations`,
+`cortex_approval_requests`): `get_group_tasks`, `get_group_task_projection`,
+`attach_group_task_chat`, `create_group_task`, `apply_group_task_actions`,
+`patch_group_task`, `update_group_tasks`, `list_authority_scopes`,
+`create_authority_scope`, `update_authority_scope`, `delegate_authority`,
+`revoke_authority_delegation`, `list_authority_delegations`,
+`list_group_approval_requests`, `create_group_approval_request`,
+`resolve_group_approval_request`.
+
+**Socials** (7 functions): `integration_status`, `slack_oauth_start`,
+`slack_oauth_callback`, `slack_channels`, `import_slack_channels`,
+`slack_events`, `replit_workspaces`.
+
+**Both** (2 functions): `slack_command` and `import_replit_workspace`. These are
+where a Socials integration creates Cortex work — a Slack command that opens a
+task, a Replit import that seeds one.
+
+Those two functions are the seam. Not a boundary to be negotiated across 42
+tables: two call sites where one product asks the other to do something.
+
+### What this changes
+
+1. **Split `integrations.rs` before extracting anything.** It is the only file
+   that genuinely straddles, and once its Cortex half moves to a Cortex-owned
+   module, the Cortex step-lifecycle methods have no Socials caller at all.
+2. **After that split, the shared runtime surface is `deduct_credits` and
+   `record_usage`, from `pulse.rs`, and nothing else.** That is the coupling
+   already documented against `ChargeKey` — Socials charges the same ledger for
+   a Pulse draft, with no verification behind it. It is one decision, not a
+   category of them.
+3. **`slack_command` and `import_replit_workspace` become the inter-product
+   API.** They are already the only place the products speak, so they define the
+   interface rather than needing one designed for them.
+4. **The 42 shared *tables* are still 42 decisions, and they are no longer on
+   the critical path.** Cortex has executed nothing in production, so its half
+   restarts at schema v1 (see above) and the shared tables stay with Socials
+   until Cortex has rows worth migrating. Deciding them now is optional work.
+
+### What still blocks execution
+
+- Enumerating the Cortex HTTP surface route by route. Unchanged, and still the
+  long pole: **0 of the Cortex router's 162 routes are Cortex-only, and 70 are
+  `/v1/social/*`.** Re-measured 2026-09-05; the count moved from 164 to 162 with
+  intervening changes and the ratio did not.
+- The `pulse.rs` ledger decision: does Socials keep charging Cortex's ledger, or
+  get its own? This is a product decision and it gates narrowing the ledger to a
+  Cortex-only caller set.
+
+Neither is a refactor. Both are decisions, which is why this stayed an inventory
+rather than becoming a plan.
