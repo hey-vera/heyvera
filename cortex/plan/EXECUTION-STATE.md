@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-08-17 (wave 6 / task 4 — stubbed provider drove one task end to end; findings F13-F18)
+**Last updated:** 2026-09-07 (wave 7 — Phases 28-35 built as types and merged via #630)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -2693,3 +2693,115 @@ the same shape as F9, whose own comment in this file warns about exactly this
 ("every test of the driver uses a `ScriptedRunner` … the one place a spec
 becomes a running process had no test at all"). The warning was written and the
 gap it named was still there one layer down.
+
+---
+
+## Wave 7 — Phases 28–35 built as types (2026-09-05 → 2026-09-07)
+
+**Landed:** PR [#630](https://github.com/hey-vera/heyvera/pull/630), a merge of 38
+commits (#592–#629). Main moved `5708f1b7` → `7a44a890`.
+
+### Why one PR and not thirty-eight
+
+All 38 were written while GitHub Actions refused to start jobs — a billing state
+on the account, since resolved by making the repo public. They could not merge,
+and each adds a line to `crates/core/src/lib.rs`, so landing them individually
+under `strict: true` meant 37 rebases. Cherry-picking onto one branch produced
+exactly two conflicts, both trivial. Merged with a merge commit so all 38
+messages survive.
+
+### The method
+
+Every plan rule became **a type that makes its violation unrepresentable**,
+rather than a test or a doc comment. The rules are all of the form "X must always
+be stated / never claimed", and a doc comment does not survive the second caller.
+
+| Rule | Enforcement |
+|---|---|
+| `1 − (1 − a)^N` is an upper bound | `DeliveredCorrectBound` has only `as_upper_bound()` |
+| a model may never create a pass | `PassedCandidate::from_verdict` accepts only `Verified`; `select` returns a borrow out of its input |
+| the corpus may not cross a tenant | `EcosystemFact` is a closed enum of objective shapes — customer content has no variant to inhabit |
+| five sentences may never be asserted | `Assertion::source()` returns `None` for exactly those five |
+| a charge and a refund are different keys | `ChargeKey` / `RefundKey` (landed earlier, #586) |
+
+### What landed, by phase
+
+| Phase | Modules |
+|---|---|
+| 28 | `capability`, `capability_claim`, `weak_verifier`, `check_cache`, `race_arm`, `router_objective`, `plan_lint` |
+| 29 | `comprehension`, `repo_understanding`, `localization`, `corpus`, `context_budget` |
+| 30 | `eval_seal`, `suite_statistics`, `honesty_suite`, `held_out` |
+| 31 | `loss_model`, `credit_lifecycle`, `guarantee_graduation` |
+| 32 | `review_bundle`, `dependency_gate`, `stop_control`, `external_effect`, `receipt_recall` |
+| 33 | `intake_question`, `human_contention`, `throughput`, `disclosure_tier` |
+| 34 | ledger tests (#621); the Socials seam measured, split and classified |
+| 35 | `teaching_artifact`, `teaching_scope`, `teaching_assertion`, `expertise`, `teaching_render` |
+
+`crates/core` went from ~25 to 59 modules. `cortex-api` from 403 to 414 tests.
+
+### Phase 34.2 — the Socials extraction, three steps in
+
+The plan calls this "mechanical". It is not, and the survey in
+`docs/proposals/cortex-socials-split-inventory.md` now records why in three
+passes:
+
+1. **There is no router to lift.** 0 of the Cortex router's 162 routes are
+   Cortex-only; 70 are `/v1/social/*`.
+2. **The seam is two functions, not forty-two tables** (#627). Of 429 `Database`
+   methods, eight were reached from both products, from two callers.
+3. **`integrations.rs` was misclassified** (#628). Two thirds of its 2,808 lines
+   were the Cortex task-state machine. Split into `cortex_groups.rs` (2,164) and
+   `integrations.rs` (662). **After that split the cross-product runtime surface
+   is `deduct_credits` and `record_usage`, both from `pulse.rs`, and nothing
+   else.**
+4. **All 162 routes classified** (#629): Socials 88, Cortex 53, shared 21, with a
+   recommendation to duplicate the shared 21 rather than build a third crate.
+
+**One question gates the rest: does Socials keep charging Cortex's ledger?**
+`pulse.rs` deducts credits for a Pulse draft with no verification behind it.
+Answer it and the remaining extraction is mechanical.
+
+`crates/api/src/db` is the other prerequisite and it lifts cleanly — 29,905 lines
+importing only `crate::lock` and `crate::social_policy` from the api crate. That
+makes a shared `cortex-db` crate a small, verifiable change whenever it is
+wanted.
+
+### What is NOT done, and cannot be closed by writing code
+
+Phase 34.4's own list, unchanged:
+
+- **`p_fa` has no measured value.** Needs the Phase 30 suites run against real
+  API credits.
+- **The decomposition crossover has no calibrated threshold.** Needs per-leaf
+  priors; the plan puts this several quarters out.
+- **Nobody has watched a solo builder complete a task.** The plan is explicit
+  that this is the only real evidence, and it needs a person who has not read
+  the document.
+
+Phases 35.11–35.17 are rejections-with-reasons, sequencing and risk framing.
+They are prose in the plan and have no code to write.
+
+### On "is the plan complete"
+
+The plan answers this itself, and the answer is no by design:
+
+> It does **not** claim that no further gaps exist. Four rounds of review have
+> each found real ones. … The rate of discovery is not obviously decreasing …
+> **A fifth review should be expected to find more, and should deliberately
+> attack an axis none of the first four used.**
+
+Rounds five and six then did exactly that and found more. So "complete" is not a
+state this document has; the honest statement is that **every mechanism it
+specifies that can be built without a product decision or a measurement is now
+built and on main.**
+
+### Traps this wave (for the next session)
+
+- **`cargo fmt -p <crate>` reformats the whole crate.** On this repo that shows
+  ~35 files as modified when only 3 changed; `git diff --stat` is the truth, and
+  stage explicit paths.
+- **`git branch --merged` lies after a squash merge.** Use
+  `git cherry origin/main <branch>` — 22 branches that looked unmerged were
+  fully contained.
+- **`heyvera-current` is the repo's main working tree**, not a stale worktree.
+  `heyvera-social-audit` is a linked worktree of it.
