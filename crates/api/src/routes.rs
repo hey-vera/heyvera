@@ -40,6 +40,24 @@ pub struct ErrorResponse {
     pub error: String,
 }
 
+/// The shape every JSON handler in this crate returns.
+///
+/// Here rather than in a feature module because both products' handlers use it,
+/// and a shared helper living inside one of them is how a split gets undone.
+pub type ApiResult<T> = Result<T, (axum::http::StatusCode, Json<ErrorResponse>)>;
+
+/// The database handle, or a 500 that says why.
+pub fn db_ref(state: &crate::state::AppState) -> ApiResult<&crate::db::Database> {
+    state.db.as_ref().ok_or_else(|| {
+        (
+            axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+            Json(ErrorResponse {
+                error: "database not available".into(),
+            }),
+        )
+    })
+}
+
 /// GET /api/health — detailed subsystem health.
 ///
 /// Reports the status of each subsystem (database, docker, soma, scheduler,
