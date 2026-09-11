@@ -6,6 +6,7 @@
 use std::path::{Path, PathBuf};
 
 use cortex_core::execution_job::{CapabilityGrant, ExecutionJob};
+use cortex_core::protocol::ProviderGatewayAccess;
 
 /// Where the workspace is mounted inside the sandbox. Fixed, so a command
 /// built for one runtime is valid in the next one.
@@ -24,6 +25,8 @@ pub struct SandboxRequest {
     pub program: String,
     /// Arguments, including the task prompt.
     pub args: Vec<String>,
+    /// Non-persisted bearer authority for the private model gateway.
+    pub provider_gateway: Option<ProviderGatewayAccess>,
 }
 
 impl SandboxRequest {
@@ -32,7 +35,13 @@ impl SandboxRequest {
             workspace: workspace.as_ref().to_path_buf(),
             program: program.into(),
             args,
+            provider_gateway: None,
         }
+    }
+
+    pub fn with_provider_gateway(mut self, access: Option<ProviderGatewayAccess>) -> Self {
+        self.provider_gateway = access;
+        self
     }
 
     /// The full argv, as the sandbox will see it.
@@ -69,6 +78,43 @@ impl SandboxRequest {
 pub fn sanctioned_env(job: &ExecutionJob) -> Vec<String> {
     let mut env = sanctioned_env_from(job, |var| std::env::var(var).ok());
     env.extend(SCRATCH_ENV.iter().map(|s| (*s).to_string()));
+    env
+}
+
+/// Environment for a concrete sandbox request. Gateway bearer material is
+/// admitted only after every durable job identity and endpoint invariant is
+/// checked at the final boundary.
+pub fn sanctioned_env_for_request(
+    job: &ExecutionJob,
+    request: &SandboxRequest,
+    now_ms: i64,
+) -> Vec<String> {
+    let mut env = sanctioned_env(job);
+    let Some(access) = request.provider_gateway.as_ref() else {
+        return env;
+    };
+    if access.provider != "claude"
+        || access.authorization_id.trim().is_empty()
+        || access.run_id != job.run_id
+        || access.attempt_id != job.attempt_id
+        || access.model != job.model_ref.catalog_id
+        || access.expires_at_ms <= now_ms
+        || access.bearer.expose().trim().is_empty()
+        || !access.base_url.starts_with("https://cortex.heyvera.org/")
+        || !job
+            .capability_grants
+            .iter()
+            .any(|grant| matches!(grant, CapabilityGrant::ReachProvider { provider } if provider == "claude"))
+    {
+        tracing::warn!("invalid provider gateway access refused at sandbox boundary");
+        return env;
+    }
+    env.push(format!("ANTHROPIC_BASE_URL={}", access.base_url));
+    env.push(format!("ANTHROPIC_AUTH_TOKEN={}", access.bearer.expose()));
+    env.push(format!(
+        "ANTHROPIC_CUSTOM_HEADERS=X-Cortex-Attempt: {}",
+        access.attempt_id
+    ));
     env
 }
 
@@ -485,6 +531,73 @@ mod tests {
         assert_eq!(env, ["ANTHROPIC_API_KEY=STUB-PROVIDER-NOT-A-REAL-KEY"]);
     }
 
+    fn gateway_access() -> ProviderGatewayAccess {
+        ProviderGatewayAccess {
+            authorization_id: "auth-1".into(),
+            run_id: "run-1".into(),
+            attempt_id: "attempt-1".into(),
+            provider: "claude".into(),
+            model: "claude-opus-5".into(),
+            base_url: "https://cortex.heyvera.org/internal/provider".into(),
+            expires_at_ms: 2_000,
+            bearer: cortex_core::protocol::GatewayBearer::new("signed-capability"),
+        }
+    }
+
+    #[test]
+    fn matching_gateway_access_reaches_the_sandbox_without_a_supplier_key() {
+        let mut job = job();
+        job.capability_grants = vec![CapabilityGrant::ReachProvider {
+            provider: "claude".into(),
+        }];
+        let request = SandboxRequest::new("/tmp/wt", "claude", Vec::new())
+            .with_provider_gateway(Some(gateway_access()));
+        let env = sanctioned_env_for_request(&job, &request, 1_000);
+        assert!(env.iter().any(|entry| {
+            entry == "ANTHROPIC_BASE_URL=https://cortex.heyvera.org/internal/provider"
+        }));
+        assert!(env
+            .iter()
+            .any(|entry| entry == "ANTHROPIC_AUTH_TOKEN=signed-capability"));
+        assert!(env
+            .iter()
+            .any(|entry| entry == "ANTHROPIC_CUSTOM_HEADERS=X-Cortex-Attempt: attempt-1"));
+        assert!(!env.iter().any(|entry| entry.starts_with("OPENAI_API_KEY=")));
+    }
+
+    #[test]
+    fn mismatched_or_expired_gateway_access_is_refused() {
+        let mut job = job();
+        job.capability_grants = vec![CapabilityGrant::ReachProvider {
+            provider: "claude".into(),
+        }];
+        for access in [
+            ProviderGatewayAccess {
+                attempt_id: "other-attempt".into(),
+                ..gateway_access()
+            },
+            ProviderGatewayAccess {
+                model: "other-model".into(),
+                ..gateway_access()
+            },
+            ProviderGatewayAccess {
+                base_url: "https://api.anthropic.com".into(),
+                ..gateway_access()
+            },
+            ProviderGatewayAccess {
+                expires_at_ms: 1_000,
+                ..gateway_access()
+            },
+        ] {
+            let request = SandboxRequest::new("/tmp/wt", "claude", Vec::new())
+                .with_provider_gateway(Some(access));
+            let env = sanctioned_env_for_request(&job, &request, 1_000);
+            assert!(!env
+                .iter()
+                .any(|entry| entry.starts_with("ANTHROPIC_AUTH_TOKEN=")));
+        }
+    }
+
     #[test]
     fn an_unset_key_is_not_invented() {
         // A missing credential must produce a truthful unauthenticated
@@ -520,7 +633,7 @@ mod tests {
         let mut job = job();
         job.network_policy = NetworkPolicy::Allowlist {
             hosts: vec![
-                "api.anthropic.com".to_string(),
+                "cortex.heyvera.org".to_string(),
                 // Present in the allowlist but justified by no grant: the
                 // shape a widened plan would have.
                 "api.openai.com".to_string(),
@@ -530,7 +643,7 @@ mod tests {
             provider: "claude".to_string(),
         }];
 
-        assert_eq!(effective_hosts(&job), ["api.anthropic.com"]);
+        assert_eq!(effective_hosts(&job), ["cortex.heyvera.org"]);
         assert!(needs_network(&job));
         assert_eq!(ungranted_hosts(&job), ["api.openai.com"]);
     }

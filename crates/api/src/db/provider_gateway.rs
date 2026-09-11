@@ -91,7 +91,7 @@ impl Database {
         }
         let conn = self.conn();
         conn.execute(
-            "INSERT INTO provider_spend_authorizations
+            "INSERT OR IGNORE INTO provider_spend_authorizations
                 (id, user_id, run_id, attempt_id, provider, model, price_list_id,
                  max_micro_usd, expires_at, status, created_at)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'active', ?10)",
@@ -109,6 +109,29 @@ impl Database {
             ],
         )
         .map_err(|e| format!("failed to create spend authorization: {e}"))?;
+        let exact: i64 = conn
+            .query_row(
+                "SELECT COUNT(*) FROM provider_spend_authorizations
+                 WHERE id = ?1 AND user_id = ?2 AND run_id = ?3 AND attempt_id = ?4
+                   AND provider = ?5 AND model = ?6 AND price_list_id = ?7
+                   AND max_micro_usd = ?8 AND expires_at = ?9 AND status = 'active'",
+                params![
+                    authorization.id,
+                    authorization.user_id,
+                    authorization.run_id,
+                    authorization.attempt_id,
+                    authorization.provider,
+                    authorization.model,
+                    authorization.price_list_id,
+                    authorization.max_micro_usd,
+                    authorization.expires_at_ms,
+                ],
+                |row| row.get(0),
+            )
+            .map_err(|e| format!("failed to verify spend authorization: {e}"))?;
+        if exact != 1 {
+            return Err("spend authorization replay conflicts with its original scope".into());
+        }
         Ok(())
     }
 

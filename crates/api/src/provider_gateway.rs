@@ -57,6 +57,10 @@ impl GatewayCapability {
 pub struct SignedCapability(String);
 
 impl SignedCapability {
+    pub fn from_exposed(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
     pub fn expose(&self) -> &str {
         &self.0
     }
@@ -177,16 +181,14 @@ impl<'a, T: ProviderTransport> ProviderGateway<'a, T> {
         &self,
         claims: &GatewayCapability,
     ) -> Result<SignedCapability, GatewayError> {
-        let payload = serde_json::to_vec(claims).map_err(|_| GatewayError::InvalidCapability)?;
-        let mut mac = Hmac::<Sha256>::new_from_slice(self.signing_key)
-            .map_err(|_| GatewayError::InvalidCapability)?;
-        mac.update(&payload);
-        let signature = mac.finalize().into_bytes();
-        Ok(SignedCapability(format!(
-            "{}.{}",
-            URL_SAFE_NO_PAD.encode(payload),
-            URL_SAFE_NO_PAD.encode(signature)
-        )))
+        sign_capability(self.signing_key, claims)
+    }
+
+    pub fn verified_claims(
+        &self,
+        signed: &SignedCapability,
+    ) -> Result<GatewayCapability, GatewayError> {
+        verify_capability(self.signing_key, signed)
     }
 
     pub async fn forward(
@@ -347,6 +349,22 @@ impl<'a, T: ProviderTransport> ProviderGateway<'a, T> {
             }
         }
     }
+}
+
+pub fn sign_capability(
+    signing_key: &[u8],
+    claims: &GatewayCapability,
+) -> Result<SignedCapability, GatewayError> {
+    let payload = serde_json::to_vec(claims).map_err(|_| GatewayError::InvalidCapability)?;
+    let mut mac =
+        Hmac::<Sha256>::new_from_slice(signing_key).map_err(|_| GatewayError::InvalidCapability)?;
+    mac.update(&payload);
+    let signature = mac.finalize().into_bytes();
+    Ok(SignedCapability(format!(
+        "{}.{}",
+        URL_SAFE_NO_PAD.encode(payload),
+        URL_SAFE_NO_PAD.encode(signature)
+    )))
 }
 
 fn verify_capability(

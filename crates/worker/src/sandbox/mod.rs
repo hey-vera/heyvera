@@ -49,7 +49,7 @@ use cortex_core::execution_job::{Blocked, ExecutionJob, IsolationClass};
 use tokio::sync::{mpsc, oneshot};
 
 pub use container::ContainerSandbox;
-pub use policy::{sanctioned_env, SandboxRequest};
+pub use policy::{sanctioned_env, sanctioned_env_for_request, SandboxRequest};
 
 /// How many output lines may be buffered before the producer waits. Bounded so
 /// a chatty agent applies backpressure instead of consuming the host's memory.

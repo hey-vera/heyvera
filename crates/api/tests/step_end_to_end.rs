@@ -20,12 +20,10 @@
 //!
 //! What it does not do is spend money. Invoking a provider CLI against a live
 //! API needs a credential and produces a bill, so the final link — a real model
-//! producing a real diff — is proven separately by
-//! `cortex-worker/tests/sandbox_adversarial.rs::egress_the_routed_provider_is_reachable`,
-//! which reaches `api.anthropic.com` through the mediator from inside a real
-//! sandbox in CI. Between the two, every link in the chain is asserted against
-//! something real; neither covers it alone, and this note is here so nobody
-//! reads either as covering more than it does.
+//! producing a real diff — is not yet proven. The adversarial container suite
+//! proves that a Claude grant cannot bypass Cortex by reaching Anthropic
+//! directly; the private gateway listener and CLI request shape still need a
+//! separate container-level proof before a live smoke call is authorized.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -324,6 +322,7 @@ async fn a_dispatched_step_can_reach_its_model_and_is_told_about_the_repository(
         lease_gen: 1,
         egress,
         provider_egress,
+        provider_gateway: None,
         context,
     };
 
@@ -701,6 +700,7 @@ async fn cortex_completes_one_real_task_end_to_end() {
         lease_gen,
         egress,
         provider_egress,
+        provider_gateway: None,
         context,
     };
 
@@ -1034,6 +1034,7 @@ async fn drive_one_stubbed_task(scenario: &str) -> StubbedRun {
         lease_gen,
         egress,
         provider_egress,
+        provider_gateway: None,
         context,
     };
 

@@ -747,17 +747,14 @@ fn provider_granted(job: &mut ExecutionJob, provider: ProviderId) {
 }
 
 #[tokio::test]
-async fn egress_the_routed_provider_is_reachable() {
+async fn egress_a_claude_grant_cannot_reach_the_supplier_directly() {
     let Some(image) = enabled() else { return };
     let dir = workspace();
 
-    // The claim the whole wave rests on. If this fails, the provider CLI
-    // inside the sandbox has no route to the model and Cortex cannot execute a
-    // step — which is exactly the state F7 found and nothing detected.
-    //
-    // A TLS handshake against the API host is the assertion, not a successful
-    // completion: no credential is present here, and a 401 from Anthropic is
-    // still proof that the packet arrived.
+    // Claude traffic must now traverse the private Cortex gateway. Even if a
+    // repository-controlled process learns a supplier credential by some
+    // other route, the sandbox grant must not let it bypass reservations by
+    // contacting Anthropic directly.
     let (output, _) = run_with_egress(
         &image,
         &dir,
@@ -769,12 +766,8 @@ async fn egress_the_routed_provider_is_reachable() {
     .await;
 
     assert!(
-        !output.contains("UNREACHABLE"),
-        "the routed provider's API was not reachable through the mediator:\n{output}"
-    );
-    assert!(
-        output.contains("code="),
-        "no HTTP status came back from the provider host:\n{output}"
+        output.contains("UNREACHABLE"),
+        "a Claude-routed sandbox reached Anthropic directly:\n{output}"
     );
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -893,7 +886,7 @@ async fn egress_records_the_provider_grant_separately_from_the_registry_grant() 
         .map(|e| e.to_string())
         .collect();
 
-    assert!(endpoints.contains(&"api.anthropic.com:443".to_string()));
+    assert!(endpoints.contains(&"cortex.heyvera.org:443".to_string()));
     assert!(endpoints.contains(&"index.crates.io:443".to_string()));
 
     // And the grants are still two things, not one merged host list.

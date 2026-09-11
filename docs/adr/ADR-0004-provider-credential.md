@@ -1,6 +1,6 @@
 # ADR-0004 — Where the provider credential lives
 
-**Status:** accepted; storage and gateway boundary implemented, worker wiring pending
+**Status:** accepted; stub path wired, live supplier transport pending
 
 **Date:** 2026-08-11; revised 2026-09-10
 **Supersedes nothing. Constrains:** Phase 32.4, ADR-0002 (egress mediation).
@@ -41,16 +41,18 @@ spend money.
 
 ## Current operational state
 
-Capability issuance is not yet carried through the brain/worker protocol and
-the provider CLI is not yet pointed at a private gateway listener. Therefore a
-real provider invocation currently fails closed as unauthenticated. That is
-intentional: restoring live execution before per-attempt capability wiring
-would reopen the spending bypass this decision closes.
+In explicit stub mode, capability issuance now travels through the brain/worker
+protocol and configures Claude Code with the documented gateway base URL and
+bearer-token variables. Claude sandbox egress names Cortex's gateway host, not
+the supplier. The listener supports only the bounded non-streaming, no-tools
+request form exercised by the stub tests.
 
-The next bounded change must wire one provider only, prove the CLI's documented
-gateway compatibility, and extend the adversarial sandbox test so direct
-provider access fails while the private gateway succeeds. No live call is
-authorized by this ADR or by the storage implementation.
+There is still no supplier HTTP transport. A real provider invocation therefore
+cannot spend: any mode other than the exact stub mode leaves the listener
+unavailable, and absent capability configuration leaves the worker
+unauthenticated. The next bounded change must prove the actual CLI request
+shapes (including tool and streaming behavior) before a separately authorized
+live smoke call. No live call is authorized by this ADR or this implementation.
 
 ## Consequences
 

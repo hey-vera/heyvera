@@ -8,7 +8,8 @@ use cortex_core::execution_job::{
 };
 use cortex_core::failure::{WorkerFailureKind, WorkerFailureReport};
 use cortex_core::protocol::{
-    CheckEvidence, CommandEvidence, GitEvidence, StepContext, StepOutput, WorkerEvidencePacket,
+    CheckEvidence, CommandEvidence, GitEvidence, ProviderGatewayAccess, StepContext, StepOutput,
+    WorkerEvidencePacket,
 };
 use cortex_core::provider::ProviderId;
 use cortex_core::routing::RoutingDecision;
@@ -48,6 +49,10 @@ pub struct StepExecution {
     /// job record *why* each host was open rather than only *that* it was.
     /// [`Default`] is `Deny` here too.
     pub provider_egress: EgressPlan,
+    /// Short-lived gateway authority from the brain. This is used only to
+    /// configure the sandbox request and is never copied into `ExecutionJob`,
+    /// whose serialized form becomes receipt evidence.
+    pub provider_gateway: Option<ProviderGatewayAccess>,
     /// What the API assembled for this step: the user's goal, a repository map,
     /// and what earlier steps said they did.
     ///
@@ -138,7 +143,8 @@ impl Executor {
 
         let mut prompt_args = invocation.args.clone();
         prompt_args.push(build_prompt(task, &step.context));
-        let request = SandboxRequest::new(&workspace, &invocation.program, prompt_args);
+        let request = SandboxRequest::new(&workspace, &invocation.program, prompt_args)
+            .with_provider_gateway(step.provider_gateway.clone());
 
         let base_commit = get_git_head(Some(workspace.as_path()));
 
@@ -1902,6 +1908,7 @@ mod tests {
             lease_gen: 3,
             egress: EgressPlan::deny(),
             provider_egress: EgressPlan::deny(),
+            provider_gateway: None,
             context: StepContext::default(),
         }
     }
@@ -2118,7 +2125,11 @@ mod tests {
         // The regression that would recreate F7: a step routed to a provider
         // whose sandbox opens nothing. If this fails, Cortex cannot execute.
         for (provider, host, other) in [
-            (ProviderId::Claude, "api.anthropic.com", "api.openai.com"),
+            (
+                ProviderId::Claude,
+                "cortex.heyvera.org",
+                "api.anthropic.com",
+            ),
             (ProviderId::Openai, "api.openai.com", "api.anthropic.com"),
             (
                 ProviderId::Gemini,
@@ -2183,7 +2194,7 @@ mod tests {
         );
         let effective = job.effective_egress.expect("recorded");
 
-        assert!(effective.iter().any(|e| e == "api.anthropic.com:443"));
+        assert!(effective.iter().any(|e| e == "cortex.heyvera.org:443"));
         assert!(effective.iter().any(|e| e == "index.crates.io:443"));
 
         let registries: Vec<_> = job

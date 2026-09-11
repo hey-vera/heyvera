@@ -10,7 +10,7 @@ use crate::task::TaskContract;
 // infrastructure failure apart from a customer's step failing, which v2 could
 // only express by prefixing a failure string.
 //
-// Still 3 after `ExecuteStep.egress`, deliberately. A version bump is for a
+// Still 3 after `ExecuteStep.egress` and `provider_gateway`, deliberately. A version bump is for a
 // change an old peer cannot handle safely; this one it can. The field is
 // `serde(default)`, and its default is `Deny` — so an old worker that ignores
 // it behaves exactly as it does today, and a new worker talking to an old brain
@@ -67,6 +67,12 @@ pub enum BrainMessage {
         /// skew fail closed.
         #[serde(default)]
         provider_egress: EgressPlan,
+        /// Opaque, short-lived authority for the routed model gateway. An old
+        /// worker ignores this and receives no supplier key; a new worker
+        /// talking to an old brain defaults to `None`. Both skews therefore
+        /// fail closed as unauthenticated.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        provider_gateway: Option<ProviderGatewayAccess>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         delegation: Option<serde_json::Value>,
     },
@@ -169,6 +175,41 @@ pub enum WorkerMessage {
 pub struct ProviderClaim {
     pub provider: ProviderId,
     pub cli_version: Option<String>,
+}
+
+/// A bearer value that may cross the brain/worker wire but must not appear in
+/// logs or receipts.
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct GatewayBearer(String);
+
+impl GatewayBearer {
+    pub fn new(value: impl Into<String>) -> Self {
+        Self(value.into())
+    }
+
+    pub fn expose(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Debug for GatewayBearer {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str("GatewayBearer([REDACTED])")
+    }
+}
+
+/// The non-persisted gateway authority delivered for one attempt.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProviderGatewayAccess {
+    pub authorization_id: String,
+    pub run_id: String,
+    pub attempt_id: String,
+    pub provider: String,
+    pub model: String,
+    pub base_url: String,
+    pub expires_at_ms: i64,
+    pub bearer: GatewayBearer,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -291,4 +332,19 @@ pub struct PredecessorSummary {
     pub kind: String,
     pub summary: String,
     pub files_changed: Vec<String>,
+}
+
+#[cfg(test)]
+mod gateway_tests {
+    use super::*;
+
+    #[test]
+    fn gateway_bearers_serialize_for_the_wire_but_debug_as_redacted() {
+        let bearer = GatewayBearer::new("capability-secret");
+        assert_eq!(format!("{bearer:?}"), "GatewayBearer([REDACTED])");
+        let encoded = serde_json::to_string(&bearer).unwrap();
+        assert_eq!(encoded, "\"capability-secret\"");
+        let decoded: GatewayBearer = serde_json::from_str(&encoded).unwrap();
+        assert_eq!(decoded.expose(), "capability-secret");
+    }
 }

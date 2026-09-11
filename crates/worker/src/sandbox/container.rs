@@ -23,11 +23,18 @@ use futures_util::StreamExt;
 
 use super::egress::{self, Egress};
 use super::policy::{
-    binds, effective_endpoints, sanctioned_env, ungranted_hosts, unknown_providers,
+    binds, effective_endpoints, sanctioned_env_for_request, ungranted_hosts, unknown_providers,
     unknown_registries, WORKSPACE_MOUNT,
 };
 use super::SandboxSession;
 use super::{OutputStream, SandboxDriver, SandboxExit, SandboxLine, SandboxRequest, SandboxRunner};
+
+fn unix_now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|duration| i64::try_from(duration.as_millis()).unwrap_or(i64::MAX))
+        .unwrap_or(0)
+}
 
 /// Unprivileged user baked into the runner image, used when the workspace
 /// owner cannot be determined.
@@ -133,11 +140,11 @@ impl ContainerSandbox {
                 // Today only the explicit stub sentinel can accompany a
                 // provider grant; later this slot carries a scoped gateway
                 // capability from the job itself.
-                sanctioned_env(job),
+                sanctioned_env_for_request(job, request, unix_now_ms()),
                 None,
             ),
             Some(egress) => {
-                let mut env = sanctioned_env(job);
+                let mut env = sanctioned_env_for_request(job, request, unix_now_ms());
                 env.extend(egress::proxy_env(&egress.proxy_url()));
                 (
                     egress.network_name().to_string(),
