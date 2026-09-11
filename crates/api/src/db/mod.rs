@@ -20,7 +20,10 @@ use crate::social_policy::{
 };
 
 mod ledger;
+mod provider_gateway;
 mod verification_queue;
+
+pub use provider_gateway::{ProviderReservation, SpendAuthorization};
 
 pub struct Database {
     conn: Mutex<Connection>,
@@ -615,6 +618,74 @@ fn apply_migrations(conn: &Connection) {
     if current < 67 {
         migrate_v67(conn);
     }
+    if current < 68 {
+        migrate_v68(conn);
+    }
+}
+
+fn migrate_v68(conn: &Connection) {
+    // Supplier spend is a different ledger from customer credits. A request
+    // first occupies capacity here, then either settles to observed COGS,
+    // releases because it provably was not sent, or remains unresolved. A
+    // timeout is deliberately not a release: the provider may still charge it.
+    conn.execute_batch(
+        "CREATE TABLE IF NOT EXISTS supplier_capacities (
+            provider          TEXT PRIMARY KEY,
+            funded_micro_usd  INTEGER NOT NULL CHECK(funded_micro_usd >= 0),
+            updated_at        INTEGER NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS provider_spend_authorizations (
+            id                 TEXT PRIMARY KEY,
+            user_id            TEXT NOT NULL,
+            run_id             TEXT NOT NULL,
+            attempt_id         TEXT NOT NULL,
+            provider           TEXT NOT NULL,
+            model              TEXT NOT NULL,
+            price_list_id      TEXT NOT NULL,
+            max_micro_usd      INTEGER NOT NULL CHECK(max_micro_usd > 0),
+            expires_at         INTEGER NOT NULL,
+            status             TEXT NOT NULL DEFAULT 'active'
+                CHECK(status IN ('active', 'revoked')),
+            created_at         INTEGER NOT NULL,
+            UNIQUE(user_id, run_id, attempt_id, provider, model)
+        );
+
+        CREATE TABLE IF NOT EXISTS provider_request_reservations (
+            id                  TEXT PRIMARY KEY,
+            request_key         TEXT NOT NULL UNIQUE,
+            request_digest      TEXT NOT NULL,
+            authorization_id    TEXT NOT NULL REFERENCES provider_spend_authorizations(id),
+            user_id             TEXT NOT NULL,
+            run_id              TEXT NOT NULL,
+            attempt_id          TEXT NOT NULL,
+            provider            TEXT NOT NULL,
+            model               TEXT NOT NULL,
+            price_list_id       TEXT NOT NULL,
+            reserved_micro_usd  INTEGER NOT NULL CHECK(reserved_micro_usd > 0),
+            observed_micro_usd  INTEGER CHECK(observed_micro_usd >= 0),
+            status              TEXT NOT NULL
+                CHECK(status IN ('reserved', 'settled', 'unresolved', 'released', 'mismatch')),
+            upstream_request_id TEXT,
+            terminal_reason     TEXT,
+            created_at          INTEGER NOT NULL,
+            reconciled_at       INTEGER
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_provider_reservations_authorization
+            ON provider_request_reservations(authorization_id, status);
+        CREATE INDEX IF NOT EXISTS idx_provider_reservations_capacity
+            ON provider_request_reservations(provider, status);
+        CREATE INDEX IF NOT EXISTS idx_provider_reservations_unresolved
+            ON provider_request_reservations(status, created_at);
+
+        UPDATE schema_version SET version = 68;",
+    )
+    .expect("migration v68 failed creating provider gateway spend controls");
+
+    tracing::info!(
+        "applied migration v68: provider gateway authorizations and durable reservations"
+    );
 }
 
 fn migrate_v67(conn: &Connection) {

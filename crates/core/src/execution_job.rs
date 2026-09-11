@@ -204,9 +204,9 @@ pub enum CapabilityGrant {
     /// them into one list of names would let a manifest in a customer's
     /// repository name a provider.
     ///
-    /// It is also what authorises the provider credential to enter the
-    /// sandbox at all — see `sandbox::policy::sanctioned_env` and gate G3 in
-    /// `docs/adr/ADR-0003-soma-feature-fence.md`.
+    /// It does not authorize a supplier credential to enter the sandbox. The
+    /// private gateway owns that credential; this grant only states which
+    /// provider a later per-attempt gateway capability may name.
     ReachProvider { provider: String },
     /// Read a named secret. The secret is delivered by the runner, never by
     /// the sandbox environment.

@@ -129,13 +129,10 @@ impl ContainerSandbox {
             None => (
                 "none".to_string(),
                 Some(true),
-                // An allowlist of at most one name, never a filtered copy of
-                // the worker's environment. See `policy::sanctioned_env`.
-                //
-                // A job with no network has no provider grant either, so this
-                // arm is empty in practice — but it is derived from the job
-                // rather than hardcoded to empty, so the two facts cannot
-                // drift apart.
+                // Supplier credentials are never copied from the worker.
+                // Today only the explicit stub sentinel can accompany a
+                // provider grant; later this slot carries a scoped gateway
+                // capability from the job itself.
                 sanctioned_env(job),
                 None,
             ),
@@ -632,18 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_grant_admits_that_provider_s_key_and_nothing_else() {
-        // The boundary assertion for the credential: what the *runtime* is
-        // handed, not what the policy function returned.
-        //
-        // The variable has to actually exist in this process for the config to
-        // carry it, so this test sets it. That makes the assertion positive —
-        // it fails if the credential stops arriving — rather than passing
-        // vacuously on a machine that has no key, which is the failure mode
-        // that let three earlier "correct-looking" tests assert nothing.
-        //
-        // Nothing else in this test binary reads these variables, and the two
-        // provider-key tests here are the only writers.
+    fn a_provider_grant_does_not_admit_supplier_keys() {
         std::env::set_var("ANTHROPIC_API_KEY", "sk-test-not-a-real-key");
         std::env::set_var("OPENAI_API_KEY", "sk-test-other-provider");
 
@@ -654,16 +640,13 @@ mod tests {
 
         let env = config_of(&job).env.expect("env is always set");
 
-        let mut expected = vec!["ANTHROPIC_API_KEY=sk-test-not-a-real-key".to_string()];
-        expected.extend(
-            crate::sandbox::policy::SCRATCH_ENV
-                .iter()
-                .map(|s| (*s).to_string()),
-        );
+        let expected = crate::sandbox::policy::SCRATCH_ENV
+            .iter()
+            .map(|s| (*s).to_string())
+            .collect::<Vec<_>>();
         assert_eq!(
             env, expected,
-            "the routed provider's key must reach the sandbox, and nothing \
-             beyond it except the scratch constants"
+            "a provider grant must not carry a supplier credential"
         );
         for forbidden in [
             "OPENAI_API_KEY",

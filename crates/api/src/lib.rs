@@ -35,6 +35,7 @@ pub mod metrics;
 pub mod mission_control;
 mod moderation;
 pub mod pricing;
+pub mod provider_gateway;
 mod pulse;
 pub mod verification_dispatcher;
 pub mod verification_driver;

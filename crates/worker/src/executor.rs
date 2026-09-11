@@ -1291,9 +1291,9 @@ async fn run_required_checks<R: SandboxRunner>(
         // The job is stripped of everything the agent needed and a check does
         // not. It runs in the check runner's image rather than the agent's
         // (F13), with no network and no capability grants -- which, through
-        // `policy::sanctioned_env`, is also what keeps the provider credential
-        // out of it: the key is derived from the grant, so removing the grant
-        // removes the key. A check that could reach the network could fetch a
+        // `policy::sanctioned_env`, is also what keeps any future gateway
+        // capability out of it. Supplier credentials never enter any sandbox.
+        // A check that could reach the network could fetch a
         // passing result, and a check has no reason to hold an API key.
         let mut check_job = job.clone();
         check_job.job_id = uuid::Uuid::new_v4().to_string();
