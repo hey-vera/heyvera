@@ -11630,27 +11630,46 @@ impl Database {
     }
 
     pub fn get_step_work_contract(&self, step_id: &str, lease_gen: i64) -> Option<TaskContract> {
-        let conn = self.conn();
-        let contract_json: String = conn
-            .query_row(
-                "SELECT contract_json FROM step_work_contracts
-             WHERE step_id = ?1 AND lease_gen = ?2",
-                params![step_id, lease_gen],
-                |row| row.get(0),
-            )
-            .ok()?;
-
-        serde_json::from_str(&contract_json)
+        self.read_step_work_contract(step_id, lease_gen)
             .map_err(|err| {
                 tracing::error!(
                     step_id = %step_id,
                     lease_gen,
                     error = %err,
-                    "failed to deserialize step work contract"
+                    "failed to read step work contract"
                 );
                 err
             })
             .ok()
+            .flatten()
+    }
+
+    /// Read one attempt's contract without collapsing a missing row and an
+    /// unreadable row into the same result.
+    ///
+    /// Verification uses this form because either condition makes exam
+    /// integrity unknown, but the persisted diagnostic must say which one
+    /// occurred. Other callers retain the compatibility `Option` above.
+    pub(crate) fn read_step_work_contract(
+        &self,
+        step_id: &str,
+        lease_gen: i64,
+    ) -> Result<Option<TaskContract>, String> {
+        let conn = self.conn();
+        let contract_json = match conn.query_row(
+            "SELECT contract_json FROM step_work_contracts
+             WHERE step_id = ?1 AND lease_gen = ?2",
+            params![step_id, lease_gen],
+            |row| row.get::<_, String>(0),
+        ) {
+            Ok(json) => json,
+            Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
+            Err(err) => return Err(format!("contract lookup failed: {err}")),
+        };
+
+        serde_json::from_str(&contract_json)
+            .map(Some)
+            .map_err(|err| format!("contract JSON is unreadable: {err}"))
     }
 
     pub fn get_latest_step_work_contract(&self, step_id: &str) -> Option<TaskContract> {
