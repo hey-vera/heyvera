@@ -218,6 +218,65 @@ jobs:
             exit 1
           fi
 
+  # The actual provider CLI contract, proven without an external network. The
+  # loopback capture server returns a synthetic Anthropic stream and records
+  # the request shape that the private gateway must support. `--network none`
+  # is load-bearing: this job cannot contact Anthropic or spend provider money.
+  gateway-cli-shape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SANDBOX_BASE: cortex/sandbox:gateway-shape-base
+      SANDBOX_IMAGE: cortex/sandbox:gateway-shape
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+
+      - name: Build the sandbox base image
+        run: docker build -f Dockerfile.sandbox -t "$SANDBOX_BASE" .
+
+      - name: Build the version-pinned Claude sandbox image
+        run: |
+          docker build -f Dockerfile.sandbox-provider \
+            --build-arg BASE="$SANDBOX_BASE" \
+            -t "$SANDBOX_IMAGE" .
+
+      - name: Capture and assert the real Claude gateway request
+        run: |
+          docker run --rm \
+            --network none \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --user 2000:2000 \
+            --tmpfs /scratch:rw,exec,nosuid,nodev,size=268435456,mode=1777 \
+            --mount "type=bind,src=$PWD/testing/gateway-shape,dst=/fixture,readonly" \
+            -e HOME=/scratch \
+            -e TMPDIR=/scratch \
+            -e XDG_CACHE_HOME=/scratch \
+            -e XDG_CONFIG_HOME=/scratch \
+            -e npm_config_cache=/scratch/npm \
+            -e ANTHROPIC_BASE_URL=http://127.0.0.1:18080 \
+            -e ANTHROPIC_AUTH_TOKEN=cortex-shape-token \
+            -e 'ANTHROPIC_CUSTOM_HEADERS=X-Cortex-Attempt: attempt-shape-proof' \
+            "$SANDBOX_IMAGE" sh -ceu '
+              node /fixture/capture.mjs > /scratch/capture-server.log 2>&1 &
+              capture_pid=$!
+              trap "kill $capture_pid 2>/dev/null || true" EXIT
+              for delay in 1 1 1 1 1; do
+                if curl --noproxy "*" -fsS http://127.0.0.1:18080/health >/dev/null; then
+                  break
+                fi
+                sleep "$delay"
+              done
+              timeout 60 claude -p \
+                --output-format stream-json \
+                --verbose \
+                --no-session-persistence \
+                --model claude-sonnet-4-6 \
+                "Reply with exactly: cortex gateway shape stub"
+              node /fixture/assert-capture.mjs
+            '
+
   # Formatting is a separate job from `rust` on purpose: it is seconds long and
   # needs no dependency graph, so it must not queue behind a four-minute
   # compile, and its own status context can be made required independently.
