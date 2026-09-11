@@ -44,55 +44,13 @@ impl SandboxRequest {
     }
 }
 
-/// The environment variable each provider's CLI reads its API key from.
-///
-/// A closed table, not a prefix match: "any variable ending in `_API_KEY`"
-/// would hand a sandbox every key the worker happens to hold the day someone
-/// adds a second one.
-fn provider_key_var(provider: &str) -> Option<&'static str> {
-    match provider {
-        "claude" => Some("ANTHROPIC_API_KEY"),
-        "openai" => Some("OPENAI_API_KEY"),
-        "gemini" => Some("GEMINI_API_KEY"),
-        // Zen has no CLI, so no sandbox is ever built for it.
-        _ => None,
-    }
-}
-
 /// The environment handed to the sandbox.
 ///
-/// It is empty except for **one** variable, and the exception is the whole
-/// security story of this function.
-///
-/// The rule it keeps: a filtered environment is a denylist somebody has to keep
-/// correct forever, and the first variable anyone forgets is the one that
-/// leaks. So this is an allowlist of exactly one name, chosen by the provider
-/// the router picked, and everything else the worker holds — Clerk secrets, the
-/// database path, the ledger, every other provider's key — is still absent.
-/// Nothing else the agent legitimately needs arrives this way: the workspace is
-/// a mount, the model is an argument, and Git credentials belong to the runner
-/// service rather than to the model process.
-///
-/// **The exposure, stated rather than buried.** The provider CLI runs inside
-/// the sandbox, so it needs the provider key inside the sandbox, so
-/// model-authored code shares an environment with a live credential. Phase 32.4
-/// says no provider credentials in the sandbox and this violates it. It is
-/// recorded as gate **G3** in `docs/adr/ADR-0003-soma-feature-fence.md`, and
-/// `docs/adr/ADR-0004-provider-credential.md` states the target shape — the
-/// mediator injects the credential and the sandbox holds only a placeholder.
-///
-/// Three things bound it in the meantime, and none of them is "we were
-/// careful":
-///
-/// 1. **The key is gated on the grant, not on configuration.** The provider
-///    comes from `CapabilityGrant::ReachProvider` on the job — the same grant
-///    that opened the host. A job with no provider grant gets no key, so a
-///    sandbox that cannot reach a provider never holds a credential for one.
-/// 2. **One provider's key, never two.** The grant names one provider and this
-///    table maps it to one variable.
-/// 3. **A key that is not set is not invented.** If the worker does not hold
-///    the variable, none is passed and the CLI fails as unauthenticated, which
-///    is a truthful failure rather than a silent one.
+/// Supplier credentials are never admitted. The private gateway owns them;
+/// capability issuance is not yet wired through the worker protocol, so a real
+/// provider CLI currently fails closed as unauthenticated. The one exception is
+/// an exact, public sentinel used by the zero-cost stub integration image. It is
+/// not accepted by a supplier and exists only to keep that test executable.
 ///
 /// # The scratch variables are not an exception to any of that
 ///
@@ -165,23 +123,23 @@ pub const SCRATCH_ENV: &[&str] = &[
 /// A test that sets a real variable races every other test in the binary, and
 /// the one that lost the race would report this function as safe.
 fn sanctioned_env_from(job: &ExecutionJob, lookup: impl Fn(&str) -> Option<String>) -> Vec<String> {
+    const STUB_SENTINEL: &str = "STUB-PROVIDER-NOT-A-REAL-KEY";
     let Some(provider) = granted_provider(job) else {
         return Vec::new();
     };
-    let Some(var) = provider_key_var(&provider) else {
+    if provider != "claude" {
         return Vec::new();
-    };
-    let Some(value) = lookup(var) else {
-        tracing::warn!(
-            provider = %provider,
-            var = %var,
-            "the routed provider's key is not set on this worker; the CLI will \
-             run unauthenticated"
-        );
-        return Vec::new();
-    };
+    }
+    if lookup("ANTHROPIC_API_KEY").as_deref() == Some(STUB_SENTINEL) {
+        return vec![format!("ANTHROPIC_API_KEY={STUB_SENTINEL}")];
+    }
 
-    vec![format!("{var}={value}")]
+    tracing::warn!(
+        provider = %provider,
+        "supplier credentials are never admitted to a sandbox; provider \
+         execution remains blocked until a gateway capability is attached"
+    );
+    Vec::new()
 }
 
 /// The provider this job was granted, if any.
@@ -476,7 +434,7 @@ mod tests {
     }
 
     #[test]
-    fn a_provider_grant_admits_exactly_one_variable() {
+    fn a_provider_grant_never_admits_a_supplier_key() {
         let mut job = job();
         job.capability_grants = vec![
             CapabilityGrant::ResolveDependencies {
@@ -487,12 +445,11 @@ mod tests {
             },
         ];
 
-        let env = sanctioned_env_from(&job, |var| Some(format!("{var}-value")));
+        let env = sanctioned_env_from(&job, |var| Some(format!("live-{var}-value")));
 
-        assert_eq!(env, ["ANTHROPIC_API_KEY=ANTHROPIC_API_KEY-value"]);
-        // Not the other providers' keys, and not the registry grant's — a
-        // registry grant justifies a host, never a credential.
+        assert!(env.is_empty());
         for absent in [
+            "ANTHROPIC_API_KEY",
             "OPENAI_API_KEY",
             "GEMINI_API_KEY",
             "CLERK_SECRET_KEY",
@@ -506,21 +463,26 @@ mod tests {
     }
 
     #[test]
-    fn each_provider_gets_its_own_variable_and_no_other() {
-        for (provider, expected) in [
-            ("claude", "ANTHROPIC_API_KEY"),
-            ("openai", "OPENAI_API_KEY"),
-            ("gemini", "GEMINI_API_KEY"),
-        ] {
+    fn every_provider_supplier_key_is_rejected() {
+        for provider in ["claude", "openai", "gemini"] {
             let mut job = job();
             job.capability_grants = vec![CapabilityGrant::ReachProvider {
                 provider: provider.to_string(),
             }];
 
             let env = sanctioned_env_from(&job, |var| Some(format!("{var}-value")));
-            assert_eq!(env.len(), 1, "{provider} admitted more than one variable");
-            assert!(env[0].starts_with(&format!("{expected}=")));
+            assert!(env.is_empty(), "{provider} admitted a supplier credential");
         }
+    }
+
+    #[test]
+    fn the_zero_cost_stub_sentinel_remains_usable() {
+        let mut job = job();
+        job.capability_grants = vec![CapabilityGrant::ReachProvider {
+            provider: "claude".to_string(),
+        }];
+        let env = sanctioned_env_from(&job, |_| Some("STUB-PROVIDER-NOT-A-REAL-KEY".to_string()));
+        assert_eq!(env, ["ANTHROPIC_API_KEY=STUB-PROVIDER-NOT-A-REAL-KEY"]);
     }
 
     #[test]

@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-09-10 (fail-closed exam-integrity repair implemented locally)
+**Last updated:** 2026-09-10 (private provider spending gateway implemented locally)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -51,7 +51,8 @@ re-deriving anything.
 | 27 | Task 2 - reconcile the two Phase 35 drafts; round 6 amendments | **done** - branch `docs/round6-amendments`. Docs only. `docs/round5-teaching` merged by hand and deleted. |
 | 28 | Task 4 - one task end to end with a stubbed provider | **done, nothing merged** - branch `feat/stub-provider-e2e`. Green path proven at zero API cost. **Six findings, F13-F18.** F14 is the one that matters: a failing diff is never delivered, so `Verdict::Failed` is unreachable. |
 | **2026-09-10 repair** | | |
-| 29 | Fail closed on unknown frozen-exam integrity | **implemented and locally verified, not merged** — branch `fix/verifier-unknown-exam-integrity`, based on remote `main` at `6faf4776`; see "2026-09-10 verifier integrity repair" below. |
+| 29 | Fail closed on unknown frozen-exam integrity | **done** — PR [#640](https://github.com/1xmint/heyvera/pull/640) squash-merged at `ea9b562e`; see "2026-09-10 verifier integrity repair" below. |
+| 30 | Private single-provider spend gateway and stubbed reservation/reconciliation | **implemented and locally verified, not merged** — branch `feat/cortex-provider-spend-gateway`, based on `main` at `3de498e2`; migration v68; `$0` provider spend. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -2847,3 +2848,55 @@ built and on main.**
   fully contained.
 - **`heyvera-current` is the repo's main working tree**, not a stale worktree.
   `heyvera-social-audit` is a linked worktree of it.
+
+## 2026-09-10 private provider spending gateway
+
+Brief: `cortex/plan/briefs/PR-provider-spend-gateway.md`.
+
+Implemented on `feat/cortex-provider-spend-gateway` from clean `main` at
+`3de498e2`:
+
+- Migration v68 separates supplier capacity, per-attempt spending
+  authorizations, and per-request reservations from customer credit balances.
+- `provider_gateway` signs and verifies capabilities scoped to tenant, run,
+  attempt, one provider, one model, one authorization, and an expiry.
+- Request forms require an exact model and finite `max_tokens`; streaming and
+  tools remain unsupported. The input side is conservatively bounded by
+  serialized bytes, so the gateway does not trust a caller-supplied token count.
+- A transaction checks authorization exposure and global funded capacity before
+  inserting the reservation. Replays cannot invoke the supplier twice, and
+  concurrent requests cannot overdraw the same finite capacity.
+- Observed usage settles exactly once into `provider_spend`. Timeouts and
+  missing/invalid usage remain unresolved at the full reservation. Explicit
+  reconciliation can settle or release them; contradictions become a visible
+  mismatch rather than overwriting history.
+- The sandbox no longer admits real supplier keys. The exact public sentinel
+  used by the zero-cost stub image is retained; any other provider key is
+  refused even when the job carries a provider grant.
+
+Local evidence, using the installed Windows LLVM toolchain because the default
+GNU linker still lacks `libgcc`/`libgcc_eh`:
+
+```text
+cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --all-targets --locked provider_gateway
+  8 passed, 0 failed
+cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-worker --all-targets --locked sandbox
+  35 passed, 0 failed (35 filtered)
+cargo +stable-x86_64-pc-windows-gnullvm test --workspace --all-targets --locked
+  passed
+cargo +stable-x86_64-pc-windows-gnullvm test --workspace --all-targets --no-default-features --locked
+  passed
+cargo +stable-x86_64-pc-windows-gnullvm clippy --workspace --all-targets --locked -- -D warnings
+  passed
+git diff --check
+  passed
+```
+
+`cargo fmt --all --check` is locally blocked by the checkout's pre-existing
+CRLF newline mismatch across untouched Rust files; the intended diff is
+formatted and the repository CI remains the authoritative formatting gate.
+
+No provider key was used and no provider request was made. Capability delivery
+through the brain/worker protocol and a private gateway listener remain the
+next bounded implementation; real provider execution is intentionally
+unauthenticated until that wiring exists.
