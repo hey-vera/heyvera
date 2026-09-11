@@ -40,7 +40,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl gnupg \
 
 # The agent CLI. Version-pinned for the same reason as node: an unpinned
 # `latest` makes two receipts that name the same image incomparable.
-ARG CLAUDE_CLI_VERSION=2.0.14
+ARG CLAUDE_CLI_VERSION=2.1.268
 RUN npm install -g --no-fund --no-audit \
     "@anthropic-ai/claude-code@${CLAUDE_CLI_VERSION}" \
     && npm cache clean --force

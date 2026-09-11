@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-09-11 (stub gateway capability delivery implemented locally)
+**Last updated:** 2026-09-11 (Claude CLI gateway request-shape proof implemented locally)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -53,7 +53,8 @@ re-deriving anything.
 | **2026-09-10 repair** | | |
 | 29 | Fail closed on unknown frozen-exam integrity | **done** — PR [#640](https://github.com/1xmint/heyvera/pull/640) squash-merged at `ea9b562e`; see "2026-09-10 verifier integrity repair" below. |
 | 30 | Private single-provider spend gateway and stubbed reservation/reconciliation | **done** — PR [#642](https://github.com/1xmint/heyvera/pull/642) squash-merged at `6bea4888`; migration v68; `$0` provider spend. |
-| 31 | Deliver a scoped gateway capability and expose a stub-only Messages listener | **implemented locally, not merged** — branch `feat/cortex-gateway-capability-delivery`, based on `main` at `6bea4888`; `$0` provider spend. |
+| 31 | Deliver a scoped gateway capability and expose a stub-only Messages listener | **done** — PR [#643](https://github.com/1xmint/heyvera/pull/643) squash-merged at `61a87ecd`; `$0` provider spend. |
+| 32 | Prove the real Claude CLI gateway request shape with no network | **implemented locally, not merged** — branch `feat/cortex-claude-cli-shape-proof`, based on `main` at `61a87ecd`; `$0` provider spend. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -2944,3 +2945,29 @@ cargo +stable-x86_64-pc-windows-gnullvm test --workspace --all-targets --no-defa
 cargo +stable-x86_64-pc-windows-gnullvm clippy --workspace --all-targets --locked -- -D warnings
   passed
 ```
+
+This boundary was squash-merged in PR #643 at `61a87ecd` after the real
+adversarial sandbox CI job proved that a Claude grant cannot contact Anthropic
+directly.
+
+## 2026-09-11 Claude CLI gateway request-shape proof
+
+Brief: `cortex/plan/briefs/PR-claude-cli-shape-proof.md`.
+
+Implemented locally on `feat/cortex-claude-cli-shape-proof`:
+
+- The provider sandbox pins Claude Code `2.1.268`.
+- A CI proof runs that real CLI with `--network none`, a read-only root
+  filesystem, no supplier credential, and a loopback-only synthetic Messages
+  server.
+- The proof requires the configured gateway URL to receive Bearer capability
+  authentication, the Cortex attempt header, the routed model, and a positive
+  integer `max_tokens` bound.
+- It also records the compatibility gap instead of hiding it: this real
+  print-mode invocation requires streaming and sends an empty `tools` array. The
+  current stub listener deliberately rejects streaming.
+
+No provider request can occur in this proof because the container has no
+external network. The next bounded implementation may add durable streaming
+support to the stub listener; supplier transport, broader tool-bearing shapes,
+and a live call remain separately authorized and out of scope.
