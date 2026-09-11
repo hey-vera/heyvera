@@ -51,10 +51,12 @@ Anthropic SSE sequence after durable settlement.
 There is still no supplier HTTP transport. A real provider invocation therefore
 cannot spend: any mode other than the exact stub mode leaves the listener
 unavailable, and absent capability configuration leaves the worker
-unauthenticated. Non-empty tool definitions remain rejected, and there is no
-supplier streaming transport. Both require separate proofs before a separately
-authorized live smoke call. No live call is authorized by this ADR or this
-implementation.
+unauthenticated. Tool definitions are accepted only as a structurally bounded
+array: at most 64 unique, bounded names with object input schemas and typed
+descriptions. They do not grant execution; the CLI and sandbox remain the tool
+execution boundary. There is still no supplier streaming transport. A live
+smoke call remains separately authorized. No live call is authorized by this
+ADR or this implementation.
 
 ## Consequences
 

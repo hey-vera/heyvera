@@ -14,6 +14,11 @@ path = "src/lib.rs"
 name = "cortex-server"
 path = "src/main.rs"
 
+[[bin]]
+name = "gateway-stub-proof"
+path = "src/bin/gateway-stub-proof.rs"
+required-features = ["gateway-cli-proof"]
+
 [dependencies]
 cortex-core = { path = "../core" }
 cortex-engine = { path = "../engine" }
@@ -78,6 +83,10 @@ default = []
 soma = ["dep:soma"]
 sentry-tracking = ["sentry"]
 otel = ["opentelemetry", "opentelemetry_sdk", "opentelemetry-otlp", "tracing-opentelemetry"]
+# Builds only the loopback proof harness used by CI. It cannot select a real
+# supplier transport and the binary refuses to start without its explicit
+# proof-mode guard.
+gateway-cli-proof = []
 
 [dev-dependencies]
 # The integration tests install no subscriber, so `tracing::error!` inside
