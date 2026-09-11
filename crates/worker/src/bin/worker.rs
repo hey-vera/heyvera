@@ -146,7 +146,7 @@ async fn connect_and_run(
                             BrainMessage::ExecuteStep {
                                 run_id, step_id, attempt_id, lease_gen,
                                 task, decision, delegation, egress,
-                                provider_egress, context, ..
+                                provider_egress, provider_gateway, context, ..
                             } => {
                                 // Without the `soma` feature this worker does
                                 // not ask for a per-step delegation, because
@@ -243,6 +243,7 @@ async fn connect_and_run(
                                     // from different inputs, and merging them
                                     // here would lose which one opened what.
                                     provider_egress,
+                                    provider_gateway,
                                     // F8: this used to fall into the `..` and
                                     // be discarded, so the model never saw the
                                     // repository map or anything else the API

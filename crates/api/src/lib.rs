@@ -36,6 +36,7 @@ pub mod mission_control;
 mod moderation;
 pub mod pricing;
 pub mod provider_gateway;
+mod provider_gateway_http;
 mod pulse;
 pub mod verification_dispatcher;
 pub mod verification_driver;
@@ -552,6 +553,10 @@ pub fn build_cortex_router(state: Arc<AppState>) -> Router {
         ));
 
     Router::new()
+        .route(
+            "/internal/provider/v1/messages",
+            post(provider_gateway_http::messages),
+        )
         .route("/v1/health", get(v1_health))
         .route("/v1/ready", get(v1_ready))
         .route("/metrics", get(metrics_handler))

@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-09-10 (private provider spending gateway implemented locally)
+**Last updated:** 2026-09-11 (stub gateway capability delivery implemented locally)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -52,7 +52,8 @@ re-deriving anything.
 | 28 | Task 4 - one task end to end with a stubbed provider | **done, nothing merged** - branch `feat/stub-provider-e2e`. Green path proven at zero API cost. **Six findings, F13-F18.** F14 is the one that matters: a failing diff is never delivered, so `Verdict::Failed` is unreachable. |
 | **2026-09-10 repair** | | |
 | 29 | Fail closed on unknown frozen-exam integrity | **done** — PR [#640](https://github.com/1xmint/heyvera/pull/640) squash-merged at `ea9b562e`; see "2026-09-10 verifier integrity repair" below. |
-| 30 | Private single-provider spend gateway and stubbed reservation/reconciliation | **implemented and locally verified, not merged** — branch `feat/cortex-provider-spend-gateway`, based on `main` at `3de498e2`; migration v68; `$0` provider spend. |
+| 30 | Private single-provider spend gateway and stubbed reservation/reconciliation | **done** — PR [#642](https://github.com/1xmint/heyvera/pull/642) squash-merged at `6bea4888`; migration v68; `$0` provider spend. |
+| 31 | Deliver a scoped gateway capability and expose a stub-only Messages listener | **implemented locally, not merged** — branch `feat/cortex-gateway-capability-delivery`, based on `main` at `6bea4888`; `$0` provider spend. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -2896,7 +2897,50 @@ git diff --check
 CRLF newline mismatch across untouched Rust files; the intended diff is
 formatted and the repository CI remains the authoritative formatting gate.
 
-No provider key was used and no provider request was made. Capability delivery
-through the brain/worker protocol and a private gateway listener remain the
-next bounded implementation; real provider execution is intentionally
-unauthenticated until that wiring exists.
+No provider key was used and no provider request was made. This boundary was
+squash-merged in PR #642 at `6bea4888`.
+
+## 2026-09-11 stub gateway capability delivery
+
+Brief: `cortex/plan/briefs/PR-gateway-capability-delivery.md`.
+
+Implemented locally on `feat/cortex-gateway-capability-delivery`:
+
+- `ExecuteStep` carries an optional bearer envelope whose `Debug` form is
+  redacted; the worker uses it only on the sandbox request and never copies it
+  into the persisted execution job or receipt.
+- Both version-skew directions default to no envelope and therefore no gateway
+  authentication.
+- The final sandbox boundary checks run, attempt, model, provider, expiry,
+  gateway host, grant, and non-empty bearer before admitting the documented
+  Claude gateway environment variables.
+- Claude egress now names `cortex.heyvera.org`; `api.anthropic.com` is absent
+  from the provider grant.
+- Explicit stub mode publishes a finite authorization before dispatch and the
+  authenticated Messages listener executes the durable reserve/settle engine.
+- Existing immutable price lists are not edited. An installation missing the
+  router's current Claude model ids receives a new version beside the old one.
+
+The listener still rejects streaming and tool-bearing request forms and has no
+supplier transport. The next step is CLI request-shape compatibility and an
+adversarial container proof; a live call remains separately authorized and has
+not occurred.
+
+Local evidence (Windows LLVM toolchain):
+
+```text
+cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-core --all-targets --locked egress
+  17 passed, 0 failed
+cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-worker --all-targets --locked sandbox
+  37 passed, 0 failed (35 filtered)
+cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --all-targets --locked provider_gateway
+  10 passed, 0 failed
+cargo +stable-x86_64-pc-windows-gnullvm test -p cortex-api --test pricing_integration --locked
+  8 passed, 0 failed
+cargo +stable-x86_64-pc-windows-gnullvm test --workspace --all-targets --locked
+  passed
+cargo +stable-x86_64-pc-windows-gnullvm test --workspace --all-targets --no-default-features --locked
+  passed
+cargo +stable-x86_64-pc-windows-gnullvm clippy --workspace --all-targets --locked -- -D warnings
+  passed
+```

@@ -705,6 +705,16 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
     // the repository, and nothing a customer can put in a repository may
     // influence which provider is reachable.
     let provider_egress = derive_provider_egress(decision.provider);
+    let provider_gateway = crate::provider_gateway_http::issue_stub_access(
+        db,
+        &step.user_id,
+        &step.run_id,
+        &attempt_id,
+        decision.provider,
+        &decision.model_id,
+        deadline,
+        chrono::Utc::now().timestamp_millis(),
+    );
     if provider_egress.is_deny() {
         // Every `ProviderId` has an endpoint, so this is unreachable today. It
         // is a log line rather than an assert because the honest failure is a
@@ -739,6 +749,7 @@ async fn dispatch_step(state: &AppState, step: &StepRef) -> DispatchOutcome {
         context,
         egress,
         provider_egress,
+        provider_gateway,
         delegation: step_delegation,
     };
 

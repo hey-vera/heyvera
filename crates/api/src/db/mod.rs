@@ -5517,6 +5517,7 @@ impl Database {
             conn: Mutex::new(conn),
         };
         db.seed_price_list_if_absent();
+        db.publish_gateway_model_revision_if_needed();
         db
     }
 
@@ -5551,6 +5552,47 @@ impl Database {
                 error = %e,
                 "could not publish the seed price list; steps will dispatch without a quote"
             ),
+        }
+    }
+
+    /// Existing installations already have immutable price-list v1. Publish a
+    /// new version beside it when that historical seed predates the model ids
+    /// the router actually emits; never append to or rewrite the old list.
+    fn publish_gateway_model_revision_if_needed(&self) {
+        const ROUTED_CLAUDE_MODELS: &[&str] =
+            &["claude-haiku-4-5", "claude-sonnet-4-6", "claude-opus-4-6"];
+        let Some(mut list) = self.active_price_list() else {
+            return;
+        };
+        let missing = ROUTED_CLAUDE_MODELS
+            .iter()
+            .filter(|model| list.model("claude", model).is_none())
+            .copied()
+            .collect::<Vec<_>>();
+        if missing.is_empty() {
+            return;
+        }
+        let seed = crate::pricing::seed_models();
+        for model_id in missing {
+            let Some(model) = seed
+                .iter()
+                .find(|model| model.provider == "claude" && model.model_id == model_id)
+            else {
+                tracing::error!(model_id, "routed model has no provisional seed rate");
+                return;
+            };
+            list.models.push(model.clone());
+        }
+        list.id = Uuid::new_v4().to_string();
+        list.version += 1;
+        list.published_at = Utc::now().timestamp();
+        list.published_by = "cortex:gateway-model-revision".into();
+        list.basis = format!(
+            "{}; adds provisional rows for routed Claude model ids without editing prior versions",
+            list.basis
+        );
+        if let Err(error) = self.publish_price_list(&list) {
+            tracing::error!(%error, "could not publish gateway-compatible model revision");
         }
     }
 

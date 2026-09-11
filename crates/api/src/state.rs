@@ -557,6 +557,18 @@ impl AppState {
 
         // Captured before `decision` is moved into the frame below.
         let provider_egress = cortex_core::egress::derive_provider_egress(decision.provider);
+        let provider_gateway = self.db.as_ref().and_then(|db| {
+            crate::provider_gateway_http::issue_stub_access(
+                db,
+                user_id,
+                &run_id,
+                &attempt_id,
+                decision.provider,
+                &decision.model_id,
+                lease_deadline_ms,
+                now,
+            )
+        });
 
         worker_tx
             .send(BrainMessage::ExecuteStep {
@@ -580,6 +592,7 @@ impl AppState {
                 // with no route to the model — which is the bug, not the
                 // conservative choice.
                 provider_egress,
+                provider_gateway,
                 delegation: None,
             })
             .await

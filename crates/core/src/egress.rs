@@ -84,7 +84,9 @@ pub fn expand_registry(name: &str) -> Option<Vec<String>> {
 /// crash reporting endpoints are deliberately absent: a CLI that cannot phone
 /// home still does the work.
 pub const PROVIDER_ENDPOINTS: &[(ProviderId, &str)] = &[
-    (ProviderId::Claude, "api.anthropic.com"),
+    // Claude Code talks to the request-forwarding gateway. The supplier host
+    // is deliberately absent from the sandbox allowlist.
+    (ProviderId::Claude, "cortex.heyvera.org"),
     (ProviderId::Openai, "api.openai.com"),
     (ProviderId::Gemini, "generativelanguage.googleapis.com"),
     // Zen is API-only and has no CLI, so no sandboxed step is ever routed to
@@ -535,7 +537,7 @@ mod tests {
         assert_eq!(merged.granted_registries().len(), 4);
 
         let hosts = merged.network_policy.allowed_hosts();
-        assert!(hosts.contains(&"api.anthropic.com".to_string()));
+        assert!(hosts.contains(&"cortex.heyvera.org".to_string()));
         assert!(hosts.contains(&"registry.npmjs.org".to_string()));
 
         // Every host still traces to a grant, which is what the worker
@@ -567,7 +569,7 @@ mod tests {
         let merged = EgressPlan::union(&read_only, &claude);
         assert_eq!(
             merged.network_policy.allowed_hosts(),
-            &["api.anthropic.com".to_string()]
+            &["cortex.heyvera.org".to_string()]
         );
         assert_eq!(merged.granted_provider(), Some("claude"));
         assert!(merged.granted_registries().is_empty());
@@ -591,7 +593,7 @@ mod tests {
         let two = EgressPlan {
             network_policy: NetworkPolicy::Allowlist {
                 hosts: vec![
-                    "api.anthropic.com".to_string(),
+                    "cortex.heyvera.org".to_string(),
                     "api.openai.com".to_string(),
                 ],
             },

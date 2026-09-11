@@ -396,6 +396,36 @@ pub fn seed_models() -> Vec<ModelPrice> {
     }
 
     vec![
+        // The engine's currently routed Claude model ids. These provisional
+        // rows intentionally share the conservative seeded rates below; live
+        // observations, not this stub wiring change, own publishing revisions.
+        m(
+            "claude",
+            "claude-opus-4-6",
+            15_000,
+            75_000,
+            1_000,
+            200_000,
+            "frontier",
+        ),
+        m(
+            "claude",
+            "claude-sonnet-4-6",
+            3_000,
+            15_000,
+            1_000,
+            200_000,
+            "balanced",
+        ),
+        m(
+            "claude",
+            "claude-haiku-4-5",
+            800,
+            4_000,
+            1_000,
+            200_000,
+            "fast",
+        ),
         m(
             "claude",
             "claude-opus-5",
@@ -632,7 +662,11 @@ mod tests {
 
     #[test]
     fn model_cost_is_integer_arithmetic_with_a_cache_discount() {
-        let model = &seed_models()[1]; // sonnet: 3_000 in, 15_000 out
+        let models = seed_models();
+        let model = models
+            .iter()
+            .find(|model| model.model_id == "claude-sonnet-5")
+            .unwrap();
         assert_eq!(model.model_id, "claude-sonnet-5");
 
         // 1k uncached in + 1k out.
