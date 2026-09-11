@@ -431,19 +431,22 @@ fn validate_bounded_form(request: &GatewayRequest) -> Result<(), GatewayError> {
             "body max_tokens must exactly match the reserved maximum".into(),
         ));
     }
-    if request.body.get("tools").is_some() {
+    if request
+        .body
+        .get("tools")
+        .is_some_and(|tools| tools.as_array().is_none_or(|tools| !tools.is_empty()))
+    {
         return Err(GatewayError::UnboundedRequest(
-            "tool use is not supported by the first gateway".into(),
+            "only the measured empty tools array is supported".into(),
         ));
     }
     if request
         .body
         .get("stream")
-        .and_then(Value::as_bool)
-        .unwrap_or(false)
+        .is_some_and(|stream| !stream.is_boolean())
     {
         return Err(GatewayError::UnboundedRequest(
-            "streaming is not supported until usage reconciliation is proven".into(),
+            "stream must be a boolean".into(),
         ));
     }
     Ok(())
@@ -741,9 +744,16 @@ mod tests {
         );
 
         let mut tools = fixture.request(&gateway, "tools");
-        tools.body["tools"] = serde_json::json!([]);
+        tools.body["tools"] = serde_json::json!([{"name": "Bash"}]);
         assert!(matches!(
             gateway.forward(tools, NOW).await.unwrap_err(),
+            GatewayError::UnboundedRequest(_)
+        ));
+
+        let mut invalid_stream = fixture.request(&gateway, "invalid-stream");
+        invalid_stream.body["stream"] = serde_json::json!("yes");
+        assert!(matches!(
+            gateway.forward(invalid_stream, NOW).await.unwrap_err(),
             GatewayError::UnboundedRequest(_)
         ));
 
@@ -761,6 +771,23 @@ mod tests {
             GatewayError::UnboundedRequest(_)
         ));
         assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn measured_cli_stream_shape_is_bounded_and_settled() {
+        let fixture = Fixture::new(100_000, 100_000);
+        let gateway = fixture.gateway(success(Some(ObservedUsage {
+            input_tokens: 100,
+            cached_input_tokens: 0,
+            output_tokens: 10,
+        })));
+        let mut request = fixture.request(&gateway, "measured-cli-stream");
+        request.body["stream"] = serde_json::json!(true);
+        request.body["tools"] = serde_json::json!([]);
+
+        let outcome = gateway.forward(request, NOW).await.unwrap();
+        assert_eq!(outcome.reservation.status, "settled");
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
     }
 
     #[test]

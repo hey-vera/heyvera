@@ -180,6 +180,7 @@ async fn handle_stub_message(
     body: Value,
     now_ms: i64,
 ) -> Response {
+    let wants_stream = body.get("stream").and_then(Value::as_bool) == Some(true);
     let Some(token) = headers
         .get(axum::http::header::AUTHORIZATION)
         .and_then(|value| value.to_str().ok())
@@ -230,6 +231,7 @@ async fn handle_stub_message(
     };
     match gateway.forward(request, now_ms).await {
         Ok(outcome) => match outcome.body {
+            Some(body) if wants_stream => stub_stream_response(&body),
             Some(body) => Json(body).into_response(),
             None => (
                 StatusCode::CONFLICT,
@@ -239,6 +241,90 @@ async fn handle_stub_message(
         },
         Err(error) => gateway_error_response(error),
     }
+}
+
+fn stub_stream_response(message: &Value) -> Response {
+    fn push_event(output: &mut String, name: &str, data: Value) {
+        output.push_str("event: ");
+        output.push_str(name);
+        output.push_str("\ndata: ");
+        output.push_str(&data.to_string());
+        output.push_str("\n\n");
+    }
+
+    let model = message.get("model").cloned().unwrap_or(Value::Null);
+    let text = message
+        .pointer("/content/0/text")
+        .and_then(Value::as_str)
+        .unwrap_or("cortex gateway stub");
+    let input_tokens = message
+        .pointer("/usage/input_tokens")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let output_tokens = message
+        .pointer("/usage/output_tokens")
+        .and_then(Value::as_i64)
+        .unwrap_or(0);
+    let mut stream = String::new();
+    push_event(
+        &mut stream,
+        "message_start",
+        serde_json::json!({
+            "type": "message_start",
+            "message": {
+                "id": "msg_cortex_stub",
+                "type": "message",
+                "role": "assistant",
+                "model": model,
+                "content": [],
+                "stop_reason": null,
+                "stop_sequence": null,
+                "usage": {"input_tokens": input_tokens, "output_tokens": 0}
+            }
+        }),
+    );
+    push_event(
+        &mut stream,
+        "content_block_start",
+        serde_json::json!({
+            "type": "content_block_start",
+            "index": 0,
+            "content_block": {"type": "text", "text": ""}
+        }),
+    );
+    push_event(
+        &mut stream,
+        "content_block_delta",
+        serde_json::json!({
+            "type": "content_block_delta",
+            "index": 0,
+            "delta": {"type": "text_delta", "text": text}
+        }),
+    );
+    push_event(
+        &mut stream,
+        "content_block_stop",
+        serde_json::json!({"type": "content_block_stop", "index": 0}),
+    );
+    push_event(
+        &mut stream,
+        "message_delta",
+        serde_json::json!({
+            "type": "message_delta",
+            "delta": {"stop_reason": "end_turn", "stop_sequence": null},
+            "usage": {"output_tokens": output_tokens}
+        }),
+    );
+    push_event(
+        &mut stream,
+        "message_stop",
+        serde_json::json!({"type": "message_stop"}),
+    );
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/event-stream")],
+        stream,
+    )
+        .into_response()
 }
 
 fn gateway_error_response(error: GatewayError) -> Response {
@@ -279,7 +365,7 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let db = crate::db::Database::open(&dir.path().join("gateway-http.sqlite"));
             let price_list_id = db.active_price_list().unwrap().id;
-            db.set_supplier_capacity("claude", 100_000, NOW).unwrap();
+            db.set_supplier_capacity("claude", 1_000_000, NOW).unwrap();
             db.create_spend_authorization(
                 &SpendAuthorization {
                     id: "auth-http".into(),
@@ -289,7 +375,7 @@ mod tests {
                     provider: "claude".into(),
                     model: MODEL.into(),
                     price_list_id,
-                    max_micro_usd: 100_000,
+                    max_micro_usd: 1_000_000,
                     expires_at_ms: NOW + 60_000,
                 },
                 NOW,
@@ -352,6 +438,87 @@ mod tests {
                 .provider_spend_row_count("claude:auth-http:http-request-1"),
             1
         );
+    }
+
+    #[tokio::test]
+    async fn measured_cli_shape_returns_anthropic_sse_after_settlement() {
+        let fixture = Fixture::new();
+        let headers = fixture.headers("http-stream-1");
+        let request = serde_json::json!({
+            "model": MODEL,
+            "max_tokens": 32_000,
+            "messages": [{"role": "user", "content": "stub only"}],
+            "stream": true,
+            "tools": []
+        });
+        let response =
+            handle_stub_message(&fixture.db, SIGNING_KEY, &headers, request.clone(), NOW).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(
+            response
+                .headers()
+                .get(axum::http::header::CONTENT_TYPE)
+                .unwrap(),
+            "text/event-stream"
+        );
+        let body = axum::body::to_bytes(response.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let body = String::from_utf8(body.to_vec()).unwrap();
+        for event in [
+            "message_start",
+            "content_block_start",
+            "content_block_delta",
+            "content_block_stop",
+            "message_delta",
+            "message_stop",
+        ] {
+            assert!(body.contains(&format!("event: {event}\n")));
+        }
+        let reservation = fixture
+            .db
+            .get_provider_reservation("claude:auth-http:http-stream-1")
+            .unwrap();
+        assert_eq!(reservation.status, "settled");
+        assert_eq!(
+            fixture
+                .db
+                .provider_spend_row_count("claude:auth-http:http-stream-1"),
+            1
+        );
+
+        let replay = handle_stub_message(&fixture.db, SIGNING_KEY, &headers, request, NOW).await;
+        assert_eq!(replay.status(), StatusCode::CONFLICT);
+        assert_eq!(
+            fixture
+                .db
+                .provider_spend_row_count("claude:auth-http:http-stream-1"),
+            1
+        );
+    }
+
+    #[tokio::test]
+    async fn nonempty_tools_remain_fail_closed_before_reserving() {
+        let fixture = Fixture::new();
+        let response = handle_stub_message(
+            &fixture.db,
+            SIGNING_KEY,
+            &fixture.headers("http-tools-1"),
+            serde_json::json!({
+                "model": MODEL,
+                "max_tokens": 100,
+                "messages": [{"role": "user", "content": "stub only"}],
+                "stream": true,
+                "tools": [{"name": "Bash"}]
+            }),
+            NOW,
+        )
+        .await;
+        assert_eq!(response.status(), StatusCode::BAD_REQUEST);
+        assert!(fixture
+            .db
+            .get_provider_reservation("claude:auth-http:http-tools-1")
+            .is_none());
     }
 
     #[tokio::test]

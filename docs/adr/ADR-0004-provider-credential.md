@@ -44,15 +44,17 @@ spend money.
 In explicit stub mode, capability issuance now travels through the brain/worker
 protocol and configures Claude Code with the documented gateway base URL and
 bearer-token variables. Claude sandbox egress names Cortex's gateway host, not
-the supplier. The listener supports only the bounded non-streaming, no-tools
-request form exercised by the stub tests.
+the supplier. The stub listener supports the measured print-mode request shape:
+boolean streaming with an empty tools array, returned as a buffered synthetic
+Anthropic SSE sequence after durable settlement.
 
 There is still no supplier HTTP transport. A real provider invocation therefore
 cannot spend: any mode other than the exact stub mode leaves the listener
 unavailable, and absent capability configuration leaves the worker
-unauthenticated. The next bounded change must prove the actual CLI request
-shapes (including tool and streaming behavior) before a separately authorized
-live smoke call. No live call is authorized by this ADR or this implementation.
+unauthenticated. Non-empty tool definitions remain rejected, and there is no
+supplier streaming transport. Both require separate proofs before a separately
+authorized live smoke call. No live call is authorized by this ADR or this
+implementation.
 
 ## Consequences
 

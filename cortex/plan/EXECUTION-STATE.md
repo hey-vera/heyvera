@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-09-11 (Claude CLI gateway request-shape proof implemented locally)
+**Last updated:** 2026-09-11 (stub gateway streaming compatibility delivered)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -54,7 +54,8 @@ re-deriving anything.
 | 29 | Fail closed on unknown frozen-exam integrity | **done** — PR [#640](https://github.com/1xmint/heyvera/pull/640) squash-merged at `ea9b562e`; see "2026-09-10 verifier integrity repair" below. |
 | 30 | Private single-provider spend gateway and stubbed reservation/reconciliation | **done** — PR [#642](https://github.com/1xmint/heyvera/pull/642) squash-merged at `6bea4888`; migration v68; `$0` provider spend. |
 | 31 | Deliver a scoped gateway capability and expose a stub-only Messages listener | **done** — PR [#643](https://github.com/1xmint/heyvera/pull/643) squash-merged at `61a87ecd`; `$0` provider spend. |
-| 32 | Prove the real Claude CLI gateway request shape with no network | **implemented locally, not merged** — branch `feat/cortex-claude-cli-shape-proof`, based on `main` at `61a87ecd`; `$0` provider spend. |
+| 32 | Prove the real Claude CLI gateway request shape with no network | **done** — PR [#644](https://github.com/1xmint/heyvera/pull/644) squash-merged at `e01e32b0`; `$0` provider spend. |
+| 33 | Make the stub listener compatible with the measured streaming shape | **done** — PR [#645](https://github.com/1xmint/heyvera/pull/645); `$0` provider spend. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -2954,7 +2955,7 @@ directly.
 
 Brief: `cortex/plan/briefs/PR-claude-cli-shape-proof.md`.
 
-Implemented locally on `feat/cortex-claude-cli-shape-proof`:
+Implemented on `feat/cortex-claude-cli-shape-proof`:
 
 - The provider sandbox pins Claude Code `2.1.268`.
 - A CI proof runs that real CLI with `--network none`, a read-only root
@@ -2968,6 +2969,27 @@ Implemented locally on `feat/cortex-claude-cli-shape-proof`:
   current stub listener deliberately rejects streaming.
 
 No provider request can occur in this proof because the container has no
-external network. The next bounded implementation may add durable streaming
-support to the stub listener; supplier transport, broader tool-bearing shapes,
-and a live call remain separately authorized and out of scope.
+external network. Supplier transport, broader tool-bearing shapes, and a live
+call remain separately authorized and out of scope.
+
+This boundary was squash-merged in PR #644 at `e01e32b0` after the new
+`gateway-cli-shape` job and every existing required check passed.
+
+## 2026-09-11 stub gateway streaming compatibility
+
+Brief: `cortex/plan/briefs/PR-stub-gateway-streaming.md`.
+
+Delivered in PR #645 from `feat/cortex-stub-streaming`:
+
+- Bounded validation admits the measured boolean `stream` field and empty
+  `tools` array while rejecting malformed streaming values and all non-empty
+  or non-array tool forms before reservation.
+- The stub transport completes durable reconciliation before its already
+  buffered synthetic message is encoded as Anthropic SSE.
+- The HTTP proof covers the measured 32,000-token bound, the complete event
+  sequence, settled spend, and an idempotent replay that cannot create a second
+  spend row.
+- Non-empty tools remain fail-closed before any reservation is written.
+
+There is still no supplier transport, live provider key, live request,
+purchase, or deployment. The streamed body is synthetic and `$0`.
