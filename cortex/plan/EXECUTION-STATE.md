@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-09-07 (wave 7 — Phases 28-35 built as types and merged via #630)
+**Last updated:** 2026-09-10 (fail-closed exam-integrity repair implemented locally)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -50,6 +50,8 @@ re-deriving anything.
 | **Wave 6** | | |
 | 27 | Task 2 - reconcile the two Phase 35 drafts; round 6 amendments | **done** - branch `docs/round6-amendments`. Docs only. `docs/round5-teaching` merged by hand and deleted. |
 | 28 | Task 4 - one task end to end with a stubbed provider | **done, nothing merged** - branch `feat/stub-provider-e2e`. Green path proven at zero API cost. **Six findings, F13-F18.** F14 is the one that matters: a failing diff is never delivered, so `Verdict::Failed` is unreachable. |
+| **2026-09-10 repair** | | |
+| 29 | Fail closed on unknown frozen-exam integrity | **implemented and locally verified, not merged** — branch `fix/verifier-unknown-exam-integrity`, based on remote `main` at `6faf4776`; see "2026-09-10 verifier integrity repair" below. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -2630,6 +2632,46 @@ machine-readable way. `Receipt` lives in `db.rs`, which this task was scoped out
 of, so the disclaimer is injected into the printed JSON by the test instead.
 That is sufficient for a log a human reads and insufficient for a receipt a
 program trusts. Worth closing when `db.rs` is next open.
+
+## 2026-09-10 verifier integrity repair
+
+**Branch:** `fix/verifier-unknown-exam-integrity`, based on remote `main` at
+`6faf4776`. The Cortex parent was unchanged from inspected local `f3e4bb1d`;
+the two intervening commits changed HeyVera frontend dependencies only.
+
+**Brief:**
+`cortex/plan/briefs/PR-verifier-unknown-exam-integrity.md`.
+
+`verification_driver.rs` no longer represents exam inspection as
+`Option<Vec<String>>`. It now distinguishes intact, permitted authored work,
+modified protected exam, and unknown integrity with a reason. Missing and
+unreadable contracts, missing strong-contract bases, and failed `git diff`
+inspection seal `Inconclusive` before checkout or grading. The reason is
+persisted in `step_verification_state.terminal_reason`. That path calls neither
+the check runner nor billing; the existing routing layer emits no signal for an
+inconclusive verdict.
+
+The database read path now preserves the difference between a missing contract
+row and malformed contract JSON for the verifier while retaining the existing
+`Option` compatibility method for other callers.
+
+**Local evidence (Windows gnullvm toolchain):**
+
+- Targeted driver filter: 16 passed, 0 failed.
+- `step_end_to_end`: 5 passed, including the existing stubbed PASS, FAIL, and
+  NOOP procedure; no provider key or live model was used.
+- `cargo test --workspace --all-targets --locked`: passed.
+- `cargo test --workspace --all-targets --no-default-features --locked`:
+  passed.
+- `cargo clippy --workspace --all-targets --locked -- -D warnings`: passed.
+- `cargo fmt --all --check`: not green locally because the checkout reports
+  the repository-wide pre-existing Windows newline-style mismatch documented
+  below. The two intended Rust files were formatted with `cargo fmt --all`;
+  the unrelated CRLF-only worktree changes it created were removed and
+  `git diff --check` passed.
+
+No migration, provider spending, model execution, gateway, billing policy,
+deployment, or PR was created.
 
 ## Rules in force
 

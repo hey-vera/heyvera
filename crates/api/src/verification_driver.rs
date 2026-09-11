@@ -166,20 +166,33 @@ pub async fn verify_delivery<R: CheckRunner>(
     // `strong` and then edited the exam has contradicted its own contract.
     // That is not a verdict, and the run does not get to choose the weaker
     // class after the fact.
-    if let Some(exam_paths) = exam_contract_violation(db, facts) {
-        tracing::error!(
-            run_id = %facts.run_id,
-            step_id = %facts.step_id,
-            exam_paths = ?exam_paths,
-            "declared verdict_class=strong and then edited the exam; inconclusive"
-        );
-        let detail = format!(
-            "declared verdict_class=strong but the delivered diff edits the exam surface: {}",
-            exam_paths.join(", ")
-        );
-        let _ = db.finish_verification(&verification_id, Verdict::Inconclusive);
-        project_verdict(db, facts, Verdict::Inconclusive, Some(&detail));
-        return Some(Verdict::Inconclusive);
+    match exam_integrity(db, facts) {
+        ExamIntegrity::Intact | ExamIntegrity::PermittedAuthoredWork => {}
+        ExamIntegrity::ModifiedExam { paths } => {
+            let detail = format!(
+                "exam integrity: modified protected exam surface: {}",
+                paths.join(", ")
+            );
+            tracing::error!(
+                run_id = %facts.run_id,
+                step_id = %facts.step_id,
+                exam_paths = ?paths,
+                "declared verdict_class=strong and then edited the exam; inconclusive"
+            );
+            finish_inconclusive_without_grading(db, &verification_id, facts, &detail);
+            return Some(Verdict::Inconclusive);
+        }
+        ExamIntegrity::Unknown { reason } => {
+            let detail = format!("exam integrity unknown: {reason}");
+            tracing::error!(
+                run_id = %facts.run_id,
+                step_id = %facts.step_id,
+                reason = %reason,
+                "could not establish frozen exam integrity; grading refused"
+            );
+            finish_inconclusive_without_grading(db, &verification_id, facts, &detail);
+            return Some(Verdict::Inconclusive);
+        }
     }
 
     let checkout = match TreeCheckout::create(&facts.workspace_dir, &facts.head_commit) {
@@ -232,6 +245,17 @@ pub async fn verify_delivery<R: CheckRunner>(
     finish_and_bill(db, &verification_id, report.verdict, facts).await;
     project_verdict(db, facts, report.verdict, None);
     Some(report.verdict)
+}
+
+/// Seal an integrity refusal without reaching either the runner or billing.
+fn finish_inconclusive_without_grading(
+    db: &Database,
+    verification_id: &str,
+    facts: &DeliveryFacts,
+    detail: &str,
+) {
+    let _ = db.finish_verification(verification_id, Verdict::Inconclusive);
+    project_verdict(db, facts, Verdict::Inconclusive, Some(detail));
 }
 
 /// Move the step itself to the state the verdict implies.
@@ -405,35 +429,61 @@ async fn finish_and_bill(
     }
 }
 
-/// The exam paths a `strong` delivery touched, if it touched any.
-///
-/// `None` when the contract is unreachable, when it declared `authored`, or
-/// when the diff is clean of the exam surface. Unreachable is deliberately
-/// permissive: a contract we cannot read has not declared `strong`, and
-/// refusing to grade on that basis would take a customer's work and give them
-/// nothing back for a storage problem of ours.
-fn exam_contract_violation(db: &Database, facts: &DeliveryFacts) -> Option<Vec<String>> {
-    let contract = db.get_step_work_contract(&facts.step_id, facts.attempt)?;
+/// What is known about the frozen exam before any grading process starts.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum ExamIntegrity {
+    Intact,
+    PermittedAuthoredWork,
+    ModifiedExam { paths: Vec<String> },
+    Unknown { reason: String },
+}
+
+fn exam_integrity(db: &Database, facts: &DeliveryFacts) -> ExamIntegrity {
+    let contract = match db.read_step_work_contract(&facts.step_id, facts.attempt) {
+        Ok(Some(contract)) => contract,
+        Ok(None) => {
+            return ExamIntegrity::Unknown {
+                reason: "missing work contract".to_string(),
+            };
+        }
+        Err(err) => {
+            return ExamIntegrity::Unknown {
+                reason: format!("unreadable work contract: {err}"),
+            };
+        }
+    };
     if contract.verdict_class != VerdictClass::Strong {
-        return None;
+        return ExamIntegrity::PermittedAuthoredWork;
     }
 
-    let base = contract.expected_base_commit.as_deref()?;
-    let changed = changed_paths(&facts.workspace_dir, base, &facts.head_commit)?;
+    let Some(base) = contract.expected_base_commit.as_deref() else {
+        return ExamIntegrity::Unknown {
+            reason: "strong contract is missing its required base commit".to_string(),
+        };
+    };
+    let changed = match changed_paths(&facts.workspace_dir, base, &facts.head_commit) {
+        Ok(changed) => changed,
+        Err(err) => {
+            return ExamIntegrity::Unknown {
+                reason: format!("diff inspection failed: {err}"),
+            };
+        }
+    };
     let partition = diff_surface::partition(&changed, &ecosystem_facts_for(&facts.workspace_dir));
 
     match diff_surface::resolve_class(VerdictClass::Strong, &partition) {
-        ClassOutcome::StrongContractBroken { exam_paths } => Some(exam_paths),
-        ClassOutcome::Honoured(_) => None,
+        ClassOutcome::StrongContractBroken { exam_paths } => {
+            ExamIntegrity::ModifiedExam { paths: exam_paths }
+        }
+        ClassOutcome::Honoured(_) => ExamIntegrity::Intact,
     }
 }
 
 /// `git diff --name-only base..head`, against the workspace.
 ///
-/// `None` on any failure, which routes to "no violation found". A diff we could
-/// not compute is not evidence of tampering, and treating it as such would turn
-/// a git hiccup into an unpaid step.
-fn changed_paths(workspace_dir: &Path, base: &str, head: &str) -> Option<Vec<String>> {
+/// Failure is an explicit unknown-integrity result. It is neither evidence of
+/// tampering nor permission to grade.
+fn changed_paths(workspace_dir: &Path, base: &str, head: &str) -> Result<Vec<String>, String> {
     let out = std::process::Command::new("git")
         .arg("-C")
         .arg(workspace_dir)
@@ -441,17 +491,18 @@ fn changed_paths(workspace_dir: &Path, base: &str, head: &str) -> Option<Vec<Str
         .arg("--name-only")
         .arg(format!("{base}..{head}"))
         .output()
-        .ok()?;
+        .map_err(|err| format!("could not run git diff: {err}"))?;
     if !out.status.success() {
-        return None;
+        return Err(format!(
+            "git diff {base}..{head} failed: {}",
+            String::from_utf8_lossy(&out.stderr).trim()
+        ));
     }
-    Some(
-        String::from_utf8_lossy(&out.stdout)
-            .lines()
-            .map(|l| l.trim().to_string())
-            .filter(|l| !l.is_empty())
-            .collect(),
-    )
+    Ok(String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty())
+        .collect())
 }
 
 /// What ecosystems the workspace root declares, for path classification.
@@ -467,6 +518,7 @@ fn ecosystem_facts_for(workspace_dir: &Path) -> EcosystemFacts {
 mod tests {
     use super::*;
     use cortex_core::verification::{CheckSource, RunnerError};
+    use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Mutex;
 
     /// A runner we control, so the driver's sequencing can be tested without
@@ -474,6 +526,7 @@ mod tests {
     struct ScriptedRunner {
         /// Outcome per call, popped in order. `Err` simulates infra failure.
         script: Mutex<Vec<Result<CheckOutcome, RunnerError>>>,
+        calls: AtomicUsize,
         image: String,
     }
 
@@ -483,8 +536,13 @@ mod tests {
             reversed.reverse();
             Self {
                 script: Mutex::new(reversed),
+                calls: AtomicUsize::new(0),
                 image: "test/runner@sha256:0".to_string(),
             }
+        }
+
+        fn calls(&self) -> usize {
+            self.calls.load(Ordering::SeqCst)
         }
     }
 
@@ -494,6 +552,7 @@ mod tests {
             _tree: &TreeSnapshot,
             check: &CheckSpec,
         ) -> Result<CheckExecution, RunnerError> {
+            self.calls.fetch_add(1, Ordering::SeqCst);
             let next = self.script.lock().unwrap().pop();
             match next {
                 Some(Ok(outcome)) => Ok(CheckExecution {
@@ -646,14 +705,22 @@ mod tests {
     async fn passing_checks_produce_a_verified_receipt() {
         let db = test_db();
         let (dir, head) = repo_with_one_commit();
+        let run_id = seed_run_and_step(&db, "step-1");
+        assert!(db.record_step_work_contract(
+            "step-1",
+            &run_id,
+            1,
+            &contract_declaring(VerdictClass::Strong, &head),
+        ));
         let specs = vec![spec("c1"), spec("c2")];
-        db.save_check_specs("run-1", "step-1", &specs).unwrap();
+        db.save_check_specs(&run_id, "step-1", &specs).unwrap();
 
         let runner = ScriptedRunner::new(vec![Ok(CheckOutcome::Passed), Ok(CheckOutcome::Passed)]);
-        let verdict = verify_delivery(&db, &runner, &facts(&dir, &head)).await;
+        let verdict =
+            verify_delivery(&db, &runner, &facts_for(&dir, &head, &run_id, "step-1")).await;
         assert_eq!(verdict, Some(Verdict::Verified));
 
-        let receipt = db.get_receipt("run-1", "step-1").expect("receipt exists");
+        let receipt = db.get_receipt(&run_id, "step-1").expect("receipt exists");
         assert_eq!(
             receipt.tree_hash, head,
             "the receipt pins the graded commit"
@@ -667,14 +734,22 @@ mod tests {
     async fn one_failing_check_fails_the_verdict() {
         let db = test_db();
         let (dir, head) = repo_with_one_commit();
+        let run_id = seed_run_and_step(&db, "step-1");
+        assert!(db.record_step_work_contract(
+            "step-1",
+            &run_id,
+            1,
+            &contract_declaring(VerdictClass::Strong, &head),
+        ));
         let specs = vec![spec("c1"), spec("c2")];
-        db.save_check_specs("run-1", "step-1", &specs).unwrap();
+        db.save_check_specs(&run_id, "step-1", &specs).unwrap();
 
         let runner = ScriptedRunner::new(vec![Ok(CheckOutcome::Passed), Ok(CheckOutcome::Failed)]);
-        let verdict = verify_delivery(&db, &runner, &facts(&dir, &head)).await;
+        let verdict =
+            verify_delivery(&db, &runner, &facts_for(&dir, &head, &run_id, "step-1")).await;
         assert_eq!(verdict, Some(Verdict::Failed));
 
-        let receipt = db.get_receipt("run-1", "step-1").expect("receipt exists");
+        let receipt = db.get_receipt(&run_id, "step-1").expect("receipt exists");
         assert!(receipt.gate.failed.contains(&"c2".to_string()));
     }
 
@@ -682,7 +757,14 @@ mod tests {
     async fn a_runner_that_cannot_execute_is_inconclusive_and_never_bills() {
         let db = test_db();
         let (dir, head) = repo_with_one_commit();
-        db.save_check_specs("run-1", "step-1", &[spec("c1")])
+        let run_id = seed_run_and_step(&db, "step-1");
+        assert!(db.record_step_work_contract(
+            "step-1",
+            &run_id,
+            1,
+            &contract_declaring(VerdictClass::Strong, &head),
+        ));
+        db.save_check_specs(&run_id, "step-1", &[spec("c1")])
             .unwrap();
 
         // Every attempt fails as infrastructure, exhausting the retries.
@@ -691,7 +773,8 @@ mod tests {
             Err(RunnerError::ExecutionFailed("no docker".into())),
             Err(RunnerError::ExecutionFailed("no docker".into())),
         ]);
-        let verdict = verify_delivery(&db, &runner, &facts(&dir, &head)).await;
+        let verdict =
+            verify_delivery(&db, &runner, &facts_for(&dir, &head, &run_id, "step-1")).await;
 
         assert_eq!(
             verdict,
@@ -705,9 +788,16 @@ mod tests {
     async fn the_second_verifier_to_reach_an_attempt_does_nothing() {
         let db = test_db();
         let (dir, head) = repo_with_one_commit();
-        db.save_check_specs("run-1", "step-1", &[spec("c1")])
+        let run_id = seed_run_and_step(&db, "step-1");
+        assert!(db.record_step_work_contract(
+            "step-1",
+            &run_id,
+            1,
+            &contract_declaring(VerdictClass::Strong, &head),
+        ));
+        db.save_check_specs(&run_id, "step-1", &[spec("c1")])
             .unwrap();
-        let f = facts(&dir, &head);
+        let f = facts_for(&dir, &head, &run_id, "step-1");
 
         let first = verify_delivery(
             &db,
@@ -730,7 +820,7 @@ mod tests {
             "the second claim must not produce a verdict"
         );
 
-        let receipt = db.get_receipt("run-1", "step-1").expect("receipt");
+        let receipt = db.get_receipt(&run_id, "step-1").expect("receipt");
         assert_eq!(
             receipt.gate.verdict,
             Verdict::Verified,
@@ -833,6 +923,38 @@ mod tests {
         }
     }
 
+    fn seed_verifying_step(db: &Database, step_id: &str, head: &str) -> (String, i64) {
+        let run_id = seed_run_and_step(db, step_id);
+        db.update_run_status(&run_id, "running", None);
+        db.register_worker("worker-1", "user-1");
+        let lease_gen = db
+            .lease_step(step_id, "worker-1", i64::MAX)
+            .expect("step leases");
+        assert!(db.start_step(step_id, lease_gen));
+        assert!(db.deliver_step(
+            step_id,
+            "attempt-1",
+            lease_gen,
+            None,
+            None,
+            None,
+            Some(head),
+        ));
+        assert!(db.begin_verifying_step(step_id, "attempt-1", lease_gen, None));
+        (run_id, lease_gen)
+    }
+
+    fn verification_reason(db: &Database, step_id: &str, lease_gen: i64) -> String {
+        db.conn()
+            .query_row(
+                "SELECT terminal_reason FROM step_verification_state
+                 WHERE step_id = ?1 AND attempt_id = 'attempt-1' AND lease_gen = ?2",
+                rusqlite::params![step_id, lease_gen],
+                |row| row.get::<_, String>(0),
+            )
+            .expect("terminal diagnostic persisted")
+    }
+
     fn contract_declaring(class: VerdictClass, base: &str) -> cortex_core::task::TaskContract {
         let mut c = cortex_core::task::TaskContract::new(
             "do the thing".to_string(),
@@ -860,11 +982,11 @@ mod tests {
             &contract_declaring(VerdictClass::Strong, &base),
         ));
 
-        let violation = exam_contract_violation(&db, &facts_for(&dir, &head, &run_id, "step-1"))
-            .expect("the guard must fire");
         assert_eq!(
-            violation,
-            vec!["tests/e2e.rs".to_string()],
+            exam_integrity(&db, &facts_for(&dir, &head, &run_id, "step-1")),
+            ExamIntegrity::ModifiedExam {
+                paths: vec!["tests/e2e.rs".to_string()]
+            },
             "the exam path is named, and only the exam path"
         );
     }
@@ -881,8 +1003,9 @@ mod tests {
             &contract_declaring(VerdictClass::Strong, &base),
         ));
 
-        assert!(
-            exam_contract_violation(&db, &facts_for(&dir, &head, &run_id, "step-1")).is_none(),
+        assert_eq!(
+            exam_integrity(&db, &facts_for(&dir, &head, &run_id, "step-1")),
+            ExamIntegrity::Intact,
             "subject-only work under a strong declaration is what strong means"
         );
     }
@@ -901,19 +1024,159 @@ mod tests {
             &contract_declaring(VerdictClass::Authored, &base),
         ));
 
-        assert!(
-            exam_contract_violation(&db, &facts_for(&dir, &head, &run_id, "step-1")).is_none(),
+        assert_eq!(
+            exam_integrity(&db, &facts_for(&dir, &head, &run_id, "step-1")),
+            ExamIntegrity::PermittedAuthoredWork,
             "an authored verdict is allowed to have written the exam"
         );
     }
 
     #[test]
-    fn an_unreadable_contract_does_not_fail_the_step() {
-        // No contract stored. That is our storage problem, not evidence of
-        // tampering, and refusing to grade on it would take the customer's
-        // work and give them nothing.
+    fn a_missing_contract_is_explicitly_unknown() {
         let db = test_db();
         let (dir, _base, head) = repo_with_base_and_delivery(&["tests/e2e.rs"]);
-        assert!(exam_contract_violation(&db, &facts(&dir, &head)).is_none());
+        assert_eq!(
+            exam_integrity(&db, &facts(&dir, &head)),
+            ExamIntegrity::Unknown {
+                reason: "missing work contract".to_string()
+            }
+        );
+    }
+
+    #[tokio::test]
+    async fn a_modified_protected_exam_is_inconclusive_without_running_checks() {
+        let db = test_db();
+        let (dir, base, head) = repo_with_base_and_delivery(&["src/lib.rs", "tests/e2e.rs"]);
+        let (run_id, lease_gen) = seed_verifying_step(&db, "step-1", &head);
+        db.save_check_specs(&run_id, "step-1", &[spec("c1")])
+            .unwrap();
+        assert!(db.record_step_work_contract(
+            "step-1",
+            &run_id,
+            lease_gen,
+            &contract_declaring(VerdictClass::Strong, &base),
+        ));
+        let runner = ScriptedRunner::new(vec![Ok(CheckOutcome::Passed)]);
+
+        let verdict =
+            verify_delivery(&db, &runner, &facts_for(&dir, &head, &run_id, "step-1")).await;
+
+        assert_eq!(verdict, Some(Verdict::Inconclusive));
+        assert_eq!(runner.calls(), 0, "a modified exam must not be graded");
+        assert_eq!(
+            db.get_step_status("step-1").as_deref(),
+            Some("inconclusive")
+        );
+        assert!(verification_reason(&db, "step-1", lease_gen)
+            .contains("modified protected exam surface: tests/e2e.rs"));
+    }
+
+    #[tokio::test]
+    async fn a_missing_contract_is_inconclusive_unbilled_and_idempotent() {
+        let db = test_db();
+        let (dir, _base, head) = repo_with_base_and_delivery(&["src/lib.rs"]);
+        let (run_id, lease_gen) = seed_verifying_step(&db, "step-1", &head);
+        db.save_check_specs(&run_id, "step-1", &[spec("c1")])
+            .unwrap();
+        db.init_credit_balance("user-1", 50).expect("balance");
+        let mut f = facts_for(&dir, &head, &run_id, "step-1");
+        f.quoted_credits = Some(10);
+        let runner = ScriptedRunner::new(vec![Ok(CheckOutcome::Passed)]);
+
+        assert_eq!(
+            verify_delivery(&db, &runner, &f).await,
+            Some(Verdict::Inconclusive)
+        );
+        assert_eq!(runner.calls(), 0, "unknown integrity must run no checks");
+        assert_eq!(db.get_credit_balance("user-1").subscription_remaining, 50);
+        assert_eq!(db.credit_ledger_totals("user-1"), (0, 0));
+        assert_eq!(
+            db.get_step_status("step-1").as_deref(),
+            Some("inconclusive")
+        );
+        assert!(verification_reason(&db, "step-1", lease_gen)
+            .contains("exam integrity unknown: missing work contract"));
+
+        assert_eq!(
+            verify_delivery(&db, &runner, &f).await,
+            None,
+            "replay must lose the verification claim"
+        );
+        assert_eq!(runner.calls(), 0);
+        assert_eq!(db.credit_ledger_totals("user-1"), (0, 0));
+    }
+
+    #[tokio::test]
+    async fn an_unreadable_contract_is_inconclusive_with_its_own_diagnostic() {
+        let db = test_db();
+        let (dir, base, head) = repo_with_base_and_delivery(&["src/lib.rs"]);
+        let (run_id, lease_gen) = seed_verifying_step(&db, "step-1", &head);
+        db.save_check_specs(&run_id, "step-1", &[spec("c1")])
+            .unwrap();
+        assert!(db.record_step_work_contract(
+            "step-1",
+            &run_id,
+            lease_gen,
+            &contract_declaring(VerdictClass::Strong, &base),
+        ));
+        db.conn()
+            .execute(
+                "UPDATE step_work_contracts SET contract_json = '{' \
+                 WHERE step_id = 'step-1' AND lease_gen = ?1",
+                rusqlite::params![lease_gen],
+            )
+            .unwrap();
+        let runner = ScriptedRunner::new(vec![Ok(CheckOutcome::Passed)]);
+
+        assert_eq!(
+            verify_delivery(&db, &runner, &facts_for(&dir, &head, &run_id, "step-1"),).await,
+            Some(Verdict::Inconclusive)
+        );
+        assert_eq!(runner.calls(), 0);
+        assert!(verification_reason(&db, "step-1", lease_gen).contains("unreadable work contract"));
+    }
+
+    #[tokio::test]
+    async fn a_missing_required_base_is_inconclusive_with_its_own_diagnostic() {
+        let db = test_db();
+        let (dir, _base, head) = repo_with_base_and_delivery(&["src/lib.rs"]);
+        let (run_id, lease_gen) = seed_verifying_step(&db, "step-1", &head);
+        db.save_check_specs(&run_id, "step-1", &[spec("c1")])
+            .unwrap();
+        let mut contract = contract_declaring(VerdictClass::Strong, &head);
+        contract.expected_base_commit = None;
+        assert!(db.record_step_work_contract("step-1", &run_id, lease_gen, &contract,));
+        let runner = ScriptedRunner::new(vec![Ok(CheckOutcome::Passed)]);
+
+        assert_eq!(
+            verify_delivery(&db, &runner, &facts_for(&dir, &head, &run_id, "step-1"),).await,
+            Some(Verdict::Inconclusive)
+        );
+        assert_eq!(runner.calls(), 0);
+        assert!(verification_reason(&db, "step-1", lease_gen)
+            .contains("strong contract is missing its required base commit"));
+    }
+
+    #[tokio::test]
+    async fn a_failed_diff_inspection_is_inconclusive_with_its_own_diagnostic() {
+        let db = test_db();
+        let (dir, _base, head) = repo_with_base_and_delivery(&["src/lib.rs"]);
+        let (run_id, lease_gen) = seed_verifying_step(&db, "step-1", &head);
+        db.save_check_specs(&run_id, "step-1", &[spec("c1")])
+            .unwrap();
+        assert!(db.record_step_work_contract(
+            "step-1",
+            &run_id,
+            lease_gen,
+            &contract_declaring(VerdictClass::Strong, "not-a-commit"),
+        ));
+        let runner = ScriptedRunner::new(vec![Ok(CheckOutcome::Passed)]);
+
+        assert_eq!(
+            verify_delivery(&db, &runner, &facts_for(&dir, &head, &run_id, "step-1"),).await,
+            Some(Verdict::Inconclusive)
+        );
+        assert_eq!(runner.calls(), 0);
+        assert!(verification_reason(&db, "step-1", lease_gen).contains("diff inspection failed"));
     }
 }
