@@ -406,7 +406,7 @@ fn kind_from_str(raw: &str) -> SymbolKind {
 fn content_hash(source: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(source.as_bytes());
-    format!("{:x}", hasher.finalize())
+    hex::encode(hasher.finalize())
 }
 
 #[cfg(test)]

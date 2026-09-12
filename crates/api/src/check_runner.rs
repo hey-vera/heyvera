@@ -386,7 +386,7 @@ fn exit_code_from_wait_error(e: &bollard::errors::Error) -> Option<i64> {
 fn digest_of(output: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(output.as_bytes());
-    format!("sha256:{:x}", hasher.finalize())
+    format!("sha256:{}", hex::encode(hasher.finalize()))
 }
 
 /// Last `limit` bytes, cut at a character boundary and marked when truncated.
