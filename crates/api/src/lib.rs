@@ -58,6 +58,20 @@ mod soma_bridge;
 pub mod soma_fence;
 pub mod state;
 pub mod storage;
+
+/// Build the loopback-only gateway surface used by the no-network CLI proof.
+///
+/// This is deliberately absent from normal builds and contains only the
+/// production stub listener plus proof health/status endpoints.
+#[cfg(feature = "gateway-cli-proof")]
+#[doc(hidden)]
+pub fn build_gateway_cli_proof_router(
+    db: db::Database,
+    signing_key: Vec<u8>,
+    authorization_id: String,
+) -> Router {
+    provider_gateway_http::proof_router(db, signing_key, authorization_id)
+}
 pub mod stripe_client;
 pub mod token_refresh;
 mod usage_api;

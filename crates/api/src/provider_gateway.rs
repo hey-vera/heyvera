@@ -431,15 +431,7 @@ fn validate_bounded_form(request: &GatewayRequest) -> Result<(), GatewayError> {
             "body max_tokens must exactly match the reserved maximum".into(),
         ));
     }
-    if request
-        .body
-        .get("tools")
-        .is_some_and(|tools| tools.as_array().is_none_or(|tools| !tools.is_empty()))
-    {
-        return Err(GatewayError::UnboundedRequest(
-            "only the measured empty tools array is supported".into(),
-        ));
-    }
+    validate_tools(request.body.get("tools"))?;
     if request
         .body
         .get("stream")
@@ -448,6 +440,58 @@ fn validate_bounded_form(request: &GatewayRequest) -> Result<(), GatewayError> {
         return Err(GatewayError::UnboundedRequest(
             "stream must be a boolean".into(),
         ));
+    }
+    Ok(())
+}
+
+fn validate_tools(tools: Option<&Value>) -> Result<(), GatewayError> {
+    let Some(tools) = tools else {
+        return Ok(());
+    };
+    let Some(tools) = tools.as_array() else {
+        return Err(GatewayError::UnboundedRequest(
+            "tools must be an array".into(),
+        ));
+    };
+    if tools.len() > 64 {
+        return Err(GatewayError::UnboundedRequest(
+            "tools exceed the 64-definition bound".into(),
+        ));
+    }
+    let mut names = std::collections::HashSet::new();
+    for tool in tools {
+        let Some(tool) = tool.as_object() else {
+            return Err(GatewayError::UnboundedRequest(
+                "each tool definition must be an object".into(),
+            ));
+        };
+        let Some(name) = tool.get("name").and_then(Value::as_str) else {
+            return Err(GatewayError::UnboundedRequest(
+                "each tool definition requires a name".into(),
+            ));
+        };
+        if name.is_empty() || name.len() > 128 || !names.insert(name) {
+            return Err(GatewayError::UnboundedRequest(
+                "tool names must be unique and between 1 and 128 bytes".into(),
+            ));
+        }
+        if tool
+            .get("input_schema")
+            .and_then(Value::as_object)
+            .is_none()
+        {
+            return Err(GatewayError::UnboundedRequest(
+                "each tool definition requires an object input_schema".into(),
+            ));
+        }
+        if tool
+            .get("description")
+            .is_some_and(|description| !description.is_string())
+        {
+            return Err(GatewayError::UnboundedRequest(
+                "tool descriptions must be strings".into(),
+            ));
+        }
     }
     Ok(())
 }
@@ -771,6 +815,56 @@ mod tests {
             GatewayError::UnboundedRequest(_)
         ));
         assert_eq!(fixture.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn bounded_cli_tool_definitions_are_admitted() {
+        let fixture = Fixture::new(100_000, 100_000);
+        let gateway = fixture.gateway(success(Some(ObservedUsage {
+            input_tokens: 100,
+            cached_input_tokens: 0,
+            output_tokens: 10,
+        })));
+        let mut request = fixture.request(&gateway, "bounded-tools");
+        request.body["tools"] = serde_json::json!([
+            {
+                "name": "Read",
+                "description": "Read a file inside the sandbox",
+                "input_schema": {"type": "object", "properties": {}}
+            },
+            {
+                "name": "Bash",
+                "input_schema": {"type": "object", "properties": {}}
+            }
+        ]);
+
+        let outcome = gateway.forward(request, NOW).await.unwrap();
+        assert_eq!(outcome.reservation.status, "settled");
+        assert_eq!(fixture.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn tool_definition_bounds_reject_ambiguous_and_excessive_forms() {
+        let non_array = serde_json::json!({"name": "Read"});
+        assert!(validate_tools(Some(&non_array)).is_err());
+
+        let duplicate_names = serde_json::json!([
+            {"name": "Read", "input_schema": {}},
+            {"name": "Read", "input_schema": {}}
+        ]);
+        assert!(validate_tools(Some(&duplicate_names)).is_err());
+
+        let excessive = Value::Array(
+            (0..65)
+                .map(|index| {
+                    serde_json::json!({
+                        "name": format!("Tool{index}"),
+                        "input_schema": {}
+                    })
+                })
+                .collect(),
+        );
+        assert!(validate_tools(Some(&excessive)).is_err());
     }
 
     #[tokio::test]

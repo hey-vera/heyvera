@@ -219,9 +219,10 @@ jobs:
           fi
 
   # The actual provider CLI contract, proven without an external network. The
-  # loopback capture server returns a synthetic Anthropic stream and records
-  # the request shape that the private gateway must support. `--network none`
-  # is load-bearing: this job cannot contact Anthropic or spend provider money.
+  # first loopback server records the request shape; the second is the real
+  # Rust stub listener and proves the CLI can consume its settled response.
+  # `--network none` is load-bearing: neither proof can contact Anthropic or
+  # spend provider money.
   gateway-cli-shape:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -230,6 +231,13 @@ jobs:
       SANDBOX_IMAGE: cortex/sandbox:gateway-shape
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v5
+
+      - name: Install Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal
+          rustup default 1.97.1
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Build the sandbox base image
         run: docker build -f Dockerfile.sandbox -t "$SANDBOX_BASE" .
@@ -276,6 +284,32 @@ jobs:
                 "Reply with exactly: cortex gateway shape stub"
               node /fixture/assert-capture.mjs
             '
+
+      - name: Build the feature-gated Rust stub proof listener
+        run: cargo build -p cortex-api --bin gateway-stub-proof --features gateway-cli-proof --locked
+
+      - name: Prove the real CLI consumes the Rust listener
+        run: |
+          docker run --rm \
+            --network none \
+            --read-only \
+            --cap-drop ALL \
+            --security-opt no-new-privileges:true \
+            --user 2000:2000 \
+            --tmpfs /scratch:rw,exec,nosuid,nodev,size=268435456,mode=1777 \
+            --mount "type=bind,src=$PWD/target/debug/gateway-stub-proof,dst=/usr/local/bin/gateway-stub-proof,readonly" \
+            --mount "type=bind,src=$PWD/testing/gateway-shape,dst=/fixture,readonly" \
+            -e HOME=/scratch \
+            -e TMPDIR=/scratch \
+            -e XDG_CACHE_HOME=/scratch \
+            -e XDG_CONFIG_HOME=/scratch \
+            -e npm_config_cache=/scratch/npm \
+            -e CORTEX_GATEWAY_CLI_PROOF=1 \
+            -e CORTEX_GATEWAY_PROOF_TOKEN_PATH=/scratch/gateway-token \
+            -e CORTEX_GATEWAY_PROOF_DB_PATH=/scratch/gateway.sqlite \
+            -e ANTHROPIC_BASE_URL=http://127.0.0.1:18080/internal/provider \
+            -e 'ANTHROPIC_CUSTOM_HEADERS=X-Cortex-Attempt: attempt-rust-listener-proof' \
+            "$SANDBOX_IMAGE" sh /fixture/prove-rust-listener.sh
 
   # Formatting is a separate job from `rust` on purpose: it is seconds long and
   # needs no dependency graph, so it must not queue behind a four-minute

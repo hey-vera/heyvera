@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-09-11 (stub gateway streaming compatibility delivered)
+**Last updated:** 2026-09-12 (CLI-through-Rust-listener proof delivered)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -56,6 +56,7 @@ re-deriving anything.
 | 31 | Deliver a scoped gateway capability and expose a stub-only Messages listener | **done** — PR [#643](https://github.com/1xmint/heyvera/pull/643) squash-merged at `61a87ecd`; `$0` provider spend. |
 | 32 | Prove the real Claude CLI gateway request shape with no network | **done** — PR [#644](https://github.com/1xmint/heyvera/pull/644) squash-merged at `e01e32b0`; `$0` provider spend. |
 | 33 | Make the stub listener compatible with the measured streaming shape | **done** — PR [#645](https://github.com/1xmint/heyvera/pull/645); `$0` provider spend. |
+| 34 | Prove the pinned CLI consumes the real Rust stub listener | **done** — PR [#646](https://github.com/1xmint/heyvera/pull/646); `$0` provider spend. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -2993,3 +2994,29 @@ Delivered in PR #645 from `feat/cortex-stub-streaming`:
 
 There is still no supplier transport, live provider key, live request,
 purchase, or deployment. The streamed body is synthetic and `$0`.
+
+This boundary was squash-merged in PR #645 at `54ff6e10` after every required
+check passed.
+
+## 2026-09-11 CLI through the Rust stub listener
+
+Brief: `cortex/plan/briefs/PR-cli-rust-listener-proof.md`.
+
+Delivered in PR #646 from `feat/cortex-cli-rust-listener`:
+
+- A feature-gated proof binary wraps the production stub handler, binds only
+  loopback, and refuses to start without an explicit proof-mode guard.
+- The pinned Claude CLI runs against the real Rust Messages route in a
+  `--network none`, read-only, capability-dropped container.
+- The proof requires a successful CLI exit and reads the same SQLite database
+  to require one to four reservations with every row settled.
+- The proof exposed an omitted contract: after its initial empty-tools calls,
+  the pinned CLI sends its built-in tool definitions. The gateway now admits
+  only arrays of at most 64 uniquely named, structurally valid definitions;
+  malformed forms fail before reservation. This does not grant tool execution,
+  which remains confined to the sandbox.
+- The original capture stage remains in place, so the exact request-shape
+  assertions are still independently enforced.
+
+No supplier transport or credential exists in this path. The container cannot
+reach an external provider and spend remains `$0`.

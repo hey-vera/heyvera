@@ -327,6 +327,69 @@ fn stub_stream_response(message: &Value) -> Response {
         .into_response()
 }
 
+#[cfg(feature = "gateway-cli-proof")]
+#[derive(Clone)]
+struct ProofState {
+    db: std::sync::Arc<crate::db::Database>,
+    signing_key: std::sync::Arc<Vec<u8>>,
+    authorization_id: std::sync::Arc<String>,
+}
+
+#[cfg(feature = "gateway-cli-proof")]
+pub(crate) fn proof_router(
+    db: crate::db::Database,
+    signing_key: Vec<u8>,
+    authorization_id: String,
+) -> axum::Router {
+    use axum::routing::{get, post};
+
+    let state = ProofState {
+        db: std::sync::Arc::new(db),
+        signing_key: std::sync::Arc::new(signing_key),
+        authorization_id: std::sync::Arc::new(authorization_id),
+    };
+    axum::Router::new()
+        .route("/internal/provider/v1/messages", post(proof_messages))
+        .route("/health", get(|| async { StatusCode::NO_CONTENT }))
+        .route("/proof/status", get(proof_status))
+        .with_state(state)
+}
+
+#[cfg(feature = "gateway-cli-proof")]
+async fn proof_messages(
+    State(state): State<ProofState>,
+    headers: HeaderMap,
+    Json(body): Json<Value>,
+) -> Response {
+    let tool_names = body
+        .get("tools")
+        .and_then(Value::as_array)
+        .map(|tools| {
+            tools
+                .iter()
+                .filter_map(|tool| tool.get("name").and_then(Value::as_str))
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    eprintln!("gateway proof request tools: {tool_names:?}");
+    handle_stub_message(
+        &state.db,
+        state.signing_key.as_slice(),
+        &headers,
+        body,
+        chrono::Utc::now().timestamp_millis(),
+    )
+    .await
+}
+
+#[cfg(feature = "gateway-cli-proof")]
+async fn proof_status(State(state): State<ProofState>) -> Json<Value> {
+    let (rows, settled) = state
+        .db
+        .provider_authorization_spend_summary(&state.authorization_id);
+    Json(serde_json::json!({"rows": rows, "settled": settled}))
+}
+
 fn gateway_error_response(error: GatewayError) -> Response {
     let status = match error {
         GatewayError::InvalidCapability | GatewayError::ExpiredCapability => {
@@ -498,7 +561,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn nonempty_tools_remain_fail_closed_before_reserving() {
+    async fn malformed_tools_remain_fail_closed_before_reserving() {
         let fixture = Fixture::new();
         let response = handle_stub_message(
             &fixture.db,

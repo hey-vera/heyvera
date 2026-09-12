@@ -439,4 +439,16 @@ impl Database {
         )
         .unwrap_or(0)
     }
+
+    #[cfg(feature = "gateway-cli-proof")]
+    pub fn provider_authorization_spend_summary(&self, authorization_id: &str) -> (i64, i64) {
+        let conn = self.conn();
+        conn.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(CASE WHEN status = 'settled' THEN 1 ELSE 0 END), 0)
+             FROM provider_request_reservations WHERE authorization_id = ?1",
+            params![authorization_id],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap_or((0, 0))
+    }
 }
