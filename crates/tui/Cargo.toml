@@ -18,7 +18,7 @@ tokio = { workspace = true }
 reqwest.workspace = true
 futures-util.workspace = true
 dirs-next = "2"
-ratatui = "0.29"
+ratatui = "0.30"
 crossterm = { version = "0.28", features = ["event-stream"] }
 
 [lints]
