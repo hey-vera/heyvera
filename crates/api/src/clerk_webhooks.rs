@@ -247,7 +247,7 @@ fn verify_svix_signature(
     body: &[u8],
     signature_header: &str,
 ) -> Result<(), String> {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
 
     // Clerk webhook secrets are prefixed with "whsec_" and base64-encoded

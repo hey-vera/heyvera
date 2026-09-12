@@ -86,7 +86,7 @@ fn sign_media_delivery(
     viewer_profile_id: Option<&str>,
     expires_at: i64,
 ) -> Vec<u8> {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
 
     let mut mac = Hmac::<Sha256>::new_from_slice(secret).expect("HMAC accepts media signing keys");
@@ -103,7 +103,7 @@ fn verify_media_delivery(
     signature_hex: &str,
     now: i64,
 ) -> bool {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
 
     if expires_at < now || expires_at > now + MEDIA_DELIVERY_TTL_SECONDS + 30 {
@@ -892,7 +892,7 @@ fn generate_s3_presigned_put(
 }
 
 fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
-    use hmac::{Hmac, Mac};
+    use hmac::{Hmac, KeyInit, Mac};
     use sha2::Sha256;
     type HmacSha256 = Hmac<Sha256>;
     let mut mac = HmacSha256::new_from_slice(key).expect("HMAC key");
