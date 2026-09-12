@@ -5,7 +5,7 @@ Running checkpoint for the actualization of
 lands; an interrupted session should be able to resume from it without
 re-deriving anything.
 
-**Last updated:** 2026-09-12 (CLI-through-Rust-listener proof delivered)
+**Last updated:** 2026-09-12 (autonomous completion boundary reconciled)
 **Base commit at start:** `c8ca2941` (main — "clear all seven open dependency advisories (#498)")
 **Wave 2 base:** `3db58b13` (main — "make the sandbox check able to block a merge (#504)")
 
@@ -40,7 +40,7 @@ re-deriving anything.
 | 19 | Task 2 — provider egress from the routing decision | **done** — PR [#527](https://github.com/hey-vera/heyvera/pull/527) merged. G3 + ADR-0004. |
 | 20 | Task 3 — wire the context through (F8), close PR U deliverable 7 | **done** — see "Wave 4 / Task 3" below. |
 | 20a | Task 4 — one step dispatched end to end, and **F0** found | **done** — see "Wave 4 / Task 4" below. **The scheduler could never lease a step.** |
-| 21 | Decision 3 — production environment reviewer | **blocked on the billing plan** — see "Wave 4 / governance" below. **Needs Josh.** |
+| 21 | Decision 3 — production environment reviewer | **awaiting governance decision** — the original billing failure occurred while the repository was private; it is now public, but `production` still has no required reviewer. **Needs Josh to choose/authorize the reviewer.** |
 | 22 | Decision 4 — close #105, write longform by handle | #105 **closed**; the route is its own PR. |
 | **Wave 5** | | |
 | 23 | Task 1 - one real model invocation, end to end | **built, not run** - PRs [#530](https://github.com/hey-vera/heyvera/pull/530), [#531](https://github.com/hey-vera/heyvera/pull/531) merged. **Needs the provider key.** F9 + F10 found. |
@@ -55,8 +55,8 @@ re-deriving anything.
 | 30 | Private single-provider spend gateway and stubbed reservation/reconciliation | **done** — PR [#642](https://github.com/1xmint/heyvera/pull/642) squash-merged at `6bea4888`; migration v68; `$0` provider spend. |
 | 31 | Deliver a scoped gateway capability and expose a stub-only Messages listener | **done** — PR [#643](https://github.com/1xmint/heyvera/pull/643) squash-merged at `61a87ecd`; `$0` provider spend. |
 | 32 | Prove the real Claude CLI gateway request shape with no network | **done** — PR [#644](https://github.com/1xmint/heyvera/pull/644) squash-merged at `e01e32b0`; `$0` provider spend. |
-| 33 | Make the stub listener compatible with the measured streaming shape | **done** — PR [#645](https://github.com/1xmint/heyvera/pull/645); `$0` provider spend. |
-| 34 | Prove the pinned CLI consumes the real Rust stub listener | **done** — PR [#646](https://github.com/1xmint/heyvera/pull/646); `$0` provider spend. |
+| 33 | Make the stub listener compatible with the measured streaming shape | **done** — PR [#645](https://github.com/1xmint/heyvera/pull/645) squash-merged at `54ff6e10`; `$0` provider spend. |
+| 34 | Prove the pinned CLI consumes the real Rust stub listener | **done** — PR [#646](https://github.com/1xmint/heyvera/pull/646) squash-merged at `1193c981`; `$0` provider spend. |
 
 ## PR C — what landed, and what it deliberately did not
 
@@ -3020,3 +3020,29 @@ Delivered in PR #646 from `feat/cortex-cli-rust-listener`:
 
 No supplier transport or credential exists in this path. The container cannot
 reach an external provider and spend remains `$0`.
+
+## 2026-09-12 autonomous completion boundary
+
+The repository is at the limit of what can be completed autonomously without
+changing product policy, spending money, deploying production, or substituting
+synthetic evidence for the measurements the plan requires. There is no further
+code-only task queued by this plan.
+
+| Open outcome | Why it remains open | Authority or evidence required |
+|---|---|---|
+| Production environment reviewer | GitHub rejected the protection rule while the repository was private. The repository is now public, but `production` still has no required reviewer; the old billing diagnosis has not been retried. | Josh chooses/authorizes the reviewer before this deployment-affecting rule is changed. |
+| One real model invocation, end to end | The path is built, but there is no provider credential or approved supplier budget. | Josh supplies a narrow, short-lived key and explicitly authorizes the bounded spend. |
+| Production execution | Historical deployment evidence found an unauthenticated worker, no host sandbox image, and no provider key. | Josh explicitly authorizes a current production deployment and the required secret/configuration changes. |
+| `p_fa`, decomposition crossover, and solo-builder evidence | These are measurements, not missing implementations. | Real API credits, calibrated per-leaf priors, and an observed independent user. |
+| Socials/Cortex extraction | `pulse.rs` still charges Cortex credits for Socials work. Moving the database boundary before deciding ownership would encode the product decision accidentally. | Josh decides whether Socials retains the Cortex ledger; the mechanical crate/repository extraction can follow. |
+
+Therefore **the implementation plan is autonomously complete, but the product
+validation plan is not complete**. A separate Cortex repository is premature
+until the ledger-ownership decision is made and the runtime/database/billing
+boundary has been extracted and proven in this repository first.
+
+Read-only GitHub reconciliation on 2026-09-12 found the repository public, the
+latest recorded `production` deployment at `7a44a890`, no repository-level
+Actions secrets, and only the two Tailscale connection secrets in the
+`production` environment. In particular, there is still no recorded provider
+credential to make the live-model checkpoint runnable.
